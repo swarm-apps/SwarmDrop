@@ -123,6 +123,12 @@ sha2 = "0.11"
 async-trait = "0.1.89"
 dashmap = "6.1.0"
 tracing = "0.1.44"
+# 日志订阅端。放 workspace 是因为桌面壳也要用同一套（src-tauri 目前自带版本号，
+# 后续做桌面日志落盘时一并收敛过来）。
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+# 文件层：按天轮转 + 保留数上限。**注意 `non_blocking()` 返回的 guard 一旦 drop，
+# 后台写线程就停、日志静默消失且不报错** —— 它必须与应用同生命周期。
+tracing-appender = "0.2.5"
 
 [profile.dev.package."*"]
 opt-level = 3

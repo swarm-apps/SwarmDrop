@@ -42,7 +42,12 @@ pub(crate) fn install() {
 
             let formatted = format!("panic at {location}: {payload}{bt_text}");
 
-            // 写日志(Android logcat / iOS oslog 都会捕获 stderr)
+            // ⚠️ 这行在 **Android 上不产生任何输出**：Android 把进程的 stdout/stderr
+            // 重定向到 /dev/null，`log.redirect-stdio` 只在 Dalvik（4.4 及更早）有效，
+            // ART（5.0+）不支持。iOS 上则可经 Xcode 控制台看到。
+            //
+            // panic 信息本身不依赖这行——下面存进 `store()`，由 `take_last()` 交给上层，
+            // 这才是它真正的送达路径。保留 eprintln 只为 iOS 调试期方便。
             eprintln!("[mobile-core panic] {formatted}");
 
             if let Ok(mut guard) = store().lock() {
