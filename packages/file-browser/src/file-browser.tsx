@@ -19,6 +19,14 @@ interface FileBrowserProps {
   onViewChange?: (view: FileBrowserView) => void;
   actions?: FileBrowserActions;
   /**
+   * 作用于**整个集合**的动作（如「全部下载」），渲染在表头、视图切换按钮左边。
+   *
+   * `FileBrowserActions` 里的每一项都绑定在单个条目上，集合级动作在那套模型里没有位置；
+   * 而它天然属于表头——「6 项 · 3.9 MB」这行说的正是这个集合。放页脚则要先滚过整份清单
+   * 才看得见，多文件条目上尤其别扭（那恰恰是最需要它的场合）。
+   */
+  headerActions?: React.ReactNode;
+  /**
    * 网格缩略图的取图源。**不传即不生成缩略图**，卡片画类型图标。
    * 桌面不传（它的 `previewSource` 已经是可直接渲染的 asset URL），Web 传 OPFS 取图。
    */
@@ -34,6 +42,7 @@ export function FileBrowser({
   view,
   onViewChange,
   actions,
+  headerActions,
   thumbnailSource,
   emptyState,
   className,
@@ -62,38 +71,44 @@ export function FileBrowser({
             </p>
           )}
         </div>
-        {showToggle && (
-          <div
-            role="group"
-            aria-label={t`文件视图`}
-            className="flex shrink-0 items-center rounded-lg bg-foreground/[0.045] p-0.5"
-          >
-            <button
-              type="button"
-              data-testid="file-browser-tree-toggle"
-              aria-label={t`树形视图`}
-              aria-pressed={view === "tree"}
-              onClick={() => onViewChange?.("tree")}
-              className={cn(
-                "inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
-                view === "tree" && "bg-background text-foreground shadow-sm",
-              )}
-            >
-              <ListTree className="size-3.5" />
-            </button>
-            <button
-              type="button"
-              data-testid="file-browser-grid-toggle"
-              aria-label={t`网格视图`}
-              aria-pressed={view === "grid"}
-              onClick={() => onViewChange?.("grid")}
-              className={cn(
-                "inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
-                view === "grid" && "bg-background text-foreground shadow-sm",
-              )}
-            >
-              <LayoutGrid className="size-3.5" />
-            </button>
+        {/* 空态下两者都不在，整块不渲染——留一个空 div 会白占 header 的 `gap-3`。 */}
+        {(headerActions || showToggle) && (
+          <div className="flex shrink-0 items-center gap-2">
+            {headerActions}
+            {showToggle && (
+              <div
+                role="group"
+                aria-label={t`文件视图`}
+                className="flex shrink-0 items-center rounded-lg bg-foreground/[0.045] p-0.5"
+              >
+                <button
+                  type="button"
+                  data-testid="file-browser-tree-toggle"
+                  aria-label={t`树形视图`}
+                  aria-pressed={view === "tree"}
+                  onClick={() => onViewChange?.("tree")}
+                  className={cn(
+                    "inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+                    view === "tree" && "bg-background text-foreground shadow-sm",
+                  )}
+                >
+                  <ListTree className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  data-testid="file-browser-grid-toggle"
+                  aria-label={t`网格视图`}
+                  aria-pressed={view === "grid"}
+                  onClick={() => onViewChange?.("grid")}
+                  className={cn(
+                    "inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+                    view === "grid" && "bg-background text-foreground shadow-sm",
+                  )}
+                >
+                  <LayoutGrid className="size-3.5" />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </header>

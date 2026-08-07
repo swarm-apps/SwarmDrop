@@ -533,7 +533,7 @@ collapses to a single header row. **The CSS `xl:` grid and the JS `DEVICES_SPLIT
 number and must flip together** — pairing's default-open state is tied to the layout, so a mismatch
 of one tier produces a 360px column containing nothing but a collapsed title.
 
-Pairing stays *in the page* in both tiers — not a dialog, not a drawer, not a sub-route. During
+Pairing stays *in the page* in both tiers — not a drawer, not a sub-route. During
 pairing the user moves between two surfaces (send my invite out, paste theirs back in), and an
 overlay repeatedly covers the paired-device list, which is exactly where they are watching for the
 result. A sub-route is the same problem taken further: the whole list is gone. Splitting improves on
@@ -541,6 +541,18 @@ the older in-place disclosure — both blocks are visible *at once*, so a newly 
 in the next column without collapsing anything first. Desktop diverges here (its pairing lives at
 `/pairing/generate` and `/pairing/input`) because its right column carries nearby-device discovery
 as well, and the browser has no mDNS to put there.
+
+**The one exception is the identity confirmation, which *is* a dialog** (`PairingConfirmDialog`).
+The paragraph above is about the pairing *panel* — the surface the user moves around in. Confirming
+"this invite decodes to device X, do I trust it" is not a surface, it is a single decision taken
+once, and the reason against overlays does not hold for it: what the user needs to read at that
+instant is the peer's identity, not the device list behind it, and the dialog closes the moment they
+answer — the newly paired device is then already in the list underneath. Web has the same decision in
+both directions (`PairingRequestHost` for inbound requests, this for outbound), and they must look
+alike; keeping the outbound half inline made it a 360px card with a truncated NodeId while the
+inbound half got a full dialog. **A 360px column cannot hold the information density an identity
+check needs** — the full 52-character NodeId alone does not fit. Everything else about pairing —
+invite generation, the QR, the outstanding-invite list — stays in the column.
 
 **Section names are cross-platform.** The same concept gets the same title and icon in every build:
 web's settings say 设备信息 / 引导节点 with `MonitorSmartphone` / `RadioTower` because desktop does.

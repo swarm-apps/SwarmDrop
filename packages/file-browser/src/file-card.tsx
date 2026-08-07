@@ -5,7 +5,7 @@ import { Progress } from "./progress";
 import { cn } from "./cn";
 import { formatFileSize } from "@swarmdrop/shared-view";
 import { getFileIconStyle } from "./file-icon";
-import { FileItemActions } from "./item-actions";
+import { FileItemActions, hasPrimaryAction } from "./item-actions";
 import { useThumbnail } from "./use-thumbnail";
 import { getParentPath } from "@swarmdrop/shared-view";
 import type { FileBrowserItem } from "@swarmdrop/shared-view";
@@ -70,9 +70,17 @@ function FileCardComponent({
           onClick={() => actions?.onOpen?.(item)}
         />
       )}
-      {/* 悬停才露出的动作条。`pointer-coarse:opacity-100`：触摸屏上没有 hover，第一次点
-          只是把按钮显出来、第二次才真的触发——而 Web 端是移动优先的，那等于把动作藏起来。 */}
-      <div className="absolute right-2 top-2 z-20 rounded-lg border border-white/40 bg-background/75 p-0.5 opacity-0 shadow-sm backdrop-blur-md transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100 dark:border-white/10">
+      {/* 动作条。主动作（下载）在场时常驻——见 `hasPrimaryAction`：那是浏览器端取回文件的
+          唯一入口，压在 hover 后面等于不存在。其余动作是便利项，悬停才露出；
+          `pointer-coarse:opacity-100` 兜住触摸屏——那里没有 hover，第一次点只是把按钮显出来、
+          第二次才真的触发，而 Web 端是移动优先的。 */}
+      <div
+        className={cn(
+          "absolute right-2 top-2 z-20 rounded-lg border border-white/40 bg-background/75 p-0.5 shadow-sm backdrop-blur-md dark:border-white/10",
+          !hasPrimaryAction(actions) &&
+            "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100",
+        )}
+      >
         <FileItemActions item={item} actions={actions} />
       </div>
       {item.status === "transferring" && (

@@ -12,20 +12,13 @@
 
 import { Trans, useLingui } from "@lingui/react/macro";
 import { ShieldCheck } from "lucide-react";
+import { useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { getNode, refreshPairedDevices } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import { useAsyncAction } from "../_lib/use-async-action";
-import { WebErrorCard } from "./web-error-view";
+import { PairingIdentityDialog } from "./pairing-identity-dialog";
 
 export function PairingRequestHost() {
   const { t } = useLingui();
@@ -58,44 +51,37 @@ export function PairingRequestHost() {
     );
   };
 
+  /**
+   * 退场动画期间内容不能塌——同 `PairingConfirmDialog` 的 latch。此前这里读的是
+   * `current?.deviceName`，队首被消费后 `current` 立刻变 null，而对话框还要淡出 ~150ms：
+   * 那段时间里标题还在、设备名和 NodeId 已经空了。
+   */
+  const lastRef = useRef<typeof current>(null);
+  if (current !== null) lastRef.current = current;
+  const shown = current ?? lastRef.current;
+
   return (
-    <Dialog
+    <PairingIdentityDialog
       open={current !== null}
+      // 点遮罩 / Esc = 拒绝，与桌面端 ConnectionRequestDialog 同语义。**这里与出站那半刻意
+      // 不同**：入站的对方正卡在等待里，不答复就是让他一直转圈，所以关闭必须是一个答复；
+      // 出站关闭只是收起（那边关掉不会有人在等，但会毁掉邀请串的唯一副本）。
+      // 在途请求不打断——否则一次误触会让「已发出的接受」和「随后的拒绝」抢跑。
       onOpenChange={(open) => {
-        // 点遮罩 / Esc = 拒绝，与桌面端 ConnectionRequestDialog 同语义。
-        // 在途请求不打断——否则一次误触会让「已发出的接受」和「随后的拒绝」抢跑。
         if (!open && !respond.pending) decide(false);
       }}
-    >
-      <DialogContent className="sm:max-w-md" showCloseButton={false}>
-        <DialogHeader className="items-center gap-2 text-center sm:text-center">
-          <div className="flex size-12 items-center justify-center rounded-full bg-[var(--brand-solid)]/12">
-            <ShieldCheck className="size-6 text-brand" aria-hidden />
-          </div>
-          <DialogTitle>
-            <Trans>配对请求</Trans>
-          </DialogTitle>
-          <DialogDescription>
-            <Trans>
-              <span className="font-medium text-foreground">{current?.deviceName}</span> 想与这台设备配对
-            </Trans>
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="rounded-lg bg-muted px-3 py-2.5">
-          <p className="text-xs text-muted-foreground">
-            <Trans>对方节点 ID</Trans>
-          </p>
-          <p className="mt-0.5 font-mono text-xs break-all text-foreground">{current?.peerId}</p>
-        </div>
-
-        <p className="text-xs text-muted-foreground">
-          <Trans>配对之后双方都能互发文件。确认这是你认识的设备再接受。</Trans>
-        </p>
-
-        {respond.error && <WebErrorCard error={respond.error} className="text-xs" />}
-
-        <DialogFooter className="gap-2 sm:gap-2">
+      icon={ShieldCheck}
+      title={<Trans>配对请求</Trans>}
+      description={
+        <Trans>
+          <span className="font-medium text-foreground">{shown?.deviceName}</span> 想与这台设备配对
+        </Trans>
+      }
+      peerId={shown?.peerId}
+      hint={<Trans>配对之后双方都能互发文件。确认这是你认识的设备再接受。</Trans>}
+      error={respond.error}
+      footer={
+        <>
           <Button
             variant="outline"
             onClick={() => decide(false)}
@@ -112,14 +98,15 @@ export function PairingRequestHost() {
           >
             {respond.pending ? t`处理中…` : t`接受`}
           </Button>
-        </DialogFooter>
-
-        {pendingPairings.length > 1 && (
+        </>
+      }
+      trailing={
+        pendingPairings.length > 1 && (
           <p className="text-center text-xs text-muted-foreground">
             <Trans>还有 {pendingPairings.length - 1} 个请求等待处理</Trans>
           </p>
-        )}
-      </DialogContent>
-    </Dialog>
+        )
+      }
+    />
   );
 }

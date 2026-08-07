@@ -149,6 +149,18 @@ export const OFFER_REJECT_REASON_LABEL: Record<OfferRejectReason["type"], Messag
 };
 
 /**
+ * 「全部下载」这个批量动作自己的 keyed-action 键后缀（完整键是 `${itemId}:all`）。
+ *
+ * 它与逐文件的键（`${itemId}:${fileId}`）共用同一个 `useKeyedAsyncAction`，靠这个后缀区分，
+ * 于是「批量在不在跑」与「某一行在不在跑」是两个独立可查的事实。
+ * **不会与任何文件键相撞**：`fileId` 是自增主键，`toString()` 后恒为数字串。
+ *
+ * 住在 `_lib/` 而不是任一组件里：写它的是 `receive-panel`（编排），读它的是 `inbox-views`
+ * （呈现），而前者已经 import 后者——常量放在任一端都会成环。
+ */
+export const DOWNLOAD_ALL_KEY = "all";
+
+/**
  * 收件箱条目的**来源身份**与**内容类型**。两者都是 DTO 里一直有、Web 端此前从没读过的字段。
  *
  * 存描述符不存字符串：本模块是 `_lib/` 下的纯数据，翻译宏在这里只能定义、不能展开

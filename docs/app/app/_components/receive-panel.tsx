@@ -19,7 +19,7 @@
 // #108 收件箱从「只能滚的列表」补成可用：检索 / 已读 / 归档 / 删除四件事各自接上内核既有的
 // 导出。此前那五个方法是完整实现却零调用方——能力在内核里，UI 上不存在。
 
-import { Trans, useLingui } from "@lingui/react/macro";
+import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { groupByTimeBucket } from "@swarmdrop/shared-view";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -40,6 +40,7 @@ import { useWebNode, webNodeActions } from "../_lib/store";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
 import {
+  DOWNLOAD_ALL_KEY,
   TIME_BUCKET_LABEL,
   toWebError,
   type InboxItemDetail,
@@ -58,6 +59,28 @@ import {
  * 会让大文件下载中途失败。
  */
 const BLOB_URL_TTL_MS = 30_000;
+
+/**
+ * 取回一个文件：读 OPFS 建 blob URL → 触发浏览器下载 → 延迟撤销。
+ *
+ * 单文件与「全部下载」共用这一份——两者的差别只在**报什么**（一句 vs 一句合并），
+ * 取字节这一段没有任何理由存两份。抛出的错误交给调用方的 keyed action 落到对应那一行。
+ */
+async function triggerDownload(
+  node: NonNullable<ReturnType<typeof getNode>>,
+  file: InboxItemFileEntry,
+) {
+  const url = await node.download_url(file.relativePath).catch((e: unknown) => {
+    // 控制台留一条带 relativePath 的诊断：错误卡片上只有一句话，定位不到是哪份 OPFS 路径。
+    console.error(`[web] download_url(${file.relativePath}) 失败`, e);
+    throw e;
+  });
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = file.name;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), BLOB_URL_TTL_MS);
+}
 
 /** 一行收件箱：完整条目 + 检索态下 Rust 侧切出的命中片段。 */
 type InboxRow = {
@@ -266,49 +289,103 @@ function InboxPanelInner() {
     [itemAction.run],
   );
 
+  /**
+   * 「打开过」= 用户真的把内容取走了，与桌面端 `open_inbox_item`（用系统程序打开文件）
+   * 同义。绑在「进过收件箱页」上会让未读点在第一次滚动时集体消失，那个标记就不再表达
+   * 任何东西。
+   *
+   * 去重用本地 ref 而不是读 store：store 要变新值得走完
+   * `mark` → `refreshInbox` → 重渲染 → 拉取 effect → `inbox_items()`，中间隔着两个渲染
+   * 周期。同一条目下连点两个文件时，两个 `download_url`（OPFS 读，几十到几百毫秒）几乎
+   * 同时 resolve，读 store 的话两个闭包看到的都还是 `null`。ref 在同步那一拍就闭合。
+   */
+  const markOpened = useCallback(async (item: InboxItemDetail) => {
+    if (markedOpened.current.has(item.id) || item.lastOpenedAt !== null) return;
+    const node = getNode();
+    if (!node) return;
+    markedOpened.current.add(item.id);
+    try {
+      await node.mark_inbox_item_opened(item.id);
+      webNodeActions.refreshInbox();
+    } catch (e) {
+      // 下载本身已经成功，未读点没消掉不值得把这一行标红——那会让用户以为文件没拿到。
+      // 但要放行重试：标记失败还占着去重位，这条就再也标不上了。
+      markedOpened.current.delete(item.id);
+      console.error("[web] mark_inbox_item_opened() 失败", e);
+    }
+  }, []);
+
   const download = useCallback(
     (item: InboxItemDetail, file: InboxItemFileEntry) => {
       const node = getNode();
       if (!node) return;
       void downloadAction.run(`${item.id}:${file.id}`, async () => {
-        const url = await node.download_url(file.relativePath).catch((e: unknown) => {
-          // 控制台留一条带 relativePath 的诊断：错误卡片上只有一句话，定位不到是哪份 OPFS 路径。
-          console.error(`[web] download_url(${file.relativePath}) 失败`, e);
-          throw e;
-        });
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = file.name;
-        anchor.click();
-        setTimeout(() => URL.revokeObjectURL(url), BLOB_URL_TTL_MS);
-
+        await triggerDownload(node, file);
         // 下载是**结果完全不在本页**的动作：文件去了浏览器的下载目录，而下载栏在不少
         // 浏览器/设置下根本不弹。没有这条确认，用户点完只看到按钮闪了一下，无从判断
         // 是成功了还是什么都没发生。
         toast.success(t`已开始下载 ${file.name}`);
-
-        // 「打开过」= 用户真的把内容取走了，与桌面端 `open_inbox_item`（用系统程序打开文件）
-        // 同义。绑在「进过收件箱页」上会让未读点在第一次滚动时集体消失，那个标记就不再表达
-        // 任何东西。
-        //
-        // 去重用本地 ref 而不是读 store：store 要变新值得走完
-        // `mark` → `refreshInbox` → 重渲染 → 拉取 effect → `inbox_items()`，中间隔着两个渲染
-        // 周期。同一条目下连点两个文件时，两个 `download_url`（OPFS 读，几十到几百毫秒）几乎
-        // 同时 resolve，读 store 的话两个闭包看到的都还是 `null`。ref 在同步那一拍就闭合。
-        if (markedOpened.current.has(item.id) || item.lastOpenedAt !== null) return;
-        markedOpened.current.add(item.id);
-        try {
-          await node.mark_inbox_item_opened(item.id);
-          webNodeActions.refreshInbox();
-        } catch (e) {
-          // 下载本身已经成功，未读点没消掉不值得把这一行标红——那会让用户以为文件没拿到。
-          // 但要放行重试：标记失败还占着去重位，这条就再也标不上了。
-          markedOpened.current.delete(item.id);
-          console.error("[web] mark_inbox_item_opened() 失败", e);
-        }
+        await markOpened(item);
       });
     },
-    [downloadAction.run, t],
+    [downloadAction.run, markOpened, t],
+  );
+
+  /**
+   * 整条记录一次取走。逐文件点下去在多文件条目上是纯粹的重复劳动，而收件箱最常见的形态
+   * 恰恰是「对方一次发来一整个文件夹」。
+   *
+   * **跳过 `missing` 的文件**：逐行的下载按钮对它们是明确 disabled 的（`FileItemActions` 的
+   * `disabled={isMissing || isPending}`），批量却照发的话，一条记录里三个文件被清掉就会并排
+   * 冒出三张「下载失败」——而用户点的是一颗界面上标着「可以点」的按钮。
+   *
+   * **串行**，逐个 await。它买到的是「同一时刻只有一次 OPFS 句柄解析在排队」：`open_file`
+   * 带 5 秒超时兜底，一批未就绪的路径并发打进去会一起挂在那里。
+   * ⚠️ 它**不能**减少同时驻留的 blob URL：`triggerDownload` 在 `anchor.click()` 之后立刻返回
+   * （`export_blob_url` 只解析句柄不读字节），一百个文件跑完约半秒，远短于
+   * `BLOB_URL_TTL_MS`，所以那一百个 URL 仍然同时活满 30 秒。这条上限缺口目前没有机制约束，
+   * 30 秒那个数是按单文件下载选的——**别把串行当成它的解药**（这段注释此前正是这么写的）。
+   *
+   * 逐文件复用 `download` 的同一个 key，所以每一行照常显示自己的 pending 与错误卡片；
+   * 外面再套一个 `:all` 键，让「全部下载」按钮能判断**批量本身**在不在跑（用逐文件 pending
+   * 的并集会让单点一行也把那颗按钮变成 spinner）。
+   */
+  const downloadAll = useCallback(
+    (item: InboxItemDetail) => {
+      const files = item.files.filter((file) => !file.missing);
+      if (files.length === 0) return;
+      void downloadAction.run(`${item.id}:${DOWNLOAD_ALL_KEY}`, async () => {
+        let started = 0;
+        for (const file of files) {
+          // **每轮重取节点句柄**，不在循环外捕获一次：用户可以在批量进行中从节点状态弹窗停掉
+          // 节点（`_lib/node-lifecycle.ts` 的 `closeNode`），此后 wasm 对象已释放，再调下去
+          // 只会逐条炸出「null pointer passed to rust」这类原始错误。
+          const node = getNode();
+          if (!node) break;
+          await downloadAction.run(`${item.id}:${file.id}`, async () => {
+            await triggerDownload(node, file);
+            started += 1;
+          });
+        }
+        if (started === 0) return;
+        // 失败已经由详情页逐条渲染（`errorFor`），这里只报成功发起的部分——N 个文件弹 N 个
+        // 成功 toast 是噪音。
+        //
+        // 说「已开始」而不是「已下载」是有意的，`description` 那句同理：浏览器对连续多次
+        // 程序化下载会弹一次「是否允许下载多个文件」，而 `anchor.click()` 被拦时**没有任何
+        // 回调或异常**——我们无从得知实际落了几个。把提示摆出来，用户至少知道该去看那个询问。
+        // `<Plural>` 而不是 `已开始下载 ${started} 个文件`：`started` 数的是**成功发起**的个数，
+        // 一条 5 文件的记录里 4 个失败时它就是 1，而普通插值会让英文界面显示
+        // 「Started downloading 1 files」。源 locale 只给 `other`（中文无单复数），
+        // en 由译者补 `one`——同 `relative-time.tsx` 的既有写法。sonner 收 ReactNode，
+        // 所以这里可以直接用 JSX 宏。
+        toast.success(<Plural value={started} other="已开始下载 # 个文件" />, {
+          description: t`浏览器可能会询问是否允许下载多个文件。`,
+        });
+        await markOpened(item);
+      });
+    },
+    [downloadAction.run, markOpened, t],
   );
 
   /** 当前选中的条目。`?item=` 既是深链参数也是选中态——不再多引一个本地 state。 */
@@ -467,6 +544,7 @@ function InboxPanelInner() {
                 ),
             }}
             onDownload={download}
+            onDownloadAll={downloadAll}
           />
         ) : (
           <InboxDetailEmpty openList={openList} hasRows={rows.length > 0} />

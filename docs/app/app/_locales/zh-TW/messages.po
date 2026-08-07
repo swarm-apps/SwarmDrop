@@ -92,6 +92,10 @@ msgstr "{left}後失效"
 msgid "{minutes} 分钟"
 msgstr "{minutes} 分鐘"
 
+#: app/app/_components/receive-panel.tsx
+msgid "{started, plural, other {已开始下载 # 个文件}}"
+msgstr "{started, plural, other {已開始下載 # 個檔案}}"
+
 #: app/app/_lib/view-types.ts
 msgid "{title} 等 {itemCount} 个文件"
 msgstr "{title} 等 {itemCount} 個檔案"
@@ -106,7 +110,7 @@ msgstr "「{0}」傳來的檔案按這裡的設定處置。策略只存在本機
 msgid "「{0}」没能完整保存，请重新接收"
 msgstr "「{0}」未能完整儲存，請重新接收"
 
-#. placeholder {0}: current?.deviceName
+#. placeholder {0}: shown?.deviceName
 #: app/app/_components/pairing-request-host.tsx
 msgid "<0>{0}</0> 想与这台设备配对"
 msgstr "<0>{0}</0> 想與這台裝置配對"
@@ -159,6 +163,10 @@ msgstr "下載"
 msgid "下载「{0}」失败"
 msgstr "下載「{0}」失敗"
 
+#: app/app/_components/inbox-views.tsx
+msgid "下载中…"
+msgstr "下載中…"
+
 #: app/app/_components/pairing-panel.tsx
 msgid "与另一台设备互换一次邀请即可，之后长期有效。"
 msgstr "與另一台裝置互換一次邀請即可，之後長期有效。"
@@ -200,6 +208,7 @@ msgstr "QR 碼產生失敗，請用下方連結配對"
 msgid "互换一次邀请"
 msgstr "互換一次邀請"
 
+#: app/app/_components/pairing-confirm-dialog.tsx
 #: app/app/_components/pairing-panel.tsx
 msgid "仅同一网络内可用"
 msgstr "僅同一網路內可用"
@@ -307,6 +316,10 @@ msgstr "允許資料夾"
 #: app/app/_components/transfer-labels.ts
 msgid "全部"
 msgstr "全部"
+
+#: app/app/_components/inbox-views.tsx
+msgid "全部下载"
+msgstr "全部下載"
 
 #. placeholder {0}: files.length
 #: app/app/_components/session-title.tsx
@@ -472,7 +485,7 @@ msgstr "傳送需要先與對方配對。配對是一次性動作，配完即長
 #: app/app/_components/connection-panel.tsx
 #: app/app/_components/device-organization-dialog.tsx
 #: app/app/_components/group-manager-dialog.tsx
-#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/pairing-confirm-dialog.tsx
 #: app/app/_components/transfer-detail.tsx
 #: app/app/_components/trust-policy-dialog.tsx
 #: app/app/_components/unpair-dialog.tsx
@@ -685,10 +698,11 @@ msgstr "對方的邀請連結"
 msgid "对方离线"
 msgstr "對方離線"
 
-#: app/app/_components/pairing-request-host.tsx
+#: app/app/_components/pairing-identity-dialog.tsx
 msgid "对方节点 ID"
 msgstr "對方節點 ID"
 
+#: app/app/_components/pairing-confirm-dialog.tsx
 #: app/app/_components/pairing-panel.tsx
 msgid "对方设备"
 msgstr "對方裝置"
@@ -755,6 +769,10 @@ msgstr "已完成"
 msgid "已开始下载 {0}"
 msgstr "已開始下載 {0}"
 
+#: app/app/_components/receive-panel.tsx
+#~ msgid "已开始下载 {started} 个文件"
+#~ msgstr "已開始下載 {started} 個檔案"
+
 #: app/app/_components/inbox-views.tsx
 msgid "已归档"
 msgstr "已封存"
@@ -801,6 +819,11 @@ msgstr "已寫入的接收檔案；待處理的傳入要求也在這裡決定。
 #: app/app/_components/pairing-panel.tsx
 msgid "已被使用"
 msgstr "已被使用"
+
+#. placeholder {0}: preview.displayName || t`对方设备`
+#: app/app/_components/pairing-panel.tsx
+msgid "已识别到「{0}」的邀请"
+msgstr "已識別到「{0}」的邀請"
 
 #: app/app/_lib/invite.ts
 msgid "已过期"
@@ -1158,6 +1181,10 @@ msgstr "來源未知"
 msgid "来自 {0} · {1} 个文件 · {2}"
 msgstr "來自 {0} · {1} 個檔案 · {2}"
 
+#: app/app/_components/pairing-panel.tsx
+msgid "查看"
+msgstr "查看"
+
 #: app/app/_components/send-panel.tsx
 msgid "查看传输"
 msgstr "查看傳輸"
@@ -1267,6 +1294,10 @@ msgstr "瀏覽器不能被直接撥號，需要先連上一個引導節點，對
 #: app/app/_components/connection-panel.tsx
 msgid "浏览器不能被直接拨号，需要经引导节点建立一个可达地址，对方才找得到你。内置节点会自动连接，通常无需调整。"
 msgstr "瀏覽器不能被直接撥號，需要經引導節點建立一個可達位址，對方才找得到你。內建節點會自動連線，通常無需調整。"
+
+#: app/app/_components/receive-panel.tsx
+msgid "浏览器可能会询问是否允许下载多个文件。"
+msgstr "瀏覽器可能會詢問是否允許下載多個檔案。"
 
 #: app/app/_components/connection-badge.tsx
 msgid "浏览器可能需要你允许「本地网络访问」；也可能是对方的防火墙拦了入站连接。 文件仍会经中继送达，只是更慢。"
@@ -1383,7 +1414,7 @@ msgstr "確認取消配對"
 msgid "确认清空"
 msgstr "確認清空"
 
-#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/pairing-confirm-dialog.tsx
 msgid "确认配对"
 msgstr "確認配對"
 
@@ -1704,7 +1735,7 @@ msgstr "這筆記錄已經不在了，請返回列表重新開始"
 msgid "这条记录里没有文件"
 msgstr "這筆紀錄裡沒有檔案"
 
-#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/pairing-confirm-dialog.tsx
 msgid "这条邀请已过期，让对方重新生成一条。"
 msgstr "這組邀請已過期，請對方重新產生一組。"
 
@@ -1817,7 +1848,7 @@ msgstr "邀請連結"
 msgid "配对"
 msgstr "配對"
 
-#: app/app/_components/pairing-panel.tsx
+#: app/app/_components/pairing-confirm-dialog.tsx
 msgid "配对中…"
 msgstr "配對中…"
 
@@ -1825,9 +1856,13 @@ msgstr "配對中…"
 msgid "配对之后双方都能互发文件。确认这是你认识的设备再接受。"
 msgstr "配對之後雙方都能互傳檔案。確認這是你認識的裝置再接受。"
 
+#: app/app/_components/pairing-confirm-dialog.tsx
+msgid "配对之后双方都能互发文件。确认这是你认识的设备再继续。"
+msgstr "配對之後雙方都能互傳檔案。確認這是你認識的裝置再繼續。"
+
 #: app/app/_components/pairing-panel.tsx
-msgid "配对后双方可以互相发送文件。确认是这台设备再继续。"
-msgstr "配對後雙方可以互相傳送檔案。確認是這台裝置再繼續。"
+#~ msgid "配对后双方可以互相发送文件。确认是这台设备再继续。"
+#~ msgstr "配對後雙方可以互相傳送檔案。確認是這台裝置再繼續。"
 
 #: app/app/_components/pairing-panel.tsx
 #: app/app/_components/pairing-request-host.tsx
