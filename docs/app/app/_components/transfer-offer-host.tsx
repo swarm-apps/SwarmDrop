@@ -32,6 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { peerLabel } from "../_lib/device-presentation";
 import { itemsFromOffer } from "../_lib/file-browser-adapters";
 import { getNode } from "../_lib/node-runtime";
 import { preferencesActions, usePreferences } from "../_lib/preferences-store";
@@ -98,7 +99,9 @@ export function TransferOfferHost() {
           </DialogTitle>
           <DialogDescription>
             <Trans>
-              <span className="font-medium text-foreground">{current?.deviceName}</span> 想发送{" "}
+              <span className="font-medium text-foreground">
+                {current ? peerLabel(current.deviceName, current.peerId) : ""}
+              </span> 想发送{" "}
               {files.length} 个文件（{formatFileSize(current?.totalSize ?? 0)}）
             </Trans>
           </DialogDescription>

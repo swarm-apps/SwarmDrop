@@ -599,6 +599,35 @@ mod tests {
         }
     }
 
+    /// 「name → hostname」这条回退是**三端、收发双向共用**的：接收侧由
+    /// `TransferCtrlService` 落进传输记录，发送侧由各壳（Web 的 `send_files`、桌面/移动的
+    /// 前端）填同一个字段。分叉的表现是同一台设备在「他发给我的」与「我发给他的」两条记录里
+    /// 叫不同的名字，而那种不一致没有任何报错。
+    #[test]
+    fn display_name_prefers_user_set_name_over_hostname() {
+        assert_eq!(
+            sample(Some("书房的 Mac"), "Chrome").display_name(),
+            "书房的 Mac"
+        );
+    }
+
+    /// 空串与纯空白都算「没设」：内核允许传空串清空设备名，之后落成 `Some("")` 还是 `None`
+    /// 取决于路径，这条回退不该被那个差别绊到（前端 `deviceDisplayName` 同义）。
+    #[test]
+    fn display_name_treats_blank_as_unset() {
+        assert_eq!(sample(None, "Chrome").display_name(), "Chrome");
+        assert_eq!(sample(Some(""), "Chrome").display_name(), "Chrome");
+        assert_eq!(sample(Some("  "), "Chrome").display_name(), "Chrome");
+    }
+
+    /// 两级都空时返回空串，**不在这里编一个占位名**——回落到短 PeerId 是展示层的事
+    /// （`@swarmdrop/shared-view` 的 `shortPeerId`）。写死的占位会跟着记录一起落库，
+    /// 将来换措辞、换语言都改不动它。
+    #[test]
+    fn display_name_leaves_the_placeholder_to_the_view_layer() {
+        assert_eq!(sample(None, "").display_name(), "");
+    }
+
     #[test]
     fn device_name_rejects_empty_and_blank() {
         assert_eq!(DeviceName::parse(""), None);

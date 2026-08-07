@@ -903,10 +903,38 @@ impl WebNode {
 
         let result = self
             .manager
-            .send_offer(&prepared_id, &to, "web", &file_ids, TransferOrigin::Human)
+            .send_offer(
+                &prepared_id,
+                &to,
+                &self.paired_device_name(&to),
+                &file_ids,
+                TransferOrigin::Human,
+            )
             .await
             .map_err(WebError::from)?;
         Ok(result.session_id.to_string())
+    }
+
+    /// 发送记录里存的对端显示名。
+    ///
+    /// 这里曾经是字面量 `"web"`，于是**发出去的每一条记录都叫「web」**——传输页里几行除了
+    /// 时间戳完全同形，同一个文件发两次根本认不出哪条是哪条（而 `peerName` 正是那一行用来
+    /// 回答「发给谁」的唯一字段）。桌面与移动没有这个毛病：它们的 `start_send` /
+    /// `send_prepared` 都由调用方传设备名。
+    ///
+    /// **在 Rust 侧查而不是给 `send_files` 加参数**：查询与规则都与接收侧同源——同一份
+    /// `paired_devices` 表（接收侧经 `PeerDirectory::get_paired_device` 拿，见
+    /// `TransferCtrlService`）、同一个 [`OsInfo::display_name`]。前端手上那个名字是展示层的
+    /// （`organizedDeviceName` 把本机别名也算进去），那是「我怎么称呼它」，不该写进记录。
+    ///
+    /// 查不到时返回空串，回落交给展示层（`peerLabel` → `shortPeerId`）：写死的占位会跟着
+    /// 记录一起落库，将来换措辞、换语言都改不动它。
+    fn paired_device_name(&self, peer_id: &str) -> String {
+        parse_node_id(peer_id)
+            .ok()
+            .and_then(|id| self.net_manager.pairing().get_paired_device(&id))
+            .map(|device| device.os_info.display_name())
+            .unwrap_or_default()
     }
 
     /// 当前挂起（待确认）的入站 offer 列表。
