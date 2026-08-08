@@ -64,11 +64,6 @@ msgstr "{label} timed out ({0}s)"
 msgid "{title} 等 {itemCount} 个文件"
 msgstr "{title} and {itemCount} files"
 
-#. placeholder {0}: failure.fileName
-#: src/lib/errors.ts
-#~ msgid "「{0}」没能完整保存，请重新接收"
-#~ msgstr "“{0}” wasn’t saved completely. Please receive it again."
-
 #: src/components/pairing/clipboard-invite-banner.tsx
 msgid "<0>{deviceName}</0> 想和你配对，点此确认"
 msgstr "<0>{deviceName}</0> wants to pair with you — tap to confirm"
@@ -126,6 +121,11 @@ msgstr "SwarmDrop is still running in the background"
 #: src/components/close-behavior-manager.tsx
 msgid "SwarmDrop 需要在后台保持在线，才能接收已配对设备发来的文件。可以让它继续在{trayWord}后台运行，或彻底退出。退出后将无法被发现，也不会收到任何文件。"
 msgstr "SwarmDrop needs to stay online in the background to receive files from paired devices. You can keep it running in the {trayWord}, or quit entirely. Once you quit, it can't be discovered and won't receive any files."
+
+#. placeholder {0}: latestVersion ?? "?"
+#: src/routes/_app/settings/-about-section.tsx
+msgid "v{0} 已就绪，可以安装"
+msgstr "v{0} is ready to install"
 
 #: src/components/pairing/connection-request-dialog.tsx
 msgid "一台设备正在请求与您配对"

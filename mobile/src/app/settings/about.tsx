@@ -1,4 +1,5 @@
 import { Trans, useLingui } from "@lingui/react/macro";
+import type { UpdateStatus } from "@swarm-hive/sdk";
 import Constants from "expo-constants";
 import type { LucideIcon } from "lucide-react-native";
 import {
@@ -15,6 +16,7 @@ import {
   ShieldCheck,
   Waypoints,
 } from "lucide-react-native";
+import type { ReactNode } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -32,10 +34,13 @@ import {
 } from "@/components/setting-row";
 import { SettingsHeader } from "@/components/settings-header";
 import { Text } from "@/components/ui/text";
+import { useAutoInstall } from "@/hooks/use-auto-install";
 import { useUpdate } from "@/hooks/use-update";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { shareFileWithSystem } from "@/lib/open-file";
 import { toast } from "@/lib/toast";
+import { updateActionKind } from "@/lib/update-dialog-visibility";
+import { resolveUpdateTexts } from "@/lib/update-texts";
 
 const APP_VERSION = Constants.expoConfig?.version ?? "0.0.0";
 
@@ -43,11 +48,9 @@ export default function AboutScreen() {
   const colors = useThemeColors();
   const { t } = useLingui();
   const { status, check } = useUpdate();
+  const { install } = useAutoInstall();
 
   const isAndroid = Platform.OS === "android";
-  const isChecking = status === "checking";
-  const isError = status === "error";
-  const hasUpdate = status === "available" || status === "force-required";
 
   const openUrl = (url: string) => {
     Linking.openURL(url).catch((err) => {
@@ -56,10 +59,28 @@ export default function AboutScreen() {
     });
   };
 
-  const onCheckUpdate = () => {
-    if (isChecking) return;
-    void check(true);
-  };
+  /**
+   * 「软件更新」行的标签 / 动作 / 右侧状态，由 status **穷尽**推出（见 updateActionKind）。
+   *
+   * 从前这里是 `hasUpdate ? … : isChecking ? … : isError ? … : 已是最新` 的三元链：
+   * `downloading` 与 `ready` 双双掉进最后那个兜底分支，于是产物已下好等着装的时候，
+   * 这一行却显示「✅ 已是最新」，而前面正压着一个说有新版本要装的弹窗（v0.12.3 现场）。
+   *
+   * `onPress` 在不可操作的状态下必须是 `undefined` 而非空函数 —— SettingRow 据它切换
+   * Pressable/View 与 accessibilityRole，给个空函数会让这一行对读屏用户自称按钮。
+   */
+  const updateAction = updateActionKind(status);
+  const isUpdateBusy =
+    updateAction === "checking" || updateAction === "downloading";
+  const updateRowLabel =
+    updateAction === "install" || updateAction === "downloading"
+      ? t`软件更新`
+      : t`检查更新`;
+  const onUpdateRowPress = isUpdateBusy
+    ? undefined
+    : updateAction === "install"
+      ? () => void install()
+      : () => void check(true);
 
   /**
    * 导出日志到系统分享面板。
@@ -138,33 +159,10 @@ export default function AboutScreen() {
           <SettingSection label={t`软件更新`}>
             <SettingRow
               icon={RefreshCw}
-              label={t`检查更新`}
-              onPress={onCheckUpdate}
+              label={updateRowLabel}
+              onPress={onUpdateRowPress}
             >
-              {hasUpdate ? (
-                <View className="flex-row items-center gap-1">
-                  <Download color={colors.primary} size={12} />
-                  <Text className="text-[13px] font-medium text-primary-ink">
-                    <Trans>有新版可用</Trans>
-                  </Text>
-                </View>
-              ) : isChecking ? (
-                <ActivityIndicator
-                  color={colors.mutedForeground}
-                  size="small"
-                />
-              ) : isError ? (
-                <Text className="text-[13px] text-muted-foreground">
-                  <Trans>检查失败</Trans>
-                </Text>
-              ) : (
-                <View className="flex-row items-center gap-1">
-                  <BadgeCheck color={colors.success} size={12} />
-                  <Text className="text-[13px] font-medium text-success-ink">
-                    <Trans>已是最新</Trans>
-                  </Text>
-                </View>
-              )}
+              <UpdateRowStatus status={status} colors={colors} />
             </SettingRow>
           </SettingSection>
         ) : null}
@@ -217,6 +215,88 @@ export default function AboutScreen() {
         </SettingSection>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/**
+ * 「软件更新」行右侧的状态徽标。三个分支共用同一个 badge 包装,所以它独立成组件 ——
+ * 否则那行 `flex-row items-center gap-1` 要在每个分支里重写一遍。
+ */
+function UpdateRowStatus({
+  status,
+  colors,
+}: {
+  status: UpdateStatus;
+  colors: ReturnType<typeof useThemeColors>;
+}) {
+  const updateTexts = resolveUpdateTexts();
+  switch (updateActionKind(status)) {
+    case "checking":
+      return <ActivityIndicator color={colors.mutedForeground} size="small" />;
+    case "download":
+      return (
+        <Badge tone="primary" colors={colors} icon={Download}>
+          <Trans>有新版可用</Trans>
+        </Badge>
+      );
+    case "downloading":
+      return (
+        <View className="flex-row items-center gap-1">
+          <ActivityIndicator color={colors.mutedForeground} size="small" />
+          <Text className="text-[13px] text-muted-foreground">
+            <Trans>下载中</Trans>
+          </Text>
+        </View>
+      );
+    // 文案取自 update-texts,与弹窗、设置区说的是同一件事 —— 同屏时不能一个写「点击安装」
+    // 一个写「立即安装」。其余状态是为设置行定制的短句,留在 Trans。
+    case "install":
+      return (
+        <Badge tone="primary" colors={colors} icon={Download}>
+          {updateTexts.installButton}
+        </Badge>
+      );
+    // check 分支覆盖 idle / up-to-date / error 三态,只有 error 要换个说法。
+    default:
+      return status === "error" ? (
+        <Text className="text-[13px] text-muted-foreground">
+          <Trans>检查失败</Trans>
+        </Text>
+      ) : (
+        <Badge tone="success" colors={colors} icon={BadgeCheck}>
+          <Trans>已是最新</Trans>
+        </Badge>
+      );
+  }
+}
+
+function Badge({
+  tone,
+  colors,
+  icon: Icon,
+  children,
+}: {
+  tone: "primary" | "success";
+  colors: ReturnType<typeof useThemeColors>;
+  icon: LucideIcon;
+  children: ReactNode;
+}) {
+  return (
+    <View className="flex-row items-center gap-1">
+      <Icon
+        color={tone === "primary" ? colors.primary : colors.success}
+        size={12}
+      />
+      <Text
+        className={
+          tone === "primary"
+            ? "text-[13px] font-medium text-primary-ink"
+            : "text-[13px] font-medium text-success-ink"
+        }
+      >
+        {children}
+      </Text>
+    </View>
   );
 }
 

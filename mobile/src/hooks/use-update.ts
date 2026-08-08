@@ -17,6 +17,12 @@ import { createAsyncStorage } from "@/lib/rn-storage";
 /** 承载已装配 engine 的 context;由 <UpdateProvider> 注入。 */
 export const UpdateEngineContext = createContext<UpdateEngine | null>(null);
 
+/**
+ * 已被自动安装尝试过的 release 版本;由 <UpdateProvider> 注入(它是编排的唯一所有者)。
+ * UI 用它区分「还没试过」与「试过但仍停在 ready」——后者多半是用户在系统框点了取消。
+ */
+export const AutoInstallContext = createContext<string | null>(null);
+
 /** 订阅当前更新状态。必须在 <UpdateProvider> 内使用。 */
 export function useUpdate(): UpdateEngineState {
   const engine = useContext(UpdateEngineContext);
@@ -62,6 +68,9 @@ export async function createSwarmHiveEngine(
   opts: CreateSwarmHiveEngineOptions,
 ): Promise<UpdateEngine> {
   const { currentVersion, engine: engineOpts, ...rest } = opts;
+  // storage 先于 downloader 建:下载器要用它存断点存档与产物记录,两者必须是同一份实例,
+  // 否则 reconcile 读不到 download 写下的记录,跨进程恢复就永远不命中。
+  const storage = rest.storage ?? createAsyncStorage();
   const adapter = createRnAdapter({
     baseUrl: rest.baseUrl,
     appSlug: rest.appSlug,
@@ -70,9 +79,9 @@ export async function createSwarmHiveEngine(
       rest.currentVersionName ?? Application.nativeApplicationVersion ?? "0",
     abi: rest.abi,
     channel: rest.channel,
-    downloader: rest.downloader ?? createExpoApkDownloader(),
+    downloader: rest.downloader ?? createExpoApkDownloader({ storage }),
     installer: rest.installer ?? createExpoApkInstaller(),
-    storage: rest.storage ?? createAsyncStorage(),
+    storage,
     fetchImpl: rest.fetchImpl,
   });
   // Android: nativeBuildVersion = versionCode;缺省兜底 "0"——让首次检查必判"有更新"而非崩。

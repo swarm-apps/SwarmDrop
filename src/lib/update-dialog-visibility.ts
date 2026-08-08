@@ -1,4 +1,4 @@
-import type { ReleaseInfo, UpdateStatus } from "@swarm-hive/sdk";
+import type { Progress, ReleaseInfo, UpdateStatus } from "@swarm-hive/sdk";
 
 /**
  * 是否强制升级流。**唯一真相源是 `release.upgradeType`**,不是 `status`。
@@ -17,8 +17,8 @@ export function isForcedFlow(release: ReleaseInfo | null | undefined): boolean {
   return release?.upgradeType === "force";
 }
 
-/** 下载中 / 待安装 —— 需要向用户呈现进度的两个态。 */
-function isBusy(status: UpdateStatus): boolean {
+/** 下载中 / 待安装 —— 需要向用户呈现进度的两个态。宿主判「该不该收起进度 UI」也用它。 */
+export function isBusy(status: UpdateStatus): boolean {
   return status === "downloading" || status === "ready";
 }
 
@@ -45,4 +45,61 @@ export function progressDialogVisible(
   release: ReleaseInfo | null | undefined,
 ): boolean {
   return !isForcedFlow(release) && isBusy(status);
+}
+
+/** 设置区主按钮此刻代表的动作。 */
+export type UpdateActionKind = "check" | "checking" | "download" | "downloading" | "install";
+
+/**
+ * 由 status **穷尽**推出主按钮的动作。
+ *
+ * 这里刻意写成穷尽 switch 而不是「特判几个 + else 兜底」:后者会让新增或改语义的状态静默
+ * 落进兜底分支去说谎。此前设置区用的是 `hasUpdate ? 更新按钮 : 检查按钮`,于是 `downloading`
+ * 与 `ready` 双双掉进「检查更新」—— 下载正进行时按钮却写着「检查更新」,ready 时更没有任何
+ * 安装入口。`never` 断言让漏掉的状态在编译期就报错。
+ */
+export function updateActionKind(status: UpdateStatus): UpdateActionKind {
+  switch (status) {
+    case "checking":
+      return "checking";
+    case "available":
+    case "force-required":
+      return "download";
+    case "downloading":
+      return "downloading";
+    case "ready":
+      return "install";
+    case "idle":
+    case "up-to-date":
+    case "error":
+      return "check";
+    default: {
+      const exhaustive: never = status;
+      return exhaustive;
+    }
+  }
+}
+
+/** 进度呈现:百分比 + 速度(MB/s,算不出来给 null)。 */
+export interface ProgressView {
+  percent: number;
+  speedMb: string | null;
+}
+
+/**
+ * 由 status + progress 推出该怎么显示进度。**四个组件共用同一条规则**,否则同一个 `ready`
+ * 会在一个弹窗里显示「100%、无速度」、在另一个里显示「0%、上一帧的残留速度」。
+ *
+ * `ready` 恒为 100 且不报速度:产物已就绪就是「下完了」,而跨进程恢复的 ready 根本没走过
+ * 下载(`reconcile` 直接进 ready,progress 为 null),照 progress 算会显示一根 0% 的进度条。
+ */
+export function progressView(
+  status: UpdateStatus,
+  progress: Progress | null | undefined,
+): ProgressView {
+  const isReady = status === "ready";
+  return {
+    percent: isReady ? 100 : progress ? Math.round(progress.percent * 100) : 0,
+    speedMb: !isReady && progress?.speed ? (progress.speed / 1024 / 1024).toFixed(1) : null,
+  };
 }

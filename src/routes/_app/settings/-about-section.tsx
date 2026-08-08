@@ -28,6 +28,8 @@ import { MarkdownContent } from "@/components/ui/markdown-content";
 import { commands } from "@/lib/bindings";
 import { Progress } from "@/components/ui/progress";
 import { useUpdate } from "@/hooks/use-update";
+import { updateActionKind } from "@/lib/update-dialog-visibility";
+import { resolveUpdateTexts } from "@/lib/update-texts";
 import { SettingsCard, SettingsSection } from "./-settings-primitives";
 
 /** 格式化字节数为人类可读 */
@@ -49,7 +51,7 @@ export function AboutPanel({ className }: { className?: string }) {
   // 经 registry-web 的 useUpdate() 订阅 SwarmHive 更新引擎（与 __root 的 <UpdateProvider>
   // 同一个 engine）。check(true) 手动检查绕过节流；download() 触发下载，ready 后由
   // __root 常驻的 Prompt/Force 弹窗自动安装+重启。
-  const { status, release, progress, check, download } = useUpdate();
+  const { status, release, progress, check, download, install } = useUpdate();
   const latestVersion = release?.version ?? null;
   const releaseNotes = release?.notes ?? null;
 
@@ -103,6 +105,7 @@ export function AboutPanel({ className }: { className?: string }) {
               latestVersion={latestVersion}
               onCheck={() => void check(true)}
               onUpdate={() => void download()}
+              onInstall={() => void install()}
             />
           </div>
         </div>
@@ -139,6 +142,7 @@ export function AboutPanel({ className }: { className?: string }) {
         <DownloadProgressBanner
           latestVersion={latestVersion}
           progress={progress}
+          isReady={status === "ready"}
         />
       )}
     </SettingsCard>
@@ -243,19 +247,33 @@ function ExternalLinkButton({
   );
 }
 
-/** 更新操作按钮（桌面端 + 移动端统一） */
+/**
+ * 更新操作按钮。
+ *
+ * 分支由 `updateActionKind` 穷尽推出（它带 `never` 断言），而不是在这里对 `status` 再写一次
+ * switch —— 从前那份有 `default:` 兜底，新增或改语义的状态会静默落进「检查更新」。`ready`
+ * 就是这么掉进去的：产物已下好等着装，按钮却写着「检查更新」。
+ */
 function UpdateButton({
   status,
   latestVersion,
   onCheck,
   onUpdate,
+  onInstall,
 }: {
   status: UpdateStatus;
   latestVersion: string | null;
   onCheck: () => void;
   onUpdate: () => void;
+  onInstall: () => void;
 }) {
-  switch (status) {
+  const texts = resolveUpdateTexts();
+  const cta =
+    "flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90";
+  const busy =
+    "flex items-center gap-1.5 rounded-lg bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground";
+
+  switch (updateActionKind(status)) {
     case "checking":
       return (
         <button
@@ -268,39 +286,36 @@ function UpdateButton({
         </button>
       );
 
-    case "available":
-    case "force-required":
+    case "download":
       return (
-        <button
-          type="button"
-          onClick={onUpdate}
-          className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-        >
+        <button type="button" onClick={onUpdate} className={cta}>
           <Download className="size-3.5" />
           {t`更新到 v${latestVersion ?? "?"}`}
         </button>
       );
 
     case "downloading":
-    case "ready":
       return (
-        <button
-          type="button"
-          disabled
-          className="flex items-center gap-1.5 rounded-lg bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground"
-        >
+        <button type="button" disabled className={busy}>
           <Loader2 className="size-3.5 animate-spin" />
           <Trans>下载中...</Trans>
         </button>
       );
 
+    // ready 与 downloading 曾共用那个 disabled 的「下载中...」——产物已下好等着装的时候，
+    // 按钮却是灰的。ready 是可停留的静止态（安装可能被 UAC 取消），它必须给出一个**可点**
+    // 的安装入口，否则用户没有任何出路。文案取自 update-texts，与弹窗说的是同一件事。
+    case "install":
+      return (
+        <button type="button" onClick={onInstall} className={cta}>
+          <Download className="size-3.5" />
+          {texts.installButton}
+        </button>
+      );
+
     default:
       return (
-        <button
-          type="button"
-          onClick={onCheck}
-          className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-        >
+        <button type="button" onClick={onCheck} className={cta}>
           <RefreshCw className="size-3.5" />
           <Trans>检查更新</Trans>
         </button>
@@ -336,13 +351,18 @@ function UpdateBanner({
   );
 }
 
-/** 下载进度 banner */
+/**
+ * 下载进度 banner。`ready` 时改口为「已就绪」——它已经不在传输了，继续显示
+ * 「正在下载 · 100% · 1.0 MB/s」是把最后一帧的残留读数当成当下的状态在报。
+ */
 function DownloadProgressBanner({
   latestVersion,
   progress,
+  isReady,
 }: {
   latestVersion: string | null;
   progress: UpdateProgress;
+  isReady: boolean;
 }) {
   // registry Progress.percent 是 0~1 分数，UI 用 0~100。
   const percent = Math.round(progress.percent * 100);
@@ -350,7 +370,9 @@ function DownloadProgressBanner({
     <div className="flex flex-col gap-2.5 border-t border-border px-4 py-3.5">
       <div className="flex items-center justify-between">
         <span className="text-[13px] font-medium text-foreground">
-          {t`正在下载 v${latestVersion ?? "?"}`}
+          {isReady
+            ? t`v${latestVersion ?? "?"} 已就绪，可以安装`
+            : t`正在下载 v${latestVersion ?? "?"}`}
         </span>
         <span className="text-[13px] font-semibold text-brand">
           {percent}%
@@ -361,7 +383,7 @@ function DownloadProgressBanner({
         <span className="text-[11px] text-muted-foreground">
           {formatBytes(progress.downloaded)} / {formatBytes(progress.total)}
         </span>
-        {progress.speed ? (
+        {!isReady && progress.speed ? (
           <span className="text-[11px] text-muted-foreground">
             {formatBytes(progress.speed)}/s
           </span>

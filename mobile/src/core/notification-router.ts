@@ -8,6 +8,8 @@ type NotificationData = { [key: string]: string | object | number } | undefined;
  * - transfer-progress:进 /transfer/[sessionId]。
  * - 配对请求 / 传输 offer:全局 host(PairingRequestHost / TransferOfferHost)由
  *   notification-store / transfer-store 驱动,点击只需把 app 带到前台,host 自会弹出。
+ * - update-ready:**刻意不路由**。把 app 带到前台就够了 —— useAutoInstall 会在那一刻
+ *   拉起系统安装框(Android 10+ 后台派发的安装 intent 会被静默丢弃,回前台才合法)。
  */
 function routeFromData(data: NotificationData): void {
   if (!data) return;

@@ -20,6 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [`dev-notes/knowledge/web-app-frontend.md`](dev-notes/knowledge/web-app-frontend.md) — Web 应用区**表现层**（`docs/app/app`）：运行时单例只挂 layout、静态导出三限制（无 redirect / 无动态段 / useSearchParams 要 Suspense）、basePath 与 next/link、zustand store 的 selector 与 `setState` 约束。**碰 Web 端 React 代码时必读**
 - [`dev-notes/knowledge/storage-abstraction.md`](dev-notes/knowledge/storage-abstraction.md) — 把 sea-orm 从 core 摘出去。**已落地**：core 零 sea-orm，SQL 实现在 `crates/storage-sql`，Web 端是 IndexedDB 写穿的 `WebTransferStore`（`crates/web/src/store.rs` + `inbox.rs`）。另含端口体例：`SessionStore` / `InboxStore` 均已补全、收件箱领域规则住 `crates/transfer/src/inbox.rs` 由各存储实现调用、组装点建一次端口 `Arc` 注入与自持同一份
 - [`dev-notes/knowledge/iroh-migration.md`](dev-notes/knowledge/iroh-migration.md) — libp2p → iroh 迁移评估（2026-07 调研）。**已决策：不迁移**，但 iroh 的 API 形态被 `crates/net` 借鉴。碰 P2P 选型或有人提「迁 iroh」时先读
+- [`dev-notes/knowledge/app-update.md`](dev-notes/knowledge/app-update.md) — 应用内更新（SwarmHive）：`ready` 是持久静止态而非「正在等系统」、Android 10+ 后台安装框弹不出且**静默**失败、自动安装必须单点触发、状态判据要穷尽 8 态、续传与产物恢复。**碰更新 UI、`@swarm-hive/sdk`、两个 registry 分发的文件时必读**
 
 ## Design Context
 

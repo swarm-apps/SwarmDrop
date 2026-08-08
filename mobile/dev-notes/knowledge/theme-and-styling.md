@@ -257,6 +257,38 @@ ClipboardPaste 图标配「返回」文案、行为却是 `router.back()`,图标
 
 **相关文件**:[src/components/key-value-row.tsx](../../src/components/key-value-row.tsx)
 
+### `@rn-primitives/dialog` 的 Content 会掐死弹窗内所有 ScrollView(2026-08-08)
+
+`Dialog` 里放 `ScrollView`,内容再长也一行滚不动 —— 不是 `maxHeight` 或 `nestedScrollEnabled`
+写错,是被祖先抢走了触摸响应者:
+
+```js
+// @rn-primitives/dialog/dist/dialog.js
+function onStartShouldSetResponder() { return true; }   // 恒真
+var Content = (...) => <Component onStartShouldSetResponder={onStartShouldSetResponder} {...props} />
+```
+
+`onStartShouldSetResponder` 返回 true = 「这片区域的手势归我」。Android 上 JS responder 一旦
+授予就会 `blockNativeResponder`,原生 ScrollView 的滚动整个失效。**症状是「能看到内容被截断,
+但怎么划都不动」**,很容易误判成布局问题去调 maxHeight。
+
+**正确做法**:在本仓的 `ui/dialog.tsx` 里覆写掉(`{...props}` 排在原语的默认值之后,传值即可
+覆盖,不必 patch node_modules):
+
+```tsx
+<DialogPrimitive.Content onStartShouldSetResponder={() => false} {...props}>
+```
+
+**不要担心点击穿透**:那层防御在 native 上本就是空的 —— `Overlay` 走 `asChild`,`onPress` 被
+转发给 `Animated.View`,而 View 不支持 `onPress`,点遮罩压根不会触发关闭。
+
+**只有 `dialog` 有这个问题**。`alert-dialog` 的 Content 是纯 `View`,不抢 responder —— 所以
+AlertDialog 里的 ScrollView 一直是好的。`popover` / `select` / `tooltip` 与 dialog 同款,
+将来在它们里面放可滚区域会踩同一个坑。
+
+**相关文件**:[src/components/ui/dialog.tsx](../../src/components/ui/dialog.tsx)、
+[src/components/release-notes-view.tsx](../../src/components/release-notes-view.tsx)
+
 ### bottom sheet 串接(收起 A 再弹 B)用 onDismiss 回调,不要 setTimeout 猜动画时长
 
 BottomSheetModal 收起是异步动画,`dismiss()` 后立刻 `present()` 下一个会两 modal 叠加。

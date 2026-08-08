@@ -5,6 +5,7 @@
  */
 import { i18n } from "@lingui/core";
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReleaseInfo, UpdateEngineState, UpdateStatus, UpgradeType } from "@swarm-hive/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -32,7 +33,12 @@ function setEngine(status: UpdateStatus, upgradeType: UpgradeType) {
   updateState.current = {
     status,
     release,
-    progress: status === "downloading" ? { percent: 0.21, downloaded: 21, total: 100 } : null,
+    progress:
+      status === "downloading"
+        ? { percent: 0.21, downloaded: 21, total: 100, speed: 1_048_576 }
+        : status === "ready"
+          ? { percent: 1, downloaded: 100, total: 100, speed: 1_048_576 }
+          : null,
     error: null,
     check: vi.fn(),
     download: vi.fn(),
@@ -43,13 +49,16 @@ function setEngine(status: UpdateStatus, upgradeType: UpgradeType) {
 }
 
 /** 复刻 __root.tsx 的 UpdateGate 编排：prompt 下载中保持打开，progress 仅作兜底。 */
-function mountAll(promptOpen: boolean) {
+function mountAll(promptOpen: boolean, onDismiss = vi.fn()) {
   const { status, release } = updateState.current;
   return render(
     <>
       <ForceUpdateDialog />
       <PromptUpdateDialog open={promptOpen} onOpenChange={vi.fn()} />
-      <UpdateProgressDialog open={!promptOpen && progressDialogVisible(status, release)} />
+      <UpdateProgressDialog
+        open={!promptOpen && progressDialogVisible(status, release)}
+        onDismiss={onDismiss}
+      />
     </>,
   );
 }
@@ -140,5 +149,61 @@ describe("release notes 渲染", () => {
     expect(link.getAttribute("href")).toBe("https://example.test/pr/12");
 
     expect(screen.queryByText(/##|\*\*/)).toBeNull();
+  });
+});
+
+// v0.12.3 的现场：产物下好了，安装却因后台限制没发出去，于是 UI 停在 ready ——
+// 而 ready 态的按钮全是灰的、兜底进度弹窗没有任何按钮，用户只能杀进程（连带丢掉
+// 全部已下载字节）。下面这组用例钉住「ready 永远有出口」。
+describe("ready 态的出口（No Dead End）", () => {
+  it("prompt 的主按钮可点，且点的是安装而不是重新下载", async () => {
+    setEngine("ready", "prompt");
+    mountAll(true);
+
+    const button = screen.getByRole("button", { name: /立即安装/ });
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+
+    await userEvent.click(button);
+    expect(updateState.current.install).toHaveBeenCalledTimes(1);
+    expect(updateState.current.download).not.toHaveBeenCalled();
+  });
+
+  it("强制流的唯一按钮在 ready 时同样可点", async () => {
+    setEngine("ready", "force");
+    mountAll(false);
+
+    const button = screen.getByRole("button", { name: /立即安装/ });
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+
+    await userEvent.click(button);
+    expect(updateState.current.install).toHaveBeenCalledTimes(1);
+  });
+
+  it("兜底进度弹窗在 ready 时给出安装与收起两个入口", async () => {
+    setEngine("ready", "prompt");
+    const onDismiss = vi.fn();
+    mountAll(false, onDismiss);
+
+    await userEvent.click(screen.getByRole("button", { name: /立即安装/ }));
+    expect(updateState.current.install).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole("button", { name: /稍后提醒/ }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("下载中的进度弹窗可以收起（下载不受影响）", async () => {
+    setEngine("downloading", "prompt");
+    const onDismiss = vi.fn();
+    mountAll(false, onDismiss);
+
+    await userEvent.click(screen.getByRole("button", { name: /后台下载/ }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("ready 不再报传输速率（那是下载最后一帧的残留读数）", () => {
+    setEngine("ready", "prompt");
+    mountAll(false);
+
+    expect(screen.queryByText(/MB\/s/)).toBeNull();
   });
 });

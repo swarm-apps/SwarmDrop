@@ -63,8 +63,8 @@ importers:
         specifier: ^1.2.8
         version: 1.2.12(@types/react-dom@19.2.4(@types/react@19.2.10))(@types/react@19.2.10)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@swarm-hive/sdk':
-        specifier: ^0.1.0
-        version: 0.1.0(@types/react@19.2.10)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
+        specifier: ^0.5.0
+        version: 0.5.0(@types/react@19.2.10)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
       '@swarmdrop/file-browser':
         specifier: workspace:*
         version: link:packages/file-browser
@@ -1753,8 +1753,8 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@swarm-hive/sdk@0.1.0':
-    resolution: {integrity: sha512-WLN6H1xSSS7w7fU9sS7swxpncZWH7Gpvcz/R+36EpNhbYVEzv9QT1t1m5bZEBk/kdgGbPubyM51erokpUwJIpg==}
+  '@swarm-hive/sdk@0.5.0':
+    resolution: {integrity: sha512-Iht9hpVlY2SJeymmpczYE8USchCjBjD0AnqtARSoXpG3o0IXkxvbK6IAYvjRWRNQm3RKxztlA6jhvouUaSySww==}
     peerDependencies:
       react: '>=18'
     peerDependenciesMeta:
@@ -4945,7 +4945,7 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@swarm-hive/sdk@0.1.0(@types/react@19.2.10)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))':
+  '@swarm-hive/sdk@0.5.0(@types/react@19.2.10)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))':
     dependencies:
       '@noble/hashes': 1.8.0
       semver: 7.8.5

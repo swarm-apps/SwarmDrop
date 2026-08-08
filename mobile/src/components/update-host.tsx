@@ -20,8 +20,9 @@ import { ForceUpdateDialog } from "@/components/force-update-dialog";
 import { PromptUpdateDialog } from "@/components/prompt-update-dialog";
 import { UpdateProgressDialog } from "@/components/update-progress-dialog";
 import { useUpdate } from "@/hooks/use-update";
+import { useUpdateReadyNotification } from "@/hooks/use-update-ready-notification";
 import { toast } from "@/lib/toast";
-import { progressDialogVisible } from "@/lib/update-dialog-visibility";
+import { isBusy, progressDialogVisible } from "@/lib/update-dialog-visibility";
 
 export function UpdateHost() {
   if (Platform.OS !== "android") return null;
@@ -31,13 +32,21 @@ export function UpdateHost() {
 function AndroidUpdateHost() {
   const { status, release, error } = useUpdate();
   const [promptOpen, setPromptOpen] = useState(false);
+  // 用户主动收起进度弹窗后就别再弹回来了（下载与 ready 都不受影响，只是不占前台）。
+  const [progressDismissed, setProgressDismissed] = useState(false);
   const prevStatusRef = useRef(status);
   const lastErrorRef = useRef<unknown>(null);
+
+  useUpdateReadyNotification();
 
   useEffect(() => {
     // status 从其他态变为 "available" → 弹 prompt（强更走 ForceUpdateDialog 自管）。
     if (prevStatusRef.current !== "available" && status === "available") {
       setPromptOpen(true);
+    }
+    // 离开「下载中 / 就绪」就把收起标记还原：下一轮更新是一件新的事，值得再露一次面。
+    if (!isBusy(status)) {
+      setProgressDismissed(false);
     }
     // 进入强更后收起 prompt，交接给 ForceUpdateDialog（它不可关，必须独占）。
     // 下载中【不】收:prompt 自带内联进度,保持打开 = 用户在下载期间仍看得到 release notes,
@@ -52,6 +61,8 @@ function AndroidUpdateHost() {
     if (status !== "error" || !error || lastErrorRef.current === error) {
       return;
     }
+    // 门禁拦下不会走到这里 —— 它由 engine 记在 `installBlocked` 上、status 留在 ready
+    // （见 SDK 的 UpdateAdapter.install）。所以到这儿的都是真失败，弹 toast 是对的。
     lastErrorRef.current = error;
     toast.error(t`更新失败`, error);
   }, [status, error]);
@@ -62,9 +73,15 @@ function AndroidUpdateHost() {
       <ForceUpdateDialog />
       {/* 兜底进度视图:仅当没有别的弹窗在承载进度时才出现——prompt 开着时它自带内联进度
           (故 !promptOpen),强更流由 ForceUpdateDialog 承载(故 progressDialogVisible 判
-          upgradeType)。用户在下载中主动关掉 prompt 后,由它接管,这是它唯一的用武之地。 */}
+          upgradeType)。用户在下载中主动关掉 prompt 后,由它接管,这是它唯一的用武之地。
+          onDismiss 是它的出口:受控 open 必须配对,否则关不掉(它自己不响应返回键)。 */}
       <UpdateProgressDialog
-        open={!promptOpen && progressDialogVisible(status, release)}
+        open={
+          !promptOpen &&
+          !progressDismissed &&
+          progressDialogVisible(status, release)
+        }
+        onDismiss={() => setProgressDismissed(true)}
       />
     </>
   );

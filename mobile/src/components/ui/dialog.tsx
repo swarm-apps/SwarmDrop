@@ -90,6 +90,16 @@ function DialogContent({
             }),
             className,
           )}
+          // @rn-primitives/dialog 的 Content 恒真地抢触摸响应者（`onStartShouldSetResponder:
+          // () => true`）。Android 上 JS responder 一旦授予就会 blockNativeResponder，把
+          // **弹窗内所有原生 ScrollView 的滚动整个禁掉** —— 更新弹窗里的 release notes 因此
+          // 一行也滚不动（v0.12.3 现场）。这里显式让掉。
+          //
+          // 它原本是为了挡住点击穿透到 Overlay 关闭弹窗，但那层防御在 native 上本就是空的：
+          // Overlay 走 `asChild`，`onPress` 被转发给 Animated.View —— View 不支持 onPress，
+          // 遮罩点击压根不会触发关闭。所以让掉不会带来误关。
+          // 升级 @rn-primitives/* 时别把这行当冗余删掉。
+          onStartShouldSetResponder={() => false}
           {...props}
         >
           {children}

@@ -6,10 +6,25 @@ import notifee, {
 } from "react-native-notify-kit";
 
 /**
- * 配对 / 传输告警的专用高优先级渠道(heads-up 抬头)。
- * 前台服务保活 / 传输进度通知使用独立渠道(foreground-service.ts),不复用此渠道。
+ * 需要用户当场决定一件事的高优先级渠道(heads-up 抬头):配对请求 / 传输请求 / 更新就绪。
+ * 三者同类 —— 都是「app 不在前台时发生了一件等你点头的事」,共用一个渠道用户才能一次性
+ * 关掉或放行。前台服务保活 / 传输进度通知使用独立渠道(foreground-service.ts),不复用此渠道。
+ *
+ * 渠道 id 保持不变(改 id 会让用户此前的渠道级设置失效,并新建一个默认开启的渠道)。
  */
 const ALERT_CHANNEL_ID = "pairing-transfer-alerts";
+
+/**
+ * 三类告警共用的 Android 通知外观。第三份拷贝是提取的临界点 —— 品牌色与状态栏小图标
+ * 不该按通知逐份复制(同款做法见 foreground-service.ts 的 FGS_ANDROID_BASE)。
+ */
+const ALERT_ANDROID_BASE = {
+  channelId: ALERT_CHANNEL_ID,
+  // 状态栏单色小图标(见 foreground-service.ts 说明);color 染品牌绿。
+  smallIcon: "ic_notification",
+  color: "#0F8F7A",
+  pressAction: { id: "default" },
+} as const;
 
 let channelReady: Promise<void> | null = null;
 
@@ -19,7 +34,7 @@ function ensureAlertChannel(): Promise<void> {
     channelReady = notifee
       .createChannel({
         id: ALERT_CHANNEL_ID,
-        name: t`配对与传输请求`,
+        name: t`配对、传输与更新`,
         importance: AndroidImportance.HIGH,
       })
       .then(() => undefined)
@@ -66,27 +81,44 @@ export function openNotificationSettings(): Promise<void> {
   return notifee.openNotificationSettings();
 }
 
+/**
+ * 告警通知的统一投递口:前台不发 → 只检查不请求权限 → 确保渠道 → 显示。
+ * 三个前置条件对三类告警都一样,分开写只会让某一处漏掉其中一步。
+ */
+async function displayAlert(payload: {
+  id?: string;
+  title: string;
+  body: string;
+  data: Record<string, string>;
+}): Promise<void> {
+  if (isAppInForeground()) return;
+  if (!(await hasNotificationPermission())) return;
+  await ensureAlertChannel();
+  await notifee.displayNotification({
+    id: payload.id,
+    title: payload.title,
+    body: payload.body,
+    data: payload.data,
+    android: { ...ALERT_ANDROID_BASE },
+  });
+}
+
+/** Fire-and-forget:调用点多在 Rust 事件线程上,不能 await,异常吞掉不影响事件分发。 */
+function fire(label: string, run: () => Promise<void>): void {
+  run().catch((err) => {
+    console.warn(`[notifier] ${label} failed:`, err);
+  });
+}
+
 async function notifyTransferOffer(
   sessionId: string,
   deviceName: string,
   fileCount: number,
 ): Promise<void> {
-  if (isAppInForeground()) return;
-  if (!(await hasNotificationPermission())) {
-    return;
-  }
-  await ensureAlertChannel();
-  await notifee.displayNotification({
+  await displayAlert({
     title: t`收到文件传输请求`,
     body: t`${deviceName} 想发送 ${fileCount} 个文件`,
     data: { kind: "transfer-offer", sessionId },
-    android: {
-      channelId: ALERT_CHANNEL_ID,
-      // 状态栏单色小图标(见 foreground-service.ts 说明);color 染品牌绿。
-      smallIcon: "ic_notification",
-      color: "#0F8F7A",
-      pressAction: { id: "default" },
-    },
   });
 }
 
@@ -140,5 +172,47 @@ export function fireNotifyPairingRequest(
 ): void {
   notifyPairingRequest(peerId, pendingId, code).catch((err) => {
     console.warn("[notifier] notifyPairingRequest failed:", err);
+  });
+}
+
+/** 更新就绪通知的固定 id —— 同一条覆盖更新,离开 ready 时按它撤销。 */
+const UPDATE_READY_NOTIFICATION_ID = "update-ready";
+
+/**
+ * 「新版本已下载,点击安装」。
+ *
+ * 这条通知不只是提醒,它是**熄屏更新的解法**:Android 10+ 禁止后台启动 Activity,所以
+ * 下载在后台完成时安装确认框根本弹不出来(见 lib/expo-installer 的前台门禁)。用户点击
+ * 通知触发的 Activity 启动属于该限制的合法例外,应用回到前台后 useAutoInstall 就能正常
+ * 拉起系统安装框。
+ */
+async function notifyUpdateReady(version: string): Promise<void> {
+  if (isAppInForeground()) return;
+  if (!(await hasNotificationPermission())) return;
+  await ensureAlertChannel();
+  await notifee.displayNotification({
+    id: UPDATE_READY_NOTIFICATION_ID,
+    title: t`新版本已下载`,
+    body: t`点击安装 ${version}`,
+    data: { kind: "update-ready" },
+    android: {
+      channelId: ALERT_CHANNEL_ID,
+      smallIcon: "ic_notification",
+      color: "#0F8F7A",
+      pressAction: { id: "default" },
+    },
+  });
+}
+
+export function fireNotifyUpdateReady(version: string): void {
+  notifyUpdateReady(version).catch((err) => {
+    console.warn("[notifier] notifyUpdateReady failed:", err);
+  });
+}
+
+/** 撤销更新就绪通知(装上了 / 产物失效 / 用户改主意)。 */
+export function fireCancelUpdateReady(): void {
+  notifee.cancelNotification(UPDATE_READY_NOTIFICATION_ID).catch((err) => {
+    console.warn("[notifier] cancelUpdateReady failed:", err);
   });
 }

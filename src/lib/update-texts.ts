@@ -29,8 +29,18 @@ export interface UpdateTexts {
   updateButton: string;
   /** 下载中按钮。 */
   downloadingButton: string;
-  /** 安装/重启中按钮。 */
-  restartingButton: string;
+  /**
+   * ready 态主按钮:产物已就绪,点击安装并重启。
+   *
+   * 这里刻意是**动作**而不是状态陈述。它取代了原来的 `restartingButton`(「正在重启…」)——
+   * 那句话把 ready 描述成一个正在进行的过程,可 ready 是能停住的(安装可能被 UAC 取消),
+   * 停住时按钮上写着「正在重启」而什么都没发生,用户就只能干等。
+   */
+  installButton: string;
+  /** ready 态提示:陈述本地事实(产物已就绪),不陈述安装到哪一步了。 */
+  readyHint: string;
+  /** 进度弹窗的退出按钮:只收起 UI,下载继续。 */
+  backgroundButton: string;
   /** 强制更新标题。 */
   forceTitle: string;
   /** 强制更新描述:(新版本, 当前版本) => 文案。 */
@@ -62,7 +72,9 @@ const en: UpdateTexts = {
   laterButton: "Later",
   updateButton: "Update now",
   downloadingButton: "Downloading…",
-  restartingButton: "Restarting…",
+  installButton: "Install now",
+  readyHint: "Update ready to install",
+  backgroundButton: "Continue in background",
   forceTitle: "Update required",
   forceDescription: (latest, current) =>
     `Version ${current} is no longer supported. Please update to ${latest}.`,
@@ -84,7 +96,9 @@ const zh: UpdateTexts = {
   laterButton: "稍后提醒",
   updateButton: "立即更新",
   downloadingButton: "下载中…",
-  restartingButton: "正在重启…",
+  installButton: "立即安装",
+  readyHint: "更新已就绪",
+  backgroundButton: "后台下载",
   forceTitle: "需要更新",
   forceDescription: (latest, current) =>
     `当前版本 ${current} 已不再支持，请更新到最新版本 ${latest}`,
@@ -106,7 +120,9 @@ const zhTW: UpdateTexts = {
   laterButton: "稍後提醒",
   updateButton: "立即更新",
   downloadingButton: "下載中…",
-  restartingButton: "正在重新啟動…",
+  installButton: "立即安裝",
+  readyHint: "更新已就緒",
+  backgroundButton: "背景下載",
   forceTitle: "需要更新",
   forceDescription: (latest, current) =>
     `目前版本 ${current} 已不再支援，請更新到最新版本 ${latest}`,

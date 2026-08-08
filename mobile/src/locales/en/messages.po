@@ -68,7 +68,7 @@ msgstr "{d} days ago"
 msgid "{deviceCount, plural, one {# 台设备} other {# 台设备}}"
 msgstr "{deviceCount, plural, one {# device} other {# devices}}"
 
-#: src/core/notifier.ts:81
+#: src/core/notifier.ts:120
 msgid "{deviceName} 想发送 {fileCount} 个文件"
 msgstr "{deviceName} wants to send {fileCount} files"
 
@@ -142,7 +142,7 @@ msgstr "NAT"
 msgid "NAT 状态"
 msgstr "NAT status"
 
-#: src/app/settings/about.tsx:121
+#: src/app/settings/about.tsx:142
 msgid "Noise 或 TLS 1.3，中继全程只经手密文"
 msgstr "Noise or TLS 1.3 — relays only ever forward ciphertext"
 
@@ -163,13 +163,17 @@ msgstr "SwarmDrop isn't online yet"
 msgid "一切就绪"
 msgstr "All set"
 
-#: src/app/settings/about.tsx:125
+#: src/app/settings/about.tsx:146
 msgid "一次一密"
 msgstr "One key per transfer"
 
 #: src/app/inbox/[itemId].tsx:1100
 msgid "上次打开"
 msgstr "Last opened"
+
+#: src/app/settings/about.tsx:247
+msgid "下载中"
+msgstr "Downloading"
 
 #: src/app/device/[peerId].tsx:394
 msgid "不允许"
@@ -433,11 +437,11 @@ msgid "公网引导尚未连接，跨网络发现可能暂时不可用。"
 msgstr "Public bootstrap is not connected. Cross-network discovery may be temporarily unavailable."
 
 #: src/app/(main)/settings.tsx:61
-#: src/app/settings/about.tsx:85
+#: src/app/settings/about.tsx:106
 msgid "关于"
 msgstr "About"
 
-#: src/components/ui/dialog.tsx:98
+#: src/components/ui/dialog.tsx:108
 msgid "关闭"
 msgstr "Close"
 
@@ -646,7 +650,7 @@ msgstr "Helper address copied"
 msgid "原始文件已不可用"
 msgstr "Original files are no longer available"
 
-#: src/app/settings/about.tsx:111
+#: src/app/settings/about.tsx:132
 msgid "去中心化、跨网络、端到端加密文件传输"
 msgstr "Decentralized, cross-network, end-to-end encrypted file transfer"
 
@@ -654,7 +658,7 @@ msgstr "Decentralized, cross-network, end-to-end encrypted file transfer"
 msgid "去系统设置开启"
 msgstr "Open system settings"
 
-#: src/app/settings/about.tsx:190
+#: src/app/settings/about.tsx:188
 msgid "反馈"
 msgstr "Feedback"
 
@@ -923,7 +927,7 @@ msgstr "Failed"
 msgid "它可能已经被删除。"
 msgstr "It may have been deleted."
 
-#: src/app/settings/about.tsx:116
+#: src/app/settings/about.tsx:137
 msgid "安全与加密"
 msgstr "Security & encryption"
 
@@ -1006,12 +1010,12 @@ msgstr "Paused by peer"
 msgid "对端离线"
 msgstr "Peer offline"
 
-#: src/app/settings/about.tsx:77
-#: src/app/settings/about.tsx:216
+#: src/app/settings/about.tsx:98
+#: src/app/settings/about.tsx:214
 msgid "导出日志"
 msgstr "Export logs"
 
-#: src/app/settings/about.tsx:79
+#: src/app/settings/about.tsx:100
 msgid "导出日志失败"
 msgstr "Couldn't export logs"
 
@@ -1136,7 +1140,7 @@ msgstr "Rejected"
 msgid "已拒绝文件"
 msgstr "Files rejected"
 
-#: src/app/settings/about.tsx:164
+#: src/app/settings/about.tsx:267
 msgid "已是最新"
 msgstr "Up to date"
 
@@ -1374,7 +1378,7 @@ msgstr "Scan Their QR Code"
 msgid "扫码或粘贴"
 msgstr "Scan or Paste"
 
-#: src/core/notifier.ts:107
+#: src/core/notifier.ts:139
 msgid "扫码配对"
 msgstr "Pair by QR code"
 
@@ -1567,7 +1571,7 @@ msgstr "Incoming files"
 msgid "收到文件会第一时间出现在这儿"
 msgstr "Incoming files will show up here right away"
 
-#: src/core/notifier.ts:80
+#: src/core/notifier.ts:119
 msgid "收到文件传输请求"
 msgstr "File transfer request received"
 
@@ -1655,7 +1659,7 @@ msgstr "Text"
 msgid "文本内容"
 msgstr "Text content"
 
-#: src/app/settings/about.tsx:184
+#: src/app/settings/about.tsx:182
 msgid "文档"
 msgstr "Docs"
 
@@ -1664,7 +1668,11 @@ msgstr "Docs"
 msgid "新分组名称"
 msgstr "New group name"
 
-#: src/core/notifier.ts:109
+#: src/core/notifier.ts:195
+msgid "新版本已下载"
+msgstr "Update downloaded"
+
+#: src/core/notifier.ts:141
 msgid "新设备请求配对"
 msgstr "New device pairing request"
 
@@ -1672,7 +1680,7 @@ msgstr "New device pairing request"
 msgid "无法打开文件夹"
 msgstr "Couldn't open folder"
 
-#: src/app/settings/about.tsx:55
+#: src/app/settings/about.tsx:58
 msgid "无法打开链接"
 msgstr "Cannot open link"
 
@@ -1680,11 +1688,11 @@ msgstr "Cannot open link"
 msgid "无需账号,设备身份只存在本机"
 msgstr "No account needed. Device identity stays on this device."
 
-#: src/app/settings/about.tsx:73
+#: src/app/settings/about.tsx:94
 msgid "日志尚未生成，请先使用一段时间再试"
 msgstr "No log file yet — use the app for a while and try again"
 
-#: src/app/settings/about.tsx:131
+#: src/app/settings/about.tsx:152
 msgid "明文不经过任何服务器"
 msgstr "Plaintext never touches any server"
 
@@ -1724,7 +1732,7 @@ msgstr "None"
 msgid "暂无传输记录"
 msgstr "No transfers yet"
 
-#: src/app/settings/about.tsx:73
+#: src/app/settings/about.tsx:94
 msgid "暂无日志"
 msgstr "No logs yet"
 
@@ -1760,7 +1768,7 @@ msgstr "Change"
 msgid "更改保存位置"
 msgstr "Change save location"
 
-#: src/components/update-host.tsx:56
+#: src/components/update-host.tsx:67
 msgid "更新失败"
 msgstr "Update failed"
 
@@ -1768,7 +1776,7 @@ msgstr "Update failed"
 msgid "更新归档状态失败"
 msgstr "Failed to update archive state"
 
-#: src/app/settings/about.tsx:198
+#: src/app/settings/about.tsx:196
 msgid "更新日志"
 msgstr "Changelog"
 
@@ -1776,7 +1784,7 @@ msgstr "Changelog"
 msgid "有效期"
 msgstr "Expires"
 
-#: src/app/settings/about.tsx:148
+#: src/app/settings/about.tsx:239
 msgid "有新版可用"
 msgstr "Update available"
 
@@ -1915,11 +1923,11 @@ msgstr "View diagnostics"
 msgid "树形视图"
 msgstr "Tree view"
 
-#: src/app/settings/about.tsx:158
+#: src/app/settings/about.tsx:263
 msgid "检查失败"
 msgstr "Check failed"
 
-#: src/app/settings/about.tsx:141
+#: src/app/settings/about.tsx:78
 msgid "检查更新"
 msgstr "Check for updates"
 
@@ -1993,7 +2001,7 @@ msgstr "This device requires confirmation before receiving starts."
 msgid "每一笔传输的过程都记在这里；收好的东西请到收件箱找"
 msgstr "Every transfer is logged here; find what you've received in the inbox"
 
-#: src/app/settings/about.tsx:126
+#: src/app/settings/about.tsx:147
 msgid "每条连接独立握手，会话密钥仅存内存"
 msgstr "Each connection handshakes on its own; session keys live only in memory"
 
@@ -2077,7 +2085,11 @@ msgstr "The source file changed, so it can’t continue. Please send it again."
 msgid "点下方「添加设备」，把你的电脑或另一台手机接进来。"
 msgstr "Tap “Add device” below to bring in your computer or another phone."
 
-#: src/app/settings/about.tsx:130
+#: src/core/notifier.ts:196
+msgid "点击安装 {version}"
+msgstr "Tap to install {version}"
+
+#: src/app/settings/about.tsx:151
 msgid "点对点直连"
 msgstr "Direct peer-to-peer"
 
@@ -2185,7 +2197,7 @@ msgstr "Empty transfer"
 msgid "端到端 · 本次传输专用密钥"
 msgstr "End-to-end · one-off key for this transfer"
 
-#: src/app/settings/about.tsx:120
+#: src/app/settings/about.tsx:141
 msgid "端到端加密"
 msgstr "End-to-end encryption"
 
@@ -2471,7 +2483,7 @@ msgstr "Could not read or write the device identity"
 msgid "设置"
 msgstr "Settings"
 
-#: src/app/settings/about.tsx:207
+#: src/app/settings/about.tsx:205
 msgid "诊断"
 msgstr "Diagnostics"
 
@@ -2534,7 +2546,7 @@ msgstr "Enter a number greater than 0, or leave blank for no limit"
 msgid "请重新选择要发送的文件"
 msgstr "Pick the files you want to send again"
 
-#: src/app/settings/about.tsx:172
+#: src/app/settings/about.tsx:170
 msgid "资源"
 msgstr "Resources"
 
@@ -2552,7 +2564,8 @@ msgstr "Follow system"
 msgid "跨网络直连,不同 WiFi 也能传"
 msgstr "Direct cross-network transfer, even on different Wi-Fi"
 
-#: src/app/settings/about.tsx:138
+#: src/app/settings/about.tsx:77
+#: src/app/settings/about.tsx:159
 msgid "软件更新"
 msgstr "Software update"
 
@@ -2689,7 +2702,7 @@ msgstr "Notifications enabled"
 msgid "通知提醒"
 msgstr "Notification alerts"
 
-#: src/app/settings/about.tsx:210
+#: src/app/settings/about.tsx:208
 msgid "遇到问题时，日志能帮我们定位。它包含设备 ID 与网络地址，发送前请自行过目。"
 msgstr "Logs help us pin down what went wrong. They contain your device ID and network addresses — please review before sending."
 
@@ -2739,9 +2752,9 @@ msgstr "The invite state could not be saved, so pairing was aborted. Please gene
 msgid "配对"
 msgstr "Pair"
 
-#: src/core/notifier.ts:22
-msgid "配对与传输请求"
-msgstr "Pairing and transfer requests"
+#: src/core/notifier.ts:37
+msgid "配对、传输与更新"
+msgstr "Pairing, transfers & updates"
 
 #: src/app/pairing/success.tsx:46
 msgid "配对成功"
@@ -2759,7 +2772,7 @@ msgstr "Pairing didn't go through — make sure both devices are online and try 
 msgid "配对码"
 msgstr "Pairing code"
 
-#: src/core/notifier.ts:107
+#: src/core/notifier.ts:139
 msgid "配对码 {code}"
 msgstr "Pairing code {code}"
 

@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from "react";
+import type { ReactNode } from "react";
 import { View } from "react-native";
 import { ReleaseNotesView } from "@/components/release-notes-view";
 import {
@@ -12,9 +12,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
 import { Text } from "@/components/ui/text";
+import { useAutoInstall } from "@/hooks/use-auto-install";
 import { useUpdate } from "@/hooks/use-update";
-import { forceDialogVisible } from "@/lib/update-dialog-visibility";
 import {
+  forceDialogVisible,
+  progressView,
+} from "@/lib/update-dialog-visibility";
+import {
+  readyHintText,
   resolveUpdateTexts,
   type UpdateLocale,
   type UpdateTexts,
@@ -33,27 +38,23 @@ export function ForceUpdateDialog({
   releaseNotesRenderer,
   currentVersion,
 }: ForceUpdateDialogProps) {
-  const { status, release, progress, download, install } = useUpdate();
+  const { status, release, progress, download } = useUpdate();
+  const { blockedReason, autoAttemptSpent, install } = useAutoInstall();
   const t = resolveUpdateTexts(locale, texts);
 
   const isDownloading = status === "downloading";
   const isReady = status === "ready";
   const open = forceDialogVisible(status, release);
-  const busy = isDownloading || isReady;
 
-  useEffect(() => {
-    if (status === "ready") void install();
-  }, [status, install]);
-
-  const percent = progress ? Math.round(progress.percent * 100) : 0;
-  const speedMb = progress?.speed
-    ? (progress.speed / 1024 / 1024).toFixed(1)
-    : null;
+  const { percent, speedMb } = progressView(status, progress);
   const actionLabel = isDownloading
     ? t.downloadingButton
     : isReady
       ? t.installButton
       : t.updateButton;
+  // 本弹窗不可关、只有这一个按钮 —— ready 态若也把它禁掉,用户就彻底没有出路了
+  // (比普通更新流更糟:那边至少还有个 ×)。只有下载中才禁。
+  const onAction = isReady ? install : download;
 
   return (
     // 软强制:AlertDialog 无关闭 X、不响应点遮罩 / 返回键关闭;无 dismiss 按钮。
@@ -97,17 +98,17 @@ export function ForceUpdateDialog({
 
         {isReady ? (
           <Text className="text-primary-ink text-sm">
-            {t.systemConfirmHint}
+            {readyHintText(t, blockedReason, autoAttemptSpent)}
           </Text>
         ) : null}
 
         <AlertDialogFooter>
           {/* AlertDialogAction(RNR canonical)不像 Button 那样在 disabled 时自动加 opacity-50,
-              故 busy 时在调用处补 opacity-50,保持禁用态的视觉反馈(不改 vendored 原语)。 */}
+              故禁用时在调用处补 opacity-50,保持禁用态的视觉反馈(不改 vendored 原语)。 */}
           <AlertDialogAction
-            className={busy ? "flex-1 opacity-50" : "flex-1"}
-            onPress={() => void download()}
-            disabled={busy}
+            className={isDownloading ? "opacity-50" : undefined}
+            onPress={() => void onAction()}
+            disabled={isDownloading}
           >
             <Text>{actionLabel}</Text>
           </AlertDialogAction>
