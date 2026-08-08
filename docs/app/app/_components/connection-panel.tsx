@@ -359,9 +359,21 @@ export function ConnectionPanel() {
               <Plus className="size-4 shrink-0" aria-hidden />
               <Trans>添加自定义引导节点</Trans>
             </span>
-            <span className="shrink-0 rounded-full bg-foreground px-2.5 py-1 text-[11px] font-medium text-background">
+            {/*
+              输入格式提示。**曾经是 `bg-foreground` + `text-background` 的实心胶囊**——
+              浅色下一块纯黑、深色下一块纯白，是整张设置页对比度最高的元素，却挂在
+              全页优先级最低的一行（一个收起着的次要动作）上。视觉重量与信息重量正好反着，
+              而且它是这一页第四种徽标方言：同一个面板里的传输名用 `bg-primary/10 text-brand`，
+              分组标题旁的计数用 `Badge variant="outline"`。
+
+              改成 shared `Badge` 的 outline 档——DESIGN.md §5 把 outline/ghost 定义为
+              「低强调标签」，这正是一个。`text-inherit` 让它跟着整行的
+              `text-muted-foreground → hover:text-foreground` 一起走，
+              于是这一行读起来是一个整体，而不是一行灰字外加一块黑砖。
+            */}
+            <Badge variant="outline" className="text-[10px] text-inherit">
               Multiaddr
-            </span>
+            </Badge>
           </button>
         )}
 
