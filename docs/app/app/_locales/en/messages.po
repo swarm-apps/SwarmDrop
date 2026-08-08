@@ -14,8 +14,8 @@ msgstr ""
 "Plural-Forms: \n"
 
 #: app/app/_components/node-panel.tsx
-msgid "· 刷新后保持不变。清除浏览器数据会让本机换一个新身份，已配对的设备需要重新配对。"
-msgstr "· Survives a page refresh. Clearing browser data gives this device a new identity, and paired devices will need to pair again."
+#~ msgid "· 刷新后保持不变。清除浏览器数据会让本机换一个新身份，已配对的设备需要重新配对。"
+#~ msgstr "· Survives a page refresh. Clearing browser data gives this device a new identity, and paired devices will need to pair again."
 
 #: app/app/_components/node-panel.tsx
 msgid "（浏览器默认）"
@@ -143,8 +143,8 @@ msgid "circuit 已撤销，对方扫这个码也拨不回来。重新建立可�
 msgstr "The circuit was dropped, so scanning this code can no longer reach you. Re-establish reachability, then generate a new invite."
 
 #: app/app/_lib/store.ts
-msgid "localStorage（Window 主线程）"
-msgstr "localStorage (main window thread)"
+#~ msgid "localStorage（Window 主线程）"
+#~ msgstr "localStorage (main window thread)"
 
 #: app/app/_components/app-nav.tsx
 msgid "SwarmDrop 官网首页"
@@ -415,6 +415,10 @@ msgstr "Aliases and groups stay on this device. They are never synced to the oth
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "到设备页点某台在线设备的「发送」，传输开始后会实时出现在这里。"
 msgstr "Hit Send on an online device, and the transfer shows up here live."
+
+#: app/app/_components/node-panel.tsx
+msgid "刷新后保持不变。清除浏览器数据会让本机换一个新身份，已配对的设备需要重新配对。"
+msgstr "Survives a page refresh. Clearing browser data gives this device a new identity, and paired devices will need to pair again."
 
 #: app/app/_components/pairing-panel.tsx
 msgid "刷新页面后它可能恢复可用，建议稍后再撤销一次。"
@@ -1627,8 +1631,12 @@ msgid "跟随系统"
 msgstr "System"
 
 #: app/app/_components/node-panel.tsx
-msgid "身份存在哪里？"
-msgstr "Where is this identity stored?"
+msgid "身份存储"
+msgstr "Identity storage"
+
+#: app/app/_components/node-panel.tsx
+#~ msgid "身份存在哪里？"
+#~ msgstr "Where is this identity stored?"
 
 #: app/app/_lib/view-types.ts
 msgid "身份错误"

@@ -43,6 +43,7 @@ import { selectReservation, useWebNode } from "../_lib/store";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useNowSeconds } from "../_lib/use-now-seconds";
 import { CopyButton } from "./copy-button";
+import { Disclosure } from "./disclosure";
 import { NodeStatusPill, useNodeStatusLabel } from "./node-status-pill";
 import { StartNodeButton } from "./start-node-button";
 import { WebErrorCard } from "./web-error-view";
@@ -172,11 +173,8 @@ function NodeStatusDialogContent() {
               还是我吗」，属于持久身份，归设置页的「本机节点」区（那里同时管改名）。
               节点 ID 两处都有则是刻意的：它是排查时最常要复制的一串，三端的节点弹窗都带。
             */}
-            <details className="rounded-lg border px-3 py-2 text-xs">
-              <summary className="focus-ring -mx-1 cursor-pointer rounded px-1 text-muted-foreground">
-                <Trans>网络诊断</Trans>
-              </summary>
-              <dl className="mt-2 flex flex-col gap-2.5">
+            <Disclosure compact className="rounded-lg border text-xs" label={<Trans>网络诊断</Trans>}>
+              <dl className="flex flex-col gap-2.5">
                 <DiagnosticRow label={<Trans>节点 ID</Trans>}>
                   <span className="min-w-0 flex-1 font-mono tabular-nums break-all">
                     {nodeId ?? "—"}
@@ -207,7 +205,7 @@ function NodeStatusDialogContent() {
                   的「引导节点」区。
                 </Trans>
               </p>
-            </details>
+            </Disclosure>
           </>
         )}
       </div>

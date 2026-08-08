@@ -7,7 +7,6 @@
 //         `inboxItems` 域的注释；拉取时机由 InboxPanel 自己掌握）。
 // 四者都汇入本 store。actions 独立于 state（不塞进 state 对象），保证 selector 快照稳定。
 
-import { msg } from "@lingui/core/macro";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { isActiveSession } from "./format";
@@ -37,9 +36,16 @@ const EVENT_LOG_CAP = 50;
 /**
  * 身份持久化位置。当前基座只支持主线程 Window 运行（`spawnNode` 未提供 Worker 路径，
  * `WebNode::spawn` 也要求主线程——见 node-runtime.ts 注释），故这是编译期常量，不是探测值；
- * Worker 模式落地时（对应 OPFS）需改为按运行环境派生。
+ * Worker 模式落地时（对应 OPFS）把这里换成按运行环境派生即可。
+ *
+ * **它是 API 名，所以是裸字符串而不是 `msg`**：`localStorage` 在任何语言里都写作
+ * `localStorage`，进 catalog 只会得到三份一模一样的条目。此前它是
+ * `msg\`localStorage（Window 主线程）\`` —— 那个括号里的中文限定语与 API 名黏在同一个
+ * 串里，界面上整串套 `font-mono`，CJK 落回非等宽字体、字距还被撑开，跟紧随其后的正文
+ * 明显不是一套字（Mono Truth Rule 只管字面值，不管散文）。限定语现在只留在这条注释里：
+ * 今天没有 Worker 模式，「主线程」对用户不构成可据以行动的信息。
  */
-export const IDENTITY_LOCATION = msg`localStorage（Window 主线程）`;
+export const IDENTITY_LOCATION = "localStorage";
 
 /**
  * 接收面板所需的稳定 offer 视图。

@@ -14,8 +14,8 @@ msgstr ""
 "Plural-Forms: \n"
 
 #: app/app/_components/node-panel.tsx
-msgid "· 刷新后保持不变。清除浏览器数据会让本机换一个新身份，已配对的设备需要重新配对。"
-msgstr "· 重新整理後保持不變。清除瀏覽器資料會讓本機換一個新身分，已配對的裝置需要重新配對。"
+#~ msgid "· 刷新后保持不变。清除浏览器数据会让本机换一个新身份，已配对的设备需要重新配对。"
+#~ msgstr "· 重新整理後保持不變。清除瀏覽器資料會讓本機換一個新身分，已配對的裝置需要重新配對。"
 
 #: app/app/_components/node-panel.tsx
 msgid "（浏览器默认）"
@@ -143,8 +143,8 @@ msgid "circuit 已撤销，对方扫这个码也拨不回来。重新建立可�
 msgstr "circuit 已撤銷，對方掃這個碼也連不回來。重新建立可連線狀態後請重新產生。"
 
 #: app/app/_lib/store.ts
-msgid "localStorage（Window 主线程）"
-msgstr "localStorage（Window 主執行緒）"
+#~ msgid "localStorage（Window 主线程）"
+#~ msgstr "localStorage（Window 主執行緒）"
 
 #: app/app/_components/app-nav.tsx
 msgid "SwarmDrop 官网首页"
@@ -415,6 +415,10 @@ msgstr "別名與群組只存在本機，不會同步給對方，也不會改變
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "到设备页点某台在线设备的「发送」，传输开始后会实时出现在这里。"
 msgstr "到裝置頁點某台在線裝置的「傳送」，傳輸開始後會即時出現在這裡。"
+
+#: app/app/_components/node-panel.tsx
+msgid "刷新后保持不变。清除浏览器数据会让本机换一个新身份，已配对的设备需要重新配对。"
+msgstr "重新整理後保持不變。清除瀏覽器資料會讓本機換一個新身分，已配對的裝置需要重新配對。"
 
 #: app/app/_components/pairing-panel.tsx
 msgid "刷新页面后它可能恢复可用，建议稍后再撤销一次。"
@@ -1627,8 +1631,12 @@ msgid "跟随系统"
 msgstr "跟隨系統"
 
 #: app/app/_components/node-panel.tsx
-msgid "身份存在哪里？"
-msgstr "身分存在哪裡？"
+msgid "身份存储"
+msgstr "身分儲存"
+
+#: app/app/_components/node-panel.tsx
+#~ msgid "身份存在哪里？"
+#~ msgstr "身分存在哪裡？"
 
 #: app/app/_lib/view-types.ts
 msgid "身份错误"
