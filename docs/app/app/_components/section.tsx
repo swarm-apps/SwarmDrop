@@ -19,6 +19,7 @@
 
 import { ChevronDown, type LucideIcon } from "lucide-react";
 import type { ComponentPropsWithRef, ReactNode } from "react";
+import type { FileBrowserView } from "@swarmdrop/shared-view";
 import { cn } from "@/lib/cn";
 
 /**
@@ -65,6 +66,34 @@ export function selectedRowClass(selected: boolean): string {
   return selected
     ? "border-[var(--brand)]/40 bg-accent ring-1 ring-[var(--brand)]/20"
     : "hover:bg-accent";
+}
+
+/**
+ * 详情侧**内嵌**的文件浏览器该多高（传输详情与收件箱详情共用）。
+ *
+ * ## 上限，不是下限
+ *
+ * 两处此前写的都是 `min-h-[320px]`，理由是「树形视图内部虚拟滚动，要有确定高度才算得出
+ * 可见行」。但那个下限在绝大多数条目上都是净损失——一两个文件时，详情里固定挂着一块 320px
+ * 的空槽，正是 `DESIGN.md`「Empty states size to their role」点名的 cavity。
+ *
+ * `max-h` 同样给得出确定高度（内容超上限时容器被钉死，`clientHeight` 有值，虚拟化照常
+ * 只挂可见行），而内容少时贴着内容收。下限只在「这一节就是整屏主体」时才对。
+ *
+ * 顺带修掉的一件事：没有上限时，文件多的条目会把下方的动作区（归档 / 删除 / 暂停）推到
+ * 几十行之外，用户要滚过整份清单才够得着。
+ *
+ * ## 为什么按视图分两档
+ *
+ * 树形一行 40px，网格一行约 220px（卡片 4:3 + 文件名两行 + 12px 间距，见
+ * `file-grid-view.tsx` 的 `estimatedRowHeight`）。同一个数必然让其中一种难看：
+ * 340 在网格下只露一行半，460 在树形下又是十一行半的高墙。
+ *
+ * 两个数都**刻意留半行/一小截露头**（树 8.5 行、网格 2 行 + 20px），那截被切掉的内容就是
+ * 「下面还有，可以滚」的唯一提示——正好卡在整数行上反而像列表到此为止。
+ */
+export function fileSectionHeightClass(view: FileBrowserView): string {
+  return view === "grid" ? "max-h-[460px]" : "max-h-[340px]";
 }
 
 /**

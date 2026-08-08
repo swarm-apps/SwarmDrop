@@ -115,8 +115,8 @@ msgstr "「{0}」傳來的檔案按這裡的設定處置。策略只存在本機
 msgid "<0>{0}</0> 想与这台设备配对"
 msgstr "<0>{0}</0> 想與這台裝置配對"
 
-#. placeholder {0}: current?.deviceName
-#. placeholder {0}: offer.deviceName
+#. placeholder {0}: current ? peerLabel(current.deviceName, current.peerId) : ""
+#. placeholder {0}: peerLabel(offer.deviceName, offer.peerId)
 #. placeholder {1}: files.length
 #. placeholder {1}: offer.files.length
 #. placeholder {2}: formatFileSize(current?.totalSize ?? 0)
@@ -1174,7 +1174,7 @@ msgstr "本機暫停"
 msgid "来源未知"
 msgstr "來源未知"
 
-#. placeholder {0}: item.sourceName
+#. placeholder {0}: peerLabel(item.sourceName, item.sourcePeerId)
 #. placeholder {1}: item.itemCount
 #. placeholder {2}: formatFileSize(item.totalSize)
 #: app/app/_components/inbox-views.tsx
@@ -1768,8 +1768,8 @@ msgid "连接失败"
 msgstr "連線失敗"
 
 #: app/app/_components/transfer-labels.ts
-msgid "连接类型未知"
-msgstr "連線類型未知"
+#~ msgid "连接类型未知"
+#~ msgstr "連線類型未知"
 
 #: app/app/_lib/nav.ts
 msgid "选一台已配对设备，拖文件进来直接送达。"

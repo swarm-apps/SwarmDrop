@@ -109,25 +109,23 @@ export function connectionByPeer(devices: Device[]) {
 }
 
 /**
- * 未知连接方式的兜底标签。**必须是模块级常量**：`msg` 宏每次求值都新建一个对象，写在
- * `connectionLabel` 的返回位上会让它每次调用返回新引用——而这个值是 `TransferActivityItem`
- * 的 prop，那个组件靠 `memo` 让「每秒十余次的进度事件只重渲染它自己那一行」。
- * 新引用会把整张表的 memo 打穿。
- */
-export const UNKNOWN_CONNECTION_LABEL = msg`连接类型未知`;
-
-/**
  * 下面两个返回**描述符**而非字符串：它们是模块级纯函数，翻译宏在这里只能定义、不能展开
  * （展开要 `useLingui()`，那是组件的事）。调用点拿到描述符自己 `t(...)`。
  *
- * 两者的返回值都必须是**稳定引用**（见上），所以只从模块级的映射表里取，不现造。
+ * 返回值必须是**稳定引用**：`msg` 宏每次求值都新建一个对象，写在返回位上会让每次调用都
+ * 换引用，而这个值是 `TransferActivityItem` 的 prop，那个组件靠 `memo` 让「每秒十余次的
+ * 进度事件只重渲染它自己那一行」。所以只从模块级的映射表里取，不现造。
  */
 export function connectionLabel(
   projection: TransferProjection,
   connections: Map<string, Device["connection"]>,
-): MessageDescriptor {
+): MessageDescriptor | null {
+  // 查不到连接方式时返回 `null` 而不是一句「连接类型未知」：那句话在**每一条**历史会话上
+  // 都成立（对端早就不在连接表里了），于是列表里每行都挂着同一句不携带任何信息的话，
+  // 详情侧的摘要行也被它占掉三分之一。`null` 让调用点整段省掉——同 `TransferMetrics`
+  // 「算不出来就不摆这一格」的取舍。
   const connection = connections.get(projection.peerId);
-  return connection ? CONNECTION_LABEL[connection] : UNKNOWN_CONNECTION_LABEL;
+  return connection ? CONNECTION_LABEL[connection] : null;
 }
 
 export function phaseLabel(projection: TransferProjection): MessageDescriptor {

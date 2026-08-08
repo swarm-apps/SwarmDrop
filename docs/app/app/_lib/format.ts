@@ -55,6 +55,20 @@ export function isActiveSession(projection: TransferProjection): boolean {
 }
 
 /**
+ * 会话是否**完整传完了**。
+ *
+ * 呈现层用它剪掉一整套只在「还没传完」时才有意义的东西：满格进度条、`9.3 KB / 9.3 KB`
+ * 这种两边一样的分数、以及一个恒为 `100%` 的数字。
+ *
+ * **不能用 `phase === "terminal"` 代替**：取消与失败也是终态，那两种恰恰要保留进度条与
+ * 分数——「传到哪儿断的」是它们唯一有价值的信息。也不能只看 `percent === 100`：
+ * 进行中的最后一帧同样会取到 100，而那时进度条还该在。
+ */
+export function isCompletedSession(projection: TransferProjection): boolean {
+  return projection.phase === "terminal" && projection.terminalReason === "completed";
+}
+
+/**
  * 会话是否可暂停：**仅 `active`**。
  *
  * 与内核的转换守卫同一判据——`reduce_user` 里写的是

@@ -25,7 +25,7 @@ import Link from "next/link";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { PANEL_SURFACE, selectedRowClass } from "./section";
+import { PANEL_SURFACE, fileSectionHeightClass, selectedRowClass } from "./section";
 import { ConfirmAction, INLINE_ACTION_CLASS } from "./confirm-action";
 import { CenteredEmptyState } from "./empty-state";
 import { OpenListButton } from "./master-detail";
@@ -390,9 +390,10 @@ export function InboxDetailPanel({
           )
         }
         emptyState={{ title: <Trans>这条记录里没有文件</Trans> }}
-        // 详情侧自己是滚动容器，本区块按内容定高；树形视图内部虚拟滚动，需要确定高度。
+        // 详情侧自己是滚动容器，本区块按内容定高；高度给**上限**不给下限，两档按视图分
+        // ——理由都在 `fileSectionHeightClass` 上（与传输详情共用同一条规则）。
         className="flex-none"
-        contentClassName="min-h-[320px]"
+        contentClassName={fileSectionHeightClass(view)}
       />
 
       {/* 下载失败逐条报，且带上是哪个文件——`FileBrowser` 的行里塞不下错误卡片，

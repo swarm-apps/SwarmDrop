@@ -34,6 +34,7 @@ import { RelativeTime } from "./relative-time";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
 import {
+  isCompletedSession,
   sessionEndedAt,
   sortByUpdatedDesc,
   transferSample,
@@ -401,7 +402,8 @@ const TransferActivityItem = memo(function TransferActivityItem({
 }: {
   projection: TransferProjection;
   progress?: TransferProgressEvent;
-  connection: MessageDescriptor;
+  /** `null` = 连接方式查不到（历史会话的常态），此时整段不渲染。 */
+  connection: MessageDescriptor | null;
   selected: boolean;
   onSelect: (sessionId: string) => void;
 }) {
@@ -413,6 +415,15 @@ const TransferActivityItem = memo(function TransferActivityItem({
   // 「什么时候的事」在那些阶段正是用户要问的（同桌面 `-session-row.tsx` 的右列）。
   const rate = projection.phase === "active" ? formatTransferRate(live?.speed) : null;
   const peer = peerLabel(projection.peerName, projection.peerId);
+  /**
+   * 传完了的那一条，「进度」这件事整套退场：满格进度条、`9.3 KB / 9.3 KB` 的两边同数、
+   * 恒为 `100%` 的尾巴——三样说的都是行首那枚状态点与「已完成」已经说过的话。
+   *
+   * 历史列表里绝大多数是这一类，所以这三笔冗余的实际效果是**让每一条都长得一样**：
+   * 一列等长的满格绿条，扫过去认不出哪条是哪条。剪掉之后，还在传的那几条反而是唯一
+   * 带进度条的行，一眼就能挑出来。
+   */
+  const completed = isCompletedSession(projection);
 
   return (
     <li>
@@ -445,31 +456,55 @@ const TransferActivityItem = memo(function TransferActivityItem({
             />
             <span className="truncate">{peer}</span>
           </span>
-          <span className="shrink-0 font-mono tabular-nums">
-            {formatFileSize(done)} / {formatFileSize(total)}
+          {/* 传完的会话第三行整行退场，所以「什么时候的事」并到这一行的右端来——
+              一条只剩一个时间戳的行，读起来像上一行掉队的尾巴。 */}
+          <span className="flex shrink-0 items-center gap-1.5">
+            <span className="font-mono tabular-nums">
+              {completed ? formatFileSize(total) : `${formatFileSize(done)} / ${formatFileSize(total)}`}
+            </span>
+            {completed && (
+              <>
+                <span aria-hidden>·</span>
+                <RelativeTime timestamp={sessionEndedAt(projection)} />
+              </>
+            )}
           </span>
         </div>
 
         {/* 整行是个 `<button>`，而 button 的后代角色会被辅助技术整个丢弃
             （ARIA Children Presentational: True）。所以这里必须走装饰模式——
             进度由按钮自己的可访问名承担，下面那行的百分比数字就在名字里。
-            详情侧（非按钮内）那条才是真的 `role="progressbar"`。 */}
-        <ProgressBar percent={percent} className="mt-1.5" label={null} />
+            详情侧（非按钮内）那条才是真的 `role="progressbar"`。
 
-        <div className="mt-1 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-          <span className="truncate">{t(connection)}</span>
-          {/* 同一个位置轮流放两样东西，而不是各占一行：正在传时问「多快」，其余阶段问
-              「什么时候的事」——两个问题不会同时成立，所以也不该同时占版面。 */}
-          <span className="flex shrink-0 items-center gap-1">
-            {rate ? (
-              <span className="font-mono tabular-nums">{rate}</span>
-            ) : (
-              <RelativeTime timestamp={sessionEndedAt(projection)} />
+            它与下面那行**同进同退**（判据同为 `completed`），所以「装饰模式靠可访问名兜底」
+            这条不会落空：进度条在的时候，那个数字一定也在。 */}
+        {!completed && <ProgressBar percent={percent} className="mt-1.5" label={null} />}
+
+        {/* 第三行只服务「还没传完」的会话：连接方式、速率、百分比在传完之后要么恒为未知、
+            要么恒为 100%。连接方式查不到时（`connectionLabel` 返回 null）这一行只剩右端，
+            所以对齐方式跟着换——留一个空 `<span>` 占位会在 `justify-between` 下把内容
+            推到中间。 */}
+        {!completed && (
+          <div
+            className={cn(
+              "mt-1 flex items-center gap-3 text-[11px] text-muted-foreground",
+              connection ? "justify-between" : "justify-end",
             )}
-            <span aria-hidden>·</span>
-            <span className="font-mono tabular-nums">{percent}%</span>
-          </span>
-        </div>
+          >
+            {connection && <span className="truncate">{t(connection)}</span>}
+            {/* 同一个位置轮流放两样东西，而不是各占一行：正在传时问「多快」，其余阶段问
+                「什么时候的事」——两个问题不会同时成立，所以也不该同时占版面。 */}
+            <span className="flex shrink-0 items-center gap-1">
+              {rate ? (
+                <span className="font-mono tabular-nums">{rate}</span>
+              ) : (
+                <RelativeTime timestamp={sessionEndedAt(projection)} />
+              )}
+              <span aria-hidden>·</span>
+              <span className="font-mono tabular-nums">{percent}%</span>
+            </span>
+          </div>
+        )}
       </button>
     </li>
   );

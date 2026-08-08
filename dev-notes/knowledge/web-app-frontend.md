@@ -660,6 +660,77 @@ UI 停在旧值不动。
 
 **相关文件**：`docs/app/app/_lib/store.ts`
 
+## ⚠️ 同一个父下的两个兄弟共用一个 key，被挤掉的那个**永远不卸载**（2026-08-08）
+
+传输详情侧此前有两个按会话换代的兄弟节点，各自裸用 `projection.sessionId` 当 key：
+
+```tsx
+<SessionFileSection key={projection.sessionId} … />   // 先写
+<TransferItemActions … />
+<SessionIdRow key={projection.sessionId} … />         // 后写，key 一样
+```
+
+**症状**：每切换一次会话，详情里就多堆一份**上一条会话的文件清单**——切三次三份，一路往下
+排，看起来像布局塌了。
+
+**根因在 React 的 `reconcileChildrenArray`**：JSX 的多个 children 编译成一个数组，第一轮
+按位置匹配，撞到 key 不同（`bbb` → `ccc`）就退出，剩余旧 fiber 被塞进一张 `key → fiber` 的
+Map。**两个同 key 的兄弟里，后写的会把先写的从 Map 里覆盖掉**；收尾时 React 只删除 Map 里
+还剩下的那些，被挤掉的 `SessionFileSection` 因此既没被复用、也没进删除名单，它的 DOM 就
+留在了页面上。修法是给两个 key 加不同前缀（`files-` / `sid-`）。
+
+**为什么没人发现**：
+
+- **生产构建下 React 不打「Encountered two children with the same key」警告**，控制台干净；
+- React fiber 树里**只有一份**（残留的只是 DOM），所以 React DevTools 看不出异常；
+- `tsc` / ESLint / `pnpm test` 全绿——重复 key 是运行时语义，不是类型或静态错误。
+
+**判据**：同一个父下有两个及以上带 key 的兄弟时，key 必须**跨兄弟唯一**，不只是「同一个
+列表内唯一」。`{arr.map(...)}` 之间不受此限——每个数组是嵌套一层，React 会给它自己的
+索引前缀，两个 map 的 key 空间天然隔离。会撞的只有**手写并列**的这种。
+
+**复现/验证方法**（同类「DOM 残留」都适用）：数 DOM 里该组件的实例数，而不是看截图。
+
+```js
+document.querySelectorAll("[data-testid=file-browser]").length   // 恒为 1 才对
+```
+
+真实浏览器才复现——jsdom 里单独测那个组件的 key 切换是过的，因为冲突来自**兄弟关系**，
+不在组件内部。手测走生产产物（`cd docs && pnpm build && python3 -m http.server 3210 -d out`），
+要造数据可临时加一个 client page 调 `webNodeActions.setHistory([...])` 注入假 projection，
+再用 `next/link` SPA 导航到真实页面（store 是模块单例，整页刷新才会丢）。
+
+**相关文件**：`docs/app/app/_components/transfer-detail.tsx`
+
+## 面板内的一节，高度约束要给**上限**不是下限（2026-08-08）
+
+同一次改动里的第二个问题：传输详情与收件箱详情的文件区都写着
+`contentClassName="min-h-[320px]"`，理由是「树形视图内部是虚拟滚动，必须有确定高度才算得出
+可见行」。但绝大多数条目只有一两个文件，于是详情侧固定挂着一块 320px 的空槽——正是
+`DESIGN.md`「Empty states size to their role」点名的那种 cavity（面板里的一节撑出一个大洞，
+读起来像没做完）。
+
+**`max-h` 同样满足虚拟化的前提**：内容超出时容器高度被钉死在上限，`getScrollElement()` 的
+`clientHeight` 有确定值，`useVirtualizer` 照常只挂可见行。两处实测：
+
+| 场景 | clientHeight | scrollHeight | 实际挂载 |
+|---|---|---|---|
+| 传输详情 · 树形 40 文件 · `max-h-[340px]` | 340 | 1612 | 19 行（可见 ~8.5 + overscan 10） |
+| 收件箱详情 · 网格 40 文件 · `max-h-[460px]` | 460 | 3057 | 18 张卡 |
+
+**下限只在「这一节就是整屏主体」时才对**（文件浏览器独占一页那种）。作为面板里的一节时，
+下限的代价是「内容少也占那么高」，而那正是常态。顺带修掉的一件事：**没有上限时，文件多的
+条目会把下方的动作区（归档 / 删除 / 暂停）推到几十行之外**，用户要滚过整份清单才够得着。
+
+两档按视图分（树 340 / 网格 460）并收在 `_components/section.tsx` 的
+`fileSectionHeightClass(view)` 里，两个详情侧共用：树形一行 40px、网格一行约 220px
+（`file-grid-view.tsx` 的 `estimatedRowHeight`），同一个数必然让其中一种要么空一半、
+要么只露一行半。两个数都刻意留半行/一小截露头——那截被切掉的内容就是「还能往下滚」的
+唯一提示。
+
+**相关文件**：`docs/app/app/_components/section.tsx`、`transfer-detail.tsx`、`inbox-views.tsx`、
+`packages/file-browser/src/file-tree-view.tsx`
+
 ## ⚠️ 共享组件包的类名必须显式 `@source`，否则样式**只丢一半**（2026-08-07）
 
 `docs/app/global.css` 里这一行不是可选的：
