@@ -957,6 +957,48 @@ python3 -c "import glob,pathlib; s=''.join(pathlib.Path(f).read_text() for f in 
 二维码白卡（含它的 `QrOverlay`）、`appearance-panel.tsx` 的主题预览缩略图（那是在画「主题长什么样」，
 跟着主题变反而错）。新增第三处之前先确认它真属于这一类。
 
+### `bg-foreground` / `text-background` 不是「中性」，是**满对比反色**（2026-08-08）
+
+设置页的「Multiaddr」格式提示曾写作 `bg-foreground` + `text-background`：浅色下一块纯黑、
+深色下一块纯白。它没碰调色板、每个类都是 token，所以在 diff 里完全不可疑——但它是整张页面
+**对比度最高的元素**（约 19:1），而它挂在全页优先级最低的一行（一个收起着的次要动作）上。
+视觉重量与信息重量正好反着。
+
+判据不是「有没有用 token」，而是**这块颜色在本页的对比度排名，和它承载的信息在本页的
+重要度排名，是不是同一名次**。低强调标签走 `Badge variant="outline"`（根 `DESIGN.md` §5 就是
+这么定义 outline/ghost 的）；要跟着所在行一起明暗，加 `text-inherit` 让它继承父行的
+`text-muted-foreground → hover:text-foreground`。
+
+顺带一条计数：那次改动前，同一张设置页有**四种徽标方言**（实心反色 / `bg-primary/10 text-brand`
+的传输名 / `Badge variant="outline"` 的分组计数 / `bg-background/50 border` 的关于页特性片）。
+加第五种之前先在页面里数一遍——徽标是最容易长出方言的一类元素，因为每处都只需要「一个小圆角」。
+
+### 渐进披露一律走 `_components/disclosure.tsx`，不要裸 `<details>`（2026-08-08）
+
+裸 `<details>` 会顶着浏览器默认的 ▶ 三角，那是全站仅有的非 Lucide 图形语汇，且没有 hover、
+没有像样的命中区、展开时也没有方向反馈。`Disclosure` 把 `SectionHeader` 那套披露语汇
+（`ChevronDown` + `group-open:rotate-180` + `--ease-out-quart`）下放到**行**尺度，两档尺寸：
+默认档是设置卡里的一行（`p-4`，与 `SettingsRow` 逐字相同，行高 52px 过触摸基线），
+`compact` 档给弹窗。
+
+三条实现细节，抄这个组件时别丢：
+
+- **marker 要关两次**——`list-none` 管 Chrome/Firefox，`[&::-webkit-details-marker]:hidden`
+  管旧 WebKit。只写一条就会在另一半浏览器上漏出默认三角。
+- **仍然用原生 `<details>`**：键盘、读屏 disclosure 语义、JS 没跑起来也能展开，都是白拿的。
+- **有机器值就摆在收起态右侧**（`value` 属性，恒等宽）。折叠该藏的是「所以呢」那段话，
+  不是答案本身——「身份存在哪里？」此前把一个 API 名藏在一次点击后面，那不是渐进披露。
+
+### 通栏行的焦点环要用**负** `outline-offset`（2026-08-08）
+
+`.focus-ring` 的 `outline-offset: 2px` 是给独立控件用的。**通栏行**（`SettingsCard` 里的
+`SettingsRow` / `Disclosure`、`ConnectionPanel` 的「添加自定义引导节点」）两侧紧贴容器边缘，
+而这些容器都是 `overflow-hidden`——往外 2px 的环左右两段会被整段裁掉，只剩上下两条横线，
+看起来像渲染坏了。
+
+修法是在该行上加 `focus-visible:-outline-offset-2`：同一个环、同一种颜色宽度，只把偏移翻个号，
+不动全局的 `.focus-ring`（utilities 层排在 components 之后，能干净地覆盖）。
+
 ## `scrollbar-gutter: stable` 会在应用区右边留一条永远空的死边
 
 `global.css` 里 `html { scrollbar-gutter: stable }` 是给**文档站**的：长短不一的文档页之间

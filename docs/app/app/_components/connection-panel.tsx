@@ -353,7 +353,10 @@ export function ConnectionPanel() {
             type="button"
             onClick={() => setShowInput(true)}
             disabled={!ready}
-            className="focus-ring flex w-full items-center justify-between gap-3 border-b p-4 text-sm text-muted-foreground transition-colors last:border-b-0 hover:bg-accent/40 hover:text-foreground disabled:opacity-50"
+            // `focus-visible:-outline-offset-2`：这一行是通栏的，两侧紧贴 `SettingsCard`
+            // 的边缘，而那张卡是 `overflow-hidden`——`.focus-ring` 往外 2px 的环左右两段
+            // 会被整段裁掉，只剩上下两条横线。同一个环，只把偏移翻个号。
+            className="focus-ring flex w-full items-center justify-between gap-3 border-b p-4 text-sm text-muted-foreground transition-colors last:border-b-0 hover:bg-accent/40 hover:text-foreground focus-visible:-outline-offset-2 disabled:opacity-50"
           >
             <span className="flex min-w-0 items-center gap-2">
               <Plus className="size-4 shrink-0" aria-hidden />
