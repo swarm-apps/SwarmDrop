@@ -6,8 +6,8 @@ pub mod event_loop;
 pub mod manager;
 
 pub use candidates::{
-    BootstrapCandidate, BootstrapCandidateManager, BootstrapCandidateSource, CandidateHealth,
-    CandidateRoles, CandidateScope, CandidateSourceStatus,
+    BootstrapCandidate, BootstrapCandidateManager, BootstrapCandidateSource, CandidateRoles,
+    CandidateScope, CandidateSourceStatus,
 };
 pub use config::NetworkRuntimeConfig;
 pub use manager::{NetManager, SharedNetRefs, TransferRuntime};
@@ -15,6 +15,8 @@ pub use swarmdrop_net::NatStatus;
 
 use serde::{Deserialize, Serialize};
 use swarmdrop_net::{Addr, NodeId};
+
+use crate::infra::InfraLink;
 
 /// 节点运行状态。
 #[derive(Debug, Clone, Default, Serialize)]
@@ -45,7 +47,8 @@ pub struct NetworkStatus {
     pub peer_id: Option<NodeId>,
     #[cfg_attr(feature = "specta", specta(type = Vec<String>))]
     pub listen_addrs: Vec<Addr>,
-    #[cfg_attr(feature = "specta", specta(type = String))]
+    /// NAT 状态。**不加 `specta(type = String)`**——`NatStatus` 自己 derive 了
+    /// `specta::Type`，抹成 `string` 会让前端的 `=== "public"` 写错也编得过。
     pub nat_status: NatStatus,
     #[cfg_attr(feature = "specta", specta(type = Option<String>))]
     pub public_addr: Option<Addr>,
@@ -84,4 +87,10 @@ pub struct NetworkStatus {
     pub candidate_sources: Vec<CandidateSourceStatus>,
     /// 当前 relay peer 的候选来源。
     pub relay_source: Option<BootstrapCandidateSource>,
+    /// 逐条基础设施关系的完整状态。
+    ///
+    /// 上面那批标量（`relay_ready` / `relay_peers` / `candidate_sources` / …）都是
+    /// 它的不同压扁投影，保留是因为 MCP agent 面 schema 与几条 e2e 断言在消费它们；
+    /// **新 UI 一律读这个数组**——只有它能回答「哪一条连不上、为什么」。
+    pub infra_links: Vec<InfraLink>,
 }

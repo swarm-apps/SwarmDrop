@@ -24,6 +24,7 @@ import {
   candidateSourceKey,
   type DiscoveryModePreference,
   discoveryModeFromNative,
+  isNatMapped,
 } from "@/core/network-discovery";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { getErrorMessage } from "@/lib/errors";
@@ -143,7 +144,7 @@ export default function NetworkScreen() {
     {
       key: "nat",
       label: <Trans>NAT 状态</Trans>,
-      value: networkStatus?.natStatus === "public" ? t`映射成功` : t`未知`,
+      value: isNatMapped(networkStatus?.natStatus) ? t`映射成功` : t`未知`,
     },
     {
       key: "connected",
@@ -591,12 +592,17 @@ function CandidateSourceLabel({
     ReturnType<typeof useMobileCoreStore.getState>["networkStatus"]
   >["candidateSources"][number]["source"];
 }) {
+  // 三个来源逐一列出、**不留 default**：`CandidateSourceKey` 是三元联合，
+  // 漏一个 TS 就报错。此前 `Learned` 被 `default` 吃掉，显示成了「公网」。
   switch (candidateSourceKey(source)) {
     case "hostConfigured":
       return <Trans>配置节点</Trans>;
     case "mdnsLanHelper":
       return <Trans>LAN Helper</Trans>;
-    default:
+    case "learned":
+      // 复用既有 msgid（三份 catalog 都有译文）。`Learned` 候选必然是公网中继——
+      // `usable_public_addrs` 只把公网地址纳管——所以「公网」正是它该有的标签，
+      // 也正是原先那个永不可达的 `default` 分支想说的话。
       return <Trans>公网</Trans>;
   }
 }

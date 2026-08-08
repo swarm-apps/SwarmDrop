@@ -13,7 +13,7 @@ use swarmdrop_net::{Events, InfraRoles, NetEvent, NodeAddr, Router};
 use tracing::{info, warn};
 
 use super::SharedNetRefs;
-use super::candidates::{BootstrapCandidateSource, CandidateRoles, CandidateScope};
+use super::candidates::{BootstrapCandidateSource, CandidateRoles};
 use crate::device::OsInfo;
 use crate::device_manager::DeviceFilter;
 use crate::host::{CoreEvent, EventBus};
@@ -38,36 +38,39 @@ pub async fn handle_core_node_event<TTransfer>(
     maybe_register_lan_helper(shared, event, event_bus).await;
     let refreshed_paired_device = refresh_paired_device_from_identify(shared, event);
 
+    // 候选表只存**意图**，不存观测。连接与 reservation 的事实分别由
+    // `watch_conns` / `watch_relays` 承载，由 `build_infra_links` 现场合成——
+    // 此前这几个分支往候选表回写健康位，而另外四条路径（用户撤销、内核注销、
+    // 多条拨号失败）不回写，于是那个位会停在「已就绪」不动。
     match event {
-        NetEvent::PeerConnected { node, .. } => {
-            if let Ok(mut candidates) = shared.candidates.write() {
-                candidates.mark_connected(*node);
-            }
+        NetEvent::PeerConnected { .. } | NetEvent::PeerDisconnected { .. } => {
             publish_devices_and_status(shared, event_bus).await;
         }
-        NetEvent::PeerDisconnected { .. } => {
-            publish_devices_and_status(shared, event_bus).await;
-        }
-        NetEvent::RelayReservationAccepted { relay, .. } => {
-            if let Ok(mut candidates) = shared.candidates.write() {
-                candidates.mark_relay_ready(*relay);
-            }
+        NetEvent::RelayReservationAccepted { .. } | NetEvent::RelayReservationLost { .. } => {
+            // 重建由 InfraSupervisor 负责（顶部 handle_event 已折叠）；这里只推状态视图。
+            // 注意这两个边沿并**不是** relay 状态的唯一来源——`Connecting` 与
+            // `Failed{last_error}` 没有对应事件，靠 `run_event_loop` 订阅 `watch_relays`。
             publish_network_status(shared, event_bus).await;
         }
-        NetEvent::RelayReservationLost { relay } => {
-            // 重建由 InfraSupervisor 负责（顶部 handle_event 已折叠）；这里只更新状态视图
-            if let Ok(mut candidates) = shared.candidates.write() {
-                candidates.mark_failed(*relay);
-            }
-            publish_network_status(shared, event_bus).await;
+        // ping 是**周期性心跳**（`ping_interval` 30s/peer），不是状态变更。它能改到的
+        // 只有 `PeerInfo.rtt_ms` 与已配对 peer 的 presence 档位——两者都只出现在
+        // `Device`，`NetworkStatus` 的任何字段都动不了（`connected_count` /
+        // `discovered_count` / `has_connected_bootstrap_peer` 全看 `is_connected` 与
+        // `agent_version`，二者只由 PeerConnected/Disconnected/Identified 写）。
+        //
+        // 所以这里只推设备列表。少了这条分流，几个已连 peer 就足以把全量
+        // `NetworkStatus` 推成每几秒一次——而它现在还挂着 `infra_links` 数组，
+        // 移动端更要过 uniffi 跨 JNI/Swift 边界。
+        NetEvent::PingSuccess { .. } => {
+            publish_devices(shared, event_bus).await;
         }
+        // identify 会写 `agent_version`，进而改变 `NetworkStatus` 的三个计数位，
+        // 必须走全量；其余几个是低频边沿事件，全量的成本可忽略。
         NetEvent::PeerIdentified { .. }
         | NetEvent::Discovered { .. }
-        | NetEvent::PingSuccess { .. }
         | NetEvent::PathChanged { .. }
         // 升级失败要立刻推一轮：它改变的是设备卡片上那句提示，用户正盯着看
         | NetEvent::LanUpgradeFailed { .. } => {
-            // TODO(ui-rewrite): PingSuccess 触发全量 publish 待 UI 重写时按 rtt 阈值/去抖收敛
             publish_devices_and_status(shared, event_bus).await;
         }
         NetEvent::PingFailure { node, error } => {
@@ -149,7 +152,6 @@ async fn maybe_register_lan_helper<TTransfer>(
                 addrs.clone(),
                 BootstrapCandidateSource::MdnsLanHelper,
                 CandidateRoles::kad_and_relay(),
-                CandidateScope::Lan,
             )
         })
         .unwrap_or(false);
@@ -159,7 +161,6 @@ async fn maybe_register_lan_helper<TTransfer>(
     // helper 重启/挂起恢复（changed=false）的重建不再依赖这里。
     if changed {
         let endpoint = shared.endpoint.clone();
-        let candidates = shared.candidates.clone();
         let node = *node;
         n0_future::task::spawn(async move {
             if let Err(err) = endpoint
@@ -172,10 +173,10 @@ async fn maybe_register_lan_helper<TTransfer>(
                 )
                 .await
             {
+                // 只记日志、不回写候选表：这是一次**即时接线**失败，意图仍然成立，
+                // InfraSupervisor 下一轮 tick 会继续收敛。失败态由 `watch_relays`
+                // 表达（它才是内核的实际观测），候选表不背这个状态。
                 warn!("注册 LAN Helper 候选失败 {}: {}", node, err);
-                if let Ok(mut candidates) = candidates.write() {
-                    candidates.mark_failed(node);
-                }
                 return;
             }
             if let Some(dht) = endpoint.dht()
@@ -201,13 +202,15 @@ pub(crate) async fn publish_devices_and_status<TTransfer>(
     shared: &SharedNetRefs<TTransfer>,
     event_bus: &dyn EventBus,
 ) {
+    publish_devices(shared, event_bus).await;
+    publish_network_status(shared, event_bus).await;
+}
+
+/// 只推设备列表——给「改得到 `Device` 但改不到 `NetworkStatus`」的事件用（见 `PingSuccess`）。
+async fn publish_devices<TTransfer>(shared: &SharedNetRefs<TTransfer>, event_bus: &dyn EventBus) {
     let devices = shared.devices.get_devices(DeviceFilter::All);
     let _ = event_bus
         .publish(CoreEvent::DevicesChanged { devices })
-        .await;
-    let status = shared.build_network_status();
-    let _ = event_bus
-        .publish(CoreEvent::NetworkStatusChanged { status })
         .await;
 }
 
@@ -239,9 +242,20 @@ pub async fn run_event_loop<TTransfer>(
     );
     n0_future::task::spawn(shared.infra.clone().run(shared.clone()));
 
-    // 内核状态（本机地址 / NAT）无对应边沿事件，经 watch 变更驱动状态刷新。
+    // 内核状态（本机地址 / NAT / relay 三态）无对应边沿事件，经 watch 变更驱动状态刷新。
+    //
+    // `relays_watcher` 不是可选项：`RelayState::Connecting` 与
+    // `Failed { last_error }` **没有任何 NetEvent 对应物**——边沿轨只有
+    // `RelayReservationAccepted` / `RelayReservationLost` 两个。少了这条订阅，
+    // 原生端就永远观测不到「正在连接」，也永远拿不到失败原因，UI 再怎么写都是
+    // 一个聚合布尔。Web 端之所以是三端唯一做到逐条 relay 状态的，正因为它直接
+    // 订 `relays_changed()` 绕过了 core 这一层。
+    //
+    // 不会造成推送风暴：`set_relay_state` 用 `send_if_modified` 做了值相等去重，
+    // supervisor 走 2s→75s 退避而非每 tick 重发。
     let mut addrs_watcher = shared.endpoint.watch_addrs();
     let mut nat_watcher = shared.endpoint.watch_nat();
+    let mut relays_watcher = shared.endpoint.watch_relays();
 
     loop {
         tokio::select! {
@@ -264,6 +278,9 @@ pub async fn run_event_loop<TTransfer>(
                 publish_network_status(&shared, event_bus.as_ref()).await;
             }
             Some(_) = nat_watcher.updated() => {
+                publish_network_status(&shared, event_bus.as_ref()).await;
+            }
+            Some(_) = relays_watcher.updated() => {
                 publish_network_status(&shared, event_bus.as_ref()).await;
             }
         }

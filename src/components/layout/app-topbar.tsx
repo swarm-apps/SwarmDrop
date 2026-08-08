@@ -37,8 +37,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { useNetworkStore, type NodeStatus } from "@/stores/network-store";
-import { useTransferStore } from "@/stores/transfer-store";
-import { isProjectionActive } from "@/lib/transfer-projection";
+import { useActiveTransferCount } from "@/hooks/use-active-transfer-count";
 import { StartNodeSheet } from "@/components/network/start-node-sheet";
 import { StopNodeSheet } from "@/components/network/stop-node-sheet";
 
@@ -234,12 +233,7 @@ export function AppTopBar() {
  * 让用户离开传输页也能看到"有东西正在传"。
  */
 function ActiveTransferBadge() {
-  // 只订阅 projections 引用：高频 progress 事件不改它，计数只在会话状态真变时重算
-  const projections = useTransferStore((s) => s.projections);
-  const activeCount = useMemo(
-    () => Object.values(projections).filter(isProjectionActive).length,
-    [projections],
-  );
+  const activeCount = useActiveTransferCount();
   if (activeCount === 0) return null;
   return (
     <span className="absolute right-0.5 top-0.5 flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-primary px-1 font-mono text-[9px] font-semibold leading-none text-primary-foreground">

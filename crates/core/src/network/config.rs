@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use swarmdrop_net::{Addr, NodeAddr, NodeId};
 
-use super::candidates::{BootstrapCandidateSource, CandidateRoles, CandidateScope};
+use super::candidates::{BootstrapCandidateSource, CandidateRoles};
 use super::{BootstrapCandidateManager, DiscoveryMode};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,7 +89,6 @@ pub fn create_candidate_manager(config: &NetworkRuntimeConfig) -> BootstrapCandi
             vec![addr],
             BootstrapCandidateSource::HostConfigured,
             CandidateRoles::kad_and_relay(),
-            CandidateScope::Public,
         );
     }
     manager
@@ -98,7 +97,7 @@ pub fn create_candidate_manager(config: &NetworkRuntimeConfig) -> BootstrapCandi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::network::BootstrapCandidateSource;
+    use crate::network::{BootstrapCandidateSource, CandidateScope};
 
     #[test]
     fn default_config_has_no_public_candidates() {
@@ -125,6 +124,18 @@ mod tests {
                 .source_statuses()
                 .iter()
                 .any(|status| status.source == BootstrapCandidateSource::HostConfigured)
+        );
+        // scope 此前由本函数硬编码 `Public`，与地址无关；现在由候选表按地址推断。
+        // 这条地址是 loopback，判 `Lan` 才对——`Public` 会让它被
+        // `public_reachability=false` 拦在收敛环外，而用户手点的本地 helper 不该被
+        // 公网开关拦下（`CandidateScope::infer` 的注释写了这条是有意的）。
+        assert_eq!(
+            manager
+                .snapshot()
+                .first()
+                .expect("刚插入的候选必然在")
+                .scope,
+            CandidateScope::Lan,
         );
     }
 

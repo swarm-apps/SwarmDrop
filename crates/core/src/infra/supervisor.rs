@@ -9,6 +9,7 @@ use n0_future::time::Instant;
 use swarmdrop_net::{Addr, Endpoint, InfraRoles, NetEvent, NodeAddr, NodeId};
 
 use crate::device::OsInfo;
+use crate::infra::InfraExclusion;
 use crate::network::candidates::{
     BootstrapCandidate, BootstrapCandidateManager, BootstrapCandidateSource, CandidateRoles,
     CandidateScope,
@@ -28,9 +29,12 @@ fn rebuild_backoff(attempts: u32) -> Duration {
     }
 }
 
-/// 某个 relay 候选的收敛状态
+/// 某个 relay 候选的收敛状态（策略层内账）。
+///
+/// 刻意**不叫** `RelayLinkState`——那个名字属于 `infra::link` 里跨 IPC 的三态投影。
+/// 两个同名类型住在同一个模块树下，读代码时会指到错的那个。
 #[derive(Debug, Clone, Copy)]
-struct RelayLinkState {
+struct RelayConvergenceState {
     /// 当前是否持有活跃 reservation
     reservation_active: bool,
     next_attempt_at: Instant,
@@ -38,6 +42,13 @@ struct RelayLinkState {
     /// 上次看到的候选 last_seen：候选被重新发现（地址刷新）时重置退避，
     /// 避免"挂起期间退避涨满、恢复后干等一分钟"
     candidate_seen: chrono::DateTime<chrono::Utc>,
+    /// 本次节点会话内是否曾建立过 reservation。
+    ///
+    /// **这是宽限期的唯一开关**，也是本结构里唯一对外下发的位：从未成功过 →
+    /// UI 安静地显示「正在连接…」；成功过一次再掉下来 → 立刻报警 + 给原因。
+    /// 它与 `attempts` / `next_attempt_at` 的区别是「有明确清除条件的布尔事实」
+    /// 而非策略层记账，所以下发它不违反「机制层不产生轮数」那条约定。
+    ever_active: bool,
 }
 
 /// 基础设施收敛大脑。
@@ -50,7 +61,7 @@ pub struct InfraSupervisor {
     /// 公网可达性设置：false 时不对 Public 范围候选做 reservation
     public_reachability: bool,
     /// relay 候选的收敛状态（key = 候选 peer）
-    links: DashMap<NodeId, RelayLinkState>,
+    links: DashMap<NodeId, RelayConvergenceState>,
 }
 
 impl InfraSupervisor {
@@ -67,10 +78,29 @@ impl InfraSupervisor {
         }
     }
 
+    /// 该候选**为什么**不参与 relay 收敛；`None` = 参与。
+    ///
+    /// 这是收敛闸门的**唯一定义处**。`build_infra_links` 下发给三端的
+    /// [`InfraExclusion`](crate::infra::InfraExclusion) 直接取自这里——两边各写一份
+    /// 互为反义的判据是最容易漂的形态：新增一条门槛时收敛环立刻生效，而读模型仍报
+    /// `None`，UI 就显示一个永远「正在连接…」且给不出原因的条目，正是这套读模型
+    /// 要消灭的失败模式。
+    pub(crate) fn exclusion_for(&self, candidate: &BootstrapCandidate) -> Option<InfraExclusion> {
+        // 纯 kad 候选今天不存在（所有写入点都给 kad_and_relay），所以没有对应变体；
+        // 真出现时它不该走 relay 收敛，见 InfraExclusion 的文档。
+        debug_assert!(
+            candidate.roles.relay_server,
+            "候选表当前不产生纯 kad 候选；出现即说明有新的写入方，需同步补 InfraExclusion 变体"
+        );
+        if matches!(candidate.scope, CandidateScope::Public) && !self.public_reachability {
+            return Some(InfraExclusion::PublicReachabilityDisabled);
+        }
+        None
+    }
+
     /// 该候选是否应维持 reservation
     fn wants_reservation(&self, candidate: &BootstrapCandidate) -> bool {
-        candidate.roles.relay_server
-            && (matches!(candidate.scope, CandidateScope::Lan) || self.public_reachability)
+        candidate.roles.relay_server && self.exclusion_for(candidate).is_none()
     }
 
     /// 注销一个基础设施节点的收敛状态（候选条目由调用方一并清除）。
@@ -81,20 +111,38 @@ impl InfraSupervisor {
         self.links.remove(&peer_id);
     }
 
+    /// 该 relay link 在本次节点会话内是否曾建立过 reservation。
+    ///
+    /// 这是策略层**唯一**外露的位，供 `InfraLink` 判宽限期用：从未成功过就安静地
+    /// 显示「正在连接…」，成功过一次再掉下来就立刻报警。`attempts` /
+    /// `next_attempt_at` 仍然私有——「第 N 次重试、还有 T 秒」不跨 IPC。
+    pub fn ever_active(&self, peer_id: NodeId) -> bool {
+        self.links.get(&peer_id).is_some_and(|l| l.ever_active)
+    }
+
     // === 事件折叠（core 事件循环调用） ===
 
     pub fn handle_event(&self, event: &NetEvent) {
         match event {
             NetEvent::RelayReservationAccepted { relay, .. } => {
-                self.links.insert(
-                    *relay,
-                    RelayLinkState {
+                // ever_active 单调置位：本次会话内曾经成功过。
+                // 用 entry 而非 insert，避免把已有的 ever_active 覆盖成新构造的默认值。
+                self.links
+                    .entry(*relay)
+                    .and_modify(|link| {
+                        link.reservation_active = true;
+                        link.next_attempt_at = Instant::now();
+                        link.attempts = 0;
+                        link.candidate_seen = chrono::Utc::now();
+                        link.ever_active = true;
+                    })
+                    .or_insert(RelayConvergenceState {
                         reservation_active: true,
                         next_attempt_at: Instant::now(),
                         attempts: 0,
                         candidate_seen: chrono::Utc::now(),
-                    },
-                );
+                        ever_active: true,
+                    });
             }
             NetEvent::RelayReservationLost { relay } => {
                 // 轮数只在策略层内账（RelayState 不再携带），诊断走日志
@@ -103,15 +151,16 @@ impl InfraSupervisor {
                 // 只翻可用位，保留既有退避进度——reservation 被 relay 拒绝时
                 // 每次尝试都会产生一次 Lost，无条件清零会退化成 1-2s 重试风暴。
                 // attempts 仅由 Accepted（健康恢复）与候选 last_seen 刷新（重新发现）归零。
+                //
+                // **不 `or_insert`**：没有条目就说明这个 relay 不在收敛清单里（刚被
+                // `remove_infra_intent` 撤销，而一条 Lost 还在路上）。插回去会造出一个
+                // 孤儿——正向 tick 看不到它（不在候选快照里），反向收敛也够不着它
+                // （只清 `watch_relays` 里还有条目的 peer，而它已经从那里消失），
+                // 于是这条记录活到节点停止为止，`ever_active` 还继续替一个不存在的
+                // 节点作答。真需要条目时下一轮 tick 的 `or_insert` 会建。
                 self.links
                     .entry(*relay)
-                    .and_modify(|link| link.reservation_active = false)
-                    .or_insert(RelayLinkState {
-                        reservation_active: false,
-                        next_attempt_at: Instant::now(),
-                        attempts: 0,
-                        candidate_seen: chrono::Utc::now(),
-                    });
+                    .and_modify(|link| link.reservation_active = false);
             }
             // 学习型候选：识别基础设施 agent 自动纳管
             NetEvent::PeerIdentified {
@@ -141,7 +190,6 @@ impl InfraSupervisor {
             addrs.clone(),
             BootstrapCandidateSource::Learned,
             CandidateRoles::kad_and_relay(),
-            CandidateScope::Public,
         );
         drop(candidates);
 
@@ -198,11 +246,12 @@ impl InfraSupervisor {
             let mut link = self
                 .links
                 .entry(candidate.peer_id)
-                .or_insert(RelayLinkState {
+                .or_insert(RelayConvergenceState {
                     reservation_active: false,
                     next_attempt_at: now,
                     attempts: 0,
                     candidate_seen: candidate.last_seen,
+                    ever_active: false,
                 });
             // 候选被重新发现（如 helper 重启后 mDNS 刷新地址）→ 重置退避立即收敛
             if candidate.last_seen > link.candidate_seen {
@@ -295,22 +344,30 @@ mod tests {
         SecretKey::generate().node_id()
     }
 
+    /// 造一个具备 relay 角色的候选。
+    ///
+    /// scope 由候选表按地址推断（不再由调用方传），所以这里按想要的 scope 挑地址：
+    /// `203.0.113.x` 是 TEST-NET-3 公网段，`192.168.x.x` 是私网段。
     fn relay_candidate(
         candidates: &Arc<RwLock<BootstrapCandidateManager>>,
         scope: CandidateScope,
     ) -> NodeId {
+        let addr = match scope {
+            CandidateScope::Public => "/ip4/203.0.113.7/tcp/4001",
+            CandidateScope::Lan => "/ip4/192.168.7.7/tcp/4001",
+        };
         let p = peer();
         candidates.write().unwrap().upsert(
             p,
-            vec!["/ip4/203.0.113.7/tcp/4001".parse().unwrap()],
+            vec![addr.parse().unwrap()],
             BootstrapCandidateSource::HostConfigured,
             CandidateRoles::kad_and_relay(),
-            scope,
         );
+        debug_assert_eq!(candidates.read().unwrap().get(p).unwrap().scope, scope);
         p
     }
 
-    fn link_of(s: &InfraSupervisor, p: &NodeId) -> Option<RelayLinkState> {
+    fn link_of(s: &InfraSupervisor, p: &NodeId) -> Option<RelayConvergenceState> {
         s.links.get(p).map(|e| *e.value())
     }
 

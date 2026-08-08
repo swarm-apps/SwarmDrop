@@ -73,6 +73,35 @@ committed 的绑定就是对的，直接
 
 **相关文件**：`mobile/pnpm-workspace.yaml`、`mobile/packages/swarmdrop-core/**/generated/`
 
+### 改了 FFI 签名要 regen 绑定：不必跑 `build:ios`（不需要 Xcode，快一个数量级）
+
+`pnpm --filter react-native-swarmdrop-core build:ios` 会为两个 iOS target 交叉编译 Rust，
+分钟级起步且要 Xcode。但**只是想让改过的 `#[uniffi::export]` 反映到 TS 绑定**时不需要它——
+ubrn 支持从任意一个已编好的动态库里提取定义：
+
+```bash
+# ① 编本机 target（几十秒，dev profile）
+cargo build -p swarmdrop-mobile-core
+
+# ② 从 .dylib 提取并重新生成 TS + C++ 绑定
+#    注意 cwd 必须是 crate 目录：ubrn 会在 cwd 跑 `cargo metadata`，
+#    在 packages/swarmdrop-core 下跑会报 "manifest path `Cargo.toml` does not exist"
+cd mobile/packages/swarmdrop-core/rust/mobile-core
+pnpm exec ubrn generate jsi bindings --library \
+  --ts-dir ../../src/generated --cpp-dir ../../cpp/generated \
+  /Volumes/yexiyue/SwarmDrop/target/debug/libswarmdrop_mobile_core.dylib
+
+# ③ 生成物在 src/generated，但 JS 侧 import 的是包的 lib/——必须再 build 一次，
+#    否则 `pnpm typecheck` 会报 "has no exported member 'MobileXxx'"，
+#    看起来像绑定没生成，其实是 lib/ 还是旧的
+cd /Volumes/yexiyue/SwarmDrop/mobile && pnpm --filter react-native-swarmdrop-core prepare
+```
+
+「No prettier found」「Skipping formatting C++」是正常提示，产物照常写出。真机构建仍要走
+`build:ios` / `build:android`，本路径只覆盖「绑定与类型」这一层。
+
+**相关文件**：`mobile/packages/swarmdrop-core/ubrn.config.yaml`
+
 ### 官网 Hero 视频使用独立 Remotion 工程
 
 `video/` 是用于制作官网成片的独立 pnpm workspace，不参与桌面应用或 `docs/` 的依赖安装。Remotion

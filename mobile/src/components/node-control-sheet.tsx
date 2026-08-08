@@ -22,6 +22,7 @@ import { Text } from "@/components/ui/text";
 import {
   candidateSourceKey,
   discoveryModeFromNative,
+  isNatMapped,
 } from "@/core/network-discovery";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { formatUptime } from "@/lib/format-uptime";
@@ -226,7 +227,7 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
                   <Row
                     label={<Trans>NAT 状态</Trans>}
                     value={
-                      networkStatus?.natStatus === "public"
+                      isNatMapped(networkStatus?.natStatus)
                         ? t`映射成功`
                         : t`未知`
                     }
@@ -394,12 +395,14 @@ function RelayReadyLabel({
     | undefined;
 }) {
   if (!source) return <Trans>就绪</Trans>;
+  // 同 network.tsx 的 CandidateSourceLabel：三个来源逐一列出、不留 default。
   switch (candidateSourceKey(source)) {
     case "hostConfigured":
       return <Trans>就绪 · 配置节点</Trans>;
     case "mdnsLanHelper":
       return <Trans>就绪 · LAN Helper</Trans>;
-    default:
+    case "learned":
+      // 同 network.tsx 的 CandidateSourceLabel：复用既有 msgid，不新增待翻译串。
       return <Trans>就绪 · 公网</Trans>;
   }
 }

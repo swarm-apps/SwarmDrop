@@ -95,6 +95,52 @@ export function logFilePath(): string | undefined {
     ));
     }
 
+/**
+ * 一段基础设施关系承担的角色（两个正交能力，不是二选一）。
+ */
+export type MobileCandidateRoles = {
+    kadServer: boolean,
+    relayServer: boolean
+}
+
+/**
+ * Generated factory for {@link MobileCandidateRoles} record objects.
+ */
+export const MobileCandidateRoles = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileCandidateRoles, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileCandidateRoles>,
+    });
+})();
+
+const FfiConverterTypeMobileCandidateRoles = (() => {
+    type TypeName = MobileCandidateRoles;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                kadServer: FfiConverterBool.read(from), 
+                relayServer: FfiConverterBool.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterBool.write(value.kadServer, into);
+            FfiConverterBool.write(value.relayServer, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterBool.allocationSize(value.kadServer) +
+             FfiConverterBool.allocationSize(value.relayServer);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
 export enum MobileBootstrapCandidateSource {
     HostConfigured,
     MdnsLanHelper,
@@ -1831,6 +1877,344 @@ const FfiConverterTypeMobileInboxSearchHit = (() => {
     return new FFIConverter();
 })();
 
+export enum MobileCandidateScope {
+    Public,
+    Lan
+}
+
+const FfiConverterTypeMobileCandidateScope = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileCandidateScope;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileCandidateScope.Public;
+                case 2: return MobileCandidateScope.Lan;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileCandidateScope.Public: return ordinalConverter.write(1, into);
+                case MobileCandidateScope.Lan: return ordinalConverter.write(2, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+
+// Enum: MobileRelayLinkState
+export enum MobileRelayLinkState_Tags {
+    Connecting = "Connecting",
+    Active = "Active",
+    Failed = "Failed"
+}
+/**
+ * relay reservation 三态。`lastError` 是内核原文，**不翻译**——排查时用户要贴的
+ * 就是这一句。
+ */
+export const MobileRelayLinkState = (() => {
+
+    type Connecting__interface = {
+        tag: MobileRelayLinkState_Tags.Connecting
+    };
+    class Connecting_ extends UniffiEnum implements Connecting__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileRelayLinkState";
+        readonly tag = MobileRelayLinkState_Tags.Connecting;
+        constructor() {
+            super("MobileRelayLinkState", "Connecting");
+        }
+
+        static new(): Connecting_ {
+            return new Connecting_();
+        }
+
+        static instanceOf(obj: any): obj is Connecting_ {
+            return obj.tag === MobileRelayLinkState_Tags.Connecting;
+        }
+
+    }
+
+    type Active__interface = {
+        tag: MobileRelayLinkState_Tags.Active;
+        inner: 
+Readonly<{circuitAddr: string}>
+    };
+    class Active_ extends UniffiEnum implements Active__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileRelayLinkState";
+        readonly tag = MobileRelayLinkState_Tags.Active;
+        readonly inner: 
+Readonly<{circuitAddr: string}>;
+        constructor(
+inner: {circuitAddr: string }) {
+            super("MobileRelayLinkState", "Active");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {circuitAddr: string }): Active_ {
+            return new Active_(inner);
+        }
+
+        static instanceOf(obj: any): obj is Active_ {
+            return obj.tag === MobileRelayLinkState_Tags.Active;
+        }
+
+    }
+
+    type Failed__interface = {
+        tag: MobileRelayLinkState_Tags.Failed;
+        inner: 
+Readonly<{lastError: string}>
+    };
+    class Failed_ extends UniffiEnum implements Failed__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileRelayLinkState";
+        readonly tag = MobileRelayLinkState_Tags.Failed;
+        readonly inner: 
+Readonly<{lastError: string}>;
+        constructor(
+inner: {lastError: string }) {
+            super("MobileRelayLinkState", "Failed");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {lastError: string }): Failed_ {
+            return new Failed_(inner);
+        }
+
+        static instanceOf(obj: any): obj is Failed_ {
+            return obj.tag === MobileRelayLinkState_Tags.Failed;
+        }
+
+    }
+
+    function instanceOf(obj: any): obj is MobileRelayLinkState {
+        return obj[uniffiTypeNameSymbol] === "MobileRelayLinkState";
+    }
+
+    return Object.freeze({
+        instanceOf,
+  Connecting: Connecting_, 
+  Active: Active_, 
+  Failed: Failed_
+    });
+
+})();
+/**
+ * relay reservation 三态。`lastError` 是内核原文，**不翻译**——排查时用户要贴的
+ * 就是这一句。
+ */
+export type MobileRelayLinkState = InstanceType<
+    typeof MobileRelayLinkState['Connecting' | 'Active' | 'Failed']
+>;
+
+// FfiConverter for enum MobileRelayLinkState
+const FfiConverterTypeMobileRelayLinkState = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileRelayLinkState;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return new MobileRelayLinkState.Connecting();
+                case 2: return new MobileRelayLinkState.Active({circuitAddr: FfiConverterString.read(from) });
+                case 3: return new MobileRelayLinkState.Failed({lastError: FfiConverterString.read(from) });
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value.tag) {
+                case MobileRelayLinkState_Tags.Connecting: {
+                    ordinalConverter.write(1, into);
+                    return;
+                }
+                case MobileRelayLinkState_Tags.Active: {
+                    ordinalConverter.write(2, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner.circuitAddr, into);
+                    return;
+                }
+                case MobileRelayLinkState_Tags.Failed: {
+                    ordinalConverter.write(3, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner.lastError, into);
+                    return;
+                }
+                default:
+                    // Throwing from here means that MobileRelayLinkState_Tags hasn't matched an ordinal.
+                    throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        allocationSize(value: TypeName): number {
+            switch (value.tag) {
+                case MobileRelayLinkState_Tags.Connecting: {
+                    return ordinalConverter.allocationSize(1);
+                }
+                case MobileRelayLinkState_Tags.Active: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(2);
+                    size += FfiConverterString.allocationSize(inner.circuitAddr);
+                    return size;
+                }
+                case MobileRelayLinkState_Tags.Failed: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(3);
+                    size += FfiConverterString.allocationSize(inner.lastError);
+                    return size;
+                }
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+    }
+    return new FFIConverter();
+})();
+
+/**
+ * 当前不参与 relay 收敛的原因。**说的是设置不是故障**——UI 走中性色 + 指向设置，
+ * 不给「重试」。
+ */
+export enum MobileInfraExclusion {
+    PublicReachabilityDisabled
+}
+
+const FfiConverterTypeMobileInfraExclusion = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileInfraExclusion;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileInfraExclusion.PublicReachabilityDisabled;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileInfraExclusion.PublicReachabilityDisabled: return ordinalConverter.write(1, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+/**
+ * 一段基础设施关系的逐条状态。
+ *
+ * 时间跨 uniffi 一律转毫秒 `i64`（本 crate 全目录零 chrono，见 inbox / history 同例）。
+ */
+export type MobileInfraLink = {
+    peerId: string,
+    addrs: Array<string>,
+    sources: Array<MobileBootstrapCandidateSource>,
+    roles: MobileCandidateRoles,
+    scope: MobileCandidateScope,
+    /**
+     * 首次登记时刻（epoch 毫秒）——宽限期的时间锚
+     */
+    firstSeen: bigint,
+    lastSeen: bigint,
+    /**
+     * 是否给用户「移除」入口（只有来源全是 host 配置时为真）
+     */
+    removable: boolean,
+    connected: boolean,
+    /**
+     * `None` = 这条关系在内核里没有 relay 轨道
+     */
+    relay?: MobileRelayLinkState,
+    /**
+     * 本次会话内是否曾建立过 reservation（宽限期开关）
+     */
+    everActive: boolean,
+    excluded?: MobileInfraExclusion
+}
+
+/**
+ * Generated factory for {@link MobileInfraLink} record objects.
+ */
+export const MobileInfraLink = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileInfraLink, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileInfraLink>,
+    });
+})();
+
+const FfiConverterTypeMobileInfraLink = (() => {
+    type TypeName = MobileInfraLink;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                peerId: FfiConverterString.read(from), 
+                addrs: FfiConverterSequenceString.read(from), 
+                sources: FfiConverterSequenceTypeMobileBootstrapCandidateSource.read(from), 
+                roles: FfiConverterTypeMobileCandidateRoles.read(from), 
+                scope: FfiConverterTypeMobileCandidateScope.read(from), 
+                firstSeen: FfiConverterInt64.read(from), 
+                lastSeen: FfiConverterInt64.read(from), 
+                removable: FfiConverterBool.read(from), 
+                connected: FfiConverterBool.read(from), 
+                relay: FfiConverterOptionalTypeMobileRelayLinkState.read(from), 
+                everActive: FfiConverterBool.read(from), 
+                excluded: FfiConverterOptionalTypeMobileInfraExclusion.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.peerId, into);
+            FfiConverterSequenceString.write(value.addrs, into);
+            FfiConverterSequenceTypeMobileBootstrapCandidateSource.write(value.sources, into);
+            FfiConverterTypeMobileCandidateRoles.write(value.roles, into);
+            FfiConverterTypeMobileCandidateScope.write(value.scope, into);
+            FfiConverterInt64.write(value.firstSeen, into);
+            FfiConverterInt64.write(value.lastSeen, into);
+            FfiConverterBool.write(value.removable, into);
+            FfiConverterBool.write(value.connected, into);
+            FfiConverterOptionalTypeMobileRelayLinkState.write(value.relay, into);
+            FfiConverterBool.write(value.everActive, into);
+            FfiConverterOptionalTypeMobileInfraExclusion.write(value.excluded, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.peerId) +
+             FfiConverterSequenceString.allocationSize(value.addrs) +
+             FfiConverterSequenceTypeMobileBootstrapCandidateSource.allocationSize(value.sources) +
+             FfiConverterTypeMobileCandidateRoles.allocationSize(value.roles) +
+             FfiConverterTypeMobileCandidateScope.allocationSize(value.scope) +
+             FfiConverterInt64.allocationSize(value.firstSeen) +
+             FfiConverterInt64.allocationSize(value.lastSeen) +
+             FfiConverterBool.allocationSize(value.removable) +
+             FfiConverterBool.allocationSize(value.connected) +
+             FfiConverterOptionalTypeMobileRelayLinkState.allocationSize(value.relay) +
+             FfiConverterBool.allocationSize(value.everActive) +
+             FfiConverterOptionalTypeMobileInfraExclusion.allocationSize(value.excluded);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
 /**
  * 「已发出的邀请」列表条目（openspec: invite-persistence）。
  *
@@ -2048,11 +2432,47 @@ const FfiConverterTypeMobileNetworkRuntimeConfig = (() => {
     return new FFIConverter();
 })();
 
+/**
+ * NAT 状态的 uniffi 镜像。
+ *
+ * 此前这一格是 `format!("{nat_status:?}")` 出来的 `"Public"`，而 JS 侧三处 UI
+ * 一律判 `=== "public"`——大小写对不上，NAT 格从有这功能起就恒显示「未知」。
+ * 枚举化后 JS 拿到的是判别联合，这类错配写不出来。
+ */
+export enum MobileNatStatus {
+    Public,
+    Unknown
+}
+
+const FfiConverterTypeMobileNatStatus = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileNatStatus;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileNatStatus.Public;
+                case 2: return MobileNatStatus.Unknown;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileNatStatus.Public: return ordinalConverter.write(1, into);
+                case MobileNatStatus.Unknown: return ordinalConverter.write(2, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
 export type MobileNetworkStatus = {
     status: string,
     peerId?: string,
     listenAddrs: Array<string>,
-    natStatus: string,
+    natStatus: MobileNatStatus,
     publicAddr?: string,
     connectedPeers: bigint,
     discoveredPeers: bigint,
@@ -2076,7 +2496,11 @@ export type MobileNetworkStatus = {
     lanHelperCount: bigint,
     bootstrapCandidateCount: bigint,
     candidateSources: Array<MobileCandidateSourceStatus>,
-    relaySource?: MobileBootstrapCandidateSource
+    relaySource?: MobileBootstrapCandidateSource,
+    /**
+     * 逐条基础设施关系。上面那批标量都是它的压扁投影，新 UI 一律读这个。
+     */
+    infraLinks: Array<MobileInfraLink>
 }
 
 /**
@@ -2103,7 +2527,7 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
                 status: FfiConverterString.read(from), 
                 peerId: FfiConverterOptionalString.read(from), 
                 listenAddrs: FfiConverterSequenceString.read(from), 
-                natStatus: FfiConverterString.read(from), 
+                natStatus: FfiConverterTypeMobileNatStatus.read(from), 
                 publicAddr: FfiConverterOptionalString.read(from), 
                 connectedPeers: FfiConverterUInt64.read(from), 
                 discoveredPeers: FfiConverterUInt64.read(from), 
@@ -2121,14 +2545,15 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
                 lanHelperCount: FfiConverterUInt64.read(from), 
                 bootstrapCandidateCount: FfiConverterUInt64.read(from), 
                 candidateSources: FfiConverterSequenceTypeMobileCandidateSourceStatus.read(from), 
-                relaySource: FfiConverterOptionalTypeMobileBootstrapCandidateSource.read(from)
+                relaySource: FfiConverterOptionalTypeMobileBootstrapCandidateSource.read(from), 
+                infraLinks: FfiConverterSequenceTypeMobileInfraLink.read(from)
             };
         }
         write(value: TypeName, into: RustBuffer): void {
             FfiConverterString.write(value.status, into);
             FfiConverterOptionalString.write(value.peerId, into);
             FfiConverterSequenceString.write(value.listenAddrs, into);
-            FfiConverterString.write(value.natStatus, into);
+            FfiConverterTypeMobileNatStatus.write(value.natStatus, into);
             FfiConverterOptionalString.write(value.publicAddr, into);
             FfiConverterUInt64.write(value.connectedPeers, into);
             FfiConverterUInt64.write(value.discoveredPeers, into);
@@ -2147,12 +2572,13 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
             FfiConverterUInt64.write(value.bootstrapCandidateCount, into);
             FfiConverterSequenceTypeMobileCandidateSourceStatus.write(value.candidateSources, into);
             FfiConverterOptionalTypeMobileBootstrapCandidateSource.write(value.relaySource, into);
+            FfiConverterSequenceTypeMobileInfraLink.write(value.infraLinks, into);
         }
         allocationSize(value: TypeName): number {
             return FfiConverterString.allocationSize(value.status) +
              FfiConverterOptionalString.allocationSize(value.peerId) +
              FfiConverterSequenceString.allocationSize(value.listenAddrs) +
-             FfiConverterString.allocationSize(value.natStatus) +
+             FfiConverterTypeMobileNatStatus.allocationSize(value.natStatus) +
              FfiConverterOptionalString.allocationSize(value.publicAddr) +
              FfiConverterUInt64.allocationSize(value.connectedPeers) +
              FfiConverterUInt64.allocationSize(value.discoveredPeers) +
@@ -2170,7 +2596,8 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
              FfiConverterUInt64.allocationSize(value.lanHelperCount) +
              FfiConverterUInt64.allocationSize(value.bootstrapCandidateCount) +
              FfiConverterSequenceTypeMobileCandidateSourceStatus.allocationSize(value.candidateSources) +
-             FfiConverterOptionalTypeMobileBootstrapCandidateSource.allocationSize(value.relaySource);
+             FfiConverterOptionalTypeMobileBootstrapCandidateSource.allocationSize(value.relaySource) +
+             FfiConverterSequenceTypeMobileInfraLink.allocationSize(value.infraLinks);
             
         }
     };
@@ -7964,11 +8391,23 @@ const FfiConverterSequenceTypeMobileInboxHitFile = new FfiConverterArray(FfiConv
 // FfiConverter for Array<string>
 const FfiConverterSequenceString = new FfiConverterArray(FfiConverterString);
 
+// FfiConverter for Array<MobileBootstrapCandidateSource>
+const FfiConverterSequenceTypeMobileBootstrapCandidateSource = new FfiConverterArray(FfiConverterTypeMobileBootstrapCandidateSource);
+
+// FfiConverter for MobileRelayLinkState | undefined
+const FfiConverterOptionalTypeMobileRelayLinkState = new FfiConverterOptional(FfiConverterTypeMobileRelayLinkState);
+
+// FfiConverter for MobileInfraExclusion | undefined
+const FfiConverterOptionalTypeMobileInfraExclusion = new FfiConverterOptional(FfiConverterTypeMobileInfraExclusion);
+
 // FfiConverter for Array<MobileCandidateSourceStatus>
 const FfiConverterSequenceTypeMobileCandidateSourceStatus = new FfiConverterArray(FfiConverterTypeMobileCandidateSourceStatus);
 
 // FfiConverter for MobileBootstrapCandidateSource | undefined
 const FfiConverterOptionalTypeMobileBootstrapCandidateSource = new FfiConverterOptional(FfiConverterTypeMobileBootstrapCandidateSource);
+
+// FfiConverter for Array<MobileInfraLink>
+const FfiConverterSequenceTypeMobileInfraLink = new FfiConverterArray(FfiConverterTypeMobileInfraLink);
 
 // FfiConverter for Array<MobilePreparedFile>
 const FfiConverterSequenceTypeMobilePreparedFile = new FfiConverterArray(FfiConverterTypeMobilePreparedFile);
@@ -8240,6 +8679,8 @@ export default Object.freeze({
     FfiConverterTypeForeignFileAccess,
     FfiConverterTypeForeignKeychainProvider,
     FfiConverterTypeMobileBootstrapCandidateSource,
+    FfiConverterTypeMobileCandidateRoles,
+    FfiConverterTypeMobileCandidateScope,
     FfiConverterTypeMobileCandidateSourceStatus,
     FfiConverterTypeMobileConnectionDetails,
     FfiConverterTypeMobileCore,
@@ -8260,8 +8701,11 @@ export default Object.freeze({
     FfiConverterTypeMobileInboxItemSummary,
     FfiConverterTypeMobileInboxSearchHit,
     FfiConverterTypeMobileInboxSourceKind,
+    FfiConverterTypeMobileInfraExclusion,
+    FfiConverterTypeMobileInfraLink,
     FfiConverterTypeMobileInviteListItem,
     FfiConverterTypeMobileInvitePreview,
+    FfiConverterTypeMobileNatStatus,
     FfiConverterTypeMobileNetworkRuntimeConfig,
     FfiConverterTypeMobileNetworkStatus,
     FfiConverterTypeMobilePairedDevice,
@@ -8271,6 +8715,7 @@ export default Object.freeze({
     FfiConverterTypeMobilePreparedTransfer,
     FfiConverterTypeMobileQrMatrix,
     FfiConverterTypeMobileReceiveSaveBehavior,
+    FfiConverterTypeMobileRelayLinkState,
     FfiConverterTypeMobileResumeRejectReason,
     FfiConverterTypeMobileSaveLocation,
     FfiConverterTypeMobileSendResult,

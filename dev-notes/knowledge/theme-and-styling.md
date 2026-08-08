@@ -208,6 +208,25 @@ babel 宏认的是**词法作用域**里的 `const { t } = useLingui()`，`t` �
 展开。三端同一个写法（`src/components/.../transfer-labels`、Web 的 `_lib/view-types.ts`、
 移动的 `file-row.tsx`）。
 
+### 枚举 → 文案**不许写三元链**，也不许留 `default`（2026-08-08 实测踩过）
+
+多于两个分支时一律走上面那张 `Record` 表；需要逻辑分支时用 `switch` 且**逐个变体列出、
+不写 `default`**。两分支的布尔三元（`ok ? t\`是\` : t\`否\``）不在此列。
+
+**为什么不是审美**：三元链和 `default` 都天然带一个兜底分支，新增枚举变体时**静默**落进
+兜底而不是编译报错。`BootstrapCandidateSource` 从两个变体长到三个之后，`learned` 在**三处**
+同时掉进兜底：
+
+- `stop-node-sheet.tsx` 的 `relaySourceLabel`（两级三元 + `null`）→ 渲染成「等待中」，
+  于是中继明明 `Active`、界面却说它还没就绪；
+- 移动 `network.tsx` / `node-control-sheet.tsx` 的两个 `switch` 有 `default`
+  → `learned` 被显示成「配置节点」，归因是错的；而它们各自的 `default` 分支
+  （本来写着「公网」，正是给 `learned` 准备的）**永不可达**，成了死代码；
+- 更早一层：`candidateSourceKey` 的 `default` 把 `Learned` 和 `HostConfigured` 折成同一个
+  返回值，于是两种来源同时在列表里时 React `key` 直接碰撞。
+
+`Record<Enum, T>` 在类型上要求键齐全，加变体即编译期红——这三处一处都不会漏。
+
 ## Zustand selector 与派生数组
 
 ### filter / map 派生值必须套 useShallow

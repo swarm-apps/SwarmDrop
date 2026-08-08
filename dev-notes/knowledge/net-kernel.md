@@ -47,7 +47,65 @@ wire 类型，下沉会成环）。`swarmdrop-host` + `swarmdrop-transfer` 已�
   **不要**在共享收敛路径上加 re-check/epoch 类特例。反向判据的前提：候选表只经显式撤销移除
   （无自动过期清出）且所有生产路径的 relay 登记均有候选条目——**引入候选自动清出机制前必须
   重新评估**（spec `infra-peer-lifecycle` 已锁定该前提）。
-- `remove_relay_intent` 的直接注销调用是低延迟快路径，环是兜底，二者幂等叠加。
+- `remove_infra_intent` 的直接注销调用是低延迟快路径，环是兜底，二者幂等叠加。
+
+### ⚠️ `Connecting` / `Failed` 没有 NetEvent —— core 事件循环必须订阅 `watch_relays`（2026-08-08 修）
+
+边沿轨只有 `RelayReservationAccepted` / `RelayReservationLost` 两个。`RelayState::Connecting`
+与 `Failed{last_error}` **没有任何对应事件**，只存在于 watch 轨。
+
+`run_event_loop` 此前只订了 `watch_addrs` 与 `watch_nat`，于是原生端**从来没观测到过**这两个
+态：桌面/移动 UI 里「引导节点」永远只有一个聚合布尔，失败原因根本到不了前端。Web 端之所以是
+三端唯一能逐条显示 relay 状态的，正因为它直接订 `relays_changed()` **绕过了 core 这一层**——
+那不是它做得好，是另外两端的链路断了一截。
+
+**正确做法**：任何依赖 relay 三态的上层，事件源必须是 `endpoint.watch_relays()`，不能靠
+`NetEvent`。不会造成推送风暴：`set_relay_state` 用 `send_if_modified` 做了值相等去重，
+supervisor 走 2s→75s 退避。
+
+**相关文件**：`crates/core/src/network/event_loop.rs`（`run_event_loop` 的 select）
+
+### 候选表只存意图，观测值一律现算（2026-08-08 定）
+
+`BootstrapCandidateManager` 是**期望状态**的权威源（谁该在、什么地址、什么角色、什么来源）。
+连接与 reservation 的**事实**分别在 `watch_conns` / `watch_relays`，由
+`crates/core/src/infra/link.rs` 的 `build_infra_links` 现场 join 成 `InfraLink` 读模型（零存储）。
+
+**不要**把观测值写回候选表。此前 `BootstrapCandidate.health` 就是这么做的，而四条路径不回写：
+
+- `cancel_relay_reservation` 与 `handle_remove_infra_peer` **刻意不发** `RelayReservationLost`
+  （免得上层把用户取消误判成需要自动恢复的故障）；
+- `set_relay_failed` 的另外几条路径（含 `OutgoingConnectionError`）同样不发。
+
+后果不在 UI 层：`presence/supervisor.rs` 的 `relay_hints()` 按那个位筛出 `RelayHint` 写进发布到
+**公共 DHT** 的 `OnlineRecord`，对端拿去「先修 relay 直连、再拨 circuit」。于是本机持续发布一条
+早已失效的中继路径，对端拨号必然失败，**日志无痕**。
+
+判据现在是 `relay_hints_from(candidates, relays)` 这个纯函数（读 `watch_relays` 的 `Active`），
+回归测试 `relay_hints_follow_live_relay_state` 钉住它。
+
+### 引导节点的启动登记只给 kad 角色（2026-08-08 修）
+
+`runtime.rs` 用 `InfraRoles { kad_server: true, relay: false }` 注册 host 配置的引导节点，
+relay 角色交给 `InfraSupervisor` 按 `public_reachability` 闸门收敛——与 `learn_candidate` 一致。
+
+此前用 `InfraRoles::bootstrap()`（kad + relay），于是关掉「公网可达性」的用户**照样在启动时
+建了公网 reservation**：`wants_reservation` 只管收敛环，管不到这条一次性注册。
+
+⚠️ 反过来也不能把这段删掉改走候选表。`wants_reservation` 要求 relay 角色 + tick 里是
+`continue`，所以 `public_reachability=false` 时公网候选**一次 `add_infrastructure_peer` 都不会
+发** → kad 路由表拿不到任何公网种子 → `dht.bootstrap()` 与在线记录发布全塌。
+`public_reachability` 与 `discovery_mode` 是**正交**的（`NetworkRuntimeConfig` 注释写了），
+不能让一个吃掉另一个。
+
+### 候选 scope 由 `upsert` 单点推断，调用方不得指定（2026-08-08 修）
+
+`upsert` 对 roles 是 `|=` 累加、对 scope 曾是**直接覆盖**，而三个调用方给三种拼法（启动路径
+硬编码 `Public`、运行时意图用 `infer`、局域网协助路径硬编码 `Lan`）。于是一个既被用户手填
+（含私网地址）又被 identify 认出的节点，scope 会在 `Lan`/`Public` 之间来回翻转——而
+`wants_reservation` 直接吃它，该候选就在收敛环里时进时出。
+
+现在 `upsert` 内部按**合并后的全部地址** `CandidateScope::infer`，签名里没有 scope 参数。
 
 ### 与旧栈（swarm-p2p-core）的关键差异
 

@@ -113,6 +113,8 @@ type NodeRestartBannerProps = {
   message: ReactNode;
   restarting: boolean;
   onRestart: () => void;
+  /** 重启会断开的在途传输数；>0 时把后果补在提示语后面 */
+  activeTransferCount?: number;
 };
 
 /** 节点设置变更后的「需重启」提示条，网络 / 引导节点共用 */
@@ -120,11 +122,21 @@ export function NodeRestartBanner({
   message,
   restarting,
   onRestart,
+  activeTransferCount = 0,
 }: NodeRestartBannerProps) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-2xl border border-warning/30 bg-warning/12 px-3.5 py-2.5">
       <span className="text-xs leading-5 text-warning-ink">
         {message}
+        {/* 重启 = 停再起，在途传输会当场断掉。不说这句，用户点下去才发现文件传了一半没了。 */}
+        {activeTransferCount > 0 && (
+          <>
+            {" "}
+            <Trans>
+              重启会中断正在进行的 {activeTransferCount} 个传输。
+            </Trans>
+          </>
+        )}
       </span>
       <Button
         size="sm"

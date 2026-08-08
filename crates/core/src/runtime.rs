@@ -133,12 +133,28 @@ where
     )
     .await?;
 
-    // 注册引导/中继基础设施节点（DHT bootstrap 依赖至少一个 kad server 进路由表）。
+    // 注册引导节点为 **DHT 种子**（bootstrap 依赖至少一个 kad server 进路由表）。
     // 浏览器端无内置引导，整循环跳过。
+    //
+    // **只给 kad 角色，relay 交给 `InfraSupervisor` 按 `public_reachability` 闸门收敛**
+    // ——与 `learn_candidate` 的即时接线一致。此前这里用 `InfraRoles::bootstrap()`
+    // （kad + relay），于是关掉「公网可达性」的用户照样在启动时建了公网 reservation，
+    // 绕过了那道闸门（`wants_reservation` 只管收敛环，管不到这条一次性注册）。
+    //
+    // 反过来也不能把这整段删掉改走候选表：`wants_reservation` 要求 relay 角色，
+    // `public_reachability=false` 时公网候选一次 `add_infrastructure_peer` 都不会发，
+    // kad 路由表拿不到任何公网种子 → `dht.bootstrap()` 与在线记录发布全塌。
+    // 两个开关是正交的（见 `NetworkRuntimeConfig` 上的注释），不能让一个吃掉另一个。
     if profile.registers_infra() {
         for peer in bootstrap_node_addrs(&network_config) {
             if let Err(e) = endpoint
-                .add_infrastructure_peer(peer, InfraRoles::bootstrap())
+                .add_infrastructure_peer(
+                    peer,
+                    InfraRoles {
+                        kad_server: true,
+                        relay: false,
+                    },
+                )
                 .await
             {
                 tracing::warn!("注册引导节点失败: {e}");

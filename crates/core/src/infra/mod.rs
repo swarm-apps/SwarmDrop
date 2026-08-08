@@ -16,6 +16,8 @@
 //! `connect_bootstrap_peers`）即时完成；本模块是它们的收敛兜底——
 //! 一次性接线断了以后，这里负责把世界拉回期望状态。
 
+mod link;
 mod supervisor;
 
+pub use link::{InfraExclusion, InfraLink, RelayLinkState, build_infra_links};
 pub use supervisor::InfraSupervisor;

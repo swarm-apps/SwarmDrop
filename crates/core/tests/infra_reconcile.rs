@@ -9,9 +9,8 @@ use std::time::Duration;
 use swarmdrop_core::AppResult;
 use swarmdrop_core::device::OsInfo;
 use swarmdrop_core::host::{CoreEvent, EventBus, MemoryHost};
-use swarmdrop_core::network::candidates::{
-    BootstrapCandidateSource, CandidateRoles, CandidateScope,
-};
+use swarmdrop_core::infra::RelayLinkState;
+use swarmdrop_core::network::candidates::{BootstrapCandidateSource, CandidateRoles};
 use swarmdrop_core::network::config::create_candidate_manager;
 use swarmdrop_core::network::event_loop::handle_core_node_event;
 use swarmdrop_core::network::{DiscoveryMode, NetManager, NetworkRuntimeConfig};
@@ -139,7 +138,6 @@ async fn reservation_rebuilds_after_helper_restart() {
         vec![helper_addr],
         BootstrapCandidateSource::MdnsLanHelper,
         CandidateRoles::kad_and_relay(),
-        CandidateScope::Lan,
     );
 
     poll_until(
@@ -148,6 +146,27 @@ async fn reservation_rebuilds_after_helper_restart() {
         "infra 收敛应自动建立 reservation",
     )
     .await;
+
+    // 逐条读模型与聚合位必须同源：`relay_ready` 现在就是从 `infra_links` 派生的，
+    // 两者不一致说明 `build_infra_links` 与 `active_relay_peers` 读到了不同的世界。
+    {
+        let status = manager.get_network_status();
+        let link = status
+            .infra_links
+            .iter()
+            .find(|l| l.peer_id == helper_id)
+            .expect("helper 应在 infra_links 中");
+        assert!(
+            matches!(link.relay, Some(RelayLinkState::Active { .. })),
+            "relay_ready 为真时该 link 必须是 Active，实际 {:?}",
+            link.relay
+        );
+        assert!(link.ever_active, "建立过 reservation 后 ever_active 应置位");
+        assert!(
+            link.excluded.is_none(),
+            "具备 relay 角色且未被闸门拦下时不应有 excluded"
+        );
+    }
 
     // === 杀掉 helper：reservation 丢失必须反映到状态 ===
     helper.close().await;
@@ -168,7 +187,6 @@ async fn reservation_rebuilds_after_helper_restart() {
         vec![helper2_addr],
         BootstrapCandidateSource::MdnsLanHelper,
         CandidateRoles::kad_and_relay(),
-        CandidateScope::Lan,
     );
 
     // 无需任何重启/手工干预：收敛层自动重建 reservation

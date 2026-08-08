@@ -16,6 +16,8 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::{ErrorData, schemars, tool, tool_router};
 use serde::{Deserialize, Serialize};
+use swarmdrop_core::infra::InfraLink;
+use swarmdrop_core::network::{NatStatus, NodeStatus};
 use swarmdrop_core::transfer::inbox::{InboxItemDetail, InboxItemSummary, InboxSearchHit};
 use swarmdrop_core::transfer::manager::TransferManager;
 use swarmdrop_core::transfer::store::TransferProjection;
@@ -194,15 +196,26 @@ macro_rules! get_net_manager {
     };
 }
 
-/// 网络状态返回值（MCP 专用简化版）
+/// 网络状态返回值（MCP 专用简化版）。
+///
+/// **字段一律从 `NetworkStatus` 投影，不许在这一层硬编码。**
+///
+/// `nat_status` 此前走 `format!("{:?}")`，与另三端的 serde camelCase 不同源——那是真错，
+/// 已修。`status` 改读 `status.status` 则是**形式修正、当前行为不变**：
+/// `build_network_status` 里那个值恒为 `NodeStatus::Running`，「节点没跑」由外层
+/// `guard.as_ref()` 的 `None` 分支表达。所以 server instructions 那句「先调本工具确认
+/// 节点已启动」今天是靠 `None` 分支成立的，不是靠这个字段。
+/// 真要让 `status` 自己承载运行态，得先让 `build_network_status` 不再写死 Running。
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct McpNetworkStatus {
-    status: String,
+    status: NodeStatus,
     peer_id: Option<String>,
     connected_peers: usize,
-    nat_status: String,
+    nat_status: NatStatus,
     relay_ready: bool,
+    /// 逐条基础设施关系：agent 排查「为什么发不出去」时唯一能看到原因的地方。
+    infra_links: Vec<InfraLink>,
 }
 
 #[tool_router(vis = "pub(super)")]
@@ -220,19 +233,21 @@ impl McpHandler {
             Some(manager) => {
                 let status = manager.get_network_status();
                 McpNetworkStatus {
-                    status: "running".into(),
+                    status: status.status,
                     peer_id: status.peer_id.map(|p| p.to_string()),
                     connected_peers: status.connected_peers,
-                    nat_status: format!("{:?}", status.nat_status),
+                    nat_status: status.nat_status,
                     relay_ready: status.relay_ready,
+                    infra_links: status.infra_links,
                 }
             }
             None => McpNetworkStatus {
-                status: "stopped".into(),
+                status: NodeStatus::Stopped,
                 peer_id: None,
                 connected_peers: 0,
-                nat_status: "Unknown".into(),
+                nat_status: NatStatus::Unknown,
                 relay_ready: false,
+                infra_links: Vec::new(),
             },
         };
 

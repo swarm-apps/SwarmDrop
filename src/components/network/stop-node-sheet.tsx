@@ -15,6 +15,7 @@ import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
 import { cn } from "@/lib/utils";
 import { formatUptime } from "@/lib/format-uptime";
+import { useActiveTransferCount } from "@/hooks/use-active-transfer-count";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import { LanHelperAddress } from "@/components/network/lan-helper-address";
 import {
@@ -34,6 +35,18 @@ interface StopNodeSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+/// 候选来源 → 标签。
+///
+/// 用 `Record` 而不是 switch / 三元链：类型上要求键齐全，`BootstrapCandidateSource`
+/// 加第四个来源时这里**编译期**就红。此前它写成两级三元 + null 兜底，`learned`
+/// （运行时经 identify 学到的中继，LAN Helper 引荐公网中继时的常态）掉进兜底，
+/// 于是 relay 明明 Active、界面却把它渲染成「等待中」。
+const relaySourceLabels: Record<BootstrapCandidateSource, MessageDescriptor> = {
+  hostConfigured: msg`配置节点`,
+  mdnsLanHelper: msg`局域网协助`,
+  learned: msg`公网`,
+};
 
 const statusConfig: Record<
   NodeStatus,
@@ -184,6 +197,9 @@ function StopNodeContent({
 }) {
   const { t } = useLingui();
   const config = statusConfig[status];
+  // 停止节点会断开全部连接，在途传输当场中断——这是这个弹窗唯一会造成数据损失的后果，
+  // 必须说出来。不走 props：它与调用方传下来的那批网络快照不同源，也不该由调用方去查。
+  const activeTransferCount = useActiveTransferCount();
 
   const windowHeight = useSyncExternalStore(
     (cb) => {
@@ -209,12 +225,7 @@ function StopNodeContent({
     android: "Android",
     ios: "iOS",
   };
-  const relaySourceLabel =
-    relaySource === "mdnsLanHelper"
-      ? t`局域网协助`
-      : relaySource === "hostConfigured"
-        ? t`配置节点`
-          : null;
+  const relaySourceLabel = relaySource ? t(relaySourceLabels[relaySource]) : null;
 
   return (
     <div className="flex flex-col gap-4 p-6">
@@ -451,6 +462,16 @@ function StopNodeContent({
       <DialogFooter className="flex flex-col gap-3">
         <p className="text-center text-xs text-destructive-ink">
           <Trans>停止后将断开所有连接，其他设备将无法发现你</Trans>
+          {/* 「断开所有连接」说的是可达性，用户读不出「我正在传的文件会没」。
+              在途会话数必须单独说一句——这是唯一会造成数据损失的后果。 */}
+          {activeTransferCount > 0 && (
+            <>
+              {" "}
+              <Trans>
+                正在进行的 {activeTransferCount} 个传输会被中断。
+              </Trans>
+            </>
+          )}
         </p>
         <div className="flex gap-2">
           <Button variant="outline" onClick={onCancel} className="flex-1">

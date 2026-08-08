@@ -37,7 +37,13 @@ export function NetworkSettingsSection() {
   const setProvideLanHelper = usePreferencesStore((state) => state.setProvideLanHelper);
   const publicReachability = usePreferencesStore((state) => state.publicReachability);
   const setPublicReachability = usePreferencesStore((state) => state.setPublicReachability);
-  const { restarting, markRestartNeeded, restart, showBanner } = useNodeRestart();
+  const {
+    restarting,
+    markRestartNeeded,
+    restart,
+    showBanner,
+    activeTransferCount,
+  } = useNodeRestart();
 
   return (
     <SettingsSection title={<Trans>网络</Trans>} icon={Network} fill>
@@ -130,6 +136,7 @@ export function NetworkSettingsSection() {
 
       {showBanner && (
         <NodeRestartBanner
+          activeTransferCount={activeTransferCount}
           message={<Trans>网络发现设置已变更，需重启节点生效</Trans>}
           restarting={restarting}
           onRestart={restart}

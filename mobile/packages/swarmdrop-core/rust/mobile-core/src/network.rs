@@ -4,9 +4,10 @@
 //! 节点开关由 host 决定（用户显式控制）；节点运行期间的 presence
 //! （在线宣告 / 已配对设备保活与重连）由 core 自治，host 无需参与。
 
+use swarmdrop_core::infra::{InfraExclusion, InfraLink, RelayLinkState};
 use swarmdrop_core::network::{
-    BootstrapCandidateSource, CandidateSourceStatus, DiscoveryMode, NetworkRuntimeConfig,
-    NetworkStatus as CoreNetworkStatus, NodeStatus,
+    BootstrapCandidateSource, CandidateRoles, CandidateScope, CandidateSourceStatus, DiscoveryMode,
+    NatStatus, NetworkRuntimeConfig, NetworkStatus as CoreNetworkStatus, NodeStatus,
 };
 
 use crate::app::MobileCore;
@@ -59,6 +60,26 @@ impl From<MobileNetworkRuntimeConfig> for NetworkRuntimeConfig {
     }
 }
 
+/// NAT 状态的 uniffi 镜像。
+///
+/// 此前这一格是 `format!("{nat_status:?}")` 出来的 `"Public"`，而 JS 侧三处 UI
+/// 一律判 `=== "public"`——大小写对不上，NAT 格从有这功能起就恒显示「未知」。
+/// 枚举化后 JS 拿到的是判别联合，这类错配写不出来。
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum MobileNatStatus {
+    Public,
+    Unknown,
+}
+
+impl From<NatStatus> for MobileNatStatus {
+    fn from(status: NatStatus) -> Self {
+        match status {
+            NatStatus::Public => Self::Public,
+            NatStatus::Unknown => Self::Unknown,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, uniffi::Enum)]
 pub enum MobileBootstrapCandidateSource {
     HostConfigured,
@@ -72,6 +93,135 @@ impl From<BootstrapCandidateSource> for MobileBootstrapCandidateSource {
             BootstrapCandidateSource::HostConfigured => Self::HostConfigured,
             BootstrapCandidateSource::MdnsLanHelper => Self::MdnsLanHelper,
             BootstrapCandidateSource::Learned => Self::Learned,
+        }
+    }
+}
+
+/// 一段基础设施关系承担的角色（两个正交能力，不是二选一）。
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct MobileCandidateRoles {
+    pub kad_server: bool,
+    pub relay_server: bool,
+}
+
+impl From<CandidateRoles> for MobileCandidateRoles {
+    fn from(roles: CandidateRoles) -> Self {
+        // 穷尽解构 drift guard
+        let CandidateRoles {
+            kad_server,
+            relay_server,
+        } = roles;
+        Self {
+            kad_server,
+            relay_server,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum MobileCandidateScope {
+    Public,
+    Lan,
+}
+
+impl From<CandidateScope> for MobileCandidateScope {
+    fn from(scope: CandidateScope) -> Self {
+        match scope {
+            CandidateScope::Public => Self::Public,
+            CandidateScope::Lan => Self::Lan,
+        }
+    }
+}
+
+/// relay reservation 三态。`lastError` 是内核原文，**不翻译**——排查时用户要贴的
+/// 就是这一句。
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum MobileRelayLinkState {
+    Connecting,
+    Active { circuit_addr: String },
+    Failed { last_error: String },
+}
+
+impl From<RelayLinkState> for MobileRelayLinkState {
+    fn from(state: RelayLinkState) -> Self {
+        match state {
+            RelayLinkState::Connecting => Self::Connecting,
+            RelayLinkState::Active { circuit_addr } => Self::Active {
+                circuit_addr: circuit_addr.to_string(),
+            },
+            RelayLinkState::Failed { last_error } => Self::Failed { last_error },
+        }
+    }
+}
+
+/// 当前不参与 relay 收敛的原因。**说的是设置不是故障**——UI 走中性色 + 指向设置，
+/// 不给「重试」。
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum MobileInfraExclusion {
+    PublicReachabilityDisabled,
+}
+
+impl From<InfraExclusion> for MobileInfraExclusion {
+    fn from(reason: InfraExclusion) -> Self {
+        match reason {
+            InfraExclusion::PublicReachabilityDisabled => Self::PublicReachabilityDisabled,
+        }
+    }
+}
+
+/// 一段基础设施关系的逐条状态。
+///
+/// 时间跨 uniffi 一律转毫秒 `i64`（本 crate 全目录零 chrono，见 inbox / history 同例）。
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MobileInfraLink {
+    pub peer_id: String,
+    pub addrs: Vec<String>,
+    pub sources: Vec<MobileBootstrapCandidateSource>,
+    pub roles: MobileCandidateRoles,
+    pub scope: MobileCandidateScope,
+    /// 首次登记时刻（epoch 毫秒）——宽限期的时间锚
+    pub first_seen: i64,
+    pub last_seen: i64,
+    /// 是否给用户「移除」入口（只有来源全是 host 配置时为真）
+    pub removable: bool,
+    pub connected: bool,
+    /// `None` = 这条关系在内核里没有 relay 轨道
+    pub relay: Option<MobileRelayLinkState>,
+    /// 本次会话内是否曾建立过 reservation（宽限期开关）
+    pub ever_active: bool,
+    pub excluded: Option<MobileInfraExclusion>,
+}
+
+impl From<InfraLink> for MobileInfraLink {
+    fn from(link: InfraLink) -> Self {
+        // 穷尽解构 drift guard：core 给 InfraLink 加字段时这里会编译失败。
+        let InfraLink {
+            peer_id,
+            addrs,
+            sources,
+            roles,
+            scope,
+            first_seen,
+            last_seen,
+            removable,
+            connected,
+            relay,
+            ever_active,
+            excluded,
+        } = link;
+        Self {
+            peer_id: peer_id.to_string(),
+            addrs: addrs.into_iter().map(|addr| addr.to_string()).collect(),
+            sources: sources.into_iter().map(Into::into).collect(),
+            roles: roles.into(),
+            scope: scope.into(),
+            first_seen: first_seen.timestamp_millis(),
+            last_seen: last_seen.timestamp_millis(),
+            removable,
+            connected,
+            relay: relay.map(Into::into),
+            ever_active,
+            excluded: excluded.map(Into::into),
         }
     }
 }
@@ -98,7 +248,7 @@ pub struct MobileNetworkStatus {
     pub status: String,
     pub peer_id: Option<String>,
     pub listen_addrs: Vec<String>,
-    pub nat_status: String,
+    pub nat_status: MobileNatStatus,
     pub public_addr: Option<String>,
     pub connected_peers: u64,
     pub discovered_peers: u64,
@@ -119,6 +269,8 @@ pub struct MobileNetworkStatus {
     pub bootstrap_candidate_count: u64,
     pub candidate_sources: Vec<MobileCandidateSourceStatus>,
     pub relay_source: Option<MobileBootstrapCandidateSource>,
+    /// 逐条基础设施关系。上面那批标量都是它的压扁投影，新 UI 一律读这个。
+    pub infra_links: Vec<MobileInfraLink>,
 }
 
 impl From<CoreNetworkStatus> for MobileNetworkStatus {
@@ -147,6 +299,7 @@ impl From<CoreNetworkStatus> for MobileNetworkStatus {
             bootstrap_candidate_count,
             candidate_sources,
             relay_source,
+            infra_links,
         } = status;
         Self {
             status: match status {
@@ -158,7 +311,7 @@ impl From<CoreNetworkStatus> for MobileNetworkStatus {
                 .into_iter()
                 .map(|addr| addr.to_string())
                 .collect(),
-            nat_status: format!("{nat_status:?}"),
+            nat_status: nat_status.into(),
             public_addr: public_addr.map(|addr| addr.to_string()),
             connected_peers: connected_peers as u64,
             discovered_peers: discovered_peers as u64,
@@ -183,6 +336,7 @@ impl From<CoreNetworkStatus> for MobileNetworkStatus {
             bootstrap_candidate_count: bootstrap_candidate_count as u64,
             candidate_sources: candidate_sources.into_iter().map(Into::into).collect(),
             relay_source: relay_source.map(Into::into),
+            infra_links: infra_links.into_iter().map(Into::into).collect(),
         }
     }
 }

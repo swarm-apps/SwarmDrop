@@ -337,6 +337,13 @@ export type BootstrapCandidateSource =
 /**  运行时经 identify 学到的基础设施节点（如 LanOnly 下经 LAN Helper 认识的公网中继） */
 "learned";
 
+export type CandidateRoles = {
+	kadServer: boolean,
+	relayServer: boolean,
+};
+
+export type CandidateScope = "public" | "lan";
+
 export type CandidateSourceStatus = {
 	source: BootstrapCandidateSource,
 	count: number,
@@ -645,11 +652,86 @@ export type InboxSearchHit = {
 /**  收件箱来源类型。 */
 export type InboxSourceKind = "paired_device" | "share_code" | "mcp" | "unknown";
 
+/**
+ *  一段基础设施关系当前不参与 relay 收敛的原因。
+ * 
+ *  **说的是「设置」不是「故障」**：UI 必须中性色 + CTA 指向设置，不得升警示色、
+ *  不得给「重试」。
+ * 
+ *  目前只有一个变体，且刻意不预留第二个（本仓既有规矩：不造到不了 UI 的判别码）：
+ *  - 没有 `NodeNotRunning`——节点运行态由 `NetworkStatus.status` 表达，而
+ *    `build_network_status` 里那个值恒为 `Running`，加进来就是一个永远为假的分支；
+ *  - 没有 `NotARelay`——今天**每一个**候选写入点都传 `CandidateRoles::kad_and_relay()`，
+ *    纯 kad 候选还不存在。等 `InfraSupervisor` 真按角色分档收敛、有了纯 kad 的写入方，
+ *    再连同它的产生者一起加回来。提前导出一个三端都渲染不出来的分支，是
+ *    `DESIGN.md:645-649`「永远为零的计数器比缺席更糟」在类型层的版本，而且它要过
+ *    specta / uniffi / wasm 三条 codegen；
+ *  - 没有任何基于 `DiscoveryMode` 的变体——那个轴当前零行为效果（全仓对该枚举无
+ *    `match`），基于它写新逻辑等于给一个待删的开关增加依赖。
+ */
+export type InfraExclusion = 
+/**  公网范围候选，但用户关闭了公网可达性。 */
+{ kind: "publicReachabilityDisabled" };
+
+/**
+ *  一段基础设施关系的完整读模型。
+ * 
+ *  字段分三段，**并置但不融合**：上半段只由意图路径写，下半段只由观测源现算。
+ *  两者共享同一身份（`peer_id`），而用户唯一关心的正是两者的差——「我要它连上，
+ *  它连上了吗」。拆成两个类型再让三端各自 join，只会把 join 做三遍。
+ */
+export type InfraLink = {
+	peerId: string,
+	addrs: string[],
+	sources: BootstrapCandidateSource[],
+	roles: CandidateRoles,
+	scope: CandidateScope,
+	firstSeen: string,
+	lastSeen: string,
+	/**
+	 *  用户能否在 UI 上移除这条：只有来源全是 `HostConfigured` 时为 true。
+	 * 
+	 *  自动来源（mDNS / Learned）**不给移除入口**：撤销会断开与该节点的全部连接
+	 *  （含在途传输），而局域网协助节点本身就可能是一台正在传文件的已配对设备；
+	 *  何况它下次 identify 就会被原样登记回来——点了没反应，还把传输搞挂。
+	 */
+	removable: boolean,
+	/**
+	 *  传输层是否已连上。只覆盖「已建立」——内核不外露在途拨号，所以没有 `Dialing` 态。
+	 * 
+	 *  **刻意没有 `rtt_ms`。** RTT 由 ping 更新（30s/peer），而 `PingSuccess` 已被
+	 *  降级成只推设备列表——它改不动 `NetworkStatus` 的任何其它字段，全量推送不值当。
+	 *  真把 rtt 挂进来，这一格就会停在首帧的 `null`（`PeerConnected` 那一刻还没测过），
+	 *  只在别的事件碰巧触发时才刷新一次：一个偶尔更新的延迟数比没有更误导
+	 *  （`DESIGN.md:645-649` 的同一条规则）。要显示 relay 延迟，先给它一条自己的
+	 *  刷新通道，别顺手挂在这个读模型上。
+	 */
+	connected: boolean,
+	/**  `None` = 这条关系在内核里没有 relay 轨道（不承担该角色，或被 `excluded` 拦下）。 */
+	relay: RelayLinkState | null,
+	/**  本次节点会话内是否曾建立过 reservation。宽限期的唯一开关。 */
+	everActive: boolean,
+	/**  非 `None` ⇒ 当前不参与 relay 收敛。 */
+	excluded: InfraExclusion | null,
+};
+
 /**  MCP Server 状态返回值 */
 export type McpStatus = {
 	running: boolean,
 	addr: string | null,
 };
+
+/**
+ *  NAT 状态（AutoNAT v2 探测结论）。
+ * 
+ *  刻意没有 `Private` 变体：AutoNAT v2 单次失败不足以判定 Private，
+ *  旧栈同款语义。
+ */
+export type NatStatus = 
+/**  公网可达（AutoNAT 确认）。 */
+"public" | 
+/**  未知（未探测完成或探测失败）。 */
+"unknown";
 
 export type NetworkRuntimeConfig = {
 	/**
@@ -677,7 +759,11 @@ export type NetworkStatus = {
 	status: NodeStatus,
 	peerId: string | null,
 	listenAddrs: string[],
-	natStatus: string,
+	/**
+	 *  NAT 状态。**不加 `specta(type = String)`**——`NatStatus` 自己 derive 了
+	 *  `specta::Type`，抹成 `string` 会让前端的 `=== "public"` 写错也编得过。
+	 */
+	natStatus: NatStatus,
 	publicAddr: string | null,
 	connectedPeers: number,
 	discoveredPeers: number,
@@ -714,6 +800,14 @@ export type NetworkStatus = {
 	candidateSources: CandidateSourceStatus[],
 	/**  当前 relay peer 的候选来源。 */
 	relaySource: BootstrapCandidateSource | null,
+	/**
+	 *  逐条基础设施关系的完整状态。
+	 * 
+	 *  上面那批标量（`relay_ready` / `relay_peers` / `candidate_sources` / …）都是
+	 *  它的不同压扁投影，保留是因为 MCP agent 面 schema 与几条 e2e 断言在消费它们；
+	 *  **新 UI 一律读这个数组**——只有它能回答「哪一条连不上、为什么」。
+	 */
+	infraLinks: InfraLink[],
 };
 
 export type NetworkStatusChanged = NetworkStatus;
@@ -891,6 +985,20 @@ export type ReceiveSaveBehavior =
  *  事件名 `"receiving-paused-changed"`，payload 为 `true`=已暂停。
  */
 export type ReceivingPausedChanged = boolean;
+
+/**
+ *  [`RelayState`] 的 IPC 投影。
+ * 
+ *  `last_error` **原样保留内核下发的字符串**——这是三端唯一能说清「为什么连不上」
+ *  的东西，排查时用户要贴的就是这一句，不翻译、不改写。
+ */
+export type RelayLinkState = 
+/**  正在拨号或等待 reservation 应答。 */
+{ kind: "connecting" } | 
+/**  reservation 已建立，携带内核拼装的 circuit 可达地址（调用方不得自行拼接）。 */
+{ kind: "active"; circuitAddr: string } | 
+/**  拨号失败或 reservation 失效，携带末次错误原文。**会自动重试**，文案不得给终态感。 */
+{ kind: "failed"; lastError: string };
 
 /**  断点续传被拒绝的原因。 */
 export type ResumeRejectReason = { type: "cancelled" } | { type: "fatal_error" } | { type: "source_modified" } | { type: "checkpoint_invalid" } | { type: "peer_unavailable" } | { type: "session_not_found" };

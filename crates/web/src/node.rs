@@ -16,7 +16,7 @@ use futures::StreamExt;
 use swarmdrop_core::device_manager::DeviceFilter;
 use swarmdrop_core::host::EventBus;
 use swarmdrop_core::network::event_loop::spawn_event_loop;
-use swarmdrop_core::network::{DiscoveryMode, NetManager, NetworkRuntimeConfig};
+use swarmdrop_core::network::{CandidateRoles, DiscoveryMode, NetManager, NetworkRuntimeConfig};
 use swarmdrop_core::protocol::pairing::{PairingRefuseReason, PairingResponse};
 use swarmdrop_core::runtime::{EndpointProfile, start_node};
 use swarmdrop_host::device::{DeviceName, DeviceReceivePolicy, DeviceTrustLevel};
@@ -768,8 +768,13 @@ impl WebNode {
     /// 入参，调用方直接串联，无需自行解析 multiaddr 的 `/p2p/` 段。
     pub fn relays_ensure(&self, helper_addr: String) -> Result<String, JsValue> {
         let (id, addr) = split_p2p_addr(&helper_addr)?;
-        self.net_manager
-            .ensure_relay_intent(NodeAddr::with_addrs(id, vec![addr]));
+        // 角色给全（kad + relay）：浏览器同样要靠它进 kad 路由表做 DHT 查询。
+        // 此前 `ensure_relay_intent` 写死只给 relay 角色，kad 那半是靠
+        // `learn_candidate` 在 identify 之后补回来的——巧合，不是设计。
+        self.net_manager.ensure_infra_intent(
+            NodeAddr::with_addrs(id, vec![addr]),
+            CandidateRoles::kad_and_relay(),
+        );
         Ok(id.to_string())
     }
 
@@ -780,7 +785,7 @@ impl WebNode {
     pub async fn relays_drop(&self, helper_id: String) -> Result<(), JsValue> {
         let id = parse_node_id(&helper_id)?;
         self.net_manager
-            .remove_relay_intent(id)
+            .remove_infra_intent(id)
             .await
             .map_err(WebError::from)?;
         Ok(())

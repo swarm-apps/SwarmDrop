@@ -9,7 +9,12 @@ use serde::{Deserialize, Serialize};
 ///
 /// 刻意没有 `Private` 变体：AutoNAT v2 单次失败不足以判定 Private，
 /// 旧栈同款语义。
+// `specta::Type`：让它经 tauri-specta 导出成 TS 字面量联合（`"public" | "unknown"`）。
+// 此前桌面侧在 `NetworkStatus` 上挂 `specta(type = String)` 把它抹成 `string`，
+// 移动侧更是 `format!("{:?}")` 出 `"Public"`——两端 UI 都写 `=== "public"`，
+// 于是移动端的 NAT 格从有这功能起就恒显示「未知」。类型化后这类错配编译期就露。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum NatStatus {
     /// 公网可达（AutoNAT 确认）。

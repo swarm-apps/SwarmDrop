@@ -69,7 +69,13 @@ export function BootstrapNodesSection() {
   const customBootstrapNodes = usePreferencesStore((s) => s.customBootstrapNodes);
   const addBootstrapNode = usePreferencesStore((s) => s.addBootstrapNode);
   const removeBootstrapNode = usePreferencesStore((s) => s.removeBootstrapNode);
-  const { restarting, markRestartNeeded, restart, showBanner } = useNodeRestart();
+  const {
+    restarting,
+    markRestartNeeded,
+    restart,
+    showBanner,
+    activeTransferCount,
+  } = useNodeRestart();
 
   const [inputValue, setInputValue] = useState("");
   const [showInput, setShowInput] = useState(false);
@@ -282,6 +288,7 @@ export function BootstrapNodesSection() {
 
       {showBanner && (
         <NodeRestartBanner
+          activeTransferCount={activeTransferCount}
           message={<Trans>引导节点已变更，需重启节点生效</Trans>}
           restarting={restarting}
           onRestart={restart}
