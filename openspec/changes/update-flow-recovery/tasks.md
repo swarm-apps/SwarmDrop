@@ -24,16 +24,9 @@
 
 - [x] 2.1 `mobile/package.json`（`^0.4.0`）与根 `package.json`（`^0.1.0`）的
       `@swarm-hive/sdk` 都已提到 `^0.5.0`
-- [ ] 2.1b **阻塞：SwarmHive 发布 `@swarm-hive/sdk@0.5.0`** —— 在 SwarmHive 仓打
-      `sdk/v0.5.0` tag，触发 `publish-sdk.yml`（版本号已就位，workflow 会校验 tag 与
-      package.json 一致）。在那之前本仓 `pnpm install` 装不到该版本 —— 这是真实的阻塞状态，
-      不是遗漏。发布后本仓跑一次 `pnpm install` 更新 lockfile —— 两处 lockfile 目前仍记着
-      旧版本（根 `0.1.0`、mobile `0.4.0`）。
-      本地已用 0.5.0 的构建产物验证过两端 typecheck 与全部测试。
-
-      **影响面已核实**：没有自动触发的 CI 会因此变红。`rust.yml`（push/PR 触发）不装 JS 依赖；
-      跑 `--frozen-lockfile` 的三条（`mobile-build-android` / `mobile-release` / `release`）
-      都是手动或 tag 触发，届时 SDK 应已发布。所以当前仓库状态是「等发布」，不是「坏了」。
+- [x] 2.1b SwarmHive 已打 `sdk/v0.5.0` tag，`publish-sdk.yml` 发布成功，npm 上
+      `@swarm-hive/sdk` 已是 `0.5.0`；本仓两处 `pnpm install` 已更新 lockfile
+      （根与 mobile 都指向 `0.5.0`），并在真实依赖下跑过全量门禁
 - [x] 2.2 重新拉取 `@swarmhive-rn` registry 到 `mobile/src/`：`lib/expo-downloader.ts`、
       `lib/expo-installer.ts`、`lib/rn-adapter.ts`、`lib/ports.ts`、
       `lib/update-dialog-visibility.ts`、`lib/update-texts.ts`、
@@ -89,8 +82,14 @@
 
 - [x] 6.1 机器门禁：`pnpm check:zustand-access`、`pnpm test`、`pnpm build`；
       `mobile/` 下 `pnpm typecheck`
-- [ ] 6.2 `/simplify`
-- [ ] 6.3 `/code-review`
+- [x] 6.2 `/simplify` —— 4 个并行 agent（reuse / simplification / efficiency / altitude）。
+      findings 收敛到同一个结构问题：`useAutoInstall` 既驱动安装又被 4 个消费者各挂一份，
+      由此长出模块级手写 store、零调用者的测试钩子、3 份必然 no-op 的 AppState 监听。
+      根治：编排上移到 `UpdateProvider` 单点，hook 瘦成只读；顺带 `progressView` 统一四处
+      不一致的进度派生、`onDismiss` 改必填、notifier 三份重复 preamble 提取
+- [x] 6.3 `/code-review high` —— 14 条，两条会让功能不成立：假续传（已整段撤销）与
+      SDK 版本未升（桌面装的是 0.1.0，install 仍清句柄，所有「立即安装」按钮是 no-op）。
+      其余真 bug 5 条、清理 4 条、已在 review 期间修掉 3 条、误判 1 条
 - [x] 6.4 更新知识库：
       · `mobile/dev-notes/knowledge/theme-and-styling.md` 增补「`@rn-primitives/dialog` 的
         Content 会掐死弹窗内所有 ScrollView」（含「只有 dialog 有、alert-dialog 没有」这条判据）

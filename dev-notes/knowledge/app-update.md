@@ -59,9 +59,22 @@ UI 永久停在「系统弹窗确认中…」。
 从前没出事，是因为 engine「install 用掉即清句柄」**意外地**去了重；句柄改为可反复使用后
 （幂等是上面那条不变量的要求），那层保护就没了，同一个 ready 会派发三次安装。
 
-- **桌面**：编排上移到 `UpdateProvider`（天然单例），组件里一个 effect 都不留。
-- **移动**：闸门与门禁结果提到 `use-auto-install.ts` 的**模块级**变量，用
-  `useSyncExternalStore` 共享 —— 多个消费者只派发一次，且看到同一份提示。
+**两端都把编排放进 `UpdateProvider`**（天然单例），组件里一个 effect 都不留；RN 多一个
+前台门禁，其余同形。`useAutoInstall` 只剩读 —— 从 engine state 读 `installBlocked`、
+从 context 读「本 release 的自动机会是否用掉」。
+
+> 中间版本曾让 hook 既驱动又读状态，于是四个消费者各挂一份，逼出一个模块级手写 store
+> 来给它们去重，还附赠一个零调用者的测试钩子。**驱动与读取混在一个 hook 里，就会需要
+> 一个全局单例来收拾它** —— 把驱动挪到本来就是单例的地方，那些机器全部消失。
+
+## 门禁挡下不是失败，别走 error
+
+平台前置条件未满足（RN 的「app 不在前台」）时，`UpdateAdapter.install` **返回**
+`InstallBlocked` 而不是抛错，engine 把原因记在 `installBlocked` 上、status 留在 `ready`。
+
+抛错的代价是隐蔽的：engine 会进 `error` 并**广播给每个订阅者**，于是每个消费者都得学会
+把某个平台错误类特判回来 —— 移动端的 `update-host` 一度就得 import `ApkInstallBlockedError`
+只为了抑制一条误导的红色 toast。一个「什么都没发生」的结果不该长成一次故障广播。
 
 ## 状态判据要穷尽 8 态，不要「特判几个 + else 兜底」
 
