@@ -22,7 +22,6 @@ import {
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import type {
   MobileDevice as DeviceInfo,
   MobilePrepareProgress,
@@ -34,7 +33,7 @@ import {
   type FileBrowserActions,
   fromSelectedFiles,
 } from "@/components/file-browser";
-import { BottomActionBar } from "@/components/mobile/screen";
+import { AppScreen, BottomActionBar } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
 import {
   calcPercent,
@@ -223,12 +222,7 @@ export default function SendPreparePage() {
   // ── 渲染 ───────────────────────────────────────────────────
   if (!device) {
     return (
-      <SafeAreaView
-        style={{ flex: 1 }}
-        className="bg-background"
-        edges={["top"]}
-      >
-        <SettingsHeader title={t`发送`} />
+      <AppScreen header={<SettingsHeader title={t`发送`} />} bare>
         <View className="flex-1 items-center justify-center gap-3 px-6">
           <Text className="text-sm text-muted-foreground">
             <Trans>设备未找到</Trans>
@@ -243,16 +237,17 @@ export default function SendPreparePage() {
             </Text>
           </Pressable>
         </View>
-      </SafeAreaView>
+      </AppScreen>
     );
   }
 
   const sendable = canSendToDevice(device);
 
   return (
-    <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
-      <SettingsHeader title={t`发送到 ${displayName}`} />
-
+    <AppScreen
+      header={<SettingsHeader title={t`发送到 ${displayName}`} />}
+      bare
+    >
       <FileBrowser
         items={browserItems}
         scope="send"
@@ -325,7 +320,7 @@ export default function SendPreparePage() {
           </View>
         )}
       </BottomActionBar>
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 
@@ -447,3 +442,6 @@ function PrepareProgressBar({ progress }: { progress: MobilePrepareProgress }) {
     </View>
   );
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

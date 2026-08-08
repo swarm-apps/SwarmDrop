@@ -340,6 +340,101 @@ tab bar 处理安全区、按压反馈和切换动画，避免 `expo-router` JS 
 
 **相关文件**：`src/app/(main)/_layout.tsx`
 
+### 带返回入口的 header 必须在滚动容器**之外**;只有 tab 根页的大标题跟着滚(2026-08-08)
+
+两类 header 形态不同,归属也不同,不要混:
+
+| 组件 | 形态 | 位置 |
+|---|---|---|
+| `AppHeader` | 大标题 + 副标题,**无**返回入口 | tab 根页(设备/收件箱/设置),放进 `ListHeaderComponent` 或 `AppScreen scroll` 内,**跟着滚** |
+| `SettingsHeader` / `SearchHeader` | 56 高导航条,**带返回入口**(+ 操作图标 / 搜索框) | 二级页,进 `AppScreen` 的 `header` 槽,常驻不滚 |
+
+判据是**这一条是不是导航条**(iOS 的 nav bar 语义:带返回入口、贴屏幕顶、固定高度),不是
+页面深浅。导航条滚走后往下翻一屏,返回和右侧操作(清空、搜索)就都够不着了,只剩系统手势;
+搜索页更糟——改个关键词得先翻回顶部。大标题是另一套语义(iOS large title),跟着滚是原生行为。
+
+⚠️ **`(main)/inbox.tsx` 的 `AppHeader` 是这条规则下的一个未修缺陷**(不是"取舍"):它挂了
+搜索与刷新两个按钮却跟着列表滚,滚一屏就够不着——与判定 `activity.tsx` 不可接受的是同一件事。
+iOS 原生 large title 在滚动时 collapse 成小标题栏并**保留** bar button,本仓的 `AppHeader`
+没做 collapse,所以丢的是真入口。修法是给 `AppHeader` 补收起态,**不是**把整块钉死
+(钉死就变成两条导航条了)。在补上之前它是个已知 defect,别当先例引用。
+
+**正确做法:交给 `AppScreen` 的 `header` 槽,别自己手搭 SafeAreaView**(2026-08-08 重构)。
+槽里的东西渲染在滚动容器**之外**,常驻由组件保证:
+
+```tsx
+// 列表页(虚拟化):bare = 内容盒零内边距,让位给列表自己的 contentContainerStyle
+<AppScreen header={<SettingsHeader title={t`传输记录`} right={…} />} bare>
+  <SectionList contentContainerStyle={LIST_CONTENT_PADDING_UNDER_HEADER} … />
+</AppScreen>
+
+// 非列表页:走 scroll 分支,间距用 contentClassName
+<AppScreen scroll header={<SearchHeader … />} contentClassName="gap-4 pt-4">
+  …
+</AppScreen>
+```
+
+三条配套契约,都是为了让调用点不再心算:
+
+- **两个 header 都自带 `px-5`、整幅渲染**。`px-5`(20)与内容盒、`LIST_CONTENT_PADDING` 的
+  `paddingHorizontal` 同值,于是返回按钮的**左边缘与下方卡片列的左边缘落在同一条竖线上**。
+  导航条按 iOS 惯例本可以用 16——那是给裸图标的(图标自带视觉留白,差 4px 看不出来);
+  换成带底色的 44px 方钮后两条实边错开 4px 一眼可见。**别再往槽里包 padding**,会叠成 40。
+- **`bare` 而不是 `contentClassName="px-0 pb-0"`**。后者是纯为抵消默认值而写的魔法串,
+  **漏掉 `pb-0` 会静默多出 32+32=64px 底部死区**,没有任何门禁会拦。
+- **自带安全区的底部栏留在 `children`,不要进 `footer` 槽**。`BottomActionBar` 与
+  `device/groups` 的新建栏都已用 `useSafeAreaInsets()` 吃掉 bottom inset;进了槽会让
+  `AppScreen` 给 SafeAreaView 再加一次 bottom edge,底部垫两遍。`footer` 槽是给
+  **tab 屏的 HomeDock** 设计的(要避开 iOS 26 的浮动 tab 胶囊),不是通用底栏插槽。
+- **列表内边距看有没有 header 选常量**:`LIST_CONTENT_PADDING`(顶 4)/
+  `LIST_CONTENT_PADDING_UNDER_HEADER`(顶 16)。内容仍能滚到导航条下沿,不留固定空白带。
+
+列表不用显式 `flex:1`——RN 的 `ScrollView.baseVertical` 自带 `flexGrow:1/flexShrink:1`,
+作为 header 的兄弟节点会自己填满剩余空间。
+
+**返回入口只有一处定义:`HeaderBackButton`**(`components/header-back-button.tsx`)。
+两个 header 都用它,别再各画各的箭头——此前就是各画各的,结果**图标、形态、光心、触摸目标
+四样全不一样**(裸 `ArrowLeft` 22px + hitSlop vs `HeaderIconButton` + `ChevronLeft`),
+从传输记录 push 到搜索页时返回入口当场换个样子。2026-08-08 统一为后者,依据:
+
+- `DESIGN.md` 的 Radius Vocabulary Rule **点名列举**「图标方钮如 `HeaderIconButton`」,
+  裸箭头不属于该规则任何一类;
+- 44px 是**看得见**的触摸目标,`hitSlop` 撑出来的 46px 用户看不见(Material 3 要 ≥48dp、
+  iOS HIG 要 ≥44pt);
+- `ChevronLeft` 是识别率最高的返回图标(iOS 默认),`ArrowLeft` 是 Android 传统——自绘
+  header 跨两端只该有一套;iOS 26 的系统返回按钮本身也已是带背景的按钮而非裸 chevron;
+- 与右侧操作按钮同形,同一条导航条内左右视觉重量才均衡。
+
+**全 app 的返回入口都走它**,不止那两个 header:扫码屏的非相机态、配对确认页(居中标题那条,
+传 `onPress`/`disabled`)、引导流的设备命名页,都已换成同一个组件。
+
+**唯一正当的例外是取景画面上的浮层**(`pairing/scan.tsx` 的相机态):返回与手电筒成对,
+`rounded-full bg-black/40` + 白图标——`bg-muted` 的浅底压在相机画面上看不清,主题色图标同理。
+它的**图标仍是 `ChevronLeft`**,只有承载形态不同。加新的返回入口前先问:是不是压在媒体上?
+不是就用 `HeaderBackButton`。
+
+**现状(2026-08-08)**:两个 header 组件的形态、高度、内边距、返回入口已完全统一,19 个调用点
+行为一致,**写法也只剩一种**:全部 17 个 `SettingsHeader`/`SearchHeader` 调用点都走
+`AppScreen` 的 `header` 槽,没有任何页面再手搭 `SafeAreaView + header + 滚动容器`。
+这条很重要 —— `SettingsHeader` 自带 `px-5` 之后,手搭写法能不能对**全看它恰好被放进了
+一个无内边距的容器**,而这一点没有任何 lint / typecheck / 测试在守;塞进带 `px-5` 的容器
+(或没写 `bare` 的 `AppScreen`)就会静默得到 40px 双重缩进。收口到唯一入口后这个坑就不存在了。
+
+**唯一的例外是 `pairing/found-device.tsx`**,它**不该**迁:①那是确认流的**居中标题**形态,
+不是导航条族(返回入口倒是已统一用 `HeaderBackButton`);②它要 `edges={["top","bottom"]}`
+——底部双按钮需要下方安全区,而 `AppScreen` 只在用了 `footer` 槽时才开 bottom edge。
+
+> 这条初版曾断言「`inbox/search` 是固定的、全仓仅两个例外」,**是错的**:那份判断来自 grep
+> 输出漏看了 `<AppScreen` 后面单独一行的 `scroll`。三处才是全部,已一并改完。
+
+**相关文件**:[src/components/mobile/screen.tsx](../../src/components/mobile/screen.tsx)(`AppScreen` 的 `header` 槽 / `bare` / 两个常量),
+[src/components/header-back-button.tsx](../../src/components/header-back-button.tsx),
+[src/app/activity.tsx](../../src/app/activity.tsx),
+[src/app/transfer/search.tsx](../../src/app/transfer/search.tsx),
+[src/app/inbox/search.tsx](../../src/app/inbox/search.tsx),
+[src/components/settings-header.tsx](../../src/components/settings-header.tsx),
+[src/components/search-header.tsx](../../src/components/search-header.tsx)
+
 ### tab 屏里的常驻底部控件(footer/dock)要靠 SafeAreaView 的 bottom edge 避开 tab bar
 
 iOS 26 的 NativeTabs 是浮动 liquid glass 胶囊,悬浮在 RN 内容之上——贴屏幕底渲染的

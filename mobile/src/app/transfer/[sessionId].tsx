@@ -15,7 +15,6 @@ import {
 } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import type {
   MobileTransferFile,
   MobileTransferProjection,
@@ -23,6 +22,7 @@ import type {
 import { FileBrowser, fromProjection } from "@/components/file-browser";
 import { KeyValueRow } from "@/components/key-value-row";
 import {
+  AppScreen,
   BottomActionBar,
   HeaderIconButton,
   Surface,
@@ -245,21 +245,25 @@ export default function TransferDetailScreen() {
   }, [savePath]);
 
   return (
-    <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
-      <SettingsHeader
-        title={t`传输详情`}
-        // 删除是低频动作,收进右上角(与收件箱详情的「更多」同位),不占底部动作栏
-        right={
-          projection && !isActive ? (
-            <HeaderIconButton
-              icon={Trash2}
-              label={t`删除记录`}
-              onPress={() => setDeleteOpen(true)}
-              testID="transfer-delete-button"
-            />
-          ) : null
-        }
-      />
+    <AppScreen
+      bare
+      header={
+        <SettingsHeader
+          title={t`传输详情`}
+          // 删除是低频动作,收进右上角(与收件箱详情的「更多」同位),不占底部动作栏
+          right={
+            projection && !isActive ? (
+              <HeaderIconButton
+                icon={Trash2}
+                label={t`删除记录`}
+                onPress={() => setDeleteOpen(true)}
+                testID="transfer-delete-button"
+              />
+            ) : null
+          }
+        />
+      }
+    >
       {!projection ? (
         <View className="flex-1 px-5 pt-2">
           {loaded ? (
@@ -319,7 +323,7 @@ export default function TransferDetailScreen() {
         destructive
         onAction={performDelete}
       />
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 
@@ -870,3 +874,6 @@ function formatDuration(seconds: number): string {
   const m = Math.ceil((seconds % 3600) / 60);
   return `${h}h ${m}m`;
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

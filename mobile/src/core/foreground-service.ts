@@ -48,7 +48,8 @@ const FGS_ANDROID_BASE = {
   pressAction: { id: "default" },
 };
 
-let registered = false;
+let serviceRegistered = false;
+let backgroundEventRegistered = false;
 let channelReady: Promise<void> | null = null;
 let running = false;
 /** 当前在途传输 sessionId —— action 事件里 notification.data 缺失时的兜底。 */
@@ -112,12 +113,21 @@ export async function handleForegroundServiceEvent(
  * app 启动时调用一次:注册前台服务 runner + 后台事件监听。
  * runner 永不 resolve —— 保活由 stopForegroundKeepAlive() 显式拆除。
  * 后台 / 被杀态的 action 必须在此注册,否则丢失。
+ *
+ * 两个标志分开记,且各自在该步成功之后才置位 —— 理由同 `initNotifications`:
+ * 启动失败屏的「重试」会重跑本函数,一个共用标志无论放开头还是结尾都不对
+ * (放开头 = 失败后重试整个跳过;放结尾 = 重试把已成功的那步重放,headless task 被重复注册)。
  */
 export function initForegroundService(): void {
-  if (!isAndroid || registered) return;
-  registered = true;
-  notifee.registerForegroundService(() => new Promise<void>(() => {}));
-  notifee.onBackgroundEvent(handleForegroundServiceEvent);
+  if (!isAndroid) return;
+  if (!serviceRegistered) {
+    notifee.registerForegroundService(() => new Promise<void>(() => {}));
+    serviceRegistered = true;
+  }
+  if (!backgroundEventRegistered) {
+    notifee.onBackgroundEvent(handleForegroundServiceEvent);
+    backgroundEventRegistered = true;
+  }
 }
 
 /** 展示 idle 保活通知(node 运行、无在途传输)。start 与传输结束后复用。 */

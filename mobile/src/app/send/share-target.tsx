@@ -14,7 +14,6 @@ import { type Href, useNavigation, useRouter } from "expo-router";
 import { Check, Files, MonitorSmartphone, Send } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import type {
   MobileDevice as DeviceInfo,
   MobilePrepareProgress,
@@ -23,8 +22,11 @@ import { MobileCoreEvent_Tags } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import { ConnectionBadge } from "@/components/connection-badge";
 import {
+  AppScreen,
   BottomActionBar,
   EmptyState,
+  LIST_CONTENT_PADDING_UNDER_HEADER,
+  ListItemGap,
   Surface,
 } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
@@ -164,9 +166,7 @@ export default function ShareTargetScreen() {
   ]);
 
   return (
-    <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
-      <SettingsHeader title={t`发送到`} />
-
+    <AppScreen header={<SettingsHeader title={t`发送到`} />} bare>
       <FlatList
         data={targetDevices}
         keyExtractor={(device) => device.peerId}
@@ -178,7 +178,7 @@ export default function ShareTargetScreen() {
             onPress={() => setSelectedPeerId(item.peerId)}
           />
         )}
-        ItemSeparatorComponent={DeviceSeparator}
+        ItemSeparatorComponent={ListItemGap}
         contentContainerStyle={SHARE_TARGET_CONTENT_STYLE}
         ListHeaderComponent={
           <View className="gap-4 pb-3">
@@ -282,22 +282,19 @@ export default function ShareTargetScreen() {
           </Pressable>
         )}
       </BottomActionBar>
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 
 /* ─── 可选目标设备行 ─── */
 
+// 派生自共享常量,别再抄 20 这个数:横向锚点与顶距跟着 header 契约走,
+// 只有底部因为下方压着 BottomActionBar 才收窄(不需要那 32 的滚动余量)。
 const SHARE_TARGET_CONTENT_STYLE = {
+  ...LIST_CONTENT_PADDING_UNDER_HEADER,
   flexGrow: 1,
-  paddingHorizontal: 20,
-  paddingTop: 8,
   paddingBottom: 16,
 } as const;
-
-function DeviceSeparator() {
-  return <View className="h-2" />;
-}
 
 function TargetDeviceRow({
   device,
@@ -391,3 +388,6 @@ function SharePrepareProgress({
     </View>
   );
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

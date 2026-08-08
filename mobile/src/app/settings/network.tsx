@@ -11,10 +11,10 @@ import {
   Wifi,
 } from "lucide-react-native";
 import { Fragment, useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ActivityIndicator, Pressable, View } from "react-native";
 import { useShallow } from "zustand/react/shallow";
 import { LanHelperAddresses } from "@/components/lan-helper-addresses";
+import { AppScreen } from "@/components/mobile/screen";
 import { SettingDivider, SettingSection } from "@/components/setting-row";
 import { SettingsHeader } from "@/components/settings-header";
 import { StatusPill } from "@/components/status-pill";
@@ -189,271 +189,265 @@ export default function NetworkScreen() {
   ];
 
   return (
-    <SafeAreaView
-      style={{ flex: 1 }}
-      className="bg-background"
-      edges={["top"]}
+    <AppScreen
+      scroll
       testID="network-settings-screen"
+      header={<SettingsHeader title={t`网络`} />}
+      contentClassName="gap-5 pt-2"
     >
-      <SettingsHeader title={t`网络`} />
-      <ScrollView
-        contentContainerClassName="gap-5 px-5 pt-2 pb-8"
-        showsVerticalScrollIndicator={false}
-      >
-        <SettingSection label={t`发现方式`}>
-          <View className="gap-3 px-3.5 py-3">
-            <View className="flex-row gap-2">
-              <DiscoveryModeOption
-                mode="auto"
-                selected={discoveryMode === "auto"}
-                onPress={() => setDiscoveryMode("auto")}
-              />
-              <DiscoveryModeOption
-                mode="lanOnly"
-                selected={discoveryMode === "lanOnly"}
-                onPress={() => setDiscoveryMode("lanOnly")}
-              />
-            </View>
+      <SettingSection label={t`发现方式`}>
+        <View className="gap-3 px-3.5 py-3">
+          <View className="flex-row gap-2">
+            <DiscoveryModeOption
+              mode="auto"
+              selected={discoveryMode === "auto"}
+              onPress={() => setDiscoveryMode("auto")}
+            />
+            <DiscoveryModeOption
+              mode="lanOnly"
+              selected={discoveryMode === "lanOnly"}
+              onPress={() => setDiscoveryMode("lanOnly")}
+            />
+          </View>
+          <Text className="text-[12px] text-muted-foreground">
+            {discoveryMode === "auto" ? (
+              <Trans>自动模式会使用公网引导、中继和局域网协助节点。</Trans>
+            ) : (
+              <Trans>
+                LAN-only
+                不主动连接公网引导；仍可经局域网协助节点被跨网访问，除非关闭公网可达性。
+              </Trans>
+            )}
+          </Text>
+        </View>
+        <SettingDivider />
+        <View className="flex-row items-center gap-3 px-3.5 py-3">
+          <View className="flex-1 gap-0.5">
+            <Text className="text-[14px] text-foreground">
+              <Trans>公网可达性</Trans>
+            </Text>
             <Text className="text-[12px] text-muted-foreground">
-              {discoveryMode === "auto" ? (
-                <Trans>自动模式会使用公网引导、中继和局域网协助节点。</Trans>
-              ) : (
-                <Trans>
-                  LAN-only
-                  不主动连接公网引导；仍可经局域网协助节点被跨网访问，除非关闭公网可达性。
-                </Trans>
-              )}
+              <Trans>
+                允许通过公网中继被跨网设备访问；关闭后为严格局域网。
+              </Trans>
             </Text>
           </View>
-          <SettingDivider />
-          <View className="flex-row items-center gap-3 px-3.5 py-3">
-            <View className="flex-1 gap-0.5">
-              <Text className="text-[14px] text-foreground">
-                <Trans>公网可达性</Trans>
-              </Text>
-              <Text className="text-[12px] text-muted-foreground">
-                <Trans>
-                  允许通过公网中继被跨网设备访问；关闭后为严格局域网。
-                </Trans>
-              </Text>
-            </View>
-            <Switch
-              checked={publicReachability}
-              onCheckedChange={setPublicReachability}
-              accessibilityLabel={t`公网可达性`}
-              testID="network-public-reachability-switch"
-            />
+          <Switch
+            checked={publicReachability}
+            onCheckedChange={setPublicReachability}
+            accessibilityLabel={t`公网可达性`}
+            testID="network-public-reachability-switch"
+          />
+        </View>
+        <SettingDivider />
+        <View className="flex-row items-center gap-3 px-3.5 py-3">
+          <View className="flex-1 gap-0.5">
+            <Text className="text-[14px] text-foreground">
+              <Trans>自动发现 LAN Helper</Trans>
+            </Text>
+            <Text className="text-[12px] text-muted-foreground">
+              <Trans>在本地网络发现可协助连接的节点。</Trans>
+            </Text>
           </View>
-          <SettingDivider />
-          <View className="flex-row items-center gap-3 px-3.5 py-3">
-            <View className="flex-1 gap-0.5">
-              <Text className="text-[14px] text-foreground">
-                <Trans>自动发现 LAN Helper</Trans>
-              </Text>
-              <Text className="text-[12px] text-muted-foreground">
-                <Trans>在本地网络发现可协助连接的节点。</Trans>
-              </Text>
-            </View>
-            <Switch
-              checked={autoDiscoverLanHelpers}
-              onCheckedChange={setAutoDiscoverLanHelpers}
-              accessibilityLabel={t`自动发现 LAN Helper`}
-              testID="network-auto-lan-helper-switch"
-            />
-          </View>
-        </SettingSection>
+          <Switch
+            checked={autoDiscoverLanHelpers}
+            onCheckedChange={setAutoDiscoverLanHelpers}
+            accessibilityLabel={t`自动发现 LAN Helper`}
+            testID="network-auto-lan-helper-switch"
+          />
+        </View>
+      </SettingSection>
 
-        {runtimeConfigChanged ? (
-          <View
-            className="gap-3 rounded-xl border border-warning/30 bg-warning/10 p-3.5"
-            testID="network-restart-required"
+      {runtimeConfigChanged ? (
+        <View
+          className="gap-3 rounded-xl border border-warning/30 bg-warning/10 p-3.5"
+          testID="network-restart-required"
+        >
+          <Text className="text-[13px] text-warning-ink">
+            <Trans>发现设置已变更，重启节点后生效。</Trans>
+          </Text>
+          <Pressable
+            onPress={restartNode}
+            disabled={restarting}
+            accessibilityRole="button"
+            testID="network-restart-button"
+            className="min-h-10 flex-row items-center justify-center gap-2 rounded-xl bg-card active:opacity-70 disabled:opacity-50"
           >
-            <Text className="text-[13px] text-warning-ink">
-              <Trans>发现设置已变更，重启节点后生效。</Trans>
+            {restarting ? (
+              <ActivityIndicator color={colors.foreground} size="small" />
+            ) : (
+              <RotateCw color={colors.foreground} size={14} />
+            )}
+            <Text className="text-[13px] font-semibold text-foreground">
+              {restarting ? <Trans>重启中</Trans> : <Trans>重启节点</Trans>}
             </Text>
-            <Pressable
-              onPress={restartNode}
-              disabled={restarting}
-              accessibilityRole="button"
-              testID="network-restart-button"
-              className="min-h-10 flex-row items-center justify-center gap-2 rounded-xl bg-card active:opacity-70 disabled:opacity-50"
-            >
-              {restarting ? (
-                <ActivityIndicator color={colors.foreground} size="small" />
-              ) : (
-                <RotateCw color={colors.foreground} size={14} />
-              )}
-              <Text className="text-[13px] font-semibold text-foreground">
-                {restarting ? <Trans>重启中</Trans> : <Trans>重启节点</Trans>}
-              </Text>
-            </Pressable>
-          </View>
-        ) : null}
+          </Pressable>
+        </View>
+      ) : null}
 
-        <SettingSection label={t`节点状态`}>
-          <View className="flex-row items-center justify-between px-3.5 py-3">
-            <Text className="text-[14px] text-foreground">
-              <Trans>当前状态</Trans>
-            </Text>
-            <StatusPill state={runtimeState} />
-          </View>
-          <SettingDivider />
-          <View className="flex-row items-center justify-between px-3.5 py-3">
-            <Text className="text-[14px] text-foreground">
-              <Trans>网络状况</Trans>
-            </Text>
+      <SettingSection label={t`节点状态`}>
+        <View className="flex-row items-center justify-between px-3.5 py-3">
+          <Text className="text-[14px] text-foreground">
+            <Trans>当前状态</Trans>
+          </Text>
+          <StatusPill state={runtimeState} />
+        </View>
+        <SettingDivider />
+        <View className="flex-row items-center justify-between px-3.5 py-3">
+          <Text className="text-[14px] text-foreground">
+            <Trans>网络状况</Trans>
+          </Text>
+          <View
+            className={cn(
+              "flex-row items-center gap-1.5 rounded-full px-2.5 py-1",
+              networkQuality === "good" ? "bg-success/10" : "bg-warning/10",
+            )}
+          >
             <View
               className={cn(
-                "flex-row items-center gap-1.5 rounded-full px-2.5 py-1",
-                networkQuality === "good" ? "bg-success/10" : "bg-warning/10",
+                "size-2 rounded-full",
+                networkQuality === "good" ? "bg-success" : "bg-warning",
               )}
-            >
-              <View
-                className={cn(
-                  "size-2 rounded-full",
-                  networkQuality === "good" ? "bg-success" : "bg-warning",
-                )}
-              />
-              <Text
-                className={cn(
-                  "text-[13px] font-medium",
-                  networkQuality === "good"
-                    ? "text-success-ink"
-                    : "text-warning-ink",
-                )}
-              >
-                {networkQuality === "good" ? (
-                  <Trans>良好</Trans>
-                ) : (
-                  <Trans>受限</Trans>
-                )}
-              </Text>
-            </View>
-          </View>
-          <SettingDivider />
-          <Pressable
-            onPress={() => setDiagnosticsOpen((value) => !value)}
-            accessibilityRole="button"
-            testID="network-diagnostics-toggle"
-            className="flex-row items-center justify-between px-3.5 py-3 active:bg-muted"
-          >
+            />
             <Text
               className={cn(
                 "text-[13px] font-medium",
-                diagnosticsOpen ? "text-muted-foreground" : "text-primary-ink",
+                networkQuality === "good"
+                  ? "text-success-ink"
+                  : "text-warning-ink",
               )}
             >
-              {diagnosticsOpen ? (
-                <Trans>收起诊断详情</Trans>
+              {networkQuality === "good" ? (
+                <Trans>良好</Trans>
               ) : (
-                <Trans>查看诊断详情</Trans>
+                <Trans>受限</Trans>
               )}
             </Text>
-            {diagnosticsOpen ? (
-              <ChevronUp color={colors.mutedForeground} size={16} />
-            ) : (
-              <ChevronDown color={colors.primary} size={16} />
+          </View>
+        </View>
+        <SettingDivider />
+        <Pressable
+          onPress={() => setDiagnosticsOpen((value) => !value)}
+          accessibilityRole="button"
+          testID="network-diagnostics-toggle"
+          className="flex-row items-center justify-between px-3.5 py-3 active:bg-muted"
+        >
+          <Text
+            className={cn(
+              "text-[13px] font-medium",
+              diagnosticsOpen ? "text-muted-foreground" : "text-primary-ink",
             )}
-          </Pressable>
-          {diagnosticsOpen ? (
-            <>
-              <SettingDivider />
-              {rows.map((row, idx) => (
-                <Fragment key={row.key}>
-                  <View className="flex-row items-center justify-between gap-3 px-3.5 py-3">
-                    <Text className="text-[14px] text-foreground">
-                      {row.label}
-                    </Text>
-                    <Text
-                      className="flex-1 text-right text-[13px] text-muted-foreground"
-                      numberOfLines={1}
-                    >
-                      {row.value}
-                    </Text>
-                  </View>
-                  {idx < rows.length - 1 ? <SettingDivider /> : null}
-                </Fragment>
-              ))}
-              <CandidateSourceList status={networkStatus} />
-            </>
-          ) : null}
-        </SettingSection>
-
-        <NetworkHint
-          bootstrapReady={networkStatus?.bootstrapConnected ?? false}
-          relayReady={networkStatus?.relayReady ?? false}
-          discoveryMode={discoveryMode}
-        />
-
-        <SettingSection label={t`通用`}>
-          <View className="flex-row items-center justify-between gap-3 px-3.5 py-3">
-            <View className="flex-1 gap-0.5">
-              <Text className="text-[14px] text-foreground">
-                <Trans>自动启动节点</Trans>
-              </Text>
-              <Text className="text-[12px] text-muted-foreground">
-                <Trans>App 启动后自动启动 P2P 节点。</Trans>
-              </Text>
-            </View>
-            <Switch
-              checked={autoStart}
-              onCheckedChange={setAutoStart}
-              accessibilityLabel={t`自动启动节点`}
-            />
-          </View>
-        </SettingSection>
-
-        <SettingSection label={t`高级`}>
-          <Pressable
-            onPress={() => router.push("/settings/bootstrap-nodes" as never)}
-            accessibilityRole="button"
-            testID="network-bootstrap-advanced-entry"
-            className="min-h-13 flex-row items-center gap-3 px-3.5 py-3 active:bg-muted"
           >
-            <View className="size-8 items-center justify-center rounded-lg bg-muted">
-              <ServerCog color={colors.mutedForeground} size={16} />
-            </View>
-            <View className="min-w-0 flex-1 gap-0.5">
-              <Text className="text-[14px] text-foreground">
-                <Trans>自定义引导节点</Trans>
-              </Text>
-              <Text className="text-[12px] text-muted-foreground">
-                {customBootstrapNodes.length > 0 ? (
-                  <Trans>{customBootstrapNodes.length} 个自定义节点</Trans>
-                ) : (
-                  <Trans>作为自动发现失败时的兜底路径。</Trans>
-                )}
-              </Text>
-            </View>
-            <ChevronRight color={colors.mutedForeground} size={16} />
-          </Pressable>
-          <SettingDivider />
-          <View className="flex-row items-center justify-between gap-3 px-3.5 py-3">
-            <View className="flex-1 gap-0.5">
-              <Text className="text-[14px] text-foreground">
-                <Trans>本机 LAN Helper</Trans>
-              </Text>
-              <Text className="text-[12px] text-muted-foreground">
-                <Trans>
-                  让本机作为局域网协助节点。默认关闭，以避免后台和电量风险。
-                </Trans>
-              </Text>
-            </View>
-            <Switch
-              checked={provideLanHelper}
-              onCheckedChange={setProvideLanHelper}
-              accessibilityLabel={t`本机 LAN Helper`}
-              testID="network-provide-lan-helper-switch"
-            />
-          </View>
-        </SettingSection>
+            {diagnosticsOpen ? (
+              <Trans>收起诊断详情</Trans>
+            ) : (
+              <Trans>查看诊断详情</Trans>
+            )}
+          </Text>
+          {diagnosticsOpen ? (
+            <ChevronUp color={colors.mutedForeground} size={16} />
+          ) : (
+            <ChevronDown color={colors.primary} size={16} />
+          )}
+        </Pressable>
+        {diagnosticsOpen ? (
+          <>
+            <SettingDivider />
+            {rows.map((row, idx) => (
+              <Fragment key={row.key}>
+                <View className="flex-row items-center justify-between gap-3 px-3.5 py-3">
+                  <Text className="text-[14px] text-foreground">
+                    {row.label}
+                  </Text>
+                  <Text
+                    className="flex-1 text-right text-[13px] text-muted-foreground"
+                    numberOfLines={1}
+                  >
+                    {row.value}
+                  </Text>
+                </View>
+                {idx < rows.length - 1 ? <SettingDivider /> : null}
+              </Fragment>
+            ))}
+            <CandidateSourceList status={networkStatus} />
+          </>
+        ) : null}
+      </SettingSection>
 
-        <LanHelperAddresses
-          addresses={networkStatus?.lanHelperAdvertisedAddrs ?? []}
-          peerId={networkStatus?.peerId}
-        />
-      </ScrollView>
-    </SafeAreaView>
+      <NetworkHint
+        bootstrapReady={networkStatus?.bootstrapConnected ?? false}
+        relayReady={networkStatus?.relayReady ?? false}
+        discoveryMode={discoveryMode}
+      />
+
+      <SettingSection label={t`通用`}>
+        <View className="flex-row items-center justify-between gap-3 px-3.5 py-3">
+          <View className="flex-1 gap-0.5">
+            <Text className="text-[14px] text-foreground">
+              <Trans>自动启动节点</Trans>
+            </Text>
+            <Text className="text-[12px] text-muted-foreground">
+              <Trans>App 启动后自动启动 P2P 节点。</Trans>
+            </Text>
+          </View>
+          <Switch
+            checked={autoStart}
+            onCheckedChange={setAutoStart}
+            accessibilityLabel={t`自动启动节点`}
+          />
+        </View>
+      </SettingSection>
+
+      <SettingSection label={t`高级`}>
+        <Pressable
+          onPress={() => router.push("/settings/bootstrap-nodes" as never)}
+          accessibilityRole="button"
+          testID="network-bootstrap-advanced-entry"
+          className="min-h-13 flex-row items-center gap-3 px-3.5 py-3 active:bg-muted"
+        >
+          <View className="size-8 items-center justify-center rounded-lg bg-muted">
+            <ServerCog color={colors.mutedForeground} size={16} />
+          </View>
+          <View className="min-w-0 flex-1 gap-0.5">
+            <Text className="text-[14px] text-foreground">
+              <Trans>自定义引导节点</Trans>
+            </Text>
+            <Text className="text-[12px] text-muted-foreground">
+              {customBootstrapNodes.length > 0 ? (
+                <Trans>{customBootstrapNodes.length} 个自定义节点</Trans>
+              ) : (
+                <Trans>作为自动发现失败时的兜底路径。</Trans>
+              )}
+            </Text>
+          </View>
+          <ChevronRight color={colors.mutedForeground} size={16} />
+        </Pressable>
+        <SettingDivider />
+        <View className="flex-row items-center justify-between gap-3 px-3.5 py-3">
+          <View className="flex-1 gap-0.5">
+            <Text className="text-[14px] text-foreground">
+              <Trans>本机 LAN Helper</Trans>
+            </Text>
+            <Text className="text-[12px] text-muted-foreground">
+              <Trans>
+                让本机作为局域网协助节点。默认关闭，以避免后台和电量风险。
+              </Trans>
+            </Text>
+          </View>
+          <Switch
+            checked={provideLanHelper}
+            onCheckedChange={setProvideLanHelper}
+            accessibilityLabel={t`本机 LAN Helper`}
+            testID="network-provide-lan-helper-switch"
+          />
+        </View>
+      </SettingSection>
+
+      <LanHelperAddresses
+        addresses={networkStatus?.lanHelperAdvertisedAddrs ?? []}
+        peerId={networkStatus?.peerId}
+      />
+    </AppScreen>
   );
 }
 
@@ -606,3 +600,6 @@ function CandidateSourceLabel({
       return <Trans>公网</Trans>;
   }
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

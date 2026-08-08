@@ -9,12 +9,13 @@ import { ThemeProvider } from "expo-router/react-navigation";
 import { ShareIntentProvider, useShareIntentContext } from "expo-share-intent";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
-import { ActivityIndicator, Text, useColorScheme, View } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { ActivityIndicator, useColorScheme, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { ReducedMotionConfig, ReduceMotion } from "react-native-reanimated";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { AppErrorBoundary } from "@/components/app-error-boundary";
 import { PairingRequestHost } from "@/components/pairing-request-host";
 import { TransferOfferHost } from "@/components/transfer-offer-host";
 import { UpdateHost } from "@/components/update-host";
@@ -41,6 +42,14 @@ import { useShareStore } from "@/stores/share-store";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
+/**
+ * 全 App 的 JS 异常兜底。expo-router 用 `<Try catch={ErrorBoundary}>` 包住**本 layout 组件
+ * 外面**,所以它接得住 RootLayout 子树里任何渲染期/effect 期的抛错 —— 在此之前这类异常
+ * 一路冒到 RN fatal handler,release build 上就是闪退(见 knowledge/toolchain.md 的两起)。
+ * 也正因为包在外面,boundary 渲染时下面这些 Provider 都还不存在,故它零 Provider 依赖。
+ */
+export { AppErrorBoundary as ErrorBoundary };
+
 const BOOT_FAILED_TITLE = msg`启动失败`;
 
 export default function RootLayout() {
@@ -48,29 +57,43 @@ export default function RootLayout() {
   const isDark = colorScheme === "dark";
   const navTheme = useNavTheme();
   const [ready, setReady] = useState(false);
-  const [bootError, setBootError] = useState<string | null>(null);
+  const [bootError, setBootError] = useState<Error | null>(null);
+  const [bootMessage, setBootMessage] = useState<string | null>(null);
+
+  // 抽成具名函数是为了让启动失败屏的「重试」能直接再调一次,而不是靠一个
+  // 只用来当触发器的假依赖(`bootAttempt`)—— 那种写法 effect body 里根本读不到它。
+  // 各步都能安全重入:initMobileCore 只在构造成功后才缓存 promise、
+  // initNotifications 有 initialized 标志、initI18n 无缓存。
+  const runBoot = useCallback(async () => {
+    setBootError(null);
+    setBootMessage(null);
+    setReady(false);
+    try {
+      await Promise.all([
+        restoreThemePreference(),
+        waitForOnboardingHydration(),
+        initMobileCore(),
+        initI18n(),
+      ]);
+      // 通知系统初始化(前台服务 runner + 前后台事件 + 冷启动初始通知)。
+      // 放在 core 就绪后,保证 action 事件里能安全调 getMobileCore()。
+      initNotifications();
+    } catch (err) {
+      console.error("[boot] init failed:", err);
+      // 两件都要:原始 Error 进错误屏的详情框(带 stack,供反馈截图),
+      // getErrorMessage 的**本地化**文案进正文——错误屏详情框里那串是 Rust 侧写的中文
+      // 技术描述,`lib/errors.ts` 明文规定它不能当用户文案(英文界面会原样露出中文)。
+      setBootError(err instanceof Error ? err : new Error(String(err)));
+      setBootMessage(getErrorMessage(err));
+    } finally {
+      setReady(true);
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, []);
 
   useEffect(() => {
-    (async () => {
-      try {
-        await Promise.all([
-          restoreThemePreference(),
-          waitForOnboardingHydration(),
-          initMobileCore(),
-          initI18n(),
-        ]);
-        // 通知系统初始化(前台服务 runner + 前后台事件 + 冷启动初始通知)。
-        // 放在 core 就绪后,保证 action 事件里能安全调 getMobileCore()。
-        initNotifications();
-      } catch (err) {
-        console.error("[boot] init failed:", err);
-        setBootError(getErrorMessage(err));
-      } finally {
-        setReady(true);
-        SplashScreen.hideAsync().catch(() => {});
-      }
-    })();
-  }, []);
+    void runBoot();
+  }, [runBoot]);
 
   // 节点开关由用户在 NodeControlSheet 控制,不再随 AppState 自动 shutdown/start —
   // 文件选择器等瞬间退台会反复重建 NetManager 打断传输,且 iOS/Android 后台本身
@@ -87,16 +110,17 @@ export default function RootLayout() {
     );
   }
 
+  // 启动失败复用同一张错误屏(只换标题):此前这里是另一版自绘的两行文字,没有重试、
+  // 没有错误详情——同一类「App 用不了了」的处境,用户却会看到两种毫不相干的界面,
+  // 而且往后给错误屏加的任何改进(比如「复制详情」)都会漏掉启动这条路径。
   if (bootError !== null) {
     return (
-      <View className="flex-1 items-center justify-center gap-3 bg-background p-6">
-        <Text className="text-base font-bold text-destructive-ink">
-          {i18n._(BOOT_FAILED_TITLE)}
-        </Text>
-        <Text className="text-center text-sm text-muted-foreground">
-          {bootError}
-        </Text>
-      </View>
+      <AppErrorBoundary
+        error={bootError}
+        title={i18n._(BOOT_FAILED_TITLE)}
+        description={bootMessage ?? undefined}
+        retry={runBoot}
+      />
     );
   }
 

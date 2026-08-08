@@ -1,8 +1,9 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
-import { ArrowLeft, Smartphone } from "lucide-react-native";
+import { Smartphone } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { Pressable, TextInput, View } from "react-native";
+import { TextInput, View } from "react-native";
+import { HeaderBackButton } from "@/components/header-back-button";
 import {
   OnboardingButton,
   OnboardingDots,
@@ -71,15 +72,11 @@ export default function DeviceName() {
       }
     >
       <View className="gap-6">
-        <Pressable
-          onPress={() => router.back()}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel={t`返回`}
-          className="-ml-2 size-11 items-center justify-center self-start active:opacity-70"
-        >
-          <ArrowLeft color={colors.foreground} size={24} />
-        </Pressable>
+        {/* 引导流没有导航条,但返回入口仍用同一个组件(自带 44px 与 ChevronLeft);
+            `self-start` 让它不被父级的 gap-6 拉伸。 */}
+        <View className="self-start">
+          <HeaderBackButton />
+        </View>
 
         <View className="size-24 items-center justify-center self-center rounded-full bg-primary/10">
           <Smartphone color={colors.primary} size={48} strokeWidth={1.5} />
@@ -117,3 +114,6 @@ export default function DeviceName() {
     </OnboardingScreen>
   );
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

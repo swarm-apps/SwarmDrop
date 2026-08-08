@@ -255,8 +255,10 @@ export default function DeviceDetailScreen() {
 
   if (!device) {
     return (
-      <AppScreen testID="device-detail-missing-screen">
-        <SettingsHeader title={t`设备详情`} />
+      <AppScreen
+        testID="device-detail-missing-screen"
+        header={<SettingsHeader title={t`设备详情`} />}
+      >
         <View className="flex-1 items-center justify-center gap-3">
           <Text className="text-[13px] text-muted-foreground">
             <Trans>设备未找到</Trans>
@@ -282,10 +284,15 @@ export default function DeviceDetailScreen() {
   const sendable = canSendToDevice(device);
 
   return (
-    <AppScreen testID="device-detail-screen" contentClassName="gap-4 px-0 pb-0">
-      <SettingsHeader title={t`设备详情`} />
-
-      <View className="flex-1 gap-4 px-5">
+    <AppScreen
+      testID="device-detail-screen"
+      header={<SettingsHeader title={t`设备详情`} />}
+      bare
+      contentClassName="gap-4"
+    >
+      {/* pt-4 是导航条与首张卡之间的间距。header 移进 slot 后它不再是内容盒的子节点,
+          外层那个 gap-4 已经隔不到它了(与列表页的 LIST_CONTENT_PADDING_UNDER_HEADER 同值)。 */}
+      <View className="flex-1 gap-4 px-5 pt-4">
         <Surface className="gap-4">
           <View className="flex-row items-center gap-3">
             <View className="size-14 items-center justify-center rounded-full bg-muted">
@@ -1134,3 +1141,6 @@ function formatExpiresAt(expiresAt?: bigint | null): React.ReactNode {
   if (!Number.isFinite(ms) || ms <= 0) return <Trans>不限制</Trans>;
   return new Date(ms).toLocaleString();
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

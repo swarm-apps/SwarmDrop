@@ -1,15 +1,9 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Plus, RotateCw, Trash2 } from "lucide-react-native";
 import { Fragment, useCallback, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  TextInput,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ActivityIndicator, Pressable, TextInput, View } from "react-native";
 import { useShallow } from "zustand/react/shallow";
+import { AppScreen } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Text } from "@/components/ui/text";
@@ -113,16 +107,14 @@ export default function BootstrapNodesScreen() {
   }, [shutdownNode, startNode, t]);
 
   return (
-    <SafeAreaView
-      style={{ flex: 1 }}
-      className="bg-background"
-      edges={["top"]}
-      testID="bootstrap-nodes-screen"
-    >
-      <SettingsHeader title={t`引导节点`} />
-      <ScrollView
-        contentContainerClassName="gap-3 px-5 pt-2 pb-8"
-        showsVerticalScrollIndicator={false}
+    // ConfirmDialog 放在 AppScreen **外面**:它的 Root 会渲染一个真实的零高 View,
+    // 留在 `gap-3` 的滚动内容里会让页面末尾凭空多出 12px 死带(Yoga 的 gap 不看子节点高度)。
+    <>
+      <AppScreen
+        scroll
+        testID="bootstrap-nodes-screen"
+        header={<SettingsHeader title={t`引导节点`} />}
+        contentClassName="gap-3 pt-2"
       >
         <Text className="text-[13px] text-muted-foreground px-1">
           <Trans>引导节点用于发现 P2P 网络。修改后需重启节点生效。</Trans>
@@ -251,8 +243,7 @@ export default function BootstrapNodesScreen() {
             </Pressable>
           </View>
         ) : null}
-      </ScrollView>
-
+      </AppScreen>
       <ConfirmDialog
         open={pendingRemove !== null}
         onOpenChange={(open) => {
@@ -267,6 +258,9 @@ export default function BootstrapNodesScreen() {
         actionLabel={<Trans>删除</Trans>}
         onAction={confirmRemove}
       />
-    </SafeAreaView>
+    </>
   );
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

@@ -2,13 +2,12 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
 import { useMemo } from "react";
 import { Pressable } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import {
   FileBrowser,
   type FileBrowserActions,
   fromSelectedFiles,
 } from "@/components/file-browser";
-import { BottomActionBar } from "@/components/mobile/screen";
+import { AppScreen, BottomActionBar } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
 import { Text } from "@/components/ui/text";
 import { useShareStore } from "@/stores/share-store";
@@ -37,8 +36,7 @@ export default function SharedFilesScreen() {
   );
 
   return (
-    <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
-      <SettingsHeader title={t`分享文件`} />
+    <AppScreen header={<SettingsHeader title={t`分享文件`} />} bare>
       <FileBrowser
         items={items}
         scope="send"
@@ -58,6 +56,9 @@ export default function SharedFilesScreen() {
           </Text>
         </Pressable>
       </BottomActionBar>
-    </SafeAreaView>
+    </AppScreen>
   );
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

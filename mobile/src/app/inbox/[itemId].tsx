@@ -1,7 +1,12 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { File } from "expo-file-system";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useVideoPlayer, VideoView } from "expo-video";
+import {
+  useFocusEffect,
+  useLocalSearchParams,
+  useNavigation,
+  useRouter,
+} from "expo-router";
+import { useVideoPlayer, type VideoPlayer, VideoView } from "expo-video";
 import {
   Archive,
   ArchiveRestore,
@@ -320,12 +325,16 @@ export default function InboxDetailScreen() {
   );
 
   return (
-    <AppScreen testID="inbox-detail-screen" contentClassName="px-0 pb-0 pt-0">
-      <SettingsHeader
-        title={t`收件箱详情`}
-        right={detail ? <MoreButton onPress={openActionsSheet} /> : null}
-      />
-
+    <AppScreen
+      testID="inbox-detail-screen"
+      header={
+        <SettingsHeader
+          title={t`收件箱详情`}
+          right={detail ? <MoreButton onPress={openActionsSheet} /> : null}
+        />
+      }
+      bare
+    >
       {detailLoading && !detail ? (
         // 骨架屏镜像正常分支布局:类型 chip + 标题块 → 详情卡行
         <View
@@ -859,14 +868,36 @@ function ImagePreview({ file }: { file: InboxFileEntry }) {
 
 /** 视频:同图片占大预览位,内联原生控制条,不自动播放(spec: Inline video playback)。 */
 function VideoPreview({ file }: { file: InboxFileEntry }) {
+  const navigation = useNavigation();
+
+  // ⚠️ 下面这个 effect **必须声明在 useVideoPlayer 之前**,这是整段的要害:
+  // cleanup 按 hook 声明顺序执行,声明在前 → destroy 先跑 → pause 打在**还活着**的 player 上。
+  // 顺序反过来(此前用 useFocusEffect 就是)则 useVideoPlayer 的 release 先执行,pause 撞上
+  // 已释放的 SharedObject,抛 NativeSharedObjectNotFoundException —— 补 ErrorBoundary 之前
+  // 那就是整个 App 闪退,症状是「打开带视频的收件箱条目,返回即崩」。
+  //
+  // 用 ref 间接持有 player 是这个顺序的代价:声明在前就没法直接闭包引用它(TDZ)。
+  // 换来的是两条路径都真实生效、且**不需要任何 try/catch**:
+  //   ① 路由失焦(app 内跳走,本屏仍挂载)—— 不暂停音频会跟到别的页面;
+  //   ② 卸载(返回,或 detail 刷新后不再渲染本组件)。
+  // ② 尤其不能省:expo-video 56 靠 release() 顺带停播,而 SDK 57 把这条性质回归掉了
+  // (native 对象活到 JS GC,expo/expo#47569),届时只剩这次 pause 能停住。
+  // 详见 knowledge/toolchain.md 的「expo-video 的停播依赖」。
+  const playerRef = useRef<VideoPlayer | null>(null);
+  useEffect(() => {
+    const pause = () => playerRef.current?.pause();
+    const unsubscribe = navigation.addListener("blur", pause);
+    return () => {
+      unsubscribe();
+      pause();
+    };
+  }, [navigation]);
+
   const player = useVideoPlayer(file.localPath);
-  // 路由失焦即暂停:expo-video 只在 app 退后台自动停,app 内导航跳走后
-  // 本屏仍挂载,不暂停的话音频会跟到别的页面。
-  useFocusEffect(
-    useCallback(() => {
-      return () => player.pause();
-    }, [player]),
-  );
+  useEffect(() => {
+    playerRef.current = player;
+  }, [player]);
+
   return (
     <View
       className="overflow-hidden rounded-lg border border-border bg-card"
@@ -1237,3 +1268,6 @@ const detailStyles = StyleSheet.create({
     height: "100%",
   },
 });
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

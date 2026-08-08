@@ -185,3 +185,13 @@ function ActivityProjectionCardComponent({
 
 /** 活动卡片:memo 让未变会话在每个 progress tick 跳过重渲染(progressBySession 只换更新会话的内层对象)。 */
 export const ActivityProjectionCard = memo(ActivityProjectionCardComponent);
+
+/**
+ * 传输会话列表的 `keyExtractor` —— 与卡片同住:它是**这张卡片在列表里的呈现属性**,
+ * 不是某个屏的私有细节(传输记录页与传输搜索页此前各抄了一份)。模块级常量,引用稳定。
+ *
+ * 行间距不在这里,在 `mobile/screen.tsx` 的 `ListItemGap` —— 那个没有任何 transfer 语义,
+ * 放这儿会挡住第三个调用点(`send/share-target` 就曾因此又抄了一份)。
+ */
+export const transferSessionKey = (item: MobileTransferProjection) =>
+  item.sessionId;

@@ -97,6 +97,34 @@ runtime import 从 `uniffi-bindgen-react-native` 变为 `@ubjs/core`——ubrn �
 - 不要只看 `git status` 里 generated C++/TS 绑定是否有 diff；ignored `.a` 才是 iOS linker 实际需要的
   Rust 产物。
 
+**重建命令**（接口没变时；`package.json` 的 `build:ios` 带 `--and-generate`，会冲刷两端原生
+脚手架，见上面那条）：
+
+```bash
+cd packages/swarmdrop-core && ../../node_modules/.bin/ubrn build ios
+```
+
+出 `ios-arm64`(真机) + `ios-arm64-simulator`(模拟器) 两个 slice，各约 1.1 GB。
+
+**⚠️ 别把 `x86_64-apple-ios` 加回 `ubrn.config.yaml`（2026-08-08 实测崩过）**
+
+ubrn 会把**所有模拟器 target lipo 成同一个 fat slice**。带上 x86_64 后 dev profile 下这个
+slice 达 **2.3 GB**，越过 Ruby `IO#read` 的 2 GB 线，`pod install` 里 ruby-macho 判断
+static/dynamic 时直接崩，整个 iOS 构建起不来：
+
+```
+Errno::EINVAL - Invalid argument @ io_fread - .../ios-arm64_x86_64-simulator/libswarmdrop_mobile_core.a
+  ruby-macho-2.5.1/lib/macho/fat_file.rb:99:in 'IO#read'
+```
+
+该 target 已从配置删除（iOS 没有 CI，只影响本机构建；Apple Silicon 上本就用不到）。真要在
+Intel Mac 上跑，单独 `ubrn build ios -t x86_64-apple-ios --sim-only`，**别改配置**。
+
+**slice 名变了要重跑 `pod install`**：CocoaPods 把 slice 路径烤进构建脚本，换了名字会报
+`rsync: .../ios-arm64-simulator/*: No such file or directory` —— 那条错误跟符号缺失长得
+完全不同，别拿它去查 Rust。（上面那次 2.3GB 事故就顺带改过一次 slice 名：
+`ios-arm64-simulator` → `ios-arm64_x86_64-simulator`。）
+
 **相关文件**：`packages/swarmdrop-core/package.json`,
 `packages/swarmdrop-core/ubrn.config.yaml`,
 `packages/swarmdrop-core/SwarmdropCoreFramework.xcframework`
@@ -163,9 +191,11 @@ getCanonicalLocales,Collator,DateTimeFormat,NumberFormat
 **既没有 `PluralRules`，也没有 `Locale`。** 而 `@lingui/core` v6 的 `plural()`
 （`dist/index.mjs:75-84`）**无条件** `new Intl.PluralRules(...)` 且全文件零 try/catch，
 于是任何 `<Plural>` / ICU plural 消息在**渲染期**抛
-`TypeError: undefined cannot be used as a constructor` → dev 红屏、**release 硬闪退**
-（全仓无 ErrorBoundary）。失败还不被 memoize（`getMemoized` 只在 construct 成功后才 cache），
-所以是每次渲染都抛，不是只崩第一次。
+`TypeError: undefined cannot be used as a constructor` → dev 红屏、**当时是 release 硬闪退**
+（那会儿全仓还没有 ErrorBoundary；2026-08-08 已补，见下方「ErrorBoundary 是兜底」——
+现在同类异常会落到错误屏而不是杀进程，但**根因仍须就地修**，兜底不改变它每次渲染都抛）。
+失败还不被 memoize（`getMemoized` 只在 construct 成功后才 cache），所以是每次渲染都抛，
+不是只崩第一次。
 
 **正确做法**：[src/i18n/polyfills.ts](../../src/i18n/polyfills.ts) 已配好，在
 [src/i18n/lingui.ts](../../src/i18n/lingui.ts) 顶部（先于 `@lingui/core`）import：
@@ -332,6 +362,101 @@ setType（resolver 会向 provider 查 MIME，type+data 同设有兼容坑）。
 
 **相关文件**：[src/lib/open-file.ts](../../src/lib/open-file.ts),
 [openspec/changes/inbox-file-preview/design.md](../../openspec/changes/inbox-file-preview/design.md)
+
+### expo-video 的停播：暂停 effect 必须声明在 `useVideoPlayer` **之前**（升 SDK 57 前必读）
+
+收件箱详情的 `VideoPreview`（`src/app/inbox/[itemId].tsx`）把「失焦/卸载即暂停」的 effect
+**声明在 `useVideoPlayer` 上面**，并用一个 `ref` 间接持有 player。这个顺序就是全部要害。
+
+**机制**：`useVideoPlayer` 的 `release()` 挂在 `useReleasingSharedObject` 内部的
+`useEffect(…, [])` cleanup 上，而 React 的 cleanup **按 hook 声明顺序执行**。于是：
+
+- 声明在 `useVideoPlayer` **之后**（`useFocusEffect` 的 cleanup 尤其隐蔽，它在卸载时会补跑
+  一次）→ `release()` 先跑 → `pause()` 打在已释放的 SharedObject 上 →
+  抛 `NativeSharedObjectNotFoundException`；
+- 声明在**之前** → destroy 先跑 → `pause()` 打在还活着的 player 上 → 正常停播。
+
+代价是不能直接闭包引用 `player`（TDZ），要用 `ref` 中转 —— **这点小别扭就是正确性本身，
+别为了「读起来顺」把它挪回下面**。
+
+**踩坑史**：原写法是 `useFocusEffect(() => () => player.pause())`，症状为「打开带单个视频的
+收件箱条目 → 返回 → 闪退」（多文件条目不复现：走 FileBrowser，只出缩略图不建 player）。
+当时全仓无 ErrorBoundary，**release build 直接闪退、dev 只红屏**，所以在开发机上很容易被
+当成噪声划过去。上游同形 issue：[expo/expo#30994](https://github.com/expo/expo/issues/30994)。
+
+> 顺带纠正一个**似是而非的解释**：曾以为 `pop` 时该 route 已从导航 state 移除、收不到 `blur`，
+> 所以不会崩。**这是错的** —— `useFocusEvents` 会为刚被移除的那条 route 发
+> `emit({type:'blur', target: lastFocusedKey})`。别再用这个理由推导安全性。
+
+**为什么卸载路径也要 pause（而不是靠 release 顺带停）**：expo-video 56 里 registry 持有强引用，
+`release()` → 立即 `deinit` → 播放确实会停。但那是**实现细节，不是契约**，且 57 已经回归掉了
+（见下）。声明顺序摆对之后，这次 pause 不要钱也不会抛，没有理由省。
+
+**⚠️ SDK 57 把这条性质回归掉了**，升级前必须重新评估：
+
+- expo-modules-core 57 的新 `SharedObjectNativeState` 让 native 强引用活到 **JS GC**
+  而非 `release()`，于是退出详情页后音频会继续播 —— 也就是本方案要防的原始 bug 复活。
+  同时影响 expo-video 与 expo-audio。见
+  [expo/expo#47569](https://github.com/expo/expo/issues/47569)（已由 PR #47828 修复，
+  **落在 57 的哪个补丁版需要自己确认**）。
+- 该 issue 官方推荐的 workaround 是「cleanup 里先 pause 再 release」—— 本仓的写法**已经
+  是**它（靠声明顺序保证 pause 先于 release），所以 57 上不需要改形态，只需确认音频真的停。
+  ⚠️ 但**别照抄那条 issue 里把 pause 塞进 `useVideoPlayer` 之后的示例**：那在 56 上必崩。
+
+**升级后必跑的手测**（两条都要，缺一条会漏掉一个方向）：
+1. 打开含单个视频的收件箱条目 → 返回 → app 不闪退；
+2. 同上，播放中 → 返回 → **音频必须停**。
+
+**相关文件**：[src/app/inbox/\[itemId\].tsx](../../src/app/inbox/[itemId].tsx)（`VideoPreview`）
+
+### ErrorBoundary 是兜底，不是修复；它必须零 Provider 依赖（2026-08-08）
+
+`app/_layout.tsx` 与**三个 tab 屏文件**（`(main)/index|inbox|settings.tsx`）各
+`export { AppErrorBoundary as ErrorBoundary }`（expo-router 约定：路由模块导出这个名字，
+它就用 `<Try catch={…}>` 包住该路由）。在此之前
+全仓零 boundary，任何渲染期 / effect cleanup 期的 JS 异常都一路冒到 RN fatal handler ——
+**release build 上就是闪退，用户什么也看不到**。两起真实事故都栽在这里：v0.7.16 的 Hermes
+`Intl.PluralRules` 缺失（渲染期抛）、收件箱视频详情返回时对已 release 的 SharedObject 调
+`pause()`（cleanup 期抛）。
+
+**它降低的是爆炸半径，不是 bug 数量。** 两个根因都已就地修掉；boundary 的作用是让第三个
+还没被发现的异常表现为「一屏可读的错误 + 重试」而不是进程消失。**不要因为有了它就把
+「抛异常」当作可接受的正常路径**（比如靠 try/catch 吞掉一个必然失败的调用）。
+
+**写 boundary 组件的三条硬约束**（`src/components/app-error-boundary.tsx`）：
+
+- **文案走全局 `i18n._(msg)`，不能用 `<Trans>` / `useLingui()`**。expo-router 把 `Try` 包在
+  layout 组件**外面**，根 layout 抛错时 `LinguiProvider` 恰恰不存在，用宏会二次崩在 boundary
+  自己身上。`i18n._()` 是全局单例、catalog 缺失时回落源文案，不抛。
+- **文案里不许有复数 / ICU**。`plural()` 无条件 `new Intl.PluralRules` —— 那正是历史崩因之一，
+  写进兜底屏等于给兜底埋雷。
+- **不碰 SafeAreaView 与 `@/components/ui/*`**（`SafeAreaProvider` 同样在 layout 内）。
+  用 RN 原生 `View`/`Text` + NativeWind className，NativeWind 只依赖 `useColorScheme`，安全。
+
+**粒度：根 layout 兜一切 + 三个 tab 屏各自兜一层。⚠️ 绝不要挂到 `(main)/_layout.tsx`** ——
+expo-router 把 `<Try>` 包在 layout 组件**外面**，挂那儿会让一个 tab 的异常连 `NativeTabs`
+一起卸载：tab 栏没了、切不走别的 tab，而 `retry()` 只是重渲染同一棵必然失败的子树，
+用户彻底出不去。挂在**屏文件**上，tab 栏才留得住。（该文件里有一条注释守着这个坑。）
+
+其余屏**没有逐屏加** —— 那是 20+ 文件的样板，根 boundary 已经接得住，收益递减。
+
+**它必须自己收启动屏**：`preventAutoHideAsync()` 在 `_layout.tsx` 模块作用域就调了，而唯一的
+`hideAsync()` 在 boot effect 的 finally 里。RootLayout 首次渲染就抛时那个 effect 永远不跑，
+错误屏会被原生启动图整个盖住 —— 表现为「卡在启动画面」，连重试按钮都摸不到。所以 boundary 的
+mount effect 里有一句 `SplashScreen.hideAsync()`。
+
+**启动失败复用同一张屏**（只覆盖 `title` / `description`）：此前那是另一版自绘的两行文字，
+没有重试、没有详情框。合并后注意一条边界 —— 详情框里是 `errorDetail()`，即 Rust 侧写的中文
+技术串，`lib/errors.ts` 明文规定它不能当用户文案，所以 boot 路径把 `getErrorMessage()` 的
+本地化文案传进 `description`，两者各就各位。
+
+**Rust panic 跨 uniffi FFI 不归它管**（见 [rust-bridge.md](./rust-bridge.md)）：那是原生 abort，
+不是 JS throw，JS 侧 try/catch 和 boundary 都拦不住。
+
+**相关文件**：[src/components/app-error-boundary.tsx](../../src/components/app-error-boundary.tsx),
+[src/app/_layout.tsx](../../src/app/_layout.tsx),
+[src/app/(main)/index.tsx](../../src/app/(main)/index.tsx) 等三个 tab 屏,
+[src/app/(main)/_layout.tsx](../../src/app/(main)/_layout.tsx)（那条「别挂这儿」的注释）
 
 ### SAF localPath 必须来自 finalize_sink 返回值，不能拼接推导（vivo 真机实证）
 

@@ -28,13 +28,61 @@ export const LIST_CONTENT_PADDING = {
   paddingBottom: 32,
 } as const;
 
+/**
+ * 同上,但用于**下方挂着常驻导航条**的列表(`AppScreen` 的 `header` 槽)。
+ * 顶部 16 是导航条与内容之间的标准呼吸位;内容仍能滚到导航条下沿,不留固定空白带。
+ * 各页别再自己算「补回多少」——那正是 activity / 两个搜索页此前各写各的来源。
+ */
+export const LIST_CONTENT_PADDING_UNDER_HEADER = {
+  ...LIST_CONTENT_PADDING,
+  paddingTop: 16,
+} as const;
+
+/**
+ * 卡片列表的行间距(`ItemSeparatorComponent`)。模块级组件,引用稳定。
+ * 住在这里而不是某个卡片模块旁边 —— 它没有任何业务语义,谁都能用。
+ */
+export function ListItemGap() {
+  return <View className="h-2" />;
+}
+
 interface AppScreenProps {
   children: ReactNode;
   scroll?: boolean;
   testID?: string;
   className?: string;
   contentClassName?: string;
-  /** 常驻底部停靠区(拇指区),渲染在滚动内容之外,如主屏的 HomeDock。 */
+  /**
+   * 常驻顶部导航条(`SettingsHeader` / `SearchHeader`),渲染在滚动区**之外**。
+   *
+   * 导航条带返回入口和右侧操作,跟着内容滚走后一屏之外就够不着了,只剩系统手势;
+   * 搜索页更糟——改个关键词得先翻回顶部。放这个槽里由本组件保证它常驻。
+   * 两个 header 组件都自带水平内边距,所以这里不加任何 padding,直接整幅渲染。
+   *
+   * 头与内容之间的间距由 `contentClassName` 表达(列表页则由列表自己的
+   * `contentContainerStyle` 表达),本组件不替调用方猜。
+   *
+   * 反例是 tab 根页的 `AppHeader`(大标题、无返回入口)——那是 iOS large title 语义,
+   * 应当跟着内容滚,**不要**放进这个槽。
+   */
+  header?: ReactNode;
+  /**
+   * 内容盒不带内边距 —— 给**自带 `contentContainerStyle` 的虚拟化列表**用
+   * (`FlatList` / `SectionList`,内边距走 `LIST_CONTENT_PADDING*`)。
+   *
+   * 有它之前每个列表页都得写 `contentClassName="px-0 pb-0"` 去抵消本组件的默认
+   * `px-5 pb-8` —— 一个纯为了取消默认值而存在的魔法串,**漏写 `pb-0` 会静默多出
+   * 32+32=64px 的底部死区,没有任何东西会拦**。布尔量表达意图,也不会漏一半。
+   */
+  bare?: boolean;
+  /**
+   * 常驻底部停靠区,渲染在滚动内容之外。
+   *
+   * **只给 tab 屏的 HomeDock 这类「要避开 iOS 26 浮动 tab 胶囊」的东西用。**
+   * `BottomActionBar` 与 `device/groups` 的新建栏都已自己 `useSafeAreaInsets()` 吃掉
+   * bottom inset —— 它们进这个槽会让下面的 SafeAreaView 再垫一次,底部空两遍。
+   * 那类底栏直接放 `children` 里(见 `inbox/[itemId].tsx`)。
+   */
   footer?: ReactNode;
 }
 
@@ -44,8 +92,11 @@ export function AppScreen({
   testID,
   className,
   contentClassName,
+  header,
+  bare,
   footer,
 }: AppScreenProps) {
+  const contentPadding = bare ? "" : "px-5 pb-8";
   return (
     <SafeAreaView
       style={{ flex: 1 }}
@@ -58,18 +109,25 @@ export function AppScreen({
       edges={footer && Platform.OS === "ios" ? ["top", "bottom"] : ["top"]}
       testID={testID}
     >
+      {header}
       {scroll ? (
         <ScrollView
           showsVerticalScrollIndicator={false}
+          // RN 默认的 "never" 会把键盘竖着时的第一次点击吞掉用来收键盘(搜索页 autoFocus,
+          // 于是要点两下才打得开结果行)。没做成 prop:零调用方,且它只能作用于这条 scroll
+          // 分支 —— 列表页走 `bare`,传了也会被静默忽略,那种 prop 比写死更坏。
+          // 列表页要覆盖就设在自己的 FlatList/SectionList 上(transfer/search.tsx 即如此)。
+          keyboardShouldPersistTaps="handled"
           contentContainerClassName={cn(
-            "flex-grow px-5 pb-8",
+            "flex-grow",
+            contentPadding,
             contentClassName,
           )}
         >
           {children}
         </ScrollView>
       ) : (
-        <View className={cn("flex-1 px-5 pb-8", contentClassName)}>
+        <View className={cn("flex-1", contentPadding, contentClassName)}>
           {children}
         </View>
       )}
@@ -126,6 +184,7 @@ interface IconButtonProps {
   icon: LucideIcon;
   label: string;
   onPress: () => void;
+  disabled?: boolean;
   testID?: string;
 }
 
@@ -133,16 +192,19 @@ export function HeaderIconButton({
   icon: Icon,
   label,
   onPress,
+  disabled,
   testID,
 }: IconButtonProps) {
   const colors = useThemeColors();
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       accessibilityLabel={label}
       accessibilityRole="button"
       testID={testID}
-      className="size-11 items-center justify-center rounded-xl bg-muted active:opacity-70"
+      // active/disabled 两个反馈值是 DESIGN.md 钦定的(手写按钮统一 70/50),别另取。
+      className="size-11 items-center justify-center rounded-xl bg-muted active:opacity-70 disabled:opacity-50"
     >
       <Icon color={colors.foreground} size={20} />
     </Pressable>

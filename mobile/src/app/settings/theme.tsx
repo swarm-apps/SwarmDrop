@@ -8,8 +8,8 @@ import {
   Sun,
 } from "lucide-react-native";
 import { Fragment, useCallback, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Pressable, View } from "react-native";
+import { AppScreen } from "@/components/mobile/screen";
 import { SettingDivider, SettingSection } from "@/components/setting-row";
 import { SettingsHeader } from "@/components/settings-header";
 import { Text } from "@/components/ui/text";
@@ -59,41 +59,42 @@ export default function ThemeScreen() {
   ];
 
   return (
-    <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
-      <SettingsHeader title={t`外观`} />
-      <ScrollView
-        contentContainerClassName="gap-5 px-5 pt-2 pb-8"
-        showsVerticalScrollIndicator={false}
-      >
-        <SettingSection label={t`选择外观`}>
-          {options.map((opt, idx) => {
-            const Icon = opt.icon;
-            const selected = theme === opt.value;
-            return (
-              <Fragment key={opt.value}>
-                <Pressable
-                  onPress={() => handleSelect(opt.value)}
-                  accessibilityRole="button"
-                  accessibilityLabel={opt.label}
-                  accessibilityState={{ selected }}
-                  className="flex-row items-center gap-3 px-3.5 py-3 active:bg-muted"
-                >
-                  <Icon color={colors.mutedForeground} size={18} />
-                  <Text className="flex-1 text-[14px] text-foreground">
-                    {opt.label}
-                  </Text>
-                  {selected ? (
-                    <View className="h-6 w-6 items-center justify-center">
-                      <Check color={colors.primary} size={18} />
-                    </View>
-                  ) : null}
-                </Pressable>
-                {idx < options.length - 1 ? <SettingDivider /> : null}
-              </Fragment>
-            );
-          })}
-        </SettingSection>
-      </ScrollView>
-    </SafeAreaView>
+    <AppScreen
+      scroll
+      header={<SettingsHeader title={t`外观`} />}
+      contentClassName="gap-5 pt-2"
+    >
+      <SettingSection label={t`选择外观`}>
+        {options.map((opt, idx) => {
+          const Icon = opt.icon;
+          const selected = theme === opt.value;
+          return (
+            <Fragment key={opt.value}>
+              <Pressable
+                onPress={() => handleSelect(opt.value)}
+                accessibilityRole="button"
+                accessibilityLabel={opt.label}
+                accessibilityState={{ selected }}
+                className="flex-row items-center gap-3 px-3.5 py-3 active:bg-muted"
+              >
+                <Icon color={colors.mutedForeground} size={18} />
+                <Text className="flex-1 text-[14px] text-foreground">
+                  {opt.label}
+                </Text>
+                {selected ? (
+                  <View className="h-6 w-6 items-center justify-center">
+                    <Check color={colors.primary} size={18} />
+                  </View>
+                ) : null}
+              </Pressable>
+              {idx < options.length - 1 ? <SettingDivider /> : null}
+            </Fragment>
+          );
+        })}
+      </SettingSection>
+    </AppScreen>
   );
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

@@ -94,3 +94,6 @@ function NavRow({
     </Pressable>
   );
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,tab 栏保持可用(为什么不挂 layout 见 `(main)/_layout.tsx`)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

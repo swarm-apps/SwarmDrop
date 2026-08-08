@@ -3,15 +3,19 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { ArrowLeftRight, Search, SearchX, Trash2 } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
 import { SectionList, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import type { MobileTransferProjection } from "react-native-swarmdrop-core";
-import { ActivityProjectionCard } from "@/components/activity-projection-card";
+import {
+  ActivityProjectionCard,
+  transferSessionKey,
+} from "@/components/activity-projection-card";
 import { FilterChip, FilterChipRail } from "@/components/filter-chip";
 import {
+  AppScreen,
   EmptyState,
   HeaderIconButton,
   InlineEmptyState,
-  LIST_CONTENT_PADDING,
+  LIST_CONTENT_PADDING_UNDER_HEADER,
+  ListItemGap,
 } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -192,40 +196,42 @@ export default function ActivityScreen() {
   }, [clearAllHistory, t]);
 
   return (
-    <SafeAreaView
-      style={{ flex: 1 }}
-      className="bg-background"
-      edges={["top"]}
+    <AppScreen
       testID="activity-screen"
+      // 导航条进 header 槽:它带返回箭头与搜索/清空两个入口,跟着列表滚走的话,
+      // 往下翻一屏就都够不着了。`bare` 让位给列表自己的 contentContainerStyle。
+      header={
+        <SettingsHeader
+          title={t`传输记录`}
+          right={
+            <View className="flex-row gap-2">
+              <HeaderIconButton
+                icon={Search}
+                label={t`搜索传输记录`}
+                onPress={openSearch}
+                testID="activity-open-search-button"
+              />
+              <HeaderIconButton
+                icon={Trash2}
+                label={t`清空传输记录`}
+                onPress={() => setClearOpen(true)}
+                testID="activity-clear-button"
+              />
+            </View>
+          }
+        />
+      }
+      bare
     >
       <SectionList
         sections={sections}
-        keyExtractor={activityKeyExtractor}
+        keyExtractor={transferSessionKey}
         extraData={progressBySession}
         stickySectionHeadersEnabled={false}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={LIST_CONTENT_PADDING}
+        contentContainerStyle={LIST_CONTENT_PADDING_UNDER_HEADER}
         ListHeaderComponent={
           <View className="gap-4">
-            <SettingsHeader
-              title={t`传输记录`}
-              right={
-                <View className="flex-row gap-2">
-                  <HeaderIconButton
-                    icon={Search}
-                    label={t`搜索传输记录`}
-                    onPress={openSearch}
-                    testID="activity-open-search-button"
-                  />
-                  <HeaderIconButton
-                    icon={Trash2}
-                    label={t`清空传输记录`}
-                    onPress={() => setClearOpen(true)}
-                    testID="activity-clear-button"
-                  />
-                </View>
-              }
-            />
             <Text className="px-1 text-[13px] text-muted-foreground">
               <Trans>每一笔传输的过程都记在这里；收好的东西请到收件箱找</Trans>
             </Text>
@@ -271,7 +277,7 @@ export default function ActivityScreen() {
             onOpenInbox={openInboxItem}
           />
         )}
-        ItemSeparatorComponent={ActivityItemGap}
+        ItemSeparatorComponent={ListItemGap}
         ListEmptyComponent={
           <View className="pt-5">
             {allProjections.length === 0 ? (
@@ -312,12 +318,9 @@ export default function ActivityScreen() {
         cancelTestID="activity-clear-cancel-button"
         actionTestID="activity-clear-confirm-button"
       />
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 
-const activityKeyExtractor = (item: MobileTransferProjection) => item.sessionId;
-
-function ActivityItemGap() {
-  return <View className="h-2" />;
-}
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

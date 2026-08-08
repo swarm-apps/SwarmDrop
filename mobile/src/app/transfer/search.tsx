@@ -2,13 +2,16 @@ import { useLingui } from "@lingui/react/macro";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Search, SearchX } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
-import { FlatList, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import type { MobileTransferProjection } from "react-native-swarmdrop-core";
-import { ActivityProjectionCard } from "@/components/activity-projection-card";
+import { FlatList } from "react-native";
 import {
+  ActivityProjectionCard,
+  transferSessionKey,
+} from "@/components/activity-projection-card";
+import {
+  AppScreen,
   InlineEmptyState,
-  LIST_CONTENT_PADDING,
+  LIST_CONTENT_PADDING_UNDER_HEADER,
+  ListItemGap,
 } from "@/components/mobile/screen";
 import { SearchHeader } from "@/components/search-header";
 import {
@@ -55,33 +58,30 @@ export default function TransferSearchScreen() {
   );
 
   return (
-    <SafeAreaView
-      style={{ flex: 1 }}
-      className="bg-background"
-      edges={["top"]}
+    <AppScreen
       testID="transfer-search-screen"
+      // 搜索头进 header 槽:它带返回与输入框,跟着结果滚走的话,改个关键词还得先翻回顶部。
+      header={
+        <SearchHeader
+          value={query}
+          onChangeText={setQuery}
+          placeholder={t`搜索设备或文件名`}
+          inputLabel={t`搜索传输记录`}
+          testIDPrefix="transfer-search"
+        />
+      }
+      bare
     >
       <FlatList
         data={results}
-        keyExtractor={searchKeyExtractor}
+        keyExtractor={transferSessionKey}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={LIST_CONTENT_PADDING}
-        ListHeaderComponent={
-          <View className="pb-4">
-            <SearchHeader
-              value={query}
-              onChangeText={setQuery}
-              placeholder={t`搜索设备或文件名`}
-              inputLabel={t`搜索传输记录`}
-              testIDPrefix="transfer-search"
-            />
-          </View>
-        }
+        contentContainerStyle={LIST_CONTENT_PADDING_UNDER_HEADER}
         renderItem={({ item }) => (
           <ActivityProjectionCard projection={item} onPress={goDetail} />
         )}
-        ItemSeparatorComponent={SearchItemGap}
+        ItemSeparatorComponent={ListItemGap}
         ListEmptyComponent={
           trimmedQuery ? (
             <InlineEmptyState
@@ -100,12 +100,9 @@ export default function TransferSearchScreen() {
           )
         }
       />
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 
-const searchKeyExtractor = (item: MobileTransferProjection) => item.sessionId;
-
-function SearchItemGap() {
-  return <View className="h-2" />;
-}
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

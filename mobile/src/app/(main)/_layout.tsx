@@ -2,6 +2,11 @@ import { useLingui } from "@lingui/react/macro";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { useThemeColors } from "@/hooks/useThemeColors";
 
+// 注意:**不要**在本文件 export ErrorBoundary。挂在 layout 上,expo-router 会把 `<Try>`
+// 包在 `MainLayout` 外面,于是一个 tab 屏抛错会连 `NativeTabs` 一起卸载——没有 tab 栏、
+// 切不了别的 tab,retry() 又只是重渲染同一棵必然失败的子树,用户彻底出不去。
+// boundary 挂在三个 tab **屏文件**上(index/inbox/settings),tab 栏才留得住。
+
 export default function MainLayout() {
   const { t } = useLingui();
   const colors = useThemeColors();
