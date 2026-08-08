@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use libp2p::StreamProtocol;
-use swarmdrop_net_base::{Addr, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId};
+use swarmdrop_net_base::{Addr, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId, TransportKind};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -130,6 +130,8 @@ pub(crate) struct Inner {
     watch_relays: watch::Receiver<BTreeMap<NodeId, RelayState>>,
     /// Builder 启用 DHT 时为 Some。
     dht: Option<crate::dht::Dht>,
+    /// 本端点实际装配的可拨传输（bind 时按 target + 配置算一次，此后不变）。
+    supported_transports: Box<[TransportKind]>,
     connect_timeout: Duration,
     next_connect_request_id: AtomicU64,
     closed: CancellationToken,
@@ -153,6 +155,18 @@ impl Endpoint {
     /// 本节点身份。
     pub fn node_id(&self) -> NodeId {
         self.inner.node_id
+    }
+
+    /// 本端点实际装配的可拨传输种类。
+    ///
+    /// 用途是**提交前同步校验**：用户粘一条引导节点地址时，据此判断本端拨不拨得动
+    /// （浏览器收到 `/tcp/`、桌面收到只有对端才有的传输，都应当场拒掉而不是让它静静地
+    /// 永远连不上）。它是内核事实，不是部署配置——地址清单归各端的 bootstrap-nodes 表，
+    /// 两件事不要合并。
+    ///
+    /// circuit 地址取的是外层中继段的传输，正是本机要拨的那一跳。
+    pub fn supported_transports(&self) -> &[TransportKind] {
+        &self.inner.supported_transports
     }
 
     // ── 连接管理 ──

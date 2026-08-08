@@ -11,7 +11,7 @@ use crate::device::{DeviceName, OsInfo, PairedDeviceInfo};
 use crate::device_manager::DeviceManager;
 use crate::error::{AppError, AppResult};
 use crate::host::{EventBus, Notifier, PairedDeviceStore};
-use crate::infra::InfraSupervisor;
+use crate::infra::{InfraAddrResult, InfraSupervisor};
 use crate::pairing::manager::PairingManager;
 use crate::presence::{PresenceMap, PresenceSupervisor};
 use swarmdrop_invite::InviteStore;
@@ -193,6 +193,29 @@ where
                 roles,
             );
         }
+    }
+
+    /// 校验一条用户输入的引导节点地址，**不写任何状态**。
+    ///
+    /// 三端的输入框都在提交前调它拿内联错误。全部规则零网络往返——「能不能连上」
+    /// 由提交后的收敛环回答（见 [`crate::infra::validate_infra_addr`] 的模块文档）。
+    pub fn validate_infra_addr(&self, input: &str) -> InfraAddrResult {
+        let existing = self
+            .candidates
+            .read()
+            .map(|c| c.snapshot())
+            .unwrap_or_default();
+        crate::infra::validate_infra_addr(input, &self.endpoint, &existing)
+    }
+
+    /// 校验 + 登记：三端「添加引导节点」的**唯一**入口。
+    ///
+    /// 两步合成一个调用，是为了让「校验通过但登记时表已变」这个窗口不存在——
+    /// 三端各自 validate 完再 ensure，中间隔着一次 IPC 往返。
+    pub fn add_infra_node(&self, input: &str, roles: CandidateRoles) -> InfraAddrResult {
+        let peer = self.validate_infra_addr(input)?;
+        self.ensure_infra_intent(peer.clone(), roles);
+        Ok(peer)
     }
 
     /// 撤销基础设施常驻意图（[`ensure_infra_intent`](Self::ensure_infra_intent)

@@ -18,6 +18,10 @@
 
 mod link;
 mod supervisor;
+mod validate;
 
 pub use link::{InfraExclusion, InfraLink, RelayLinkState, build_infra_links};
 pub use supervisor::InfraSupervisor;
+pub use validate::{
+    InfraAddrError, InfraAddrResult, supported_transport_names, validate_infra_addr,
+};

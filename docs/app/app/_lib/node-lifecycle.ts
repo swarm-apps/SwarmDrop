@@ -3,7 +3,7 @@
 // ## 与 `node-runtime.ts` 的分工
 //
 //   node-runtime.ts    wasm 模块与节点句柄的记忆化（低层，不认识 store、不认识订阅）
-//   node-lifecycle.ts  一次启动 = spawn + 回补历史 + 三条订阅 + relay 登记 + store 状态，
+//   node-lifecycle.ts  一次启动 = spawn + 回补历史 + 三条订阅 + 引导节点登记 + store 状态，
 //                      以及它们各自的回滚
 //
 // 这一层存在的理由是它有**两个调用方**：应用外壳挂载时（`web-node-bootstrap.tsx`）与用户在
@@ -18,9 +18,9 @@
 // 真正的停止只有一个来路：用户显式关停。
 
 import { startEventConsumption, stopEventConsumption } from "./event-dispatch";
+import { startInfraWatch } from "./infra-watch";
 import { closeNode, getNode, spawnNode } from "./node-runtime";
-import { WEB_RELAY_HELPERS } from "./relay-helpers";
-import { startRelayWatch } from "./relay-watch";
+import { infraNodesToReplay, preferencesStore } from "./preferences-store";
 import { startStatePoll } from "./state-poll";
 import { webNodeActions } from "./store";
 import { toWebError } from "./view-types";
@@ -30,7 +30,7 @@ import type { WebNode } from "./view-types";
  * 一次运行期间挂上的订阅，停机时逐个调用。
  *
  * **是一个累积的数组而不是一个带具名字段的对象**，因为装配可以中途失败：若写成
- * `subscriptions = { stopPoll: startStatePoll(n), stopRelayWatch: startRelayWatch(n) }`，
+ * `subscriptions = { stopPoll: startStatePoll(n), stopInfraWatch: startInfraWatch(n) }`，
  * 后一个调用抛错会让整条赋值语句作废——而前一个已经起了的 `setInterval` 再也收不回来，
  * 且 `subscriptions` 仍是 `null`，下一次启动会若无其事地再起一个。逐个 push 则「已经挂上的」
  * 始终有据可查，失败时照着回滚即可。
@@ -54,27 +54,36 @@ function enqueue<T>(task: () => Promise<T>): Promise<T> {
 }
 
 /**
- * 登记配置好的 relay helper——浏览器唯一的公网可达入口。
+ * 回放引导节点清单——浏览器唯一的公网可达入口。
  *
- * **必须在启动时做，不能只留给「连接」区手点。** 浏览器不 listen 本地 socket：没有
- * circuit 可达地址就既收不到对端拨回，也进不了 DHT（bootstrap 要先经 identify 被
+ * **必须在启动时做，不能只留给设置页手点。** 浏览器不 listen 本地 socket：没有
+ * circuit 可达地址就既收不到对端拨回，也进不了 DHT（引导节点要先经 identify 被
  * `InfraSupervisor` 认成基础设施节点，才会被 `add_infrastructure_peer` 接进 kad 路由表）。
  *
  * 少了这一步，每次刷新页面后节点都处于网络孤立状态：presence 宣告持续 `QuorumFailed`，
  * 已配对设备恒显示「离线」——而这与「已配对设备刷新后仍在」的产品承诺直接冲突
  * （2026-07-28 实测）。
  *
- * `relays_ensure` 是**幂等的常驻意图**（拨号 / reservation / 断线重建都由 core 的
- * `InfraSupervisor` 收敛），与「连接」区的手动登记互不冲突，用户仍可另加 helper 或撤销。
+ * 回放的是**内置清单 − 用户撤销的 + 用户自定义的**（`infraNodesToReplay`），不是某个存下来
+ * 的合并快照——理由见 `preferences-store.ts` 的 `InfraNodePreferences`。
+ *
+ * `infra_ensure` 登记的是**常驻意图**（拨号 / reservation / 断线重建都由 core 的
+ * `InfraSupervisor` 收敛），与设置页的手动登记互不冲突。
+ *
+ * 注意「意图幂等」说的是**状态**不是**回执**：重复登记不会产生第二条关系，但
+ * `infra_ensure` 会 reject 一个 `duplicate`（这是刻意的，见 `crates/web/src/node.rs`）。
+ * 回放跑在一张空的候选表上，正常路径产不出重复；真撞上（历史偏好里存过一条与内置项
+ * 逐字相同的自定义地址）也只是下面那行 console，那条早已登记好了。
  */
-function ensureConfiguredRelays(node: WebNode): void {
-  for (const addr of WEB_RELAY_HELPERS) {
+function replayInfraNodes(node: WebNode): void {
+  for (const addr of infraNodesToReplay(preferencesStore.getState().infraNodes)) {
     try {
-      node.relays_ensure(addr);
+      node.infra_ensure(addr);
     } catch (e) {
-      // 单个 helper 登记失败不该挡住其余功能（局域网直连、已有会话都不依赖它）。
-      // 后续的连接/失败/重试状态由「连接」区订阅 `relays_changed()` 呈现，这里只管登记。
-      console.error("[web] relay helper 登记失败", addr, e);
+      // 单条登记失败不该挡住其余功能（局域网直连、已有会话都不依赖它）。走到这里说明
+      // 那条地址过不了 core 的校验——内置项是代码里的常量（那就是个 bug），自定义项则是
+      // 用户在别的版本里加的、当时的本端还装配着那种 transport。两者都只值一行 console。
+      console.error("[web] 引导节点登记失败", addr, e);
     }
   }
 }
@@ -111,10 +120,11 @@ export function startNodeRuntime(): Promise<void> {
       startEventConsumption(node); // 源一：transfer 事件流（按实例单点消费）
       attached.push(stopEventConsumption);
       attached.push(startStatePoll(node)); // 源二：pairing 请求 + 已配对设备轮询
-      // 源四：relay 状态流。**必须在运行时层而不是「连接」面板里**——它有两个跨路由的
-      // 消费者（设置页列清单、设备页读可达地址判断能否生成邀请）。见 relay-watch.ts。
-      attached.push(startRelayWatch(node));
-      ensureConfiguredRelays(node); // 公网可达 + DHT 接线，见函数注释
+      // 源四：基础设施状态流。**必须在运行时层而不是设置页面板里**——它有三个跨路由的
+      // 消费者（设置页列清单、设备页读可达地址判断能否生成邀请、常驻徽章算整体健康度）。
+      // 见 infra-watch.ts。
+      attached.push(startInfraWatch(node));
+      replayInfraNodes(node); // 公网可达 + DHT 接线，见函数注释
 
       subscriptions = attached;
       // 状态最后落：`markRunning` 一置，各页的 `ready` 就全部放行，而放行的前提是上面

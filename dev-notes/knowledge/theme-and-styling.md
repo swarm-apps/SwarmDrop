@@ -218,7 +218,8 @@ babel 宏认的是**词法作用域**里的 `const { t } = useLingui()`，`t` �
 同时掉进兜底：
 
 - `stop-node-sheet.tsx` 的 `relaySourceLabel`（两级三元 + `null`）→ 渲染成「等待中」，
-  于是中继明明 `Active`、界面却说它还没就绪；
+  于是中继明明 `Active`、界面却说它还没就绪；（该文件已于 2026-08-08 与 `StartNodeSheet`
+  合并为 `src/components/network/node-status-sheet.tsx`，判例本身不变）
 - 移动 `network.tsx` / `node-control-sheet.tsx` 的两个 `switch` 有 `default`
   → `learned` 被显示成「配置节点」，归因是错的；而它们各自的 `default` 分支
   （本来写着「公网」，正是给 `learned` 准备的）**永不可达**，成了死代码；
@@ -557,4 +558,4 @@ timeout，有的只 toast），需先统一语义再抽。
 
 **Zustand 派生别踩坑**：selector 只取稳定的 `s.networkStatus` 引用，`filter/map` 放 `useMemo` 里——直接在 selector 里派生数组每次返回新引用会无限 re-render（见本文件「Zustand selector 与派生数组」）。
 
-**相关文件**：`src/components/network/lan-helper-address.tsx`（`LanHelperAddress` + `useLanHelperAddresses`），装配在 `stop-node-sheet.tsx`（首页状态弹窗）和 `settings/-network-settings-section.tsx`
+**相关文件**：`src/components/network/lan-helper-address.tsx`（`LanHelperAddress` + `useLanHelperAddresses`），装配在 `node-status-sheet.tsx`（节点状态面的诊断层）和 `settings/-network-settings-section.tsx`

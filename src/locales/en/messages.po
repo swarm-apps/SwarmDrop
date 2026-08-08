@@ -88,6 +88,10 @@ msgstr "AI-Native · MCP"
 msgid "Bundle"
 msgstr "Bundle"
 
+#: src/lib/node-status.ts
+msgid "DHT 种子"
+msgstr "DHT seed"
+
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "MCP Server 已停止"
 msgstr "MCP Server stopped"
@@ -100,7 +104,7 @@ msgstr "MCP Server started"
 msgid "MCP Server 的 HTTP 端口号"
 msgstr "MCP Server HTTP port"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "NAT 状态"
 msgstr "NAT Status"
@@ -143,6 +147,10 @@ msgstr "Downloading..."
 msgid "不可恢复失败"
 msgstr "Unrecoverable failure"
 
+#: src/lib/node-status.ts
+msgid "不是合法的 Multiaddr 地址"
+msgstr "Not a valid multiaddr"
+
 #: src/routes/_app/settings/-about-section.tsx
 msgid "不止于局域网：在任意网络间端到端加密地收发文件，连 AI 代理也能经 MCP 调用。"
 msgstr "Beyond the local network — send files end-to-end encrypted across any network, and let AI agents drive it over MCP."
@@ -155,15 +163,15 @@ msgstr "No limit"
 msgid "个文件"
 msgstr " files"
 
+#: src/lib/node-status.ts
 #: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "中继"
 msgstr "Relay"
 
-#: src/components/network/stop-node-sheet.tsx
 #: src/routes/_app/devices/-components/connection-badge.tsx
 msgid "中继节点"
-msgstr "Relay Node"
+msgstr "Relay node"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "临时设备"
@@ -190,6 +198,11 @@ msgstr "Theme"
 msgid "二维码渲染失败"
 msgstr "QR code failed to render"
 
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "infraLink.seedOnly"
+msgstr "DHT seed only"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "仅删除记录"
 msgstr "Delete record only"
@@ -199,10 +212,10 @@ msgid "仅删除记录会保留本地文件；勾选删除本地文件后，会�
 msgstr "Deleting the record only keeps the local files. Check Also delete local files to remove these received files from disk."
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "仅在需要接入私有或备用网络时添加。"
-msgstr "Add only when you need to join a private or backup network."
+#~ msgid "仅在需要接入私有或备用网络时添加。"
+#~ msgstr "Add only when you need to join a private or backup network."
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/lib/node-status.ts
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "仅局域网"
 msgstr "LAN only"
@@ -253,6 +266,11 @@ msgstr "Transfers"
 msgid "但这条记录没能保存下来，重启后需要重新配对。"
 msgstr "But this record could not be saved — you'll need to pair again after a restart."
 
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "nodeHealth.configuredLanOnly"
+msgstr "Public reachability is off, so devices on other networks can't find you"
+
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "使用同网段已开启协助能力的桌面端"
 msgstr "Use a desktop on the same subnet with assistance enabled"
@@ -295,18 +313,18 @@ msgid "信任级别"
 msgstr "Trust level"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "候选来源"
-msgstr "Candidate sources"
+#~ msgid "候选来源"
+#~ msgstr "Candidate sources"
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "停止"
 msgstr "Stop"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 msgid "停止后将断开所有连接，其他设备将无法发现你"
 msgstr "Stopping will disconnect all connections and make you undiscoverable to other devices"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 msgid "停止节点"
 msgstr "Stop Node"
 
@@ -340,7 +358,11 @@ msgstr "Verify first, then confirm"
 msgid "全部"
 msgstr "All"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/lib/node-status.ts
+msgid "公网"
+msgstr "Public"
+
+#: src/lib/node-status.ts
 msgid "公网可达"
 msgstr "Publicly reachable"
 
@@ -348,9 +370,13 @@ msgstr "Publicly reachable"
 msgid "公网可达性"
 msgstr "Public reachability"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 msgid "公网地址"
-msgstr "Public Address"
+msgstr "Public address"
+
+#: src/components/network/node-status-sheet.tsx
+msgid "公网地址已复制"
+msgstr "Public address copied"
 
 #: src/routes/_app/settings/-about-section.tsx
 msgid "关于"
@@ -376,13 +402,18 @@ msgstr "When off, transfers containing subpaths are rejected by the policy"
 msgid "关闭后，通过中继连接的传输仍需手动确认"
 msgstr "When off, transfers over relay still require manual confirmation"
 
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "nodeHealth.reachable"
+msgstr "Devices on other networks can reach you"
+
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "其他设备配对时会看到这个名称，你可以随时在设置中修改。"
 msgstr "Other devices see this name when pairing. You can change it anytime in Settings."
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "内置节点用于首次发现网络，通常无需调整。"
-msgstr "Built-in nodes are used for initial network discovery and usually need no changes."
+#~ msgid "内置节点用于首次发现网络，通常无需调整。"
+#~ msgstr "Built-in nodes are used for initial network discovery and usually need no changes."
 
 #: src/components/layout/app-topbar.tsx
 msgid "最大化"
@@ -488,6 +519,10 @@ msgstr "Helper address copied"
 msgid "去「发送」页直接选它就行。"
 msgstr "Just pick it on the Send page."
 
+#: src/components/network/node-status-sheet.tsx
+msgid "去设置"
+msgstr "Open settings"
+
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "发现模式"
 msgstr "Discovery mode"
@@ -543,7 +578,7 @@ msgstr "Send to {0}"
 msgid "发送请求没能送达对方，请确认对方在线后重试"
 msgstr "Your request didn’t reach them. Make sure they’re online and try again."
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 #: src/components/ui/confirm-dialog.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
@@ -587,9 +622,14 @@ msgstr "Allow connections from the same LAN only"
 msgid "只建立你确认过的连接"
 msgstr "Only establish connections you've confirmed"
 
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "nodeHealth.lanReachable"
+msgstr "Only devices on your network can reach you"
+
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "只读"
-msgstr "Read-only"
+#~ msgid "只读"
+#~ msgstr "Read-only"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "可在设备菜单中为已配对设备设置分组。"
@@ -604,8 +644,8 @@ msgid "可恢复失败"
 msgstr "Recoverable failure"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "可达"
-msgstr "Reachable"
+#~ msgid "可达"
+#~ msgstr "Reachable"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "可配对"
@@ -624,12 +664,11 @@ msgstr "Start"
 msgid "启动 P2P 节点后即可发现附近设备、接收文件并发起配对"
 msgstr "Start the P2P node to discover nearby devices, receive files, and start pairing"
 
-#: src/components/layout/app-topbar.tsx
-#: src/components/network/stop-node-sheet.tsx
+#: src/lib/node-status.ts
 msgid "启动中"
 msgstr "Starting"
 
-#: src/components/network/start-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 msgid "启动中..."
 msgstr "Starting..."
 
@@ -641,10 +680,14 @@ msgstr "Once started, AI assistants can control file transfers via the MCP proto
 msgid "启动后显示可发送的设备"
 msgstr "Devices you can send to appear once started"
 
-#: src/components/network/start-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 #: src/routes/_app/devices/-components/offline-empty-state.tsx
 msgid "启动节点"
 msgstr "Start Node"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "启动节点后可添加引导节点"
+msgstr "Start the node to add a bootstrap node"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "启用后，符合策略的入站文件会直接进入收件箱"
@@ -677,21 +720,34 @@ msgstr "Right-click a file in your file manager and choose \"Send with SwarmDrop
 
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
-#: src/routes/_app/settings/-device-info-section.tsx
 msgid "在线"
 msgstr "Online"
 
 #: src/components/layout/app-topbar.tsx
-msgid "在线 · 可接收"
-msgstr "Online · Ready to receive"
+#~ msgid "在线 · 可接收"
+#~ msgstr "Online · Ready to receive"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "在线设备优先显示，可直接进入发送流程。"
 msgstr "Online devices are shown first, so you can start sending right away."
 
+#. placeholder {0}: transportDisplay(rejection.transport)
+#. placeholder {1}: rejection.supported.map(transportDisplay).join(" · ")
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "地址需以 / 开头且包含 /p2p/ 部分"
-msgstr "Address must start with / and contain /p2p/"
+msgid "地址用的是 {0}，本端支持的是 {1}。"
+msgstr "The address uses {0}; this build supports {1}."
+
+#: src/lib/node-status.ts
+msgid "地址里没有可拨的传输段"
+msgstr "The address has no dialable transport"
+
+#: src/lib/node-status.ts
+msgid "地址里缺少 /p2p/ 节点身份"
+msgstr "The address is missing a /p2p/ node identity"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+#~ msgid "地址需以 / 开头且包含 /p2p/ 部分"
+#~ msgstr "Address must start with / and contain /p2p/"
 
 #: src/components/transfer/transfer-offer-dialog.tsx
 #: src/routes/_app/settings/-mcp-section.tsx
@@ -706,7 +762,9 @@ msgstr "Copy"
 msgid "复制后可供浏览器端快速连接本机。"
 msgstr "Copy to let a browser connect to this device quickly."
 
+#: src/components/network/infra-link-parts.tsx
 #: src/components/network/lan-helper-address.tsx
+#: src/components/network/node-status-sheet.tsx
 #: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
@@ -733,6 +791,10 @@ msgstr "Copy remote address"
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "复制邀请链接"
 msgstr "Copy Invite Link"
+
+#: src/components/network/infra-link-parts.tsx
+msgid "复制错误信息"
+msgstr "Copy error"
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "外观"
@@ -827,18 +889,19 @@ msgstr "This will delete records of finished transfers and cannot be undone. In-
 msgid "将在 {0} 后过期"
 msgstr "Expires in {0}"
 
+#: src/lib/node-status.ts
 #: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "局域网"
 msgstr "LAN"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/lib/node-status.ts
 msgid "局域网协助"
-msgstr "LAN assistance"
+msgstr "LAN helper"
 
 #: src/components/network/lan-helper-address.tsx
 msgid "局域网协助地址"
-msgstr "LAN Helper Address"
+msgstr "LAN helper address"
 
 #: src/components/pairing/pairing-mode-tabs.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
@@ -869,8 +932,7 @@ msgstr "Record and local files deleted"
 msgid "已发出的邀请"
 msgstr "Invites you've sent"
 
-#: src/components/network/start-node-sheet.tsx
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 msgid "已发现节点"
 msgstr "Discovered Peers"
 
@@ -902,9 +964,14 @@ msgstr "Copied to clipboard"
 msgid "已完成"
 msgstr "Completed"
 
-#: src/components/network/stop-node-sheet.tsx
-msgid "已就绪"
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "infraLink.ok"
 msgstr "Ready"
+
+#: src/components/network/stop-node-sheet.tsx
+#~ msgid "已就绪"
+#~ msgstr "Ready"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "已归档"
@@ -918,6 +985,11 @@ msgstr "Inbox record archived"
 #: src/stores/pairing-store.ts
 msgid "已拒绝来自 {0} 的配对请求"
 msgstr "Declined pairing request from {0}"
+
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "infraLink.excluded"
+msgstr "Excluded by settings"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "已收到邀请"
@@ -956,17 +1028,21 @@ msgid "已过期"
 msgstr "Expired"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "已连接"
-msgstr "Connected"
+#~ msgid "已连接"
+#~ msgstr "Connected"
 
 #: src/components/network/start-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
-msgid "已连接节点"
-msgstr "Connected Peers"
+#~ msgid "已连接节点"
+#~ msgstr "Connected Peers"
 
 #: src/routes/_app/settings/-device-info-section.tsx
-msgid "已连节点"
-msgstr "Connected Nodes"
+msgid "已连接设备"
+msgstr "Connected devices"
+
+#: src/routes/_app/settings/-device-info-section.tsx
+#~ msgid "已连节点"
+#~ msgstr "Connected Nodes"
 
 #: src/routes/_app/send/index.lazy.tsx
 msgid "已选内容"
@@ -980,6 +1056,10 @@ msgstr "Selected Files"
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "已配对"
 msgstr "Paired"
+
+#: src/components/network/node-status-sheet.tsx
+msgid "已配对 {pairedCount} · 在线 {onlineDeviceCount}"
+msgstr "Paired {pairedCount} · online {onlineDeviceCount}"
 
 #: src/routes/_app/devices/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
@@ -1010,18 +1090,29 @@ msgstr "Use a name you can quickly recognize in the device list."
 msgid "开始发送或接收文件后，当前任务会显示在这里。"
 msgstr "Once you start sending or receiving files, the current task appears here."
 
-#: src/components/network/stop-node-sheet.tsx
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "引导节点"
-msgstr "Bootstrap Nodes"
+msgstr "Bootstrap nodes"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "引导节点地址已复制"
 msgstr "Bootstrap node address copied"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "引导节点已变更，需重启节点生效"
-msgstr "Bootstrap nodes changed, restart required to take effect"
+#~ msgid "引导节点已变更，需重启节点生效"
+#~ msgstr "Bootstrap nodes changed, restart required to take effect"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "引导节点已添加"
+msgstr "Bootstrap node added"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "引导节点已移除"
+msgstr "Bootstrap node removed"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "引导节点帮你找到其他网络里的设备。增删当场生效，不需要重启节点。"
+msgstr "Bootstrap nodes help you find devices on other networks. Adding or removing one takes effect immediately — no restart needed."
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "归档"
@@ -1032,8 +1123,8 @@ msgid "当前会话完成后会进入历史记录。"
 msgstr "Once the current session completes, it moves to history."
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "当前使用内置引导节点。"
-msgstr "Currently using the built-in bootstrap nodes."
+#~ msgid "当前使用内置引导节点。"
+#~ msgstr "Currently using the built-in bootstrap nodes."
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "待发文件"
@@ -1240,8 +1331,8 @@ msgid "新建"
 msgstr "Add"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "无效的 Multiaddr 地址"
-msgstr "Invalid Multiaddr address"
+#~ msgid "无效的 Multiaddr 地址"
+#~ msgstr "Invalid Multiaddr address"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "无法加载这条记录"
@@ -1255,7 +1346,11 @@ msgstr "Couldn't open the folder picker. Please check storage permissions."
 msgid "无账户 · 无服务器"
 msgstr "No Accounts · No Servers"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "无需重启节点，稍后即可看到它的连接状态。"
+msgstr "No restart needed; its connection status shows up shortly."
+
+#: src/components/network/node-status-sheet.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "映射成功"
 msgstr "Mapped"
@@ -1265,8 +1360,12 @@ msgid "昨天"
 msgstr "Yesterday"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-msgid "是否主动连接公网引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
-msgstr "Whether to actively connect to public bootstrap nodes; LAN-only mode can still be reached across networks unless public reachability is disabled"
+#~ msgid "是否主动连接公网引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
+#~ msgstr "Whether to actively connect to public bootstrap nodes; LAN-only mode can still be reached across networks unless public reachability is disabled"
+
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "是否主动连接引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
+msgstr "Whether to actively connect to bootstrap nodes; LAN-only mode can still be reached across networks unless public reachability is disabled"
 
 #: src/components/transfer/session-panel.tsx
 #: src/routes/_app/transfer/-session-row.tsx
@@ -1327,9 +1426,7 @@ msgstr "Ungrouped"
 msgid "未及时处理"
 msgstr "Not answered in time"
 
-#: src/components/layout/app-topbar.tsx
-#: src/components/network/start-node-sheet.tsx
-#: src/components/network/stop-node-sheet.tsx
+#: src/lib/node-status.ts
 msgid "未启动"
 msgstr "Stopped"
 
@@ -1342,10 +1439,10 @@ msgid "未找到该设备"
 msgstr "Device not found"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "未提供"
-msgstr "Not provided"
+#~ msgid "未提供"
+#~ msgstr "Not provided"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 #: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
@@ -1365,8 +1462,8 @@ msgid "未读"
 msgstr "Unread"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "未连接"
-msgstr "Not connected"
+#~ msgid "未连接"
+#~ msgstr "Not connected"
 
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "未配对"
@@ -1389,16 +1486,25 @@ msgid "本地文件删除后无法通过清空活动记录恢复。"
 msgstr "Once local files are deleted, clearing activity can't restore them."
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "本机协助中"
-msgstr "Assisting"
+#~ msgid "本机协助中"
+#~ msgstr "Assisting"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "本机弹出确认请求，你同意后配对完成"
 msgstr "This device shows a confirmation request — approve it and pairing is done"
 
+#. placeholder {0}: supported.map(transportDisplay).join(" · ")
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "本端支持的传输：{0}"
+msgstr "Transports this build supports: {0}"
+
+#: src/lib/node-status.ts
+msgid "本端点不支持这种传输"
+msgstr "This build doesn't support that transport"
+
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "本设备作为局域网协助节点"
-msgstr "Use this device as a LAN assistance node"
+msgstr "Use this device as a LAN helper"
 
 #: src/routes/_app/transfer/-session-row.tsx
 msgid "来自"
@@ -1411,6 +1517,10 @@ msgstr "From"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "来自 {0}"
 msgstr "From {0}"
+
+#: src/components/network/node-status-sheet.tsx
+msgid "查看诊断信息"
+msgstr "Open diagnostics"
 
 #: src/routes/_app/devices/-components/connection-badge.tsx
 msgid "查看链路详情"
@@ -1449,6 +1559,7 @@ msgstr "Saving..."
 msgid "正在准备下载"
 msgstr "Preparing download"
 
+#: src/lib/node-status.ts
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "正在启动节点…"
 msgstr "Starting node…"
@@ -1463,9 +1574,19 @@ msgstr "Establishing session..."
 msgid "正在计算校验和 ({0}/{1})"
 msgstr "Computing checksums ({0}/{1})"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 msgid "正在进行的 {activeTransferCount} 个传输会被中断。"
 msgstr "{activeTransferCount} transfer(s) in progress will be interrupted."
+
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "infraLink.settling"
+msgstr "Connecting"
+
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "nodeHealth.starting"
+msgstr "Connecting to the network…"
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "此分类下暂无记录"
@@ -1500,8 +1621,12 @@ msgid "添加"
 msgstr "Add"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "添加引导节点失败"
+msgstr "Couldn't add the bootstrap node"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "添加自定义引导节点"
-msgstr "Add Custom Bootstrap Node"
+msgstr "Add custom bootstrap node"
 
 #: src/components/layout/app-topbar.tsx
 #: src/routes/_app/devices/-components/add-device-section.tsx
@@ -1534,6 +1659,10 @@ msgstr "Click to copy"
 msgid "点击查看远端地址"
 msgstr "Click for the remote address"
 
+#: src/components/layout/app-topbar.tsx
+msgid "点开查看节点状态与诊断信息"
+msgstr "Open node status and diagnostics"
+
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "点窗口关闭按钮（✕）后的行为"
 msgstr "What clicking the window close button (✕) does"
@@ -1555,10 +1684,9 @@ msgstr "Initiated by AI agent ({0})"
 msgid "留空则使用设备名"
 msgstr "Leave blank to use the device name"
 
-#: src/components/network/start-node-sheet.tsx
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 msgid "监听地址"
-msgstr "Listening Addresses"
+msgstr "Listen addresses"
 
 #. placeholder {0}: status.addr
 #: src/routes/_app/settings/-mcp-section.tsx
@@ -1601,6 +1729,14 @@ msgstr "Offline"
 msgid "移除"
 msgstr "Remove"
 
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "移除引导节点"
+msgstr "Remove bootstrap node"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "移除引导节点失败"
+msgstr "Couldn't remove the bootstrap node"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "空传输"
 msgstr "Empty transfer"
@@ -1617,7 +1753,6 @@ msgstr "End-to-end encrypted direct connection"
 msgid "端口号需在 1024 ~ 65535 之间"
 msgstr "Port must be between 1024 and 65535"
 
-#: src/components/network/stop-node-sheet.tsx
 #: src/lib/transfer-projection.ts
 msgid "等待中"
 msgstr "Waiting"
@@ -1647,8 +1782,8 @@ msgid "策略拒绝"
 msgstr "Rejected by policy"
 
 #: src/components/network/start-node-sheet.tsx
-msgid "管理 P2P 网络节点的启动和连接状态"
-msgstr "Manage P2P network node startup and connection status"
+#~ msgid "管理 P2P 网络节点的启动和连接状态"
+#~ msgstr "Manage P2P network node startup and connection status"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "管理分组"
@@ -1674,6 +1809,10 @@ msgstr "Paste their pairing invite"
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "粘贴邀请"
 msgstr "Paste Invite"
+
+#: src/components/network/node-status-sheet.tsx
+msgid "系统钥匙串"
+msgstr "System keychain"
 
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "给设备取个名字"
@@ -1705,8 +1844,8 @@ msgid "网络发现设置已变更，需重启节点生效"
 msgstr "Network discovery settings changed, restart required to take effect"
 
 #: src/components/network/start-node-sheet.tsx
-msgid "网络节点"
-msgstr "Network Node"
+#~ msgid "网络节点"
+#~ msgstr "Network Node"
 
 #: src/lib/errors.ts
 msgid "网络连接出现问题，请稍后重试"
@@ -1716,9 +1855,13 @@ msgstr "A network problem occurred, please try again later"
 msgid "自动"
 msgstr "Auto"
 
+#: src/lib/node-status.ts
+msgid "自动发现"
+msgstr "Discovered"
+
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "自动发现局域网协助节点"
-msgstr "Auto-discover LAN assistance nodes"
+msgstr "Auto-discover LAN helpers"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "自动启动节点"
@@ -1739,30 +1882,50 @@ msgid "自定义 {0}"
 msgstr "Custom {0}"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "自定义节点"
-msgstr "Custom nodes"
+#~ msgid "自定义节点"
+#~ msgstr "Custom nodes"
+
+#: src/components/network/node-status-sheet.tsx
+msgid "节点 ID"
+msgstr "Node ID"
+
+#: src/components/network/node-status-sheet.tsx
+msgid "节点 ID 已复制"
+msgstr "Node ID copied"
 
 #: src/stores/network-store.ts
 msgid "节点启动失败"
 msgstr "Node failed to start"
 
+#: src/lib/node-status.ts
+msgid "节点启动失败，重试或查看日志"
+msgstr "The node failed to start — retry or check the logs"
+
 #: src/hooks/use-node-restart.ts
 msgid "节点已重启"
 msgstr "Node restarted"
 
-#: src/components/network/start-node-sheet.tsx
 #: src/lib/errors.ts
 #: src/routes/_app/devices/-components/offline-empty-state.tsx
 #: src/stores/pairing-store.ts
 msgid "节点未启动"
 msgstr "Node not started"
 
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "nodeHealth.notRunning"
+msgstr "Node is not running"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "节点未运行，下面是下次启动时会用的地址。"
+msgstr "The node isn't running. These are the addresses it will use next time."
+
 #: src/components/network/start-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
-msgid "节点状态"
-msgstr "Node Status"
+#~ msgid "节点状态"
+#~ msgstr "Node Status"
 
-#: src/components/layout/app-topbar.tsx
+#: src/lib/node-status.ts
 msgid "节点错误"
 msgstr "Node error"
 
@@ -1872,13 +2035,21 @@ msgstr "Could not read or write the device identity"
 msgid "设置"
 msgstr "Settings"
 
+#: src/components/network/node-status-sheet.tsx
+msgid "诊断信息"
+msgstr "Diagnostics"
+
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "该分组中还没有设备"
 msgstr "No devices in this group yet"
 
+#: src/lib/node-status.ts
+msgid "该引导节点已存在"
+msgstr "That bootstrap node is already in the list"
+
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "该节点已存在"
-msgstr "Node already exists"
+#~ msgid "该节点已存在"
+#~ msgstr "Node already exists"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "该记录没有可用的本地路径"
@@ -1918,16 +2089,19 @@ msgstr "System"
 msgid "跨网络"
 msgstr "Cross-Network"
 
+#: src/components/network/node-status-sheet.tsx
+msgid "身份存放位置"
+msgstr "Identity storage"
+
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "输入 Multiaddr 地址，如 /ip4/.../p2p/..."
 msgstr "Enter Multiaddr address, e.g. /ip4/.../p2p/..."
 
-#: src/components/network/stop-node-sheet.tsx
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "运行中"
 msgstr "Running"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 msgid "运行时长"
 msgstr "Uptime"
 
@@ -1956,6 +2130,14 @@ msgstr "No groups yet. Create one below."
 msgid "还没有已配对设备"
 msgstr "No paired devices yet"
 
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "还没有引导节点。"
+msgstr "No bootstrap nodes yet."
+
+#: src/components/network/node-status-sheet.tsx
+msgid "还没有引导节点。设置页可以添加。"
+msgstr "No bootstrap nodes yet. Add one in Settings."
+
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "这些信息仅保存在本机，不会同步给对端。"
 msgstr "This info is stored only on this device and never shared with peers."
@@ -1963,6 +2145,10 @@ msgstr "This info is stored only on this device and never shared with peers."
 #: src/stores/pairing-store.ts
 msgid "这是本机生成的邀请"
 msgstr "This invite was generated on this device"
+
+#: src/lib/node-status.ts
+msgid "这是本机的地址"
+msgstr "That's this device's own address"
 
 #: src/lib/errors.ts
 msgid "这条记录已经不在了，请返回列表重新开始"
@@ -1980,9 +2166,36 @@ msgstr "Active"
 msgid "远端地址"
 msgstr "Remote address"
 
+#: src/lib/node-status.ts
+msgid "连不上"
+msgstr "Unreachable"
+
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "infraLink.unreachable"
+msgstr "Unreachable"
+
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "nodeHealth.isolated"
+msgstr "Can't reach any network — check your bootstrap nodes"
+
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "连接"
 msgstr "Connect"
+
+#: src/lib/node-status.ts
+msgid "连接中"
+msgstr "Connecting"
+
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "infraLink.lost"
+msgstr "Connection lost"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "连接状态"
+msgstr "Connection status"
 
 #: src/components/pairing/connection-request-dialog.tsx
 msgid "连接请求"
@@ -2122,7 +2335,7 @@ msgstr "Pairing request"
 msgid "配对邀请二维码"
 msgstr "Pairing invite QR code"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/lib/node-status.ts
 msgid "配置节点"
 msgstr "Configured"
 
@@ -2163,8 +2376,12 @@ msgid "链路详情"
 msgstr "Link details"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "错误"
-msgstr "Error"
+#~ msgid "错误"
+#~ msgstr "Error"
+
+#: src/components/network/infra-link-parts.tsx
+msgid "错误信息已复制"
+msgstr "Error copied"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "附近"

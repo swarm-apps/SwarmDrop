@@ -46,6 +46,11 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::list_devices,
             commands::get_network_status,
             commands::install_update,
+            // infra（引导节点意图）
+            commands::validate_infra_addr,
+            commands::add_infra_node,
+            commands::remove_infra_node,
+            commands::supported_transports,
             // inbox
             commands::list_inbox_items,
             commands::search_inbox,

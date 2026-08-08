@@ -451,6 +451,110 @@ Say how many remain when more than one is waiting — all three builds do.
 - **Deep-linked targets are untrusted input.** A `?peerId=` may point at a device that was unpaired
   or went offline since the link was made — say so in place and keep submit disabled.
 
+### Node Status Contract (cross-platform)
+
+**This section binds all three builds.** Like the Device Card Contract, data is not the constraint:
+all three receive the same `InfraLink[]` from `crates/core/src/infra/link.rs` through three codegens,
+and the two judgments that turn it into a status word live in `@swarmdrop/shared-view`
+(`deriveInfraLinkState`, `summarizeNodeHealth`). What each build writes is the rendering.
+
+**Infrastructure is a role a relationship plays, not a category a node belongs to.** The same
+`NodeId` may appear both as a paired device and as a relay — a LAN helper *is* another SwarmDrop
+desktop. Builds MUST NOT model the two as mutually exclusive lists, and where they overlap the
+device card carries an "also relaying for me" marker. Getting this wrong is not cosmetic: removing
+an "infrastructure node" disconnects every connection to it, so on an overlapping node it kills a
+running transfer — and an auto-discovered candidate is re-registered on the next identify, so the
+button does nothing except break the transfer.
+
+**Two layers of disclosure, not four.** A user opening node status is answering one of two
+questions, and they belong to different people.
+
+*Conclusion layer* (always visible — the pill, the sheet header, the settings summary):
+
+| # | Slot | Source | Notes |
+|---|---|---|---|
+| 1 | Status dot **and word** | `summarizeNodeHealth().level` | a bare colored dot does not satisfy this |
+| 2 | Reachability **consequence sentence** | `summarizeNodeHealth().msgId` | "cross-network devices can reach you" — never a subject-less adjective like "good" / "limited" / "reachable" |
+| 3 | Paired N · online M | `NetworkStatus` + device list | clickable through to the devices page |
+| 4 | At most **one** CTA | `summarizeNodeHealth().cta` | `null` is a valid answer; do not invent one for symmetry |
+
+The two judgments return **msgIds, not copy** — each build renders them through its own catalog
+(there are four: desktop, web, mobile, plus rust-i18n for the tray). The wording must match across
+builds, so it is fixed here rather than in three places:
+
+| msgId | Tone | CTA | 简体中文 | English |
+|---|---|---|---|---|
+| `nodeHealth.notRunning` | neutral | start node | 节点未运行 | Node is not running |
+| `nodeHealth.starting` | neutral | — | 正在连接网络… | Connecting to the network… |
+| `nodeHealth.reachable` | success | — | 其他网络的设备可以连到你 | Devices on other networks can reach you |
+| `nodeHealth.lanReachable` | neutral | — | 只有同一网络里的设备能连到你 | Only devices on your network can reach you |
+| `nodeHealth.configuredLanOnly` | neutral | open settings | 你关闭了公网可达性，其他网络的设备找不到你 | Public reachability is off, so devices on other networks can't find you |
+| `nodeHealth.isolated` | warning | open diagnostics | 连不上任何网络，检查引导节点 | Can't reach any network — check your bootstrap nodes |
+| `infraLink.seedOnly` | neutral | — | 仅 DHT 种子 | DHT seed only |
+| `infraLink.excluded` | neutral | — | 已按设置排除 | Excluded by settings |
+| `infraLink.settling` | neutral | — | 正在连接 | Connecting |
+| `infraLink.ok` | success | — | 已就绪 | Ready |
+| `infraLink.lost` | warning | — | 连接已断 | Connection lost |
+| `infraLink.unreachable` | warning | — | 连不上 | Unreachable |
+
+*Diagnostic layer* (one collapsed disclosure, default closed): every `InfraLink` as a row — status
+word, attribution (source · scope · roles), and the **verbatim `lastError` with a copy button** —
+plus local truth: node ID, reachable addresses, NAT, listen addresses, identity storage, uptime.
+
+Uptime belongs in the diagnostic layer, not the conclusion layer: it answers none of the four
+questions above.
+
+**"Some bootstrap nodes are down" is not a degradation.** Connecting to one of two relays has
+exactly the same consequence as connecting to two. `1/2` is a diagnostic-layer fact; the persistent
+slot MUST NOT warn on it, or users learn to ignore the status color.
+
+**Alarm requires all three:** not caused by the user's own settings ∧ past the grace window ∧
+actually blocking what the user is trying to do right now. `summarizeNodeHealth` only reaches its
+warning level (`isolated`) when all three hold.
+
+**Configuration is not failure.** A link excluded because the user turned off public reachability is
+neutral-toned and its CTA is *open settings* — never *retry*. Same for a kad-only seed, which has no
+relay track at all and therefore no failure state.
+
+**Reachability warnings ride with the action, not the chrome.** `publicReachable == false` produces
+no global banner. It becomes a blocking, in-place notice at the point it actually matters — invite
+generation and the pairing entry ("this invite carries no address for you; a device on another
+network can't use it").
+
+**`lastError` is never translated.** It is what the user pastes into an issue and diffs against
+logs; a translated string loses that use. It MUST be selectable/copyable — a long string that looks
+clickable but isn't violates the copy affordance rule.
+
+**No build may drop a slot because the layout is tight.** Collapse, scroll inside the sheet, or move
+to the diagnostic layer — do not gate information on viewport height.
+
+**Permitted divergence:** the surface shape. Desktop and web use a sheet/dialog; mobile uses a
+bottom sheet. Desktop and mobile show NAT status and mDNS-discovered peer counts; **web omits those
+two slots entirely** rather than rendering a permanently-`Unknown` field (see Degradation).
+The listen-address slot is titled differently because it means different things: "Listen addresses"
+on native (real sockets), "Reachable addresses" on web (circuit addresses that appear after a
+reservation).
+
+**Degradation.** A build renders a slot only where the value can be true. `nat_status` (autonat is
+not compiled into the wasm target) and `discovered_peers` (no mDNS in a browser) are structurally
+constant on web — omit the slot; a permanently-`Unknown` field is worse than its absence. `MdnsLanHelper`
+sources and `lan` scope simply never occur there, so those groups render empty and need no special case.
+
+**Network vocabulary is cross-platform.** The same concept gets the same word in every build. Three
+catalogs had already drifted (`Bootstrap Nodes` / `Bootstrap nodes` / 「公网引导」/「引导节点」),
+which is how the same screen ends up describing two things that are one thing:
+
+| Concept | 简体中文 | English | Rejected spellings |
+|---|---|---|---|
+| A configured infrastructure peer (kad seed and/or relay) | 引导节点 | Bootstrap node | 公网引导 · 引导服务器 · Bootstrap Nodes (title case) |
+| A LAN peer that relays for others | 局域网协助 | LAN helper | 本机 Helper · LAN Helper (mid-sentence caps) |
+| The circuit path through an infrastructure peer | 中继 | Relay | 转发 · 中转 |
+| A paired peer with a live connection | 已连接设备 | Connected device | 已连节点 |
+| Others can open a connection to this machine | 可达 | Reachable | 在线 · 可访问 |
+
+Transport names (`TCP` / `QUIC` / `WebRTC` / `WebRTC Direct`) stay proper nouns and are not
+translated — same rule as the Device Card Contract's slot 6.
+
 ### Layout Density Contract
 
 Written from the web build's 2026-08 rework, but the failure it names is not web-specific — check
@@ -608,6 +712,10 @@ review, not after.
 
 - [ ] All eight Device Card slots present (or explicitly absent because the data is)
 - [ ] Online state shows a dot **and** a word
+- [ ] Node status: conclusion layer carries a consequence sentence, at most one CTA, and the status
+      word comes from `summarizeNodeHealth` — not a locally invented "good / limited" synthesis
+- [ ] Node status: `lastError` shown verbatim, copyable, untranslated; per-link failures do not
+      color the persistent slot
 - [ ] Latency rendered whenever the device is online and `connection` is known
 - [ ] Send reachable from the device card, target pre-selected
 - [ ] Offline devices: send disabled, whole-card click disabled, visual degradation applied

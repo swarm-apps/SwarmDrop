@@ -59,6 +59,7 @@ import {
   compareProjectionsByUpdatedAtDesc,
   isProjectionActive,
 } from "@/core/transfer-types";
+import { useNodeHealth } from "@/hooks/use-node-health";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { getErrorMessage } from "@/lib/errors";
@@ -104,6 +105,8 @@ export default function DevicesScreen() {
       startNode: s.startNode,
     })),
   );
+
+  const nodeHealth = useNodeHealth();
 
   const projections = useTransferStore((s) => s.projections);
   const progressBySession = useTransferStore((s) => s.progressBySession);
@@ -264,6 +267,7 @@ export default function DevicesScreen() {
         right={
           <StatusPill
             state={runtimeState}
+            health={nodeHealth.summary}
             onPress={() => nodeSheetRef.current?.present()}
             testID="devices-manage-node-button"
           />

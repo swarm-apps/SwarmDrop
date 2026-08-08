@@ -100,6 +100,11 @@ cd /Volumes/yexiyue/SwarmDrop/mobile && pnpm --filter react-native-swarmdrop-cor
 「No prettier found」「Skipping formatting C++」是正常提示，产物照常写出。真机构建仍要走
 `build:ios` / `build:android`，本路径只覆盖「绑定与类型」这一层。
 
+⚠️ **`lib/` 是 gitignore 的，所以第 ③ 步的产物进不了提交**——但这不会让 CI 红：
+`mobile-build-android.yml` 根本没有 `pnpm typecheck` 这一步，它 `pnpm install` 之后直接跑
+`build:android`（会重建整条桥接）。也就是说「绑定陈旧」只在**本地**表现为 typecheck 报
+「找不到某个新方法」，CI 上看不见。反过来说：CI 绿**不能**证明本地 regen 步骤做对了。
+
 **相关文件**：`mobile/packages/swarmdrop-core/ubrn.config.yaml`
 
 ### 官网 Hero 视频使用独立 Remotion 工程

@@ -16,6 +16,7 @@ pub mod i18n;
 pub mod logging;
 pub(crate) mod mcp;
 pub(crate) mod network;
+pub(crate) mod node_health;
 pub mod setup;
 pub mod tray;
 

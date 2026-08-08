@@ -36,10 +36,10 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { useNetworkStore, type NodeStatus } from "@/stores/network-store";
 import { useActiveTransferCount } from "@/hooks/use-active-transfer-count";
-import { StartNodeSheet } from "@/components/network/start-node-sheet";
-import { StopNodeSheet } from "@/components/network/stop-node-sheet";
+import { useNodeHealth } from "@/hooks/use-node-health";
+import { resolveNodePresentation, TONE_BADGE, TONE_DOT } from "@/lib/node-status";
+import { NodeStatusSheet } from "@/components/network/node-status-sheet";
 
 type IconComp = React.ComponentType<{ className?: string }>;
 
@@ -79,10 +79,8 @@ function buildBreadcrumb(pathname: string): CrumbSegment[] {
 
 export function AppTopBar() {
   const { t } = useLingui();
-  const status = useNetworkStore((s) => s.status);
   const location = useLocation();
-  const [startOpen, setStartOpen] = useState(false);
-  const [stopOpen, setStopOpen] = useState(false);
+  const [nodeSheetOpen, setNodeSheetOpen] = useState(false);
 
   const crumbs = useMemo(
     () => buildBreadcrumb(location.pathname),
@@ -114,12 +112,7 @@ export function AppTopBar() {
             className="size-6 shrink-0 rounded-md"
           />
 
-          <StatusPill
-            status={status}
-            onClick={() =>
-              status === "running" ? setStopOpen(true) : setStartOpen(true)
-            }
-          />
+          <StatusPill onClick={() => setNodeSheetOpen(true)} />
 
           <Breadcrumb>
             <BreadcrumbList>
@@ -222,8 +215,7 @@ export function AppTopBar() {
         </div>
       </header>
 
-      <StartNodeSheet open={startOpen} onOpenChange={setStartOpen} />
-      <StopNodeSheet open={stopOpen} onOpenChange={setStopOpen} />
+      <NodeStatusSheet open={nodeSheetOpen} onOpenChange={setNodeSheetOpen} />
     </>
   );
 }
@@ -302,71 +294,42 @@ export function WindowControls() {
   );
 }
 
-interface StatusPillConfig {
-  bg: string;
-  text: string;
-  dot: string;
-  label: React.ReactNode;
-}
-
 /**
- * 节点状态 pill 的配色。**与移动端 `status-pill.tsx` 是同一套语汇**：
- * 底 `/15`、文字走 `-ink` 变体、圆点用状态色本体（State Ink Rule）。
+ * 节点状态 pill —— 结论层的常驻位。
  *
- * 这里曾是四组 Tailwind 调色板直用（green-100/emerald-300/zinc-400…），
- * 于是同一个「在线」在三端是三个绿。token 随主题切换，不再需要 `dark:` 分支。
+ * 状态词与色档来自 `summarizeNodeHealth`（三端同一份判据），**不再只看生命周期**：
+ * 此前节点在跑就是绿的「在线 · 可接收」，哪怕全部中继都连不上、跨网设备根本找不到你。
+ *
+ * 配色仍是与移动端 `status-pill.tsx` 同一套语汇：底 `/15`、文字走 `-ink` 变体、
+ * 圆点用状态色本体（State Ink Rule）。
  */
-const pillStyles: Record<NodeStatus, StatusPillConfig> = {
-  running: {
-    bg: "bg-success/15",
-    text: "text-success-ink",
-    dot: "bg-success",
-    label: <Trans>在线 · 可接收</Trans>,
-  },
-  starting: {
-    bg: "bg-warning/15",
-    text: "text-warning-ink",
-    dot: "bg-warning animate-pulse",
-    label: <Trans>启动中</Trans>,
-  },
-  stopped: {
-    bg: "bg-muted",
-    text: "text-muted-foreground",
-    dot: "bg-muted-foreground",
-    label: <Trans>未启动</Trans>,
-  },
-  error: {
-    bg: "bg-destructive/15",
-    text: "text-destructive-ink",
-    dot: "bg-destructive",
-    label: <Trans>节点错误</Trans>,
-  },
-};
-
-function StatusPill({
-  status,
-  onClick,
-}: {
-  status: NodeStatus;
-  onClick: () => void;
-}) {
-  const config = pillStyles[status];
+function StatusPill({ onClick }: { onClick: () => void }) {
+  const { t } = useLingui();
+  const { summary, lifecycle } = useNodeHealth();
+  const presentation = resolveNodePresentation(lifecycle, summary);
 
   return (
     <button
       type="button"
       onClick={onClick}
       data-testid="network-status-pill"
-      data-node-status={status}
+      data-node-status={lifecycle}
+      data-node-health={summary.level}
+      aria-label={t(presentation.sentence)}
+      title={t`点开查看节点状态与诊断信息`}
       className={cn(
         "flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-opacity hover:opacity-80",
-        config.bg,
+        TONE_BADGE[presentation.tone],
       )}
     >
-      <span className={cn("size-1.5 rounded-full", config.dot)} />
-      <span className={cn("text-[11px] font-medium", config.text)}>
-        {config.label}
-      </span>
+      <span
+        className={cn(
+          "size-1.5 rounded-full",
+          TONE_DOT[presentation.tone],
+          lifecycle === "starting" && "animate-pulse",
+        )}
+      />
+      <span className="text-[11px] font-medium">{t(presentation.word)}</span>
     </button>
   );
 }

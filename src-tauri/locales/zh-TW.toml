@@ -12,6 +12,8 @@ resume = "恢復接收"
 offline = "○ 未連線"
 online = "● 線上 · 可接收檔案"
 paused = "⏸ 已暫停接收"
+# 與 DESIGN.md 的 `nodeHealth.isolated` 同一句話（第四份 catalog，Lingui 掃不到這裡）
+isolated = "⚠ 連不上任何網路，檢查引導節點"
 
 [notif.pairing]
 title = "配對請求"

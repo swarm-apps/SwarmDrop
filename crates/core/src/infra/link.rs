@@ -92,11 +92,18 @@ pub struct InfraLink {
     pub scope: CandidateScope,
     pub first_seen: DateTime<Utc>,
     pub last_seen: DateTime<Utc>,
-    /// 用户能否在 UI 上移除这条：只有来源全是 `HostConfigured` 时为 true。
+    /// 用户能否在 UI 上移除这条：`sources` 里**含有** `HostConfigured` 即为 true。
     ///
-    /// 自动来源（mDNS / Learned）**不给移除入口**：撤销会断开与该节点的全部连接
+    /// 纯自动来源（mDNS / Learned）**不给移除入口**：撤销会断开与该节点的全部连接
     /// （含在途传输），而局域网协助节点本身就可能是一台正在传文件的已配对设备；
     /// 何况它下次 identify 就会被原样登记回来——点了没反应，还把传输搞挂。
+    ///
+    /// ⚠️ 判据是「**含有**」不是「全是」。后者写过一版，是错的：`upsert` 对 `sources`
+    /// 是**累加**（`candidates.rs`），而 `learn_candidate` 会给每个 identify 出
+    /// `is_bootstrap_agent` 的对端补一条 `Learned`——本仓自建的那台正是 bootstrap agent，
+    /// 于是它连上几秒后 `removable` 就翻假，移除按钮当场消失；用户自己加的中继更糟：
+    /// 一旦连上就永久删不掉，而偏好清单还在每次启动回放它，`forgetInfraNode` 再无可达路径。
+    /// 用户往自己的清单里放过的东西，必须能从自己的清单里拿走。
     pub removable: bool,
 
     // ── 观测侧｜权威源 = Endpoint 的两条 watch ──
@@ -140,12 +147,11 @@ pub fn build_infra_links<T>(shared: &SharedNetRefs<T>) -> Vec<InfraLink> {
             // 判据向 supervisor 要，不在这里重写一份反义的——见 `exclusion_for` 的文档。
             let excluded = shared.infra.exclusion_for(&c);
             InfraLink {
-                // 只有全部来源都是 host 配置才可移除：任一自动来源都意味着
-                // 「撤了也会被重新登记」。
+                // 含有 host 配置来源即可移除——见字段文档，这里**不能**写成 `all`。
                 removable: c
                     .sources
                     .iter()
-                    .all(|s| matches!(s, BootstrapCandidateSource::HostConfigured)),
+                    .any(|s| matches!(s, BootstrapCandidateSource::HostConfigured)),
                 connected: conn.is_some(),
                 // `excluded` 时一律给 `None`——与字段文档一致（`None` = 没有 relay 轨道，
                 // 含「被闸门拦下」）。内核那张 map 里可能还留着上一轮的条目（撤销与
@@ -176,4 +182,77 @@ pub fn build_infra_links<T>(shared: &SharedNetRefs<T>) -> Vec<InfraLink> {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network::DiscoveryMode;
+    use crate::network::candidates::BootstrapCandidateManager;
+
+    fn manager() -> BootstrapCandidateManager {
+        BootstrapCandidateManager::new(DiscoveryMode::Auto, true)
+    }
+
+    fn peer() -> NodeId {
+        swarmdrop_net::SecretKey::generate().node_id()
+    }
+
+    fn removable_of(mgr: &BootstrapCandidateManager, id: NodeId) -> bool {
+        let c = mgr
+            .snapshot()
+            .into_iter()
+            .find(|c| c.peer_id == id)
+            .expect("候选应在表中");
+        c.sources
+            .iter()
+            .any(|s| matches!(s, BootstrapCandidateSource::HostConfigured))
+    }
+
+    /// 用户配过的节点，连上之后**仍然**删得掉。
+    ///
+    /// 判据写成「全是 HostConfigured」时这条会红：`learn_candidate` 给每个
+    /// `is_bootstrap_agent` 的对端补一条 `Learned`，而本仓自建的那台正是 bootstrap agent。
+    /// 后果是移除按钮在它连上几秒后消失，用户自加的中继则永久删不掉、偏好还在回放。
+    #[test]
+    fn a_host_configured_node_stays_removable_after_it_is_also_learned() {
+        let mut mgr = manager();
+        let id = peer();
+        let addr: Addr = "/ip4/203.0.113.7/tcp/4001".parse().unwrap();
+
+        mgr.upsert(
+            id,
+            vec![addr.clone()],
+            BootstrapCandidateSource::HostConfigured,
+            CandidateRoles::kad_and_relay(),
+        );
+        assert!(removable_of(&mgr, id), "刚配上就该可移除");
+
+        // identify 认出它是 bootstrap agent → 追加 Learned 来源
+        mgr.upsert(
+            id,
+            vec![addr],
+            BootstrapCandidateSource::Learned,
+            CandidateRoles::kad_and_relay(),
+        );
+        assert!(
+            removable_of(&mgr, id),
+            "自动来源叠加上来之后，用户仍必须能把自己配的那条拿走"
+        );
+    }
+
+    /// 纯自动来源不给移除入口：撤了会被下一次 identify 原样登记回来，
+    /// 而撤销本身会断开全部连接（含在途传输）。
+    #[test]
+    fn a_purely_discovered_node_is_not_removable() {
+        let mut mgr = manager();
+        let id = peer();
+        mgr.upsert(
+            id,
+            vec!["/ip4/192.168.7.7/tcp/4001".parse().unwrap()],
+            BootstrapCandidateSource::MdnsLanHelper,
+            CandidateRoles::kad_and_relay(),
+        );
+        assert!(!removable_of(&mgr, id));
+    }
 }

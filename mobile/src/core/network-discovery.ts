@@ -48,20 +48,23 @@ export type CandidateSourceKey = "hostConfigured" | "mdnsLanHelper" | "learned";
 /**
  * 候选来源 → 稳定 key（既当 React `key`，也当文案分档的判别值）。
  *
- * **三个来源必须各占一个 key。** 此前 `Learned` 走 `default` 分支被折进
- * `hostConfigured`，后果有两层：① 运行时经 identify 学到的候选被显示成「配置节点」，
+ * **三个来源必须各占一个 key，且不留 `default`。** 此前 `Learned` 走 `default` 分支被
+ * 折进 `hostConfigured`，后果有两层：① 运行时经 identify 学到的候选被显示成「配置节点」，
  * 归因是错的；② 两种来源同时在列表里时 React `key` 直接碰撞。
+ *
+ * 下游 `CANDIDATE_SOURCE_LABEL` 靠 `Record` 做穷尽，但只要这里还留着 `default`，那层
+ * 穷尽就被吃掉了——内核加第四个变体时它会被静默折进某一档，而不是编译期报错。
  */
 export function candidateSourceKey(
   source: MobileBootstrapCandidateSource,
 ): CandidateSourceKey {
   switch (source) {
+    case MobileBootstrapCandidateSource.HostConfigured:
+      return "hostConfigured";
     case MobileBootstrapCandidateSource.MdnsLanHelper:
       return "mdnsLanHelper";
     case MobileBootstrapCandidateSource.Learned:
       return "learned";
-    default:
-      return "hostConfigured";
   }
 }
 

@@ -34,6 +34,8 @@ export function Disclosure({
   children,
   compact = false,
   className,
+  open,
+  onOpenChange,
 }: {
   /** 收起态的标题。**用名词短语**，与卡里其余标签（设备名 / 节点 ID / 可达地址）同一种口吻。 */
   label: ReactNode;
@@ -46,9 +48,24 @@ export function Disclosure({
   /** 紧凑档：见文件头。 */
   compact?: boolean;
   className?: string;
+  /**
+   * 受控展开态。**不传就是不受控**（原生 `<details>` 自己管，键盘与无 JS 都照常工作，
+   * 那是这个基元用原生标签的全部理由）。
+   *
+   * 传它的场景只有一个：别处有个动作要**把这一节打开**（节点弹窗里「打开诊断」那个 CTA）。
+   * 那时必须连 `onOpenChange` 一起传，否则用户自己点收起会被下一次渲染顶回去。
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   return (
-    <details className={cn("group", className)}>
+    <details
+      className={cn("group", className)}
+      open={open}
+      onToggle={
+        onOpenChange ? (e) => onOpenChange(e.currentTarget.open) : undefined
+      }
+    >
       <summary
         className={cn(
           "focus-ring flex cursor-pointer list-none items-center gap-3 transition-colors [&::-webkit-details-marker]:hidden",

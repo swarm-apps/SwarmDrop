@@ -96,6 +96,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignkeychainprovider_save_paired_devices_json(uniffiSelf: bigint, devicesJson: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_constructor_mobilecore_new(keychain: bigint, eventBus: bigint, fileAccess: bigint, dataDir: Uint8Array, uniffi_out_err: UniffiRustCallStatus): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_accept_receive(uniffiSelf: bigint, sessionId: Uint8Array, saveLocationUri: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_add_infra_node(uniffiSelf: bigint, addr: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_archive_inbox_item(uniffiSelf: bigint, itemId: Uint8Array, archived: number): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_cancel_receive(uniffiSelf: bigint, sessionId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_cancel_send(uniffiSelf: bigint, sessionId: Uint8Array): bigint;
@@ -127,6 +128,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pause_send(uniffiSelf: bigint, sessionId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_prepare_send(uniffiSelf: bigint, files: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_reject_receive(uniffiSelf: bigint, sessionId: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_remove_infra_node(uniffiSelf: bigint, peerId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_remove_paired_device(uniffiSelf: bigint, peerId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_rename_device(uniffiSelf: bigint, name: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_repair_missing_inbox_items(uniffiSelf: bigint): bigint;
@@ -139,8 +141,10 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused(uniffiSelf: bigint, paused: number): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_shutdown_node(uniffiSelf: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(uniffiSelf: bigint, networkConfig: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_supported_transports(uniffiSelf: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_take_last_panic(uniffiSelf: bigint, uniffi_out_err: UniffiRustCallStatus): Uint8Array;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_update_paired_device_policy(uniffiSelf: bigint, peerId: Uint8Array, trustLevel: Uint8Array, receivePolicy: Uint8Array): bigint;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_validate_infra_addr(uniffiSelf: bigint, addr: Uint8Array): bigint;
     ubrn_ffi_swarmdrop_mobile_core_uniffi_contract_version(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_func_default_receive_policy(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_func_init_logging(): number;
@@ -160,6 +164,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_save_paired_devices_json(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_constructor_mobilecore_new(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_add_infra_node(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_archive_inbox_item(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_receive(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_cancel_send(): number;
@@ -191,6 +196,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_send(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_infra_node(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_paired_device(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_rename_device(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_repair_missing_inbox_items(): number;
@@ -203,8 +209,10 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_supported_transports(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic(): number;
     ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_update_paired_device_policy(): number;
+    ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_validate_infra_addr(): number;
     ubrn_uniffi_internal_fn_method_foreigneventbus_ffi__bless_pointer(pointer: bigint, uniffi_out_err: UniffiRustCallStatus): UniffiGcObject;
     ubrn_uniffi_internal_fn_method_foreignfileaccess_ffi__bless_pointer(pointer: bigint, uniffi_out_err: UniffiRustCallStatus): UniffiGcObject;
     ubrn_uniffi_internal_fn_method_foreignkeychainprovider_ffi__bless_pointer(pointer: bigint, uniffi_out_err: UniffiRustCallStatus): UniffiGcObject;

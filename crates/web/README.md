@@ -64,9 +64,9 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/app
 |---|---|
 | `spawn()` | 持久化身份（Window=localStorage / Worker=OPFS）+ IndexedDB 恢复已配对设备与传输会话 → Browser preset + DHT client → 装配 TransferManager + Router → 启动清理（遗留 active 转 suspended） |
 | `node_id()` | 本机 base58 身份 |
-| `connect(addr)` | 拨地址 → `ConnectionJson`（`{ path: "local"\|"direct"\|"relayed", addr }`） |
-| `relays_ensure(helper_addr)` / `relays_drop(id)` | 登记 / 撤销 relay 常驻可达意图（circuit reservation 是持续状态，非一次性 RPC） |
-| `relays_state()` / `relays_changed()` / `relays_until_active(id, signal?)` | reservation 快照 / 变化流 / 等首次 active（得到 circuit 地址） |
+| `connect(addr)` | 拨地址 → `ConnectionJson`（`{ path: "local"\|"direct"\|"relayed", addr }`）。**不是可达性探针**：它对已连接的对端直接返回既有连接快照，测的又是直连而非 reservation，详见方法文档 |
+| `infra_ensure(addr)` / `infra_drop(id)` | 登记 / 撤销基础设施常驻意图（kad + relay 双角色；登记前走 core 的同步校验，circuit reservation 是持续状态、非一次性 RPC） |
+| `infra_links()` / `infra_changed()` / `infra_until_active(id, signal?)` | `InfraLink[]` 快照 / 变化流 / 等首次 active（得到 circuit 地址） |
 | `lookup_share_code(code)` | DHT 查分享码 → `NodeAddrJson`（`{ id, addrs }`） |
 | `send_files(to, files)` | 登记文件源 → prepare → Offer；返回 session_id |
 | `pending_offers()` | 当前挂起入站 offer → `OfferJson[]` |

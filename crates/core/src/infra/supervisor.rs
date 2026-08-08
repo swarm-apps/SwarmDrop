@@ -86,12 +86,18 @@ impl InfraSupervisor {
     /// `None`，UI 就显示一个永远「正在连接…」且给不出原因的条目，正是这套读模型
     /// 要消灭的失败模式。
     pub(crate) fn exclusion_for(&self, candidate: &BootstrapCandidate) -> Option<InfraExclusion> {
-        // 纯 kad 候选今天不存在（所有写入点都给 kad_and_relay），所以没有对应变体；
-        // 真出现时它不该走 relay 收敛，见 InfraExclusion 的文档。
-        debug_assert!(
-            candidate.roles.relay_server,
-            "候选表当前不产生纯 kad 候选；出现即说明有新的写入方，需同步补 InfraExclusion 变体"
-        );
+        // 纯 kad 候选返回 `None`，**不是**某个 `NotARelay` 变体：「不承担该角色」与
+        // 「承担但被拦下」是两回事。前者在读模型里由 `relay: None` + `roles.relay_server
+        // == false` 表达（shared-view 的 `deriveInfraLinkState` 据此判 `seedOnly`，那一档
+        // 没有失败态），加一个判别码只会让三端多一个渲染不出差异的分支。
+        //
+        // 这里曾经写着 `debug_assert!(candidate.roles.relay_server)`，理由是「所有写入点都
+        // 给 kad_and_relay」。**该前提已被本轮打破**：`NetManager::ensure_infra_intent` 现在
+        // 把 roles 开成参数，任何调用方传 `{ kad_server: true, relay_server: false }` 都会让
+        // debug build 当场 panic——一个私有不变量被抬成公开 API 的入参却没跟着松绑。
+        if !candidate.roles.relay_server {
+            return None;
+        }
         if matches!(candidate.scope, CandidateScope::Public) && !self.public_reachability {
             return Some(InfraExclusion::PublicReachabilityDisabled);
         }
@@ -516,6 +522,44 @@ mod tests {
         assert!(
             link_of(&s, &lan_peer).is_some(),
             "LAN 候选不受 public_reachability 约束"
+        );
+    }
+
+    /// 纯 kad 候选不进 relay 收敛，**且不带 `excluded`**。
+    ///
+    /// 「不承担该角色」与「承担但被闸门拦下」是两回事：给它一个
+    /// `PublicReachabilityDisabled` 会让 UI 说「你关闭了公网可达性」，而这条 link
+    /// 根本没想要中继——用户被指向一个改了也没用的开关。
+    ///
+    /// 这条路径本轮才真的可达：`ensure_infra_intent` 把 roles 开成了参数。
+    #[tokio::test]
+    async fn kad_only_candidate_is_neither_converged_nor_excluded() {
+        let (supervisor, candidates) = ctx(false).await;
+        let peer = peer();
+        candidates.write().unwrap().upsert(
+            peer,
+            vec!["/ip4/203.0.113.9/tcp/4001".parse().unwrap()],
+            BootstrapCandidateSource::HostConfigured,
+            CandidateRoles {
+                kad_server: true,
+                relay_server: false,
+            },
+        );
+        let candidate = candidates
+            .read()
+            .unwrap()
+            .snapshot()
+            .into_iter()
+            .find(|c| c.peer_id == peer)
+            .expect("候选应在表中");
+
+        assert!(
+            supervisor.exclusion_for(&candidate).is_none(),
+            "纯 kad 候选不该带 excluded —— 它压根不参与 relay 收敛"
+        );
+        assert!(
+            !supervisor.wants_reservation(&candidate),
+            "纯 kad 候选不得建 reservation"
         );
     }
 

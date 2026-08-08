@@ -12,6 +12,8 @@ resume = "Resume Receiving"
 offline = "○ Disconnected"
 online = "● Online · Ready to receive"
 paused = "⏸ Receiving paused"
+# Same sentence as `nodeHealth.isolated` in DESIGN.md (fourth catalog — Lingui never scans it)
+isolated = "⚠ Can't reach any network — check your bootstrap nodes"
 
 [notif.pairing]
 title = "Pairing request"

@@ -42,7 +42,8 @@ mod watch;
 
 pub use swarmdrop_net_base as base;
 pub use swarmdrop_net_base::{
-    Addr, DiscoverySource, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId, SecretKey,
+    Addr, AddrParseError, DiscoverySource, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId,
+    SecretKey, TransportKind,
 };
 
 pub use config::{DhtConfig, RelayServerConfig, WebRtcP2pConfig};

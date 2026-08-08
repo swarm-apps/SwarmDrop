@@ -245,6 +245,7 @@ impl Builder {
             watch_conns: conns_rx,
             watch_relays: relays_rx,
             dht: dht_enabled.then(|| Dht::new(actor_tx.clone())),
+            supported_transports: crate::transport::supported_transports(&config).into(),
             connect_timeout: config.connect_timeout,
             next_connect_request_id: std::sync::atomic::AtomicU64::new(1),
             closed: CancellationToken::new(),

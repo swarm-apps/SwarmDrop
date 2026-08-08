@@ -72,8 +72,8 @@ msgid "{0} 项 · {1}"
 msgstr "{0} 項 · {1}"
 
 #: app/app/_components/node-status-dialog.tsx
-msgid "{activeRelayCount} 条可达"
-msgstr "{activeRelayCount} 條可達"
+#~ msgid "{activeRelayCount} 条可达"
+#~ msgstr "{activeRelayCount} 條可達"
 
 #. placeholder {0}: minutes % 60
 #: app/app/_components/node-status-dialog.tsx
@@ -142,6 +142,10 @@ msgstr "AI 原生 · MCP"
 msgid "circuit 已撤销，对方扫这个码也拨不回来。重新建立可达后请重新生成。"
 msgstr "circuit 已撤銷，對方掃這個碼也連不回來。重新建立可連線狀態後請重新產生。"
 
+#: app/app/_lib/network-view.ts
+msgid "DHT 种子"
+msgstr "DHT 種子"
+
 #: app/app/_lib/store.ts
 #~ msgid "localStorage（Window 主线程）"
 #~ msgstr "localStorage（Window 主執行緒）"
@@ -172,9 +176,8 @@ msgid "与另一台设备互换一次邀请即可，之后长期有效。"
 msgstr "與另一台裝置互換一次邀請即可，之後長期有效。"
 
 #: app/app/_components/connection-badge.tsx
-#: app/app/_components/connection-panel.tsx
-#: app/app/_components/node-status-dialog.tsx
 #: app/app/_components/transfer-labels.ts
+#: app/app/_lib/network-view.ts
 msgid "中继"
 msgstr "中繼"
 
@@ -208,6 +211,10 @@ msgstr "QR 碼產生失敗，請用下方連結配對"
 msgid "互换一次邀请"
 msgstr "互換一次邀請"
 
+#: app/app/_lib/network-view.ts
+msgid "仅 DHT 种子"
+msgstr "僅 DHT 種子"
+
 #: app/app/_components/pairing-confirm-dialog.tsx
 #: app/app/_components/pairing-panel.tsx
 msgid "仅同一网络内可用"
@@ -216,6 +223,10 @@ msgstr "僅同一網路內可用"
 #: app/app/_components/connection-panel.tsx
 msgid "仅在需要接入私有或备用网络时添加。"
 msgstr "僅在需要接入私有或備用網路時新增。"
+
+#: app/app/_lib/network-view.ts
+msgid "仅局域网"
+msgstr "僅區域網路"
 
 #: app/app/_lib/view-types.ts
 msgid "今天"
@@ -260,6 +271,10 @@ msgstr "但這筆記錄沒能存進瀏覽器，重新整理頁面後需要重新
 #: app/app/_components/incoming-offers-panel.tsx
 msgid "你关掉提示后，请求会留在这里等你决定。"
 msgstr "你關掉提示後，請求會留在這裡等你決定。"
+
+#: app/app/_lib/network-view.ts
+msgid "你关闭了公网可达性，其他网络的设备找不到你"
+msgstr "你關閉了公網可達性，其他網路的裝置找不到你"
 
 #: app/app/_components/connection-panel.tsx
 msgid "你的可达地址"
@@ -321,6 +336,10 @@ msgstr "全部"
 msgid "全部下载"
 msgstr "全部下載"
 
+#: app/app/_lib/network-view.ts
+msgid "公网"
+msgstr "公網"
+
 #. placeholder {0}: files.length
 #: app/app/_components/session-title.tsx
 msgid "共 {0} 个文件"
@@ -345,6 +364,10 @@ msgstr "關閉後只接收單一檔案，不接收整個目錄。"
 #: app/app/_components/trust-policy-dialog.tsx
 msgid "关闭后经中继来的传输一律要确认，即使开了自动接收。"
 msgstr "關閉後經中繼來的傳輸一律要確認，即使開了自動接收。"
+
+#: app/app/_lib/network-view.ts
+msgid "其他网络的设备可以连到你"
+msgstr "其他網路的裝置可以連到你"
 
 #: app/app/_components/inbox-views.tsx
 #~ msgid "准备中…"
@@ -455,6 +478,10 @@ msgstr "去中心化、端對端加密的裝置間傳輸。無帳號、無伺服
 msgid "去设备页"
 msgstr "去裝置頁"
 
+#: app/app/_components/node-status-dialog.tsx
+msgid "去设置"
+msgstr "前往設定"
+
 #: app/app/_components/send-panel.tsx
 msgid "去配对设备"
 msgstr "去配對裝置"
@@ -530,6 +557,10 @@ msgstr "只刪這筆記錄，已接收的檔案仍在收件匣"
 msgid "只显示最近 {searchLimit} 条匹配，更早的未列出——请把关键词写得更具体。"
 msgstr "只顯示最近 {searchLimit} 筆符合的結果，較早的未列出——請把關鍵字寫得更具體。"
 
+#: app/app/_lib/network-view.ts
+msgid "只有同一网络里的设备能连到你"
+msgstr "只有同一網路裡的裝置能連到你"
+
 #: app/app/_components/transfer-activity-panel.tsx
 msgid "只清空已结束的记录；已接收的文件仍在收件箱，不受影响。"
 msgstr "只清空已結束的記錄；已接收的檔案仍在收件匣，不受影響。"
@@ -538,8 +569,8 @@ msgstr "只清空已結束的記錄；已接收的檔案仍在收件匣，不受
 msgid "可恢复"
 msgstr "可恢復"
 
-#: app/app/_components/connection-panel.tsx
 #: app/app/_components/node-panel.tsx
+#: app/app/_lib/network-view.ts
 msgid "可达"
 msgstr "可達"
 
@@ -576,6 +607,14 @@ msgstr "在資料夾中顯示"
 #: app/app/_components/send-panel.tsx
 msgid "在线"
 msgstr "在線"
+
+#: app/app/_lib/network-view.ts
+msgid "地址末尾缺少 /p2p/<节点 ID>，没有它就无法确认连上的是不是同一台机器"
+msgstr "位址結尾缺少 /p2p/<節點 ID>，沒有它就無法確認連上的是不是同一台機器"
+
+#: app/app/_lib/network-view.ts
+msgid "地址里没有可拨的传输段"
+msgstr "位址裡沒有可撥的傳輸段"
 
 #: app/app/_components/inbox-views.tsx
 msgid "处理中"
@@ -629,6 +668,11 @@ msgstr "複製遠端位址"
 #: app/app/_components/invite-share.tsx
 msgid "复制链接"
 msgstr "複製連結"
+
+#: app/app/_components/connection-panel.tsx
+#: app/app/_components/node-status-dialog.tsx
+msgid "复制错误信息"
+msgstr "複製錯誤訊息"
 
 #: app/app/_components/appearance-panel.tsx
 msgid "外观"
@@ -725,12 +769,17 @@ msgstr "對端在配對確認與傳輸請求裡看到的就是這一行。清空
 
 #: app/app/_components/connection-badge.tsx
 #: app/app/_components/transfer-labels.ts
+#: app/app/_lib/network-view.ts
 msgid "局域网"
 msgstr "區域網路"
 
+#: app/app/_lib/network-view.ts
+msgid "局域网协助"
+msgstr "區域網路協助"
+
 #: app/app/_components/connection-panel.tsx
-msgid "局域网直连"
-msgstr "區域網路直連"
+#~ msgid "局域网直连"
+#~ msgstr "區域網路直連"
 
 #: app/app/_components/transfer-labels.ts
 msgid "已中断"
@@ -764,9 +813,17 @@ msgstr "已複製"
 msgid "已复制节点 ID"
 msgstr "已複製節點 ID"
 
+#: app/app/_lib/network-view.ts
+msgid "已孤立"
+msgstr "已孤立"
+
 #: app/app/_components/transfer-labels.ts
 msgid "已完成"
 msgstr "已完成"
+
+#: app/app/_lib/network-view.ts
+msgid "已就绪"
+msgstr "已就緒"
 
 #. placeholder {0}: file.name
 #: app/app/_components/receive-panel.tsx
@@ -782,12 +839,16 @@ msgid "已归档"
 msgstr "已封存"
 
 #: app/app/_components/connection-panel.tsx
-msgid "已恢复引导节点，正在连接…"
-msgstr "已恢復引導節點，正在連線…"
+#~ msgid "已恢复引导节点，正在连接…"
+#~ msgstr "已恢復引導節點，正在連線…"
 
 #: app/app/_components/transfer-labels.ts
 msgid "已拒绝"
 msgstr "已拒絕"
+
+#: app/app/_lib/network-view.ts
+msgid "已按设置排除"
+msgstr "已依設定排除"
 
 #: app/app/_components/receive-panel.tsx
 msgid "已接收"
@@ -800,6 +861,10 @@ msgstr "已暫停"
 #: app/app/_components/connection-panel.tsx
 msgid "已添加引导节点，正在连接…"
 msgstr "已新增引導節點，正在連線…"
+
+#: app/app/_components/connection-panel.tsx
+msgid "已移除"
+msgstr "已移除"
 
 #: app/app/_components/connection-panel.tsx
 msgid "已移除引导节点"
@@ -905,8 +970,12 @@ msgid "引导节点地址"
 msgstr "引導節點位址"
 
 #: app/app/_components/node-status-dialog.tsx
-msgid "引导节点的增删与连通性测试在 <0>设置</0> 的「引导节点」区。"
-msgstr "引導節點的增刪與連通性測試在 <0>設定</0> 的「引導節點」區。"
+#~ msgid "引导节点的增删与连通性测试在 <0>设置</0> 的「引导节点」区。"
+#~ msgstr "引導節點的增刪與連通性測試在 <0>設定</0> 的「引導節點」區。"
+
+#: app/app/_components/node-status-dialog.tsx
+msgid "引导节点的增删在 <0>设置</0> 的「引导节点」区。"
+msgstr "引導節點的增刪在 <0>設定</0> 的「引導節點」區。"
 
 #: app/app/_components/inbox-views.tsx
 msgid "归档"
@@ -933,8 +1002,12 @@ msgid "待确认"
 msgstr "待確認"
 
 #: app/app/_components/connection-panel.tsx
-msgid "恢复引导节点失败"
-msgstr "恢復引導節點失敗"
+#~ msgid "恢复引导节点失败"
+#~ msgstr "恢復引導節點失敗"
+
+#: app/app/_lib/network-view.ts
+msgid "手动配置"
+msgstr "手動設定"
 
 #: app/app/_components/invite-share.tsx
 msgid "手机上用 SwarmDrop 的「扫码」对准它；桌面端没有相机，复制链接发过去用「粘贴邀请」。"
@@ -957,11 +1030,14 @@ msgstr "開啟收件匣清單"
 msgid "打开文件"
 msgstr "開啟檔案"
 
+#: app/app/_components/node-status-dialog.tsx
+msgid "打开诊断"
+msgstr "開啟診斷"
+
 #: app/app/_components/connection-badge.tsx
 msgid "打洞"
 msgstr "打洞"
 
-#: app/app/_components/connection-panel.tsx
 #: app/app/_components/transfer-labels.ts
 msgid "打洞直连"
 msgstr "打洞直連"
@@ -1153,6 +1229,10 @@ msgstr "未開啟"
 msgid "未知"
 msgstr "未知"
 
+#: app/app/_lib/network-view.ts
+msgid "未运行"
+msgstr "未執行"
+
 #: app/app/_components/connection-panel.tsx
 msgid "未连接"
 msgstr "未連線"
@@ -1262,6 +1342,14 @@ msgstr "正在讀取傳輸工作階段…"
 msgid "正在进入 <0>设备</0>…"
 msgstr "正在前往 <0>裝置</0>…"
 
+#: app/app/_lib/network-view.ts
+msgid "正在连接"
+msgstr "正在連線"
+
+#: app/app/_lib/network-view.ts
+msgid "正在连接网络…"
+msgstr "正在連線網路…"
+
 #: app/app/_lib/view-types.ts
 msgid "此次传输被对方判定为不合法（文件路径异常），请检查客户端版本"
 msgstr "此次傳輸被對方判定為不合法（檔案路徑異常），請檢查用戶端版本"
@@ -1284,12 +1372,12 @@ msgid "浅色"
 msgstr "淺色"
 
 #: app/app/_components/connection-panel.tsx
-msgid "测试中…"
-msgstr "測試中…"
+#~ msgid "测试中…"
+#~ msgstr "測試中…"
 
 #: app/app/_components/connection-panel.tsx
-msgid "测试连通性"
-msgstr "測試連線"
+#~ msgid "测试连通性"
+#~ msgstr "測試連線"
 
 #: app/app/_components/pairing-panel.tsx
 msgid "浏览器不能被直接拨号，需要先连上一个引导节点，对方才找得到你。到 <0>设置</0> 页连接后再生成邀请。"
@@ -1311,6 +1399,12 @@ msgstr "瀏覽器可能需要你允許「本機網路存取」；也可能是對
 msgid "浏览器在此环境不提供 <0>navigator.storage</0> / <1>crypto.subtle</1>，接收方落盘无法完成。请改用 <2>https</2>、<3>http://localhost</3> 或 <4>http://127.0.0.1</4> 访问，不要用 http 私网 IP。"
 msgstr "瀏覽器在此環境不提供 <0>navigator.storage</0> / <1>crypto.subtle</1>，接收端無法寫入檔案。請改用 <2>https</2>、<3>http://localhost</3> 或 <4>http://127.0.0.1</4> 存取，不要用 http 私網 IP。"
 
+#. placeholder {0}: error.transport
+#. placeholder {1}: error.supported.join(" / ")
+#: app/app/_lib/network-view.ts
+msgid "浏览器拨不了 {0} 地址，本端支持：{1}"
+msgstr "瀏覽器撥不了 {0} 位址，本端支援：{1}"
+
 #: app/app/_components/appearance-panel.tsx
 #: app/app/_components/rail-tools.tsx
 msgid "深色"
@@ -1323,6 +1417,10 @@ msgstr "新增"
 #: app/app/_components/connection-panel.tsx
 msgid "添加中…"
 msgstr "新增中…"
+
+#: app/app/_components/connection-panel.tsx
+msgid "添加引导节点失败"
+msgstr "新增引導節點失敗"
 
 #: app/app/_components/connection-panel.tsx
 msgid "添加自定义引导节点"
@@ -1440,6 +1538,10 @@ msgstr "移除"
 msgid "移除引导节点"
 msgstr "移除引導節點"
 
+#: app/app/_components/connection-panel.tsx
+msgid "移除引导节点失败"
+msgstr "移除引導節點失敗"
+
 #: app/app/_lib/view-types.ts
 msgid "空传输"
 msgstr "空傳輸"
@@ -1513,11 +1615,15 @@ msgstr "網路診斷"
 msgid "网络错误"
 msgstr "網路錯誤"
 
+#: app/app/_lib/network-view.ts
+msgid "自动发现"
+msgstr "自動探索"
+
 #: app/app/_components/trust-policy-dialog.tsx
 msgid "自动接收"
 msgstr "自動接收"
 
-#. placeholder {0}: customRelays.length
+#. placeholder {0}: customRows.length
 #: app/app/_components/connection-panel.tsx
 msgid "自定义 {0}"
 msgstr "自訂 {0}"
@@ -1539,20 +1645,24 @@ msgid "节点{phase}"
 msgstr "節點{phase}"
 
 #: app/app/_components/node-status-dialog.tsx
-msgid "节点停着时收不到任何请求，已配对的设备会把你看作离线。"
-msgstr "節點停著時收不到任何請求，已配對的裝置會把你看作離線。"
+#~ msgid "节点停着时收不到任何请求，已配对的设备会把你看作离线。"
+#~ msgstr "節點停著時收不到任何請求，已配對的裝置會把你看作離線。"
 
 #: app/app/_components/node-panel.tsx
 msgid "节点启动后，新名字会随本机身份一起广播出去。"
 msgstr "節點啟動後，新名字會隨本機身分一起廣播出去。"
 
 #: app/app/_components/node-status-dialog.tsx
-msgid "节点在跑时，已配对的设备才能找到你并发起传输。"
-msgstr "節點在跑時，已配對的裝置才找得到你並發起傳輸。"
+#~ msgid "节点在跑时，已配对的设备才能找到你并发起传输。"
+#~ msgstr "節點在跑時，已配對的裝置才找得到你並發起傳輸。"
 
 #: app/app/_components/node-not-ready-state.tsx
 msgid "节点已停止"
 msgstr "節點已停止"
+
+#: app/app/_lib/network-view.ts
+msgid "节点未运行"
+msgstr "節點未執行"
 
 #: app/app/_components/node-not-ready-state.tsx
 msgid "节点没能启动"
@@ -1638,6 +1748,10 @@ msgstr "身分儲存"
 #~ msgid "身份存在哪里？"
 #~ msgstr "身分存在哪裡？"
 
+#: app/app/_components/node-status-dialog.tsx
+msgid "身份存放位置"
+msgstr "身分存放位置"
+
 #: app/app/_lib/view-types.ts
 msgid "身份错误"
 msgstr "身分錯誤"
@@ -1647,8 +1761,8 @@ msgid "输入无效"
 msgstr "輸入無效"
 
 #: app/app/_components/node-status-pill.tsx
-msgid "运行中"
-msgstr "執行中"
+#~ msgid "运行中"
+#~ msgstr "執行中"
 
 #: app/app/_components/node-status-dialog.tsx
 msgid "运行时长"
@@ -1711,6 +1825,15 @@ msgstr "還沒有收到的檔案。"
 msgid "还没有收到的文件（已归档的未显示）。"
 msgstr "還沒有收到的檔案（已封存的未顯示）。"
 
+#: app/app/_components/node-status-dialog.tsx
+msgid "还没有登记任何引导节点。"
+msgstr "尚未登記任何引導節點。"
+
+#. placeholder {0}: error.detail
+#: app/app/_lib/network-view.ts
+msgid "这不是一条合法的 multiaddr：{0}"
+msgstr "這不是一條合法的 multiaddr：{0}"
+
 #: app/app/_components/device-grid.tsx
 msgid "这个分组下还没有设备。"
 msgstr "這個群組下還沒有裝置。"
@@ -1731,9 +1854,17 @@ msgstr "這台裝置目前離線或已被封鎖，換一台再試。"
 msgid "这是本机生成的邀请——把它发给对方，不是自己用。"
 msgstr "這是本機產生的邀請——請把它傳給對方，不是自己用。"
 
+#: app/app/_lib/network-view.ts
+msgid "这是本机的地址"
+msgstr "這是本機的位址"
+
 #: app/app/_components/transfer-detail.tsx
 msgid "这条发送只能在本页完成：刷新或关闭标签页后，浏览器读不回你选过的文件，会话与进度会一并消失。暂停后也只能在本页续传。"
 msgstr "這筆傳送只能在本頁完成：重新整理或關閉分頁後，瀏覽器讀不回你選過的檔案，工作階段與進度會一併消失。暫停後也只能在本頁續傳。"
+
+#: app/app/_lib/network-view.ts
+msgid "这条地址已经在清单里了"
+msgstr "這條位址已經在清單裡了"
 
 #: app/app/_lib/view-types.ts
 msgid "这条记录已经不在了，请返回列表重新开始"
@@ -1759,21 +1890,33 @@ msgstr "進行中與已結束的工作階段。選一筆查看檔案明細與續
 msgid "远端地址"
 msgstr "遠端位址"
 
-#: app/app/_components/connection-panel.tsx
+#: app/app/_lib/network-view.ts
+msgid "连不上"
+msgstr "連不上"
+
+#: app/app/_lib/network-view.ts
+msgid "连不上任何网络，检查引导节点"
+msgstr "連不上任何網路，檢查引導節點"
+
+#: app/app/_lib/network-view.ts
 msgid "连接中"
 msgstr "連線中"
 
 #: app/app/_components/node-status-dialog.tsx
-msgid "连接中…"
-msgstr "連線中…"
+#~ msgid "连接中…"
+#~ msgstr "連線中…"
 
 #: app/app/_components/transfer-labels.ts
 msgid "连接中断"
 msgstr "連線中斷"
 
 #: app/app/_components/connection-panel.tsx
-msgid "连接失败"
-msgstr "連線失敗"
+#~ msgid "连接失败"
+#~ msgstr "連線失敗"
+
+#: app/app/_lib/network-view.ts
+msgid "连接已断"
+msgstr "連線已斷"
 
 #: app/app/_components/transfer-labels.ts
 #~ msgid "连接类型未知"

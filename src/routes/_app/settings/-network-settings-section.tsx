@@ -63,7 +63,7 @@ export function NetworkSettingsSection() {
         <SettingsRow
           title={<Trans>发现模式</Trans>}
           description={
-            <Trans>是否主动连接公网引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性</Trans>
+            <Trans>是否主动连接引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性</Trans>
           }
           action={
             <Select
@@ -130,18 +130,23 @@ export function NetworkSettingsSection() {
             />
           }
         />
+
+        {/* 重启提示**贴着产生它的那些开关**，不再吊在页面底部。
+            引导节点已不在这条路径上——增删当场生效，不需要重启（见 `-bootstrap-nodes-section`），
+            所以这里剩下的全是真的要重启的开关。 */}
+        {showBanner && (
+          <div className="border-b border-border/60 p-4 last:border-b-0">
+            <NodeRestartBanner
+              activeTransferCount={activeTransferCount}
+              message={<Trans>网络发现设置已变更，需重启节点生效</Trans>}
+              restarting={restarting}
+              onRestart={restart}
+            />
+          </div>
+        )}
       </SettingsCard>
 
       <LanHelperAddress />
-
-      {showBanner && (
-        <NodeRestartBanner
-          activeTransferCount={activeTransferCount}
-          message={<Trans>网络发现设置已变更，需重启节点生效</Trans>}
-          restarting={restarting}
-          onRestart={restart}
-        />
-      )}
     </SettingsSection>
   );
 }

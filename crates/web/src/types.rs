@@ -6,6 +6,14 @@
 //! serde_json）逐字段一致。
 
 use serde::Serialize;
+// 基础设施关系的读模型同理**不做 Web 专属投影**：`InfraLink` 是 core 的
+// `crates/core/src/infra/link.rs` 那一份，三端经各自的 codegen 拿到同一个形状
+// （桌面 tauri-specta / 移动 uniffi 手写镜像 / 这里 specta 导出）。此前 Web 独有的
+// `RelayInfoJson` 只覆盖 relay 一个角色、且不带来源与地址，是同一个概念的第四份表示。
+//
+// `InfraAddrError` 同样直接抬上来：提交前校验的判据住在 core（它要认识内核装配了哪些
+// transport），三端不各写一份，见 `crates/core/src/infra/validate.rs` 的模块文档。
+pub use swarmdrop_core::infra::{InfraAddrError, InfraExclusion, InfraLink, RelayLinkState};
 // `paired_devices()` 的 JS 返回类型：直接复用桌面同款读模型（已 Serialize + specta::Type），
 // 不再手写一份 Web 专属投影——字段（含在线状态/连接类型）语义与桌面一致，没有理由分叉。
 pub use swarmdrop_host::device::Device;
@@ -218,31 +226,6 @@ impl From<swarmdrop_net_base::PathKind> for PathKindJson {
 pub struct ConnectionJson {
     pub path: PathKindJson,
     pub addr: String,
-}
-
-/// relay reservation 状态类别（[`swarmdrop_net::RelayState`] 的 JS 投影，TS 侧字符串联合）。
-#[derive(Debug, Clone, Copy, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "lowercase")]
-pub enum RelayStateKind {
-    Connecting,
-    Active,
-    Failed,
-}
-
-/// 单个 relay 意图的状态快照（`relays_state()` 元素 / `relays_changed()` 流的产出单元）。
-#[derive(Debug, Clone, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct RelayInfoJson {
-    /// relay 节点身份（base58 NodeId）。
-    pub id: String,
-    pub state: RelayStateKind,
-    /// `active` 时为本机经该 relay 的完整可达地址（内核拼装下发），其余为 null。
-    pub circuit_addr: Option<String>,
-    /// `failed` 时的末次错误描述，其余为 null。重试轮数不下发——那是
-    /// 策略层内账（supervisor 唯一持有），诊断走日志。
-    pub last_error: Option<String>,
 }
 
 /// Web 壳对外错误。`kind` 供 JS 分支，`message` 供展示。

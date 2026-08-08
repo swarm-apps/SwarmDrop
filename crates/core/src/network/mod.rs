@@ -19,7 +19,10 @@ use swarmdrop_net::{Addr, NodeId};
 use crate::infra::InfraLink;
 
 /// 节点运行状态。
-#[derive(Debug, Clone, Default, Serialize)]
+///
+/// `Copy + PartialEq`：它是个无字段两态枚举，而消费方（托盘健康度、MCP 投影）本就要
+/// 拿它做相等比较；缺了这两个 derive，每处都得退回 `matches!` 或先 `clone()`。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum NodeStatus {

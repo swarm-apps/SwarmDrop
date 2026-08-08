@@ -1,11 +1,11 @@
 import { Trans, useLingui } from "@lingui/react/macro";
+import type { NodeHealthCta } from "@swarmdrop/shared-view";
 import { useRouter } from "expo-router";
 import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
   Globe2,
-  RadioTower,
   RotateCw,
   ServerCog,
   Wifi,
@@ -13,6 +13,7 @@ import {
 import { Fragment, useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 import { useShallow } from "zustand/react/shallow";
+import { InfraLinkRowView } from "@/components/infra-link-row";
 import { LanHelperAddresses } from "@/components/lan-helper-addresses";
 import { AppScreen } from "@/components/mobile/screen";
 import { SettingDivider, SettingSection } from "@/components/setting-row";
@@ -21,11 +22,18 @@ import { StatusPill } from "@/components/status-pill";
 import { Switch } from "@/components/ui/switch";
 import { Text } from "@/components/ui/text";
 import {
-  candidateSourceKey,
   type DiscoveryModePreference,
   discoveryModeFromNative,
   isNatMapped,
 } from "@/core/network-discovery";
+import {
+  NODE_HEALTH_CTA_LABEL,
+  type NodePresentation,
+  resolveNodePresentation,
+  TONE_DOT_CLASS,
+  TONE_TEXT_CLASS,
+} from "@/core/network-labels";
+import { useNodeHealth } from "@/hooks/use-node-health";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { getErrorMessage } from "@/lib/errors";
 import { toast } from "@/lib/toast";
@@ -78,6 +86,19 @@ export default function NetworkScreen() {
     })),
   );
 
+  const nodeHealth = useNodeHealth();
+  // 色档、状态词、后果句、CTA 出自同一次判定 —— `starting` / `error` 这两态健康判据
+  // 表达不了（它把非 running 一律折成「节点未运行」），由生命周期覆盖层补。
+  const presentation = resolveNodePresentation(
+    runtimeState,
+    nodeHealth.summary,
+  );
+
+  // 引导节点的增删**不在这张表里**：它们经 `add_infra_node` / `remove_infra_node`
+  // 即时生效，不需要重启（这正是本轮改掉的东西）。剩下这四项仍然只在
+  // `start_node` 时读一次——`InfraSupervisor::new` 把 `public_reachability` 拷进了
+  // 自己的字段，`DiscoveryMode` 与 `auto_discover_lan_helpers` 同理住在
+  // `NetworkRuntimeConfig` 里，运行期改不动。
   const runtimeConfigChanged = useMemo(() => {
     if (runtimeState !== "running" || !networkStatus) return false;
     return (
@@ -94,23 +115,6 @@ export default function NetworkScreen() {
     publicReachability,
     runtimeState,
   ]);
-
-  // 「网络状况:良好/受限」合成状态 —— 不引入新的原生字段,只从已有 networkStatus/
-  // discoveryMode 派生:
-  // - 节点未运行 → 受限(没有可用连接)。
-  // - 已经有至少一个已连接节点 → 良好(已实际证明连通性,是最直接的信号)。
-  // - 没有已连接节点时,看发现路径是否健康:auto 模式要求公网引导 + 中继都就绪;
-  //   lanOnly 模式要求至少发现一个 LAN Helper。都不满足则视为受限。
-  const networkQuality = useMemo<"good" | "limited">(() => {
-    if (runtimeState !== "running" || !networkStatus) return "limited";
-    if (networkStatus.connectedPeers > 0) return "good";
-    if (discoveryMode === "lanOnly") {
-      return networkStatus.lanHelperCount > 0 ? "good" : "limited";
-    }
-    return networkStatus.bootstrapConnected && networkStatus.relayReady
-      ? "good"
-      : "limited";
-  }, [runtimeState, networkStatus, discoveryMode]);
 
   const restartNode = useCallback(async () => {
     setRestarting(true);
@@ -136,7 +140,21 @@ export default function NetworkScreen() {
     }
   }, [shutdownNode, startNode, setError, t]);
 
-  const rows: Array<{
+  const handleStartNode = useCallback(async () => {
+    const result = await startNode();
+    if (!result.ok) toast.error(t`启动节点失败`, result.error);
+  }, [startNode, t]);
+
+  // 结论层至多一个 CTA。三档动作各自的落点由**本屏**决定：
+  // `openSettings` 在这里恒为 null —— 用户已经站在那个开关旁边，再给一个「去设置」
+  // 只是把他送回原地。
+  const ctaHandlers: Record<NonNullable<NodeHealthCta>, (() => void) | null> = {
+    startNode: () => void handleStartNode(),
+    openSettings: null,
+    openDiagnostics: () => setDiagnosticsOpen(true),
+  };
+
+  const localTruth: Array<{
     key: string;
     label: React.ReactNode;
     value: React.ReactNode;
@@ -148,38 +166,13 @@ export default function NetworkScreen() {
     },
     {
       key: "connected",
-      label: <Trans>已连接节点</Trans>,
+      label: <Trans>已连接设备</Trans>,
       value: String(networkStatus?.connectedPeers ?? 0),
     },
     {
       key: "discovered",
-      label: <Trans>已发现节点</Trans>,
+      label: <Trans>已发现设备</Trans>,
       value: String(networkStatus?.discoveredPeers ?? 0),
-    },
-    {
-      key: "candidates",
-      label: <Trans>候选节点</Trans>,
-      value: String(networkStatus?.bootstrapCandidateCount ?? 0),
-    },
-    {
-      key: "lan-helper",
-      label: <Trans>LAN Helper</Trans>,
-      value: String(networkStatus?.lanHelperCount ?? 0),
-    },
-    {
-      key: "relay",
-      label: <Trans>中继</Trans>,
-      value: (
-        <RelayStatusLabel
-          ready={networkStatus?.relayReady ?? false}
-          source={networkStatus?.relaySource}
-        />
-      ),
-    },
-    {
-      key: "bootstrap",
-      label: <Trans>公网引导</Trans>,
-      value: networkStatus?.bootstrapConnected ? t`已连接` : t`未连接`,
     },
     {
       key: "public-reachable",
@@ -211,11 +204,11 @@ export default function NetworkScreen() {
           </View>
           <Text className="text-[12px] text-muted-foreground">
             {discoveryMode === "auto" ? (
-              <Trans>自动模式会使用公网引导、中继和局域网协助节点。</Trans>
+              <Trans>自动模式会使用引导节点、中继和局域网协助节点。</Trans>
             ) : (
               <Trans>
                 LAN-only
-                不主动连接公网引导；仍可经局域网协助节点被跨网访问，除非关闭公网可达性。
+                不主动连接引导节点；仍可经局域网协助节点被跨网访问，除非关闭公网可达性。
               </Trans>
             )}
           </Text>
@@ -243,7 +236,7 @@ export default function NetworkScreen() {
         <View className="flex-row items-center gap-3 px-3.5 py-3">
           <View className="flex-1 gap-0.5">
             <Text className="text-[14px] text-foreground">
-              <Trans>自动发现 LAN Helper</Trans>
+              <Trans>自动发现局域网协助</Trans>
             </Text>
             <Text className="text-[12px] text-muted-foreground">
               <Trans>在本地网络发现可协助连接的节点。</Trans>
@@ -252,7 +245,7 @@ export default function NetworkScreen() {
           <Switch
             checked={autoDiscoverLanHelpers}
             onCheckedChange={setAutoDiscoverLanHelpers}
-            accessibilityLabel={t`自动发现 LAN Helper`}
+            accessibilityLabel={t`自动发现局域网协助`}
             testID="network-auto-lan-helper-switch"
           />
         </View>
@@ -290,45 +283,15 @@ export default function NetworkScreen() {
           <Text className="text-[14px] text-foreground">
             <Trans>当前状态</Trans>
           </Text>
-          <StatusPill state={runtimeState} />
+          <StatusPill state={runtimeState} health={nodeHealth.summary} />
         </View>
         <SettingDivider />
-        <View className="flex-row items-center justify-between px-3.5 py-3">
-          <Text className="text-[14px] text-foreground">
-            <Trans>网络状况</Trans>
-          </Text>
-          <View
-            className={cn(
-              "flex-row items-center gap-1.5 rounded-full px-2.5 py-1",
-              networkQuality === "good" ? "bg-success/10" : "bg-warning/10",
-            )}
-          >
-            <View
-              className={cn(
-                "size-2 rounded-full",
-                networkQuality === "good" ? "bg-success" : "bg-warning",
-              )}
-            />
-            <Text
-              className={cn(
-                "text-[13px] font-medium",
-                networkQuality === "good"
-                  ? "text-success-ink"
-                  : "text-warning-ink",
-              )}
-            >
-              {networkQuality === "good" ? (
-                <Trans>良好</Trans>
-              ) : (
-                <Trans>受限</Trans>
-              )}
-            </Text>
-          </View>
-        </View>
+        <NetworkHint presentation={presentation} ctaHandlers={ctaHandlers} />
         <SettingDivider />
         <Pressable
           onPress={() => setDiagnosticsOpen((value) => !value)}
           accessibilityRole="button"
+          accessibilityState={{ expanded: diagnosticsOpen }}
           testID="network-diagnostics-toggle"
           className="flex-row items-center justify-between px-3.5 py-3 active:bg-muted"
         >
@@ -353,7 +316,7 @@ export default function NetworkScreen() {
         {diagnosticsOpen ? (
           <>
             <SettingDivider />
-            {rows.map((row, idx) => (
+            {localTruth.map((row, idx) => (
               <Fragment key={row.key}>
                 <View className="flex-row items-center justify-between gap-3 px-3.5 py-3">
                   <Text className="text-[14px] text-foreground">
@@ -366,19 +329,27 @@ export default function NetworkScreen() {
                     {row.value}
                   </Text>
                 </View>
-                {idx < rows.length - 1 ? <SettingDivider /> : null}
+                {idx < localTruth.length - 1 ? <SettingDivider /> : null}
               </Fragment>
             ))}
-            <CandidateSourceList status={networkStatus} />
+            <SettingDivider />
+            <View className="px-3.5 pt-3">
+              <Text className="text-[13px] font-semibold text-foreground">
+                <Trans>引导节点</Trans>
+              </Text>
+            </View>
+            {nodeHealth.rows.length === 0 ? (
+              <Text className="px-3.5 py-3 text-[13px] text-muted-foreground">
+                <Trans>还没有引导节点进入候选表。</Trans>
+              </Text>
+            ) : (
+              nodeHealth.rows.map((row) => (
+                <InfraLinkRowView key={row.link.peerId} row={row} />
+              ))
+            )}
           </>
         ) : null}
       </SettingSection>
-
-      <NetworkHint
-        bootstrapReady={networkStatus?.bootstrapConnected ?? false}
-        relayReady={networkStatus?.relayReady ?? false}
-        discoveryMode={discoveryMode}
-      />
 
       <SettingSection label={t`通用`}>
         <View className="flex-row items-center justify-between gap-3 px-3.5 py-3">
@@ -426,7 +397,7 @@ export default function NetworkScreen() {
         <View className="flex-row items-center justify-between gap-3 px-3.5 py-3">
           <View className="flex-1 gap-0.5">
             <Text className="text-[14px] text-foreground">
-              <Trans>本机 LAN Helper</Trans>
+              <Trans>本机局域网协助</Trans>
             </Text>
             <Text className="text-[12px] text-muted-foreground">
               <Trans>
@@ -437,7 +408,7 @@ export default function NetworkScreen() {
           <Switch
             checked={provideLanHelper}
             onCheckedChange={setProvideLanHelper}
-            accessibilityLabel={t`本机 LAN Helper`}
+            accessibilityLabel={t`本机局域网协助`}
             testID="network-provide-lan-helper-switch"
           />
         </View>
@@ -504,101 +475,56 @@ function DiscoveryModeOption({
   );
 }
 
-function CandidateSourceList({
-  status,
-}: {
-  status: ReturnType<typeof useMobileCoreStore.getState>["networkStatus"];
-}) {
-  if (!status || status.candidateSources.length === 0) return null;
-  return (
-    <>
-      <SettingDivider />
-      <View className="gap-2 px-3.5 py-3">
-        <Text className="text-[13px] font-semibold text-foreground">
-          <Trans>候选来源</Trans>
-        </Text>
-        <View className="flex-row flex-wrap gap-2">
-          {status.candidateSources.map((item) => (
-            <View
-              key={candidateSourceKey(item.source)}
-              className="rounded-full bg-muted px-2.5 py-1"
-            >
-              <Text className="text-[12px] text-muted-foreground">
-                <CandidateSourceLabel source={item.source} /> ·{" "}
-                {String(item.count)}
-              </Text>
-            </View>
-          ))}
-        </View>
-      </View>
-    </>
-  );
-}
-
+/**
+ * 结论层的**后果句**（契约信息位 2）。
+ *
+ * 此前这里是本端独有的一段合成：只看 `bootstrapConnected` / `relayReady`，于是
+ * 节点根本没启动时也会说「公网引导尚未连接，跨网络发现可能暂时不可用」——用户去查
+ * 了一圈引导节点，而真正该点的是「启动节点」。判定现在整条交给
+ * `summarizeNodeHealth`（三端同一份）+ 本端的生命周期覆盖层，本组件只负责渲染与接 CTA。
+ */
 function NetworkHint({
-  bootstrapReady,
-  relayReady,
-  discoveryMode,
+  presentation,
+  ctaHandlers,
 }: {
-  bootstrapReady: boolean;
-  relayReady: boolean;
-  discoveryMode: DiscoveryModePreference;
+  presentation: NodePresentation;
+  ctaHandlers: Record<NonNullable<NodeHealthCta>, (() => void) | null>;
 }) {
-  const colors = useThemeColors();
-  if (bootstrapReady && relayReady) return null;
+  const { t } = useLingui();
+  const onCta = presentation.cta ? ctaHandlers[presentation.cta] : null;
+
   return (
-    <View className="flex-row gap-3 rounded-xl border border-border bg-card p-3.5">
-      <RadioTower size={17} color={colors.warning} />
-      <Text className="flex-1 text-[13px] text-muted-foreground">
-        {!bootstrapReady && discoveryMode === "auto" ? (
-          <Trans>公网引导尚未连接，跨网络发现可能暂时不可用。</Trans>
-        ) : !relayReady ? (
-          <Trans>中继尚未就绪，非同一网络的设备可能无法直连。</Trans>
-        ) : (
-          <Trans>当前发现能力受限。</Trans>
-        )}
-      </Text>
+    <View className="gap-2 px-3.5 py-3" testID="network-health-summary">
+      <View className="flex-row items-start gap-2">
+        <View
+          className={cn(
+            "mt-1.5 size-2 rounded-full",
+            TONE_DOT_CLASS[presentation.tone],
+          )}
+        />
+        <Text
+          className={cn(
+            "flex-1 text-[13px]",
+            TONE_TEXT_CLASS[presentation.tone],
+          )}
+        >
+          {t(presentation.sentence)}
+        </Text>
+      </View>
+      {presentation.cta && onCta ? (
+        <Pressable
+          onPress={onCta}
+          accessibilityRole="button"
+          testID="network-health-cta"
+          className="min-h-10 items-center justify-center self-start rounded-xl border border-border bg-card px-3.5 active:opacity-70"
+        >
+          <Text className="text-[13px] font-semibold text-foreground">
+            {t(NODE_HEALTH_CTA_LABEL[presentation.cta])}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
-}
-
-function RelayStatusLabel({
-  ready,
-  source,
-}: {
-  ready: boolean;
-  source?: Parameters<typeof CandidateSourceLabel>[0]["source"];
-}) {
-  if (!ready) return <Trans>未就绪</Trans>;
-  return source ? (
-    <>
-      <Trans>就绪</Trans> · <CandidateSourceLabel source={source} />
-    </>
-  ) : (
-    <Trans>就绪</Trans>
-  );
-}
-
-function CandidateSourceLabel({
-  source,
-}: {
-  source: NonNullable<
-    ReturnType<typeof useMobileCoreStore.getState>["networkStatus"]
-  >["candidateSources"][number]["source"];
-}) {
-  // 三个来源逐一列出、**不留 default**：`CandidateSourceKey` 是三元联合，
-  // 漏一个 TS 就报错。此前 `Learned` 被 `default` 吃掉，显示成了「公网」。
-  switch (candidateSourceKey(source)) {
-    case "hostConfigured":
-      return <Trans>配置节点</Trans>;
-    case "mdnsLanHelper":
-      return <Trans>LAN Helper</Trans>;
-    case "learned":
-      // 复用既有 msgid（三份 catalog 都有译文）。`Learned` 候选必然是公网中继——
-      // `usable_public_addrs` 只把公网地址纳管——所以「公网」正是它该有的标签，
-      // 也正是原先那个永不可达的 `default` 分支想说的话。
-      return <Trans>公网</Trans>;
-  }
 }
 
 // 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)

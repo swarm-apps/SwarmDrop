@@ -16,8 +16,9 @@ export const WEB_RELAY_HELPERS = (process.env.NEXT_PUBLIC_SWARMDROP_WEB_RELAY_HE
 /**
  * multiaddr 尾部的 peer id。
  *
- * **这是内置清单与内核状态之间唯一的连接键**：`relays_state()` 下发的 `RelayInfoJson`
- * 只有 `id`（base58 NodeId），不带地址，所以「这一条是不是内置的」只能靠 peer id 比对。
+ * **这是内置清单与内核状态之间唯一的连接键**：一个节点可以有多条地址（内核会把它们合并进
+ * 同一条 `InfraLink`），所以「这一条是不是内置的」只能靠 peer id 比对，不能比地址串。
+ * 撤销记录（`preferences-store` 的 `removed`）同样用它当键。
  */
 export function bootstrapPeerId(addr: string): string | null {
   // **按段切，不能 `slice(lastIndexOf("/p2p/") + 5)`**：那样对 circuit 地址会返回

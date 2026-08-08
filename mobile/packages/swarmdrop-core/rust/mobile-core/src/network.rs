@@ -4,15 +4,18 @@
 //! 节点开关由 host 决定（用户显式控制）；节点运行期间的 presence
 //! （在线宣告 / 已配对设备保活与重连）由 core 自治，host 无需参与。
 
-use swarmdrop_core::infra::{InfraExclusion, InfraLink, RelayLinkState};
+use swarmdrop_core::infra::{
+    InfraAddrError, InfraExclusion, InfraLink, RelayLinkState, supported_transport_names,
+};
 use swarmdrop_core::network::{
     BootstrapCandidateSource, CandidateRoles, CandidateScope, CandidateSourceStatus, DiscoveryMode,
     NatStatus, NetworkRuntimeConfig, NetworkStatus as CoreNetworkStatus, NodeStatus,
 };
 
 use crate::app::MobileCore;
-use crate::error::FfiResult;
+use crate::error::{FfiError, FfiResult};
 use crate::events::spawn_event_loop;
+use crate::utils::parse_peer_id;
 
 #[derive(Debug, Clone, Copy, uniffi::Enum)]
 pub enum MobileDiscoveryMode {
@@ -226,6 +229,56 @@ impl From<InfraLink> for MobileInfraLink {
     }
 }
 
+/// 引导节点地址**提交前校验**失败的原因（core 的 `InfraAddrError` 逐变体镜像）。
+///
+/// 刻意不走 [`FfiError::InvalidArgument`] 那条 `format!("{e}")` 的路：那正是本轮在修
+/// 的病——压成一句话之后 JS 只能整串贴给用户，说不出「本端装配了哪些传输、你粘的这条
+/// 是哪一种」这类可行动的信息，而这恰恰是最容易踩的一类错（往手机上粘一条只有浏览器
+/// 才有的 `/webrtc/`）。
+///
+/// [`Self::NodeNotStarted`] 与其余变体同列而不另开一个错误类型：调用点只有一个
+/// 输入框，两类失败在 UI 上落到同一处内联提示，分成两个错误类型只会逼 JS 侧写
+/// 两条 catch。
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum MobileInfraAddrError {
+    #[error("node not started")]
+    NodeNotStarted,
+    #[error("malformed multiaddr: {detail}")]
+    Malformed { detail: String },
+    #[error("missing /p2p/ segment")]
+    MissingPeerId,
+    #[error("no dialable transport segment")]
+    NoTransport,
+    #[error("transport {transport} is not assembled on this endpoint")]
+    UnsupportedTransport {
+        transport: String,
+        supported: Vec<String>,
+    },
+    #[error("address points at this node")]
+    SelfAddr,
+    #[error("already configured")]
+    Duplicate,
+}
+
+impl From<InfraAddrError> for MobileInfraAddrError {
+    fn from(error: InfraAddrError) -> Self {
+        match error {
+            InfraAddrError::Malformed { detail } => Self::Malformed { detail },
+            InfraAddrError::MissingPeerId => Self::MissingPeerId,
+            InfraAddrError::NoTransport => Self::NoTransport,
+            InfraAddrError::UnsupportedTransport {
+                transport,
+                supported,
+            } => Self::UnsupportedTransport {
+                transport,
+                supported,
+            },
+            InfraAddrError::SelfAddr => Self::SelfAddr,
+            InfraAddrError::Duplicate => Self::Duplicate,
+        }
+    }
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct MobileCandidateSourceStatus {
     pub source: MobileBootstrapCandidateSource,
@@ -420,5 +473,98 @@ impl MobileCore {
             .as_ref()
             .map(|manager| manager.get_network_status().into())
             .unwrap_or_else(|| CoreNetworkStatus::default().into())
+    }
+
+    /// 本端点**实际装配**的传输 wire 名（`tcp` / `quic` / `webrtc` / `webrtcDirect`）。
+    ///
+    /// 这是内核事实而非部署配置：`MOBILE_BOOTSTRAP_NODES` 是「连哪些地址」，这里是
+    /// 「本机拨得动哪些传输」。JS 侧只拿它写提示文案，判定本身在 Rust 里做
+    /// （见 [`Self::validate_infra_addr`]）——两边各判一次必然漂移。
+    pub async fn supported_transports(&self) -> FfiResult<Vec<String>> {
+        let guard = self.net_manager_guard().await;
+        let manager = guard.as_ref().ok_or(FfiError::NodeNotStarted)?;
+        Ok(supported_transport_names(manager.endpoint())
+            .into_iter()
+            .collect())
+    }
+
+    /// 提交前同步校验，**不写任何状态**。
+    ///
+    /// 五条规则全部零网络往返；「能不能连上」由提交后的收敛环回答。输入框边打边校验
+    /// 时调它，提交走 [`Self::add_infra_node`]（那一步会再校验一次，两步之间的窗口
+    /// 因此不存在）。
+    pub async fn validate_infra_addr(&self, addr: String) -> Result<(), MobileInfraAddrError> {
+        let guard = self.net_manager_guard().await;
+        let manager = guard.as_ref().ok_or(MobileInfraAddrError::NodeNotStarted)?;
+        manager.validate_infra_addr(&addr)?;
+        Ok(())
+    }
+
+    /// 添加一个引导节点：校验 + 登记常驻意图，**节点无需重启**。
+    ///
+    /// 返回该节点的 peer id —— JS 侧拿它当移除的键（`multiaddr` 可以有多条，关系只有
+    /// 一段）。角色给全 kad + relay：本仓自建的引导节点两角兼任，而只给 relay 会让它
+    /// 进不了 kad 路由表（那个漏洞在 Web 端靠 identify 兜了很久）。
+    pub async fn add_infra_node(&self, addr: String) -> Result<String, MobileInfraAddrError> {
+        let guard = self.net_manager_guard().await;
+        let manager = guard.as_ref().ok_or(MobileInfraAddrError::NodeNotStarted)?;
+        let peer = manager.add_infra_node(&addr, CandidateRoles::kad_and_relay())?;
+        Ok(peer.id.to_string())
+    }
+
+    /// 撤销引导节点的常驻意图：清候选表与收敛状态，并关掉 circuit listener、断开连接。
+    ///
+    /// **只对 `removable` 为真的条目调用**——同一个 NodeId 可能既是引导节点又是已配对
+    /// 设备（LAN Helper 就是另一台 SwarmDrop），对它调这个会掐断正在跑的传输，而
+    /// mDNS 来源的候选下一次 identify 又会原样回来。
+    pub async fn remove_infra_node(&self, peer_id: String) -> FfiResult<()> {
+        let node = parse_peer_id(&peer_id)?;
+        let guard = self.net_manager_guard().await;
+        let manager = guard.as_ref().ok_or(FfiError::NodeNotStarted)?;
+        manager.remove_infra_intent(node).await?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 镜像必须**保留字段**，不能压成一句话。
+    ///
+    /// 穷尽 `match` 只保证「每个变体都被处理」，处理成
+    /// `Self::Malformed { detail: e.to_string() }` 照样编得过——那正是本轮在修的病，
+    /// 只有断言拦得住。UI 要说的「本机支持的是 …」全在 `supported` 里。
+    #[test]
+    fn unsupported_transport_keeps_the_actionable_fields() {
+        let mirrored: MobileInfraAddrError = InfraAddrError::UnsupportedTransport {
+            transport: "tcp".to_owned(),
+            supported: vec!["webrtcDirect".to_owned(), "webrtc".to_owned()],
+        }
+        .into();
+
+        let MobileInfraAddrError::UnsupportedTransport {
+            transport,
+            supported,
+        } = mirrored
+        else {
+            panic!("变体应当一一对应，实际映射到了别处");
+        };
+        assert_eq!(transport, "tcp");
+        assert_eq!(supported, vec!["webrtcDirect", "webrtc"]);
+    }
+
+    /// `Malformed` 的 `detail` 是 multiaddr 解析器的原文，同样不许丢——用户粘错了
+    /// 一个字符时，那句话是唯一说得出「错在哪」的东西。
+    #[test]
+    fn malformed_keeps_the_parser_detail() {
+        let mirrored: MobileInfraAddrError = InfraAddrError::Malformed {
+            detail: "invalid multiaddr".to_owned(),
+        }
+        .into();
+        assert!(matches!(
+            mirrored,
+            MobileInfraAddrError::Malformed { detail } if detail == "invalid multiaddr"
+        ));
     }
 }

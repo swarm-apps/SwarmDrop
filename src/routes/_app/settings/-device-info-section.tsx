@@ -25,11 +25,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { useSecretStore } from "@/stores/secret-store";
-import { useNetworkStore } from "@/stores/network-store";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
+import { useNodeHealth } from "@/hooks/use-node-health";
+import { usePairedOnlineCount } from "@/hooks/use-paired-online-count";
 import { applyDeviceName, DEVICE_NAME_MAX_CHARS } from "@/lib/device-name";
+import {
+  resolveNodePresentation,
+  TONE_BADGE,
+  TONE_DOT,
+} from "@/lib/node-status";
 import { copyText } from "@/lib/clipboard";
 import { getErrorMessage } from "@/lib/errors";
+import { cn } from "@/lib/utils";
 import { SettingsCard, SettingsSection } from "./-settings-primitives";
 
 /** 截断 PeerId，显示前8位...后4位 */
@@ -62,8 +69,11 @@ export function DeviceInfoSection() {
   const deviceName = usePreferencesStore((s) => s.deviceName);
   const deviceId = useSecretStore((s) => s.deviceId);
   const pairedCount = useSecretStore((s) => s.pairedDevices.length);
-  const nodeStatus = useNetworkStore((s) => s.status);
-  const networkStatus = useNetworkStore((s) => s.networkStatus);
+  // 状态判据只有一个来源：`summarizeNodeHealth`。此前这里自造了一份
+  // `nodeStatus === "running"` 的「在线」，于是全部中继 Failed 时顶栏写着「连不上」、
+  // 同一屏的设备卡却绿着说「在线」——同一件事在一个窗口里给出两个相反的结论。
+  const { summary, lifecycle, networkStatus } = useNodeHealth();
+  const presentation = resolveNodePresentation(lifecycle, summary);
 
   const [systemHostname, setSystemHostname] = useState("");
   const [editing, setEditing] = useState(false);
@@ -87,7 +97,6 @@ export function DeviceInfoSection() {
   const DeviceIcon = getDeviceIcon(currentOsType);
 
   const osLabel = `${getPlatformLabel(currentPlatform)} ${currentOsVersion} · ${currentArch}`;
-  const isOnline = nodeStatus === "running";
 
   const handleSaveName = useCallback(async () => {
     const trimmed = nameInput.trim();
@@ -119,16 +128,19 @@ export function DeviceInfoSection() {
     );
   }, [deviceId, t]);
 
-  const connectedPeers = networkStatus?.connectedPeers ?? 0;
+  // 与节点状态面的「在线 M」同源（那条注释解释了为什么不能用 `connectedPeers`）。
+  const onlineDeviceCount = usePairedOnlineCount();
   const natStatus = networkStatus?.natStatus ?? "unknown";
 
   const stats: StatItem[] = [
     {
       icon: Zap,
-      label: msg`已连节点`,
+      // 词表（DESIGN.md「Network vocabulary is cross-platform」）钉死的正字，
+      // 「已连节点」是那张表里逐字点名的废弃拼法。
+      label: msg`已连接设备`,
       value: (
         <span className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-          {connectedPeers}
+          {onlineDeviceCount}
         </span>
       ),
     },
@@ -168,9 +180,10 @@ export function DeviceInfoSection() {
             {/* 头像区域 */}
             <div className="relative shrink-0">
               <div
-                className={`absolute -left-1 -top-1 z-10 size-3.5 rounded-full border-2 border-background ${
-                  isOnline ? "bg-success" : "bg-muted-foreground/40"
-                }`}
+                className={cn(
+                  "absolute -left-1 -top-1 z-10 size-3.5 rounded-full border-2 border-background",
+                  TONE_DOT[presentation.tone],
+                )}
               />
               <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 sm:size-16">
                 <span className="text-xl font-bold tracking-tight text-brand sm:text-2xl">
@@ -207,11 +220,16 @@ export function DeviceInfoSection() {
                     <h3 className="truncate text-base font-bold text-foreground sm:text-lg">
                       {displayName}
                     </h3>
-                    {isOnline && (
-                      <span className="shrink-0 rounded-full border border-success/25 bg-success/12 px-1.5 py-0.5 text-[10px] font-medium text-success-ink sm:px-2 sm:text-[11px]">
-                        {t`在线`}
-                      </span>
-                    )}
+                    {/* 光有色点不满足契约，状态**词**必须一起出现；词与色都取自同一份
+                        判据，跟顶栏 pill 说的是同一句话。 */}
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium sm:px-2 sm:text-[11px]",
+                        TONE_BADGE[presentation.tone],
+                      )}
+                    >
+                      {t(presentation.word)}
+                    </span>
                     <Button
                       variant="ghost"
                       size="icon"

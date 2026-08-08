@@ -10,7 +10,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::device::PairedDeviceInfo;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::events::{TransferEvent, TransferEventSink};
 use crate::host::{CoreSaveLocation, Notification, Notifier};
 use crate::manager::TransferManager;
@@ -54,6 +54,10 @@ pub struct TransferOfferFileEvent {
 ///
 /// Core 负责协议分发、响应和标准事件发布；具体的文件会话、DB 和宿主清理
 /// 由桌面端或 RN 端在这个 trait 中适配。
+///
+/// **`()` 是「没有传输层」的空实现**（与 [`TransferRuntime for ()`](crate::runtime::TransferRuntime)
+/// 配对）：一个只组网、不收发文件的节点。全部入站请求以 [`AppError::Transfer`] 婉拒，
+/// 而不是 panic——真被调到时降级比崩掉好。集成测试用它把 `NetManager` 从传输层解耦出来。
 #[async_trait]
 pub trait IncomingTransferRuntime: Send + Sync {
     async fn handle_cancel(
@@ -150,6 +154,52 @@ pub trait IncomingTransferRuntime: Send + Sync {
             reason: Some(ResumeRejectReason::SessionNotFound),
         })
     }
+}
+
+/// 「没有传输层」的空实现——见 [`IncomingTransferRuntime`] 的文档。
+#[async_trait]
+impl IncomingTransferRuntime for () {
+    async fn handle_cancel(&self, _: Uuid, _: String) -> AppResult<TransferFailedEvent> {
+        Err(no_transfer_layer())
+    }
+
+    async fn handle_pause(&self, _: Uuid) -> AppResult<TransferPausedEvent> {
+        Err(no_transfer_layer())
+    }
+
+    async fn cache_inbound_offer(
+        &self,
+        _: NodeId,
+        _: String,
+        _: Uuid,
+        _: Vec<FileInfo>,
+        _: u64,
+        _: TransferOrigin,
+        _: ReceivePolicyDecision,
+    ) -> AppResult<oneshot::Receiver<TransferResponse>> {
+        Err(no_transfer_layer())
+    }
+
+    async fn accept_cached_inbound_offer(&self, _: Uuid, _: CoreSaveLocation) -> AppResult<()> {
+        Err(no_transfer_layer())
+    }
+
+    async fn record_rejected_inbound_offer(
+        &self,
+        _: NodeId,
+        _: String,
+        _: Uuid,
+        _: Vec<FileInfo>,
+        _: u64,
+        _: TransferOrigin,
+        _: ReceivePolicyDecision,
+    ) -> AppResult<()> {
+        Err(no_transfer_layer())
+    }
+}
+
+fn no_transfer_layer() -> AppError {
+    AppError::Transfer("该节点未装配传输层".to_owned())
 }
 
 fn offer_result(accepted: bool, reason: Option<OfferRejectReason>) -> TransferResponse {

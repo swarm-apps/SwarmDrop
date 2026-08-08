@@ -12,7 +12,7 @@ import { createStore } from "zustand/vanilla";
 import { isActiveSession } from "./format";
 import type { SecureContextInfo } from "./secure-context";
 import type {
-  RelayInfoJson,
+  InfraLink,
   ConnectionJson,
   Device,
   InboxItemDetail,
@@ -186,13 +186,15 @@ export interface WebNodeState {
   /** 最近一次 `connect()` 成功的结果——浏览器不 listen socket，这只是「拨出去」的连接。 */
   connection: ConnectionJson | null;
   /**
-   * 全部 relay 意图的状态快照，来自 `relays_changed()`（见 `_lib/relay-watch.ts`）。
+   * 全部基础设施关系的状态快照，来自 `infra_links()` / `infra_changed()`
+   * （见 `_lib/infra-watch.ts`）。
    *
-   * 它有两个跨路由的消费者：设置页「连接」区列清单与移除，设备页「配对」区读其中的
-   * circuit 地址判断能不能生成邀请。**可达地址是从这里派生的**（`selectReservation`），
-   * 不再单独存一份——两份会在多 helper 时对不上（旧实现是循环回填，只留最后一条）。
+   * 它有三个跨路由的消费者：设置页「引导节点」区列清单与移除、设备页「配对」区读其中的
+   * circuit 地址判断能不能生成邀请、以及常驻的节点状态徽章（整体健康度）。
+   * **可达地址是从这里派生的**（`selectReservation`），不再单独存一份——两份会在多条
+   * 引导节点时对不上（旧实现是循环回填，只留最后一条）。
    */
-  relays: RelayInfoJson[];
+  infraLinks: InfraLink[];
 }
 
 const initialState: WebNodeState = {
@@ -217,7 +219,7 @@ const initialState: WebNodeState = {
   pairedDevices: [],
   connectedPeers: 0,
   connection: null,
-  relays: [],
+  infraLinks: [],
 };
 
 export const webNodeStore = createStore<WebNodeState>(() => initialState);
@@ -245,15 +247,18 @@ export function useWebNode<U>(selector: (state: WebNodeState) => U): U {
 /**
  * 本机当前的 circuit 可达地址（任意一条已 active 的 relay 给出），没有则 `null`。
  *
- * **是派生而非独立字段**：此前它单独存一份，由启动时的 `relays_until_active` 回填，多个
- * helper 时循环覆写只留最后一条——一条挂了就可能显示成「不可达」，而另一条明明是好的。
+ * **是派生而非独立字段**：此前它单独存一份，由启动时的 `infra_until_active` 回填，多条
+ * 引导节点时循环覆写只留最后一条——一条挂了就可能显示成「不可达」，而另一条明明是好的。
  * 从清单里现取则多一条少一条都对得上。
  *
  * selector 返回的是**字符串**，符合「不在 selector 里派生新数组/对象」那条约束
  * （`Object.is` 对相同字符串为真，不会每帧换引用）。
  */
 export function selectReservation(s: WebNodeState): string | null {
-  return s.relays.find((r) => r.state === "active")?.circuitAddr ?? null;
+  for (const link of s.infraLinks) {
+    if (link.relay?.kind === "active") return link.relay.circuitAddr;
+  }
+  return null;
 }
 
 /**
@@ -415,8 +420,8 @@ export const webNodeActions = {
   setConnection(connection: ConnectionJson | null) {
     webNodeStore.setState({ connection });
   },
-  setRelays(relays: RelayInfoJson[]) {
-    webNodeStore.setState({ relays });
+  setInfraLinks(infraLinks: InfraLink[]) {
+    webNodeStore.setState({ infraLinks });
   },
   /**
    * 关停后清空运行态，保留已探测的 secure 结果（环境不因关节点而改变）。

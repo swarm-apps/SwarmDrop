@@ -232,6 +232,12 @@ export class WebNode {
      * 立即以 `{ kind: "aborted" }` reject；**abort ≠ 撤回拨号**（在途拨号继续到
      * 自然失败，无常驻意图残留）。不传 signal 时由内核兜底超时（Browser 15s）
      * 保证有限时间内 settle。
+     *
+     * ⚠️ **不要拿它判定引导节点或中继的可达性。** 三条理由：它会把候选地址**永久**写进
+     * 地址簿且没有失败回滚；对**已连接**的对端它直接返回既有连接快照，于是对已经连上的
+     * 内置节点永远返回成功——一个不可能失败的测试比没有测试更坏；而且它测的是直连链路，
+     * 中继的实际用法是 reservation，两条链路不同。可达性看
+     * [`infra_links`](Self::infra_links) 里那条关系的状态。
      * @param {string} addr
      * @param {AbortSignal | null} [signal]
      * @returns {Promise<ConnectionJson>}
@@ -283,7 +289,7 @@ export class WebNode {
      * 而 autonat 是 native-only（见 `crates/net/src/actor.rs` 的 `WatchSenders::nat`，
      * 那里挂着 `cfg_attr(wasm_browser, expect(dead_code))`），wasm 下它恒为 `Unknown`。
      * 导出一个永远不变的常量只是给界面添一行假状态；浏览器版的「别人能不能拨到我」
-     * 由 circuit 预留回答，那条已经有了（`relays_state`）。
+     * 由 circuit 预留回答，那条已经有了（`infra_links`）。
      * @returns {number}
      */
     connected_peers() {
@@ -387,7 +393,7 @@ export class WebNode {
      *
      * `local_only=true` 走 LocalOnly（受邀方只用私网地址）。邀请自包含本机 dialable 地址提示——
      * 浏览器不 listen 本地 socket，其可达地址来自 **relay reservation**（circuit 地址）；故桌面要
-     * 拨得到本机，本机需先经 [`relays_ensure`](Self::relays_ensure) 在某 helper 上建 reservation
+     * 拨得到本机，本机需先经 [`infra_ensure`](Self::infra_ensure) 在某引导节点上建 reservation
      * （等到 `active`），否则邀请里无可拨地址、消费方连不上。
      * **async 化于 invite-persistence**：生成时要把邀请写穿进 IndexedDB，否则刷新页面
      * 后本机就不认识刚发出去的那条邀请了（注册表 fail-closed，查不到即拒绝）。
@@ -434,6 +440,113 @@ export class WebNode {
      */
     inbox_items(include_archived) {
         const ret = wasm.webnode_inbox_items(this.__wbg_ptr, include_archived);
+        return ret;
+    }
+    /**
+     * 基础设施状态变化流：每次变化产出一份全量快照（可直接 setState）。
+     * 可多次调用（每次独立订阅），与 `events()` 的单点消费不同。
+     *
+     * **触发源是 `watch_relays`**：内核不外露候选表与在途拨号的变化，而 relay 轨道的
+     * 每一次翻转（Connecting / Active / Failed）都从那里出。意图侧的增删由调用方自己
+     * 知道（它就是发起方），补一次 `infra_links()` 即可。
+     * @returns {ReadableStream<InfraLink[]>}
+     */
+    infra_changed() {
+        const ret = wasm.webnode_infra_changed(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * 撤销基础设施意图（[`infra_ensure`](Self::infra_ensure) 的对称面）。
+     *
+     * **真撤销**而非停止等待：停止后台收敛重试、关闭 circuit listener、立刻
+     * 断开与该节点的连接（含中止在途拨号），条目从状态集合消失。
+     * @param {string} peer_id
+     * @returns {Promise<void>}
+     */
+    infra_drop(peer_id) {
+        const ptr0 = passStringToWasm0(peer_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_infra_drop(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * 登记一个基础设施节点的常驻意图（校验 + 登记，同步返回）。
+     *
+     * 浏览器被动接收连接的唯一入口。拨号 / reservation / 断线重建由 core 的
+     * InfraSupervisor 统一收敛（最迟 1s 内启动第一轮，失败退避重试）；进度经
+     * [`infra_links`](Self::infra_links) / [`infra_changed`](Self::infra_changed)
+     * 观测，或用 [`infra_until_active`](Self::infra_until_active) 等首次建立。
+     *
+     * **校验走 core 的 `add_infra_node`，前端不重写一份规则。** 三条判据里有两条要
+     * 认识内核事实（合法 peer id 形状、本端点**实际装配了哪些 transport**），后者正是
+     * 浏览器最容易踩的——粘一条 `/tcp/` 进来今天会被静静收下，然后永远连不上且毫无提示。
+     * 失败时 reject 一个 `InfraAddrError`（`{ kind, … }`，形状见 bindings.ts），
+     * **不是** `WebError`：它要回答的是「这条地址哪里不对」，而不是「哪一层出了错」。
+     *
+     * **`Duplicate` 也照常 reject。** 它曾被这里吞成成功，理由是「回放要幂等」——不成立：
+     * 回放（`replayInfraNodes`）本来就 try/catch 且只 `console.error`，而且它跑在一张空的
+     * 候选表上，压根产不出重复。代价却是实打实的：用户粘一条已在清单里的地址会看到
+     * 「已添加引导节点，正在连接…」而其实什么都没发生，`duplicate` 那句文案成了死代码。
+     * 登记的**效果**仍然幂等（core 的 upsert 会合并），幂等的是状态不是回执。
+     *
+     * 全部规则零网络往返。「它到底连不连得上」由提交后的收敛环回答——那测的才是后续
+     * 真正会走的那条链路（旧的「测试连通性」按钮走直连，对已连上的节点永远绿）。
+     *
+     * 返回节点的 base58 NodeId——即 `infra_drop` / `infra_until_active` 的入参，
+     * 调用方直接串联，无需自行解析 multiaddr 的 `/p2p/` 段。
+     * @param {string} addr
+     * @returns {string}
+     */
+    infra_ensure(addr) {
+        let deferred3_0;
+        let deferred3_1;
+        try {
+            const ptr0 = passStringToWasm0(addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.webnode_infra_ensure(this.__wbg_ptr, ptr0, len0);
+            var ptr2 = ret[0];
+            var len2 = ret[1];
+            if (ret[3]) {
+                ptr2 = 0; len2 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred3_0 = ptr2;
+            deferred3_1 = len2;
+            return getStringFromWasm0(ptr2, len2);
+        } finally {
+            wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        }
+    }
+    /**
+     * 全量基础设施关系快照（[`InfraLink`](swarmdrop_core::infra::InfraLink)`[]`）。
+     *
+     * 每条同时带**意图侧**（地址 / 来源 / 角色 / scope / 首末次见到 / 能否移除）与
+     * **观测侧**（是否已连、relay 轨道状态与失败原文）。零存储读模型，现场 join
+     * 候选表与内核两条 watch——所以「状态粘死」在物理上不可能发生。
+     * @returns {InfraLink[]}
+     */
+    infra_links() {
+        const ret = wasm.webnode_infra_links(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * 等待某条关系的 relay 首次进入 `active`，resolve 出 circuit 可达地址（内核拼装）。
+     *
+     * 观察到 `failed` 时**立即 reject**（把「要不要再等下一轮退避」还给调用方），
+     * 意图保留——要停止后台收敛请调 [`infra_drop`](Self::infra_drop)。
+     * `signal`（可选）：abort 只是不再等待，同样不改变意图生命周期。
+     * 不传 signal 时 30s 兜底超时保证 Promise 有限时间内 settle。
+     * @param {string} peer_id
+     * @param {AbortSignal | null} [signal]
+     * @returns {Promise<string>}
+     */
+    infra_until_active(peer_id, signal) {
+        const ptr0 = passStringToWasm0(peer_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_infra_until_active(this.__wbg_ptr, ptr0, len0, isLikeNone(signal) ? 0 : addToExternrefTable0(signal));
         return ret;
     }
     /**
@@ -624,90 +737,6 @@ export class WebNode {
         const ptr0 = passStringToWasm0(session_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.webnode_reject_offer(this.__wbg_ptr, ptr0, len0);
-        return ret;
-    }
-    /**
-     * relay 状态变化流：每次变化产出一份全量快照（可直接 setState）。
-     * 可多次调用（每次独立订阅），与 `events()` 的单点消费不同。
-     * @returns {ReadableStream<RelayInfoJson[]>}
-     */
-    relays_changed() {
-        const ret = wasm.webnode_relays_changed(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * 撤销 relay 意图（[`relays_ensure`](Self::relays_ensure) 的对称面）。
-     *
-     * **真撤销**而非停止等待：停止后台收敛重试、关闭 circuit listener、立刻
-     * 断开与该 helper 的连接（含中止在途拨号），条目从状态集合消失。
-     * @param {string} helper_id
-     * @returns {Promise<void>}
-     */
-    relays_drop(helper_id) {
-        const ptr0 = passStringToWasm0(helper_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.webnode_relays_drop(this.__wbg_ptr, ptr0, len0);
-        return ret;
-    }
-    /**
-     * 登记一个 relay helper 的常驻可达意图（幂等，同步返回）。
-     *
-     * 浏览器被动接收连接的唯一入口。拨号 / reservation / 断线重建由 core 的
-     * InfraSupervisor 统一收敛（最迟 1s 内启动第一轮，失败退避重试）；进度经
-     * [`relays_state`](Self::relays_state) / [`relays_changed`](Self::relays_changed)
-     * 观测，或用 [`relays_until_active`](Self::relays_until_active) 等首次建立。
-     *
-     * 返回 helper 的 base58 NodeId——即 `relays_drop` / `relays_until_active` 的
-     * 入参，调用方直接串联，无需自行解析 multiaddr 的 `/p2p/` 段。
-     * @param {string} helper_addr
-     * @returns {string}
-     */
-    relays_ensure(helper_addr) {
-        let deferred3_0;
-        let deferred3_1;
-        try {
-            const ptr0 = passStringToWasm0(helper_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-            const len0 = WASM_VECTOR_LEN;
-            const ret = wasm.webnode_relays_ensure(this.__wbg_ptr, ptr0, len0);
-            var ptr2 = ret[0];
-            var len2 = ret[1];
-            if (ret[3]) {
-                ptr2 = 0; len2 = 0;
-                throw takeFromExternrefTable0(ret[2]);
-            }
-            deferred3_0 = ptr2;
-            deferred3_1 = len2;
-            return getStringFromWasm0(ptr2, len2);
-        } finally {
-            wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
-        }
-    }
-    /**
-     * 全量 relay 状态快照（`{ id, state, circuitAddr?, lastError? }[]`）。
-     * @returns {RelayInfoJson[]}
-     */
-    relays_state() {
-        const ret = wasm.webnode_relays_state(this.__wbg_ptr);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return takeFromExternrefTable0(ret[0]);
-    }
-    /**
-     * 等待某 relay 首次进入 `active`，resolve 出 circuit 可达地址（内核拼装）。
-     *
-     * 观察到 `failed` 时**立即 reject**（把「要不要再等下一轮退避」还给调用方），
-     * 意图保留——要停止后台收敛请调 [`relays_drop`](Self::relays_drop)。
-     * `signal`（可选）：abort 只是不再等待，同样不改变意图生命周期。
-     * 不传 signal 时 30s 兜底超时保证 Promise 有限时间内 settle。
-     * @param {string} helper_id
-     * @param {AbortSignal | null} [signal]
-     * @returns {Promise<string>}
-     */
-    relays_until_active(helper_id, signal) {
-        const ptr0 = passStringToWasm0(helper_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.webnode_relays_until_active(this.__wbg_ptr, ptr0, len0, isLikeNone(signal) ? 0 : addToExternrefTable0(signal));
         return ret;
     }
     /**
@@ -1913,37 +1942,37 @@ function __wbg_get_imports() {
             return ret;
         }, arguments); },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2231, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 2232, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2292, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 2293, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2231, function: Function { arguments: [NamedExternref("RTCDataChannelEvent")], shim_idx: 2232, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2292, function: Function { arguments: [NamedExternref("RTCDataChannelEvent")], shim_idx: 2293, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000003: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2231, function: Function { arguments: [NamedExternref("RTCPeerConnectionIceEvent")], shim_idx: 2232, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2292, function: Function { arguments: [NamedExternref("RTCPeerConnectionIceEvent")], shim_idx: 2293, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000004: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2360, function: Function { arguments: [], shim_idx: 2361, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2436, function: Function { arguments: [], shim_idx: 2437, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______);
             return ret;
         },
         __wbindgen_cast_0000000000000005: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2911, function: Function { arguments: [Externref], shim_idx: 2912, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 3012, function: Function { arguments: [Externref], shim_idx: 3013, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____);
             return ret;
         },
         __wbindgen_cast_0000000000000006: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2965, function: Function { arguments: [], shim_idx: 2966, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 3066, function: Function { arguments: [], shim_idx: 3067, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output________1_, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______1_);
             return ret;
         },
         __wbindgen_cast_0000000000000007: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 898, function: Function { arguments: [NamedExternref("Event")], shim_idx: 899, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 911, function: Function { arguments: [NamedExternref("Event")], shim_idx: 912, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_CloseEvent__CloseEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_CloseEvent__CloseEvent_____);
             return ret;
         },

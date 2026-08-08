@@ -32,6 +32,67 @@ export const commands = {
 	getNetworkStatus: () => __TAURI_INVOKE<NetworkStatus>("get_network_status"),
 	/**  下载并安装应用更新（桌面端） */
 	installUpdate: (url: string, isForce: boolean) => __TAURI_INVOKE<null>("install_update", { url, isForce }),
+	/**
+	 *  校验一条用户输入的引导节点地址，**不写任何状态**。
+	 * 
+	 *  供输入框拿内联错误用。全部规则零网络往返——「能不能连上」由提交后的收敛环回答。
+	 */
+	validateInfraAddr: (addr: string) => __TAURI_INVOKE<
+/**  不是合法的 multiaddr。 */
+{ kind: "malformed"; detail: string } | 
+/**  缺少 `/p2p/<peer-id>` 段——没有身份就无法验证连上的是不是同一台。 */
+{ kind: "missingPeerId" } | 
+/**  地址里不含任何可拨传输段（如只有 `/p2p/<id>`）。 */
+{ kind: "noTransport" } | 
+/**  传输本端点没有装配。 */
+{ kind: "unsupportedTransport"; 
+/**  地址里那个传输的 wire 名（`tcp` / `quic` / `webrtc` / `webrtcDirect`）。 */
+transport: string; 
+/**  本端点支持的传输，供 UI 直接列出来。 */
+supported: string[] } | 
+/**  指向本机。 */
+{ kind: "selfAddr" } | 
+/**  与既有条目重复（含内置清单）。 */
+{ kind: "duplicate" } | null>("validate_infra_addr", { addr }),
+	/**
+	 *  添加一个引导节点：校验 + 登记，**一次调用内原子完成**。
+	 * 
+	 *  拆成「先 validate 再 ensure」会在两次 IPC 往返之间留一个窗口，期间候选表可能已变。
+	 * 
+	 *  登记成功后**无需重启节点**：收敛环最迟下一个 1s tick 起第一轮，状态经
+	 *  `networkStatusChanged` 推回来。
+	 */
+	addInfraNode: (addr: string) => __TAURI_INVOKE<
+/**  不是合法的 multiaddr。 */
+{ kind: "malformed"; detail: string } | 
+/**  缺少 `/p2p/<peer-id>` 段——没有身份就无法验证连上的是不是同一台。 */
+{ kind: "missingPeerId" } | 
+/**  地址里不含任何可拨传输段（如只有 `/p2p/<id>`）。 */
+{ kind: "noTransport" } | 
+/**  传输本端点没有装配。 */
+{ kind: "unsupportedTransport"; 
+/**  地址里那个传输的 wire 名（`tcp` / `quic` / `webrtc` / `webrtcDirect`）。 */
+transport: string; 
+/**  本端点支持的传输，供 UI 直接列出来。 */
+supported: string[] } | 
+/**  指向本机。 */
+{ kind: "selfAddr" } | 
+/**  与既有条目重复（含内置清单）。 */
+{ kind: "duplicate" } | null>("add_infra_node", { addr }),
+	/**
+	 *  撤销一个引导节点的常驻意图。
+	 * 
+	 *  **会立刻断开与该节点的全部连接**（含中止在途拨号），所以调用点必须按
+	 *  `InfraLink.removable` 门控——自动发现来源的节点可能同时是一台正在传文件的已配对设备。
+	 */
+	removeInfraNode: (peerId: string) => __TAURI_INVOKE<null>("remove_infra_node", { peerId }),
+	/**
+	 *  本端点实际装配的传输 wire 名清单（`tcp` / `quic` / `webrtc` / `webrtcDirect`）。
+	 * 
+	 *  给 UI 写「本端支持 …」用。它是**运行时事实**而非编译期常量：打洞传输按配置装配，
+	 *  所以前端不能照着平台猜。
+	 */
+	supportedTransports: () => __TAURI_INVOKE<string[]>("supported_transports"),
 	listInboxItems: (includeArchived: boolean) => __TAURI_INVOKE<InboxItemSummary[]>("list_inbox_items", { includeArchived }),
 	/**
 	 *  检索收件箱。`limit` 缺省取三端共享的 [`INBOX_SEARCH_LIMIT`]，`include_archived` 默认 false。
@@ -653,6 +714,30 @@ export type InboxSearchHit = {
 export type InboxSourceKind = "paired_device" | "share_code" | "mcp" | "unknown";
 
 /**
+ *  提交前校验失败的原因。
+ * 
+ *  每个变体都对应一句**用户能据以行动**的话。刻意不设 `Other(String)` 兜底：
+ *  那会让新增的失败原因静默退化成一句无从下手的原始错误。
+ */
+export type InfraAddrError = 
+/**  不是合法的 multiaddr。 */
+{ kind: "malformed"; detail: string } | 
+/**  缺少 `/p2p/<peer-id>` 段——没有身份就无法验证连上的是不是同一台。 */
+{ kind: "missingPeerId" } | 
+/**  地址里不含任何可拨传输段（如只有 `/p2p/<id>`）。 */
+{ kind: "noTransport" } | 
+/**  传输本端点没有装配。 */
+{ kind: "unsupportedTransport"; 
+/**  地址里那个传输的 wire 名（`tcp` / `quic` / `webrtc` / `webrtcDirect`）。 */
+transport: string; 
+/**  本端点支持的传输，供 UI 直接列出来。 */
+supported: string[] } | 
+/**  指向本机。 */
+{ kind: "selfAddr" } | 
+/**  与既有条目重复（含内置清单）。 */
+{ kind: "duplicate" };
+
+/**
  *  一段基础设施关系当前不参与 relay 收敛的原因。
  * 
  *  **说的是「设置」不是「故障」**：UI 必须中性色 + CTA 指向设置，不得升警示色、
@@ -689,11 +774,18 @@ export type InfraLink = {
 	firstSeen: string,
 	lastSeen: string,
 	/**
-	 *  用户能否在 UI 上移除这条：只有来源全是 `HostConfigured` 时为 true。
+	 *  用户能否在 UI 上移除这条：`sources` 里**含有** `HostConfigured` 即为 true。
 	 * 
-	 *  自动来源（mDNS / Learned）**不给移除入口**：撤销会断开与该节点的全部连接
+	 *  纯自动来源（mDNS / Learned）**不给移除入口**：撤销会断开与该节点的全部连接
 	 *  （含在途传输），而局域网协助节点本身就可能是一台正在传文件的已配对设备；
 	 *  何况它下次 identify 就会被原样登记回来——点了没反应，还把传输搞挂。
+	 * 
+	 *  ⚠️ 判据是「**含有**」不是「全是」。后者写过一版，是错的：`upsert` 对 `sources`
+	 *  是**累加**（`candidates.rs`），而 `learn_candidate` 会给每个 identify 出
+	 *  `is_bootstrap_agent` 的对端补一条 `Learned`——本仓自建的那台正是 bootstrap agent，
+	 *  于是它连上几秒后 `removable` 就翻假，移除按钮当场消失；用户自己加的中继更糟：
+	 *  一旦连上就永久删不掉，而偏好清单还在每次启动回放它，`forgetInfraNode` 再无可达路径。
+	 *  用户往自己的清单里放过的东西，必须能从自己的清单里拿走。
 	 */
 	removable: boolean,
 	/**
@@ -812,7 +904,12 @@ export type NetworkStatus = {
 
 export type NetworkStatusChanged = NetworkStatus;
 
-/**  节点运行状态。 */
+/**
+ *  节点运行状态。
+ * 
+ *  `Copy + PartialEq`：它是个无字段两态枚举，而消费方（托盘健康度、MCP 投影）本就要
+ *  拿它做相等比较；缺了这两个 derive，每处都得退回 `matches!` 或先 `clone()`。
+ */
 export type NodeStatus = "running" | "stopped";
 
 /**  Offer 被拒绝的原因。 */

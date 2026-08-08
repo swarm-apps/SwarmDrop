@@ -5162,6 +5162,370 @@ const FfiConverterTypeMobileCoreEvent = (() => {
     return new FFIConverter();
 })();
 
+
+// Error type: MobileInfraAddrError
+export enum MobileInfraAddrError_Tags {
+    NodeNotStarted = "NodeNotStarted",
+    Malformed = "Malformed",
+    MissingPeerId = "MissingPeerId",
+    NoTransport = "NoTransport",
+    UnsupportedTransport = "UnsupportedTransport",
+    SelfAddr = "SelfAddr",
+    Duplicate = "Duplicate"
+}
+/**
+ * 引导节点地址**提交前校验**失败的原因（core 的 `InfraAddrError` 逐变体镜像）。
+ *
+ * 刻意不走 [`FfiError::InvalidArgument`] 那条 `format!("{e}")` 的路：那正是本轮在修
+ * 的病——压成一句话之后 JS 只能整串贴给用户，说不出「本端装配了哪些传输、你粘的这条
+ * 是哪一种」这类可行动的信息，而这恰恰是最容易踩的一类错（往手机上粘一条只有浏览器
+ * 才有的 `/webrtc/`）。
+ *
+ * [`Self::NodeNotStarted`] 与其余变体同列而不另开一个错误类型：调用点只有一个
+ * 输入框，两类失败在 UI 上落到同一处内联提示，分成两个错误类型只会逼 JS 侧写
+ * 两条 catch。
+ */
+export const MobileInfraAddrError = (() => {
+
+    type NodeNotStarted__interface = {
+        tag: MobileInfraAddrError_Tags.NodeNotStarted
+    };
+    class NodeNotStarted_ extends UniffiError implements NodeNotStarted__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileInfraAddrError";
+        readonly tag = MobileInfraAddrError_Tags.NodeNotStarted;
+        constructor() {
+            super("MobileInfraAddrError", "NodeNotStarted");
+        }
+
+        static new(): NodeNotStarted_ {
+            return new NodeNotStarted_();
+        }
+
+        static instanceOf(obj: any): obj is NodeNotStarted_ {
+            return obj.tag === MobileInfraAddrError_Tags.NodeNotStarted;
+        }
+        static hasInner(obj: any): obj is NodeNotStarted_ {
+            return false;
+        }
+
+    }
+
+    type Malformed__interface = {
+        tag: MobileInfraAddrError_Tags.Malformed;
+        inner: 
+Readonly<{detail: string}>
+    };
+    class Malformed_ extends UniffiError implements Malformed__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileInfraAddrError";
+        readonly tag = MobileInfraAddrError_Tags.Malformed;
+        readonly inner: 
+Readonly<{detail: string}>;
+        constructor(
+inner: {detail: string }) {
+            super("MobileInfraAddrError", "Malformed");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {detail: string }): Malformed_ {
+            return new Malformed_(inner);
+        }
+
+        static instanceOf(obj: any): obj is Malformed_ {
+            return obj.tag === MobileInfraAddrError_Tags.Malformed;
+        }
+        static hasInner(obj: any): obj is Malformed_ {
+            return Malformed_.instanceOf(obj);
+        }
+
+        static getInner(obj: Malformed_): 
+Readonly<{detail: string}> {
+            return obj.inner;
+        }
+
+    }
+
+    type MissingPeerId__interface = {
+        tag: MobileInfraAddrError_Tags.MissingPeerId
+    };
+    class MissingPeerId_ extends UniffiError implements MissingPeerId__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileInfraAddrError";
+        readonly tag = MobileInfraAddrError_Tags.MissingPeerId;
+        constructor() {
+            super("MobileInfraAddrError", "MissingPeerId");
+        }
+
+        static new(): MissingPeerId_ {
+            return new MissingPeerId_();
+        }
+
+        static instanceOf(obj: any): obj is MissingPeerId_ {
+            return obj.tag === MobileInfraAddrError_Tags.MissingPeerId;
+        }
+        static hasInner(obj: any): obj is MissingPeerId_ {
+            return false;
+        }
+
+    }
+
+    type NoTransport__interface = {
+        tag: MobileInfraAddrError_Tags.NoTransport
+    };
+    class NoTransport_ extends UniffiError implements NoTransport__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileInfraAddrError";
+        readonly tag = MobileInfraAddrError_Tags.NoTransport;
+        constructor() {
+            super("MobileInfraAddrError", "NoTransport");
+        }
+
+        static new(): NoTransport_ {
+            return new NoTransport_();
+        }
+
+        static instanceOf(obj: any): obj is NoTransport_ {
+            return obj.tag === MobileInfraAddrError_Tags.NoTransport;
+        }
+        static hasInner(obj: any): obj is NoTransport_ {
+            return false;
+        }
+
+    }
+
+    type UnsupportedTransport__interface = {
+        tag: MobileInfraAddrError_Tags.UnsupportedTransport;
+        inner: 
+Readonly<{transport: string; supported: Array<string>}>
+    };
+    class UnsupportedTransport_ extends UniffiError implements UnsupportedTransport__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileInfraAddrError";
+        readonly tag = MobileInfraAddrError_Tags.UnsupportedTransport;
+        readonly inner: 
+Readonly<{transport: string; supported: Array<string>}>;
+        constructor(
+inner: {transport: string; supported: Array<string> }) {
+            super("MobileInfraAddrError", "UnsupportedTransport");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {transport: string; supported: Array<string> }): UnsupportedTransport_ {
+            return new UnsupportedTransport_(inner);
+        }
+
+        static instanceOf(obj: any): obj is UnsupportedTransport_ {
+            return obj.tag === MobileInfraAddrError_Tags.UnsupportedTransport;
+        }
+        static hasInner(obj: any): obj is UnsupportedTransport_ {
+            return UnsupportedTransport_.instanceOf(obj);
+        }
+
+        static getInner(obj: UnsupportedTransport_): 
+Readonly<{transport: string; supported: Array<string>}> {
+            return obj.inner;
+        }
+
+    }
+
+    type SelfAddr__interface = {
+        tag: MobileInfraAddrError_Tags.SelfAddr
+    };
+    class SelfAddr_ extends UniffiError implements SelfAddr__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileInfraAddrError";
+        readonly tag = MobileInfraAddrError_Tags.SelfAddr;
+        constructor() {
+            super("MobileInfraAddrError", "SelfAddr");
+        }
+
+        static new(): SelfAddr_ {
+            return new SelfAddr_();
+        }
+
+        static instanceOf(obj: any): obj is SelfAddr_ {
+            return obj.tag === MobileInfraAddrError_Tags.SelfAddr;
+        }
+        static hasInner(obj: any): obj is SelfAddr_ {
+            return false;
+        }
+
+    }
+
+    type Duplicate__interface = {
+        tag: MobileInfraAddrError_Tags.Duplicate
+    };
+    class Duplicate_ extends UniffiError implements Duplicate__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileInfraAddrError";
+        readonly tag = MobileInfraAddrError_Tags.Duplicate;
+        constructor() {
+            super("MobileInfraAddrError", "Duplicate");
+        }
+
+        static new(): Duplicate_ {
+            return new Duplicate_();
+        }
+
+        static instanceOf(obj: any): obj is Duplicate_ {
+            return obj.tag === MobileInfraAddrError_Tags.Duplicate;
+        }
+        static hasInner(obj: any): obj is Duplicate_ {
+            return false;
+        }
+
+    }
+
+    function instanceOf(obj: any): obj is MobileInfraAddrError {
+        return obj[uniffiTypeNameSymbol] === "MobileInfraAddrError";
+    }
+
+    return Object.freeze({
+        instanceOf,
+  NodeNotStarted: NodeNotStarted_, 
+  Malformed: Malformed_, 
+  MissingPeerId: MissingPeerId_, 
+  NoTransport: NoTransport_, 
+  UnsupportedTransport: UnsupportedTransport_, 
+  SelfAddr: SelfAddr_, 
+  Duplicate: Duplicate_
+    });
+
+})();
+/**
+ * 引导节点地址**提交前校验**失败的原因（core 的 `InfraAddrError` 逐变体镜像）。
+ *
+ * 刻意不走 [`FfiError::InvalidArgument`] 那条 `format!("{e}")` 的路：那正是本轮在修
+ * 的病——压成一句话之后 JS 只能整串贴给用户，说不出「本端装配了哪些传输、你粘的这条
+ * 是哪一种」这类可行动的信息，而这恰恰是最容易踩的一类错（往手机上粘一条只有浏览器
+ * 才有的 `/webrtc/`）。
+ *
+ * [`Self::NodeNotStarted`] 与其余变体同列而不另开一个错误类型：调用点只有一个
+ * 输入框，两类失败在 UI 上落到同一处内联提示，分成两个错误类型只会逼 JS 侧写
+ * 两条 catch。
+ */
+export type MobileInfraAddrError = InstanceType<
+    typeof MobileInfraAddrError['NodeNotStarted' | 'Malformed' | 'MissingPeerId' | 'NoTransport' | 'UnsupportedTransport' | 'SelfAddr' | 'Duplicate']
+>;
+
+// FfiConverter for enum MobileInfraAddrError
+const FfiConverterTypeMobileInfraAddrError = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileInfraAddrError;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return new MobileInfraAddrError.NodeNotStarted();
+                case 2: return new MobileInfraAddrError.Malformed({detail: FfiConverterString.read(from) });
+                case 3: return new MobileInfraAddrError.MissingPeerId();
+                case 4: return new MobileInfraAddrError.NoTransport();
+                case 5: return new MobileInfraAddrError.UnsupportedTransport({transport: FfiConverterString.read(from), supported: FfiConverterSequenceString.read(from) });
+                case 6: return new MobileInfraAddrError.SelfAddr();
+                case 7: return new MobileInfraAddrError.Duplicate();
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value.tag) {
+                case MobileInfraAddrError_Tags.NodeNotStarted: {
+                    ordinalConverter.write(1, into);
+                    return;
+                }
+                case MobileInfraAddrError_Tags.Malformed: {
+                    ordinalConverter.write(2, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner.detail, into);
+                    return;
+                }
+                case MobileInfraAddrError_Tags.MissingPeerId: {
+                    ordinalConverter.write(3, into);
+                    return;
+                }
+                case MobileInfraAddrError_Tags.NoTransport: {
+                    ordinalConverter.write(4, into);
+                    return;
+                }
+                case MobileInfraAddrError_Tags.UnsupportedTransport: {
+                    ordinalConverter.write(5, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner.transport, into);
+                    FfiConverterSequenceString.write(inner.supported, into);
+                    return;
+                }
+                case MobileInfraAddrError_Tags.SelfAddr: {
+                    ordinalConverter.write(6, into);
+                    return;
+                }
+                case MobileInfraAddrError_Tags.Duplicate: {
+                    ordinalConverter.write(7, into);
+                    return;
+                }
+                default:
+                    // Throwing from here means that MobileInfraAddrError_Tags hasn't matched an ordinal.
+                    throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        allocationSize(value: TypeName): number {
+            switch (value.tag) {
+                case MobileInfraAddrError_Tags.NodeNotStarted: {
+                    return ordinalConverter.allocationSize(1);
+                }
+                case MobileInfraAddrError_Tags.Malformed: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(2);
+                    size += FfiConverterString.allocationSize(inner.detail);
+                    return size;
+                }
+                case MobileInfraAddrError_Tags.MissingPeerId: {
+                    return ordinalConverter.allocationSize(3);
+                }
+                case MobileInfraAddrError_Tags.NoTransport: {
+                    return ordinalConverter.allocationSize(4);
+                }
+                case MobileInfraAddrError_Tags.UnsupportedTransport: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(5);
+                    size += FfiConverterString.allocationSize(inner.transport);
+                    size += FfiConverterSequenceString.allocationSize(inner.supported);
+                    return size;
+                }
+                case MobileInfraAddrError_Tags.SelfAddr: {
+                    return ordinalConverter.allocationSize(6);
+                }
+                case MobileInfraAddrError_Tags.Duplicate: {
+                    return ordinalConverter.allocationSize(7);
+                }
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+    }
+    return new FFIConverter();
+})();
+
 export interface ForeignEventBus {
     
     emit(event: MobileCoreEvent): void;
@@ -6524,6 +6888,14 @@ export interface MobileCoreLike {
  * 实际写入路径由 ForeignFileAccess::create_sink 实现决定，core 只把 uri 当作 SaveLocation::Path 透传。
  */
     acceptReceive(sessionId: string, saveLocationUri: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+/**
+ * 添加一个引导节点：校验 + 登记常驻意图，**节点无需重启**。
+ *
+ * 返回该节点的 peer id —— JS 侧拿它当移除的键（`multiaddr` 可以有多条，关系只有
+ * 一段）。角色给全 kad + relay：本仓自建的引导节点两角兼任，而只给 relay 会让它
+ * 进不了 kad 路由表（那个漏洞在 Web 端靠 identify 兜了很久）。
+ */
+    addInfraNode(addr: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<string>;
     archiveInboxItem(itemId: string, archived: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
 /**
  * 取消接收会话（含清理已落盘的半成品）。
@@ -6635,6 +7007,14 @@ export interface MobileCoreLike {
     prepareSend(files: Array<MobileTransferFile>, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobilePreparedTransfer>;
     rejectReceive(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
 /**
+ * 撤销引导节点的常驻意图：清候选表与收敛状态，并关掉 circuit listener、断开连接。
+ *
+ * **只对 `removable` 为真的条目调用**——同一个 NodeId 可能既是引导节点又是已配对
+ * 设备（LAN Helper 就是另一台 SwarmDrop），对它调这个会掐断正在跑的传输，而
+ * mDNS 来源的候选下一次 identify 又会原样回来。
+ */
+    removeInfraNode(peerId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+/**
  * 解除配对。
  *
  * 编排在 core 的 [`unpair`](swarmdrop_core::paired_devices::unpair)：节点在跑时走
@@ -6705,6 +7085,14 @@ export interface MobileCoreLike {
     shutdownNode(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
     startNode(networkConfig: MobileNetworkRuntimeConfig, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
 /**
+ * 本端点**实际装配**的传输 wire 名（`tcp` / `quic` / `webrtc` / `webrtcDirect`）。
+ *
+ * 这是内核事实而非部署配置：`MOBILE_BOOTSTRAP_NODES` 是「连哪些地址」，这里是
+ * 「本机拨得动哪些传输」。JS 侧只拿它写提示文案，判定本身在 Rust 里做
+ * （见 [`Self::validate_infra_addr`]）——两边各判一次必然漂移。
+ */
+    supportedTransports(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<string>>;
+/**
  * 取出最近一次 Rust panic 的详情(location + payload + 可选 backtrace)。
  * 取过即清空 —— RN 端在 catch 到 uniffi `Rust panic` 错误后立即调一次,
  * 把内容打到 console 便于定位。无 panic 时返回 None。
@@ -6722,6 +7110,14 @@ export interface MobileCoreLike {
  * `find` 一遍。
  */
     updatePairedDevicePolicy(peerId: string, trustLevel: MobileDeviceTrustLevel, receivePolicy: MobileDeviceReceivePolicy | undefined, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileDevice>;
+/**
+ * 提交前同步校验，**不写任何状态**。
+ *
+ * 五条规则全部零网络往返；「能不能连上」由提交后的收敛环回答。输入框边打边校验
+ * 时调它，提交走 [`Self::add_infra_node`]（那一步会再校验一次，两步之间的窗口
+ * 因此不存在）。
+ */
+    validateInfraAddr(addr: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
 }
 /**
  * @deprecated Use `MobileCoreLike` instead.
@@ -6784,6 +7180,45 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
             /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
+ * 添加一个引导节点：校验 + 登记常驻意图，**节点无需重启**。
+ *
+ * 返回该节点的 peer id —— JS 侧拿它当移除的键（`multiaddr` 可以有多条，关系只有
+ * 一段）。角色给全 kad + relay：本仓自建的引导节点两角兼任，而只给 relay 会让它
+ * 进不了 kad 路由表（那个漏洞在 Web 端靠 identify 兜了很久）。
+ */
+    async addInfraNode(addr: string, asyncOpts_?: { signal: AbortSignal }): Promise<string> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_add_infra_node(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(addr, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            // Async returns always go through the JS-side converter: the
+            // FFI symbol returns the future handle (u64), and the user-level
+            // RustBuffer comes back via the shared `rust_future_complete_*`
+            // export. The bytes the runtime hands back must be deserialized
+            // here using the per-callable return-type converter.
+            /*liftFunc:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeMobileInfraAddrError.lift.bind(FfiConverterTypeMobileInfraAddrError)
         );
     } catch (__error: any) {
         if (uniffiIsDebug && __error instanceof Error) {
@@ -7779,6 +8214,40 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     
 /**
+ * 撤销引导节点的常驻意图：清候选表与收敛状态，并关掉 circuit listener、断开连接。
+ *
+ * **只对 `removable` 为真的条目调用**——同一个 NodeId 可能既是引导节点又是已配对
+ * 设备（LAN Helper 就是另一台 SwarmDrop），对它调这个会掐断正在跑的传输，而
+ * mDNS 来源的候选下一次 identify 又会原样回来。
+ */
+    async removeInfraNode(peerId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_remove_infra_node(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(peerId, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
  * 解除配对。
  *
  * 编排在 core 的 [`unpair`](swarmdrop_core::paired_devices::unpair)：节点在跑时走
@@ -8206,6 +8675,45 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     
 /**
+ * 本端点**实际装配**的传输 wire 名（`tcp` / `quic` / `webrtc` / `webrtcDirect`）。
+ *
+ * 这是内核事实而非部署配置：`MOBILE_BOOTSTRAP_NODES` 是「连哪些地址」，这里是
+ * 「本机拨得动哪些传输」。JS 侧只拿它写提示文案，判定本身在 Rust 里做
+ * （见 [`Self::validate_infra_addr`]）——两边各判一次必然漂移。
+ */
+    async supportedTransports(asyncOpts_?: { signal: AbortSignal }): Promise<Array<string>> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_supported_transports(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            // Async returns always go through the JS-side converter: the
+            // FFI symbol returns the future handle (u64), and the user-level
+            // RustBuffer comes back via the shared `rust_future_complete_*`
+            // export. The bytes the runtime hands back must be deserialized
+            // here using the per-callable return-type converter.
+            /*liftFunc:*/ FfiConverterSequenceString.lift.bind(FfiConverterSequenceString),
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
  * 取出最近一次 Rust panic 的详情(location + payload + 可选 backtrace)。
  * 取过即清空 —— RN 端在 catch 到 uniffi `Rust panic` 错误后立即调一次,
  * 把内容打到 console 便于定位。无 panic 时返回 None。
@@ -8261,6 +8769,40 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
             /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
+ * 提交前同步校验，**不写任何状态**。
+ *
+ * 五条规则全部零网络往返；「能不能连上」由提交后的收敛环回答。输入框边打边校验
+ * 时调它，提交走 [`Self::add_infra_node`]（那一步会再校验一次，两步之间的窗口
+ * 因此不存在）。
+ */
+    async validateInfraAddr(addr: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_validate_infra_addr(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(addr, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeMobileInfraAddrError.lift.bind(FfiConverterTypeMobileInfraAddrError)
         );
     } catch (__error: any) {
         if (uniffiIsDebug && __error instanceof Error) {
@@ -8530,6 +9072,9 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive() !== 33535) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive");
     }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_add_infra_node() !== 53085) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_add_infra_node");
+    }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_archive_inbox_item() !== 6529) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_archive_inbox_item");
     }
@@ -8623,6 +9168,9 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive() !== 8223) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive");
     }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_infra_node() !== 34743) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_infra_node");
+    }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_paired_device() !== 20356) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_paired_device");
     }
@@ -8659,11 +9207,17 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node() !== 34031) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node");
     }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_supported_transports() !== 33345) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_supported_transports");
+    }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic() !== 20022) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_update_paired_device_policy() !== 61697) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_update_paired_device_policy");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_validate_infra_addr() !== 60408) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_validate_infra_addr");
     }
 
     uniffiCallbackInterfaceForeignEventBus.register();
@@ -8701,6 +9255,7 @@ export default Object.freeze({
     FfiConverterTypeMobileInboxItemSummary,
     FfiConverterTypeMobileInboxSearchHit,
     FfiConverterTypeMobileInboxSourceKind,
+    FfiConverterTypeMobileInfraAddrError,
     FfiConverterTypeMobileInfraExclusion,
     FfiConverterTypeMobileInfraLink,
     FfiConverterTypeMobileInviteListItem,

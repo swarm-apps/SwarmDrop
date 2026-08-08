@@ -199,3 +199,145 @@ async fn reservation_rebuilds_after_helper_restart() {
 
     manager.cancel_background_tasks();
 }
+
+/// 启动路径的角色降级不能连带把 DHT 种子也关掉。
+///
+/// `runtime.rs` 的启动注册从 `InfraRoles::bootstrap()`（kad + relay）降为
+/// `{ kad_server: true, relay: false }`，堵的是「关掉公网可达性的用户照样在启动时建了
+/// 公网 reservation」这个绕过闸门的漏洞。但两个开关是**正交**的——用户以为关掉的是
+/// 「别让我被动可达」，不该连带关掉「跨网还能不能找到人」。
+///
+/// 所以这条钉死降级后**仍然会拨号并连上**：kad 路由表拿得到种子，`dht.bootstrap()`
+/// 与在线记录发布不受影响。反向的那一半（Public 范围候选在闸门关闭时不建 reservation）
+/// 由 `infra::supervisor` 的 `public_reachability_off_skips_public_candidates` 覆盖——
+/// 那半边在这里表达不了：集成测试只有 loopback 地址可用，而 `CandidateScope::infer`
+/// 见到 loopback 一律判 `Lan`，构造不出 `Public` 范围的真实连接。
+#[tokio::test(flavor = "multi_thread")]
+async fn kad_only_registration_still_dials_the_bootstrap_node() {
+    use swarmdrop_net::{InfraRoles, NodeAddr};
+
+    let seed_secret = SecretKey::generate();
+    let seed_id = seed_secret.node_id();
+    let seed = helper_endpoint(seed_secret).await;
+    let seed_addr = listen_addr(&seed).await;
+
+    let client = client_endpoint(SecretKey::generate()).await;
+
+    client
+        .add_infrastructure_peer(
+            NodeAddr {
+                id: seed_id,
+                addrs: vec![seed_addr],
+            },
+            InfraRoles {
+                kad_server: true,
+                relay: false,
+            },
+        )
+        .await
+        .expect("kad-only 注册不应报错");
+
+    poll_until(
+        || client.is_connected(seed_id),
+        Duration::from_secs(15),
+        "relay=false 的基础设施注册仍应拨号并连上（DHT 种子）",
+    )
+    .await;
+
+    // 而 relay 轨道确实没有被建立——降级是真降级，不是换个写法的 bootstrap()
+    assert!(
+        !client.watch_relays().get().contains_key(&seed_id),
+        "relay=false 不得写 relays map"
+    );
+
+    client.close().await;
+    seed.close().await;
+}
+
+/// `networkStatusChanged` 必须在 relay 进入 `Connecting` / `Failed` 时被推出去。
+///
+/// 这是本轮那三行补丁的验收：`run_event_loop` 此前只订了 `addrs` 与 `nat` 两条 watch，
+/// 而这两个态**没有任何 NetEvent 对应物**（边沿轨只有 Accepted / Lost 两个）。少了
+/// `relays_watcher`，原生端就永远看不到「正在连接」，也永远拿不到 `last_error`——
+/// 那正是「桌面和移动端不知道哪条引导节点报了什么错」的根因。
+///
+/// 用一个拨不通的地址触发：内核先翻 `Connecting`，拨号候选耗尽后翻 `Failed`。
+#[tokio::test(flavor = "multi_thread")]
+async fn relay_state_transitions_are_pushed_to_the_host() {
+    use std::sync::Mutex;
+    use swarmdrop_core::infra::InfraLink;
+    use swarmdrop_core::network::event_loop::run_event_loop;
+
+    /// 只留 `NetworkStatus` 的 infra_links 快照——本用例只关心「推没推」和「推了什么」。
+    #[derive(Default)]
+    struct RecordingBus(Mutex<Vec<Vec<InfraLink>>>);
+
+    #[async_trait::async_trait]
+    impl EventBus for RecordingBus {
+        async fn publish(&self, event: CoreEvent) -> AppResult<()> {
+            if let CoreEvent::NetworkStatusChanged { status } = event {
+                self.0.lock().unwrap().push(status.infra_links);
+            }
+            Ok(())
+        }
+    }
+
+    let client = client_endpoint(SecretKey::generate()).await;
+    let events = client.subscribe().await.expect("subscribe");
+
+    let network_config = NetworkRuntimeConfig {
+        discovery_mode: DiscoveryMode::LanOnly,
+        ..NetworkRuntimeConfig::default()
+    };
+    let candidates = create_candidate_manager(&network_config);
+    let bus = Arc::new(RecordingBus::default());
+    let manager = NetManager::new(
+        client,
+        OsInfo::default(),
+        Vec::new(),
+        // `()` = 没有传输层：本用例只驱动 relay 轨道
+        (),
+        network_config,
+        candidates,
+        bus.clone() as Arc<dyn EventBus>,
+        None,
+        std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
+        Arc::new(memory_host()),
+    );
+    let shared = manager.shared_refs();
+    tokio::spawn(run_event_loop(
+        events,
+        shared.clone(),
+        bus.clone() as Arc<dyn EventBus>,
+    ));
+
+    // TEST-NET-1（RFC 5737）+ 一个丢弃端口：保证拨不通，且不会打到任何真实主机。
+    let dead: Addr =
+        "/ip4/192.0.2.1/tcp/9/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
+            .parse()
+            .unwrap();
+    let dead_id = dead.p2p_node_id().expect("fixture 带 /p2p/");
+    shared.candidates.write().unwrap().upsert(
+        dead_id,
+        vec![dead],
+        BootstrapCandidateSource::HostConfigured,
+        CandidateRoles::kad_and_relay(),
+    );
+
+    // 只看「推送里出现过非 None 的 relay 轨道」——具体停在 Connecting 还是 Failed
+    // 取决于拨号超时，钉死其中之一会让这条测试变成计时器竞赛。
+    poll_until(
+        || {
+            bus.0.lock().unwrap().iter().any(|links| {
+                links
+                    .iter()
+                    .any(|l| l.peer_id == dead_id && l.relay.is_some())
+            })
+        },
+        Duration::from_secs(20),
+        "relay 状态变化应触发 NetworkStatusChanged 推送",
+    )
+    .await;
+
+    manager.cancel_background_tasks();
+}

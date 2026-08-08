@@ -1,11 +1,23 @@
 # 三端网络/引导节点状态统一 —— 架构调研与决策
 
-> **决策状态：架构方向已定，openspec change `unify-infra-node-status` 已立并部分实施。** 2026-08-08。
-> 已落地：内核推送链路（`watch_relays` 订阅）、`InfraLink` 读模型与三端 IPC 载体、候选表
-> scope 单点推断、启动路径角色降级、删除 `CandidateHealth`、MCP 投影同源。
-> 未落地：三端 UI、`DESIGN.md` 契约、`shared-view` 判据、Web 持久化、意图 IPC。
-> 逐项进度见 `openspec/changes/unify-infra-node-status/tasks.md`。
-> 本篇是「未落地方案」的调研结论，不是现行架构描述。落地后应迁入 `knowledge/`。
+> **决策状态：已落地。** 2026-08-08 提出并于同日实施完毕（openspec change
+> `unify-infra-node-status`，99 项中 90 项完成；余下 4 项是需要真机/浏览器的手动验证、
+> 1 项是刻意推迟的设计缺口，逐项状态见该 change 的 `tasks.md`）。
+>
+> **本篇是决策档案，不是现行架构描述。** 它记录的是「当时为什么这么选」，含 16 条被否决
+> 方案的完整论证——那些论证不会随实现漂移，价值也正在这里。要查**现在是什么样**，去：
+>
+> | 想知道什么 | 去哪 |
+> |---|---|
+> | 三端 UI 必须一致的部分 | `DESIGN.md` 的 `### Node Status Contract (cross-platform)` |
+> | `InfraLink` 读模型、`watch_relays` 订阅、`supported_transports` 与提交前校验 | `dev-notes/knowledge/net-kernel.md` |
+> | 判据的两个纯函数与它们的 Rust 孪生 | `packages/shared-view/src/network/` + `src-tauri/src/node_health.rs` |
+> | 枚举 → 文案不许写三元链 | `dev-notes/knowledge/theme-and-styling.md` |
+>
+> ⚠️ 正文里的**行号与文件名是撰写时快照**，实施中已漂移。最显眼的两处：
+> `stop-node-sheet.tsx` 与 `start-node-sheet.tsx` 已合并为 `node-status-sheet.tsx`；
+> `InfraExclusion` 最终只保留了 `PublicReachabilityDisabled` 一个变体（`NotARelay` 渲染
+> 不出与 `seedOnly` 的差异，理由写在 `crates/core/src/infra/link.rs` 的类型文档里）。
 
 ## 缘起
 

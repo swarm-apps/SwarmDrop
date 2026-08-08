@@ -25,7 +25,7 @@
 | [Web 应用区 i18n 选型](2026-08-web-app-i18n.md) | 🟡 已给结论待实施 | Lingui + 运行时切换、不引 `[lang]` 段；macro 在 Next 16 Turbopack 下已实测可编译（#102） |
 | [Rust 侧的中文串：它是不是 i18n 问题](2026-08-rust-side-user-strings.md) | 🟢 已决策并落地 | 1466 处里到得了用户的只有 3 条通道；推荐判别码化而非 Rust 侧 i18n。附带发现一个真 bug（文件名参与错误匹配） |
 | [`docs/` 依赖升级评估](2026-08-docs-deps-upgrade.md) | 🟡 部分落地 | Next 16.3 已升（它是 dev 吃光内存把机器搞重启的正解）；fumadocs 换搜索引擎 + lucide v1 删品牌图标要一起改，TS 7 等 7.1 |
-| [三端网络/引导节点状态统一](2026-08-tri-platform-network-status.md) | 🟡 已定架构方向待立 change | 症状是「三端展示不一致」，根因是**建模对象选错**——「引导节点」不是实体而是一段关系，同一概念在**五个写入点用了四种角色组合**。最高性价比的一刀：`run_event_loop` 至今没订 `watch_relays`，所以原生端**根本推不出** `Connecting`/`Failed{last_error}`（三行补丁）。另发现 `discovery_mode` 三个版本零生效、托盘与 MCP 是第四、第五个状态面 |
+| [三端网络/引导节点状态统一](2026-08-tri-platform-network-status.md) | 🟢 已决策并落地 | **本篇留作决策档案，现行架构见 `DESIGN.md` 的 Node Status Contract 与 `knowledge/net-kernel.md`。** 症状是「三端展示不一致」，根因是**建模对象选错**——「引导节点」不是实体而是一段关系，同一概念在**五个写入点用了四种角色组合**。最高性价比的一刀：`run_event_loop` 至今没订 `watch_relays`，所以原生端**根本推不出** `Connecting`/`Failed{last_error}`（三行补丁）。另发现 `discovery_mode` 三个版本零生效、托盘与 MCP 是第四、第五个状态面 |
 | [三端日志：给用户一份能交出来的现场](2026-08-logging.md) | 🟡 待决策 | **移动端连 subscriber 都没有、日志根本不产生**，且 Android 上 stdout 进 /dev/null（`log.redirect-stdio` 只在 Dalvik 有效）；桌面只到 stdout。官方 `tauri-plugin-log` 只吃 `log` crate 而本仓全是 `tracing` → 文件层用 `tracing-appender` 三端共用，平台层各挂各的。建议先做移动端 |
 
 状态图例：🟢 已决策采纳 · 🟡 验证中 / 待决策 · 🔴 已否决（保留论证）

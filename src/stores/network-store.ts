@@ -32,6 +32,13 @@ interface NetworkState {
   error: string | null;
   /** 节点启动时间戳 */
   startedAt: number | null;
+  /**
+   * 有设置改过、但要重启节点才生效。
+   *
+   * 住在 store 而不是设置区的组件 `useState`：它是**跨路由的**事实——用户改完开关
+   * 切去设备页再回来，那条提示不该消失，否则他会以为已经生效了。
+   */
+  needsRestart: boolean;
 
   // === Actions ===
 
@@ -47,6 +54,8 @@ interface NetworkState {
   getConnectedCount: () => number;
   /** 获取已发现的 peer 数量 */
   getDiscoveredCount: () => number;
+  /** 标记 / 清除「需重启节点才生效」。 */
+  setNeedsRestart: (needsRestart: boolean) => void;
   /** 清除错误 */
   clearError: () => void;
 }
@@ -104,6 +113,7 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
   networkStatus: null,
   error: null,
   startedAt: null,
+  needsRestart: false,
 
   async startNetwork() {
     const { status } = get();
@@ -123,6 +133,8 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
       error: null,
       devices: [],
       networkStatus: null,
+      // 这次启动读的就是当前偏好，之前攒下的「需重启」到此清账。
+      needsRestart: false,
     });
 
     try {
@@ -217,6 +229,10 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
   getDiscoveredCount(): number {
     const { networkStatus } = get();
     return networkStatus?.discoveredPeers ?? 0;
+  },
+
+  setNeedsRestart(needsRestart) {
+    set({ needsRestart });
   },
 
   clearError() {

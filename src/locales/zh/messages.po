@@ -87,6 +87,10 @@ msgstr "AI 原生 · MCP"
 msgid "Bundle"
 msgstr "Bundle"
 
+#: src/lib/node-status.ts
+msgid "DHT 种子"
+msgstr "DHT 种子"
+
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "MCP Server 已停止"
 msgstr "MCP Server 已停止"
@@ -99,7 +103,7 @@ msgstr "MCP Server 已启动"
 msgid "MCP Server 的 HTTP 端口号"
 msgstr "MCP Server 的 HTTP 端口号"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "NAT 状态"
 msgstr "NAT 状态"
@@ -142,6 +146,10 @@ msgstr "下载中..."
 msgid "不可恢复失败"
 msgstr "不可恢复失败"
 
+#: src/lib/node-status.ts
+msgid "不是合法的 Multiaddr 地址"
+msgstr "不是合法的 Multiaddr 地址"
+
 #: src/routes/_app/settings/-about-section.tsx
 msgid "不止于局域网：在任意网络间端到端加密地收发文件，连 AI 代理也能经 MCP 调用。"
 msgstr "不止于局域网：在任意网络间端到端加密地收发文件，连 AI 代理也能经 MCP 调用。"
@@ -154,12 +162,12 @@ msgstr "不限制"
 msgid "个文件"
 msgstr "个文件"
 
+#: src/lib/node-status.ts
 #: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "中继"
 msgstr "中继"
 
-#: src/components/network/stop-node-sheet.tsx
 #: src/routes/_app/devices/-components/connection-badge.tsx
 msgid "中继节点"
 msgstr "中继节点"
@@ -189,6 +197,11 @@ msgstr "主题"
 msgid "二维码渲染失败"
 msgstr "二维码渲染失败"
 
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "infraLink.seedOnly"
+msgstr "仅 DHT 种子"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "仅删除记录"
 msgstr "仅删除记录"
@@ -198,10 +211,10 @@ msgid "仅删除记录会保留本地文件；勾选删除本地文件后，会�
 msgstr "仅删除记录会保留本地文件；勾选删除本地文件后，会从磁盘移除这些已接收文件。"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "仅在需要接入私有或备用网络时添加。"
-msgstr "仅在需要接入私有或备用网络时添加。"
+#~ msgid "仅在需要接入私有或备用网络时添加。"
+#~ msgstr "仅在需要接入私有或备用网络时添加。"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/lib/node-status.ts
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "仅局域网"
 msgstr "仅局域网"
@@ -252,6 +265,11 @@ msgstr "传输活动"
 msgid "但这条记录没能保存下来，重启后需要重新配对。"
 msgstr "但这条记录没能保存下来，重启后需要重新配对。"
 
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "nodeHealth.configuredLanOnly"
+msgstr "你关闭了公网可达性，其他网络的设备找不到你"
+
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "使用同网段已开启协助能力的桌面端"
 msgstr "使用同网段已开启协助能力的桌面端"
@@ -294,18 +312,18 @@ msgid "信任级别"
 msgstr "信任级别"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "候选来源"
-msgstr "候选来源"
+#~ msgid "候选来源"
+#~ msgstr "候选来源"
 
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "停止"
 msgstr "停止"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 msgid "停止后将断开所有连接，其他设备将无法发现你"
 msgstr "停止后将断开所有连接，其他设备将无法发现你"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 msgid "停止节点"
 msgstr "停止节点"
 
@@ -339,7 +357,11 @@ msgstr "先验证，再确认"
 msgid "全部"
 msgstr "全部"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/lib/node-status.ts
+msgid "公网"
+msgstr "公网"
+
+#: src/lib/node-status.ts
 msgid "公网可达"
 msgstr "公网可达"
 
@@ -347,9 +369,13 @@ msgstr "公网可达"
 msgid "公网可达性"
 msgstr "公网可达性"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 msgid "公网地址"
 msgstr "公网地址"
+
+#: src/components/network/node-status-sheet.tsx
+msgid "公网地址已复制"
+msgstr "公网地址已复制"
 
 #: src/routes/_app/settings/-about-section.tsx
 msgid "关于"
@@ -375,13 +401,18 @@ msgstr "关闭后，包含子路径的传输会被策略拒绝"
 msgid "关闭后，通过中继连接的传输仍需手动确认"
 msgstr "关闭后，通过中继连接的传输仍需手动确认"
 
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "nodeHealth.reachable"
+msgstr "其他网络的设备可以连到你"
+
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "其他设备配对时会看到这个名称，你可以随时在设置中修改。"
 msgstr "其他设备配对时会看到这个名称，你可以随时在设置中修改。"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "内置节点用于首次发现网络，通常无需调整。"
-msgstr "内置节点用于首次发现网络，通常无需调整。"
+#~ msgid "内置节点用于首次发现网络，通常无需调整。"
+#~ msgstr "内置节点用于首次发现网络，通常无需调整。"
 
 #: src/components/layout/app-topbar.tsx
 msgid "最大化"
@@ -487,6 +518,10 @@ msgstr "协助地址已复制"
 msgid "去「发送」页直接选它就行。"
 msgstr "去「发送」页直接选它就行。"
 
+#: src/components/network/node-status-sheet.tsx
+msgid "去设置"
+msgstr "去设置"
+
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "发现模式"
 msgstr "发现模式"
@@ -542,7 +577,7 @@ msgstr "发送给 {0}"
 msgid "发送请求没能送达对方，请确认对方在线后重试"
 msgstr "发送请求没能送达对方，请确认对方在线后重试"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 #: src/components/ui/confirm-dialog.tsx
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
@@ -586,9 +621,14 @@ msgstr "只允许同一局域网连接"
 msgid "只建立你确认过的连接"
 msgstr "只建立你确认过的连接"
 
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "nodeHealth.lanReachable"
+msgstr "只有同一网络里的设备能连到你"
+
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "只读"
-msgstr "只读"
+#~ msgid "只读"
+#~ msgstr "只读"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "可在设备菜单中为已配对设备设置分组。"
@@ -603,8 +643,8 @@ msgid "可恢复失败"
 msgstr "可恢复失败"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "可达"
-msgstr "可达"
+#~ msgid "可达"
+#~ msgstr "可达"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "可配对"
@@ -623,12 +663,11 @@ msgstr "启动"
 msgid "启动 P2P 节点后即可发现附近设备、接收文件并发起配对"
 msgstr "启动 P2P 节点后即可发现附近设备、接收文件并发起配对"
 
-#: src/components/layout/app-topbar.tsx
-#: src/components/network/stop-node-sheet.tsx
+#: src/lib/node-status.ts
 msgid "启动中"
 msgstr "启动中"
 
-#: src/components/network/start-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 msgid "启动中..."
 msgstr "启动中..."
 
@@ -640,10 +679,14 @@ msgstr "启动后可供 AI 助手通过 MCP 协议操控文件传输"
 msgid "启动后显示可发送的设备"
 msgstr "启动后显示可发送的设备"
 
-#: src/components/network/start-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 #: src/routes/_app/devices/-components/offline-empty-state.tsx
 msgid "启动节点"
 msgstr "启动节点"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "启动节点后可添加引导节点"
+msgstr "启动节点后可添加引导节点"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "启用后，符合策略的入站文件会直接进入收件箱"
@@ -676,21 +719,34 @@ msgstr "在文件管理器中右键「用 SwarmDrop 发送」，或在设备页�
 
 #: src/routes/_app/devices/-components/device-card.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
-#: src/routes/_app/settings/-device-info-section.tsx
 msgid "在线"
 msgstr "在线"
 
 #: src/components/layout/app-topbar.tsx
-msgid "在线 · 可接收"
-msgstr "在线 · 可接收"
+#~ msgid "在线 · 可接收"
+#~ msgstr "在线 · 可接收"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "在线设备优先显示，可直接进入发送流程。"
 msgstr "在线设备优先显示，可直接进入发送流程。"
 
+#. placeholder {0}: transportDisplay(rejection.transport)
+#. placeholder {1}: rejection.supported.map(transportDisplay).join(" · ")
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "地址需以 / 开头且包含 /p2p/ 部分"
-msgstr "地址需以 / 开头且包含 /p2p/ 部分"
+msgid "地址用的是 {0}，本端支持的是 {1}。"
+msgstr "地址用的是 {0}，本端支持的是 {1}。"
+
+#: src/lib/node-status.ts
+msgid "地址里没有可拨的传输段"
+msgstr "地址里没有可拨的传输段"
+
+#: src/lib/node-status.ts
+msgid "地址里缺少 /p2p/ 节点身份"
+msgstr "地址里缺少 /p2p/ 节点身份"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+#~ msgid "地址需以 / 开头且包含 /p2p/ 部分"
+#~ msgstr "地址需以 / 开头且包含 /p2p/ 部分"
 
 #: src/components/transfer/transfer-offer-dialog.tsx
 #: src/routes/_app/settings/-mcp-section.tsx
@@ -705,7 +761,9 @@ msgstr "复制"
 msgid "复制后可供浏览器端快速连接本机。"
 msgstr "复制后可供浏览器端快速连接本机。"
 
+#: src/components/network/infra-link-parts.tsx
 #: src/components/network/lan-helper-address.tsx
+#: src/components/network/node-status-sheet.tsx
 #: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
@@ -732,6 +790,10 @@ msgstr "复制远端地址"
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "复制邀请链接"
 msgstr "复制邀请链接"
+
+#: src/components/network/infra-link-parts.tsx
+msgid "复制错误信息"
+msgstr "复制错误信息"
 
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "外观"
@@ -826,12 +888,13 @@ msgstr "将删除已结束的传输记录，此操作无法撤销；进行中与
 msgid "将在 {0} 后过期"
 msgstr "将在 {0} 后过期"
 
+#: src/lib/node-status.ts
 #: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "局域网"
 msgstr "局域网"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/lib/node-status.ts
 msgid "局域网协助"
 msgstr "局域网协助"
 
@@ -868,8 +931,7 @@ msgstr "已删除记录和本地文件"
 msgid "已发出的邀请"
 msgstr "已发出的邀请"
 
-#: src/components/network/start-node-sheet.tsx
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 msgid "已发现节点"
 msgstr "已发现节点"
 
@@ -901,9 +963,14 @@ msgstr "已复制到剪贴板"
 msgid "已完成"
 msgstr "已完成"
 
-#: src/components/network/stop-node-sheet.tsx
-msgid "已就绪"
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "infraLink.ok"
 msgstr "已就绪"
+
+#: src/components/network/stop-node-sheet.tsx
+#~ msgid "已就绪"
+#~ msgstr "已就绪"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "已归档"
@@ -917,6 +984,11 @@ msgstr "已归档收件箱记录"
 #: src/stores/pairing-store.ts
 msgid "已拒绝来自 {0} 的配对请求"
 msgstr "已拒绝来自 {0} 的配对请求"
+
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "infraLink.excluded"
+msgstr "已按设置排除"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "已收到邀请"
@@ -955,17 +1027,21 @@ msgid "已过期"
 msgstr "已过期"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "已连接"
-msgstr "已连接"
+#~ msgid "已连接"
+#~ msgstr "已连接"
 
 #: src/components/network/start-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
-msgid "已连接节点"
-msgstr "已连接节点"
+#~ msgid "已连接节点"
+#~ msgstr "已连接节点"
 
 #: src/routes/_app/settings/-device-info-section.tsx
-msgid "已连节点"
-msgstr "已连节点"
+msgid "已连接设备"
+msgstr "已连接设备"
+
+#: src/routes/_app/settings/-device-info-section.tsx
+#~ msgid "已连节点"
+#~ msgstr "已连节点"
 
 #: src/routes/_app/send/index.lazy.tsx
 msgid "已选内容"
@@ -979,6 +1055,10 @@ msgstr "已选文件"
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "已配对"
 msgstr "已配对"
+
+#: src/components/network/node-status-sheet.tsx
+msgid "已配对 {pairedCount} · 在线 {onlineDeviceCount}"
+msgstr "已配对 {pairedCount} · 在线 {onlineDeviceCount}"
 
 #: src/routes/_app/devices/index.lazy.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
@@ -1009,7 +1089,6 @@ msgstr "建议使用你能在设备列表中快速识别的名称。"
 msgid "开始发送或接收文件后，当前任务会显示在这里。"
 msgstr "开始发送或接收文件后，当前任务会显示在这里。"
 
-#: src/components/network/stop-node-sheet.tsx
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "引导节点"
 msgstr "引导节点"
@@ -1019,8 +1098,20 @@ msgid "引导节点地址已复制"
 msgstr "引导节点地址已复制"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "引导节点已变更，需重启节点生效"
-msgstr "引导节点已变更，需重启节点生效"
+#~ msgid "引导节点已变更，需重启节点生效"
+#~ msgstr "引导节点已变更，需重启节点生效"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "引导节点已添加"
+msgstr "引导节点已添加"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "引导节点已移除"
+msgstr "引导节点已移除"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "引导节点帮你找到其他网络里的设备。增删当场生效，不需要重启节点。"
+msgstr "引导节点帮你找到其他网络里的设备。增删当场生效，不需要重启节点。"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "归档"
@@ -1031,8 +1122,8 @@ msgid "当前会话完成后会进入历史记录。"
 msgstr "当前会话完成后会进入历史记录。"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "当前使用内置引导节点。"
-msgstr "当前使用内置引导节点。"
+#~ msgid "当前使用内置引导节点。"
+#~ msgstr "当前使用内置引导节点。"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "待发文件"
@@ -1239,8 +1330,8 @@ msgid "新建"
 msgstr "新建"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "无效的 Multiaddr 地址"
-msgstr "无效的 Multiaddr 地址"
+#~ msgid "无效的 Multiaddr 地址"
+#~ msgstr "无效的 Multiaddr 地址"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "无法加载这条记录"
@@ -1254,7 +1345,11 @@ msgstr "无法打开文件夹选择器，请检查存储权限"
 msgid "无账户 · 无服务器"
 msgstr "无账户 · 无服务器"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "无需重启节点，稍后即可看到它的连接状态。"
+msgstr "无需重启节点，稍后即可看到它的连接状态。"
+
+#: src/components/network/node-status-sheet.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
 msgid "映射成功"
 msgstr "映射成功"
@@ -1264,8 +1359,12 @@ msgid "昨天"
 msgstr "昨天"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-msgid "是否主动连接公网引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
-msgstr "是否主动连接公网引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
+#~ msgid "是否主动连接公网引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
+#~ msgstr "是否主动连接公网引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
+
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "是否主动连接引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
+msgstr "是否主动连接引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
 
 #: src/components/transfer/session-panel.tsx
 #: src/routes/_app/transfer/-session-row.tsx
@@ -1326,9 +1425,7 @@ msgstr "未分组"
 msgid "未及时处理"
 msgstr "未及时处理"
 
-#: src/components/layout/app-topbar.tsx
-#: src/components/network/start-node-sheet.tsx
-#: src/components/network/stop-node-sheet.tsx
+#: src/lib/node-status.ts
 msgid "未启动"
 msgstr "未启动"
 
@@ -1341,10 +1438,10 @@ msgid "未找到该设备"
 msgstr "未找到该设备"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "未提供"
-msgstr "未提供"
+#~ msgid "未提供"
+#~ msgstr "未提供"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 #: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/inbox/index.lazy.tsx
 #: src/routes/_app/settings/-device-info-section.tsx
@@ -1364,8 +1461,8 @@ msgid "未读"
 msgstr "未读"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "未连接"
-msgstr "未连接"
+#~ msgid "未连接"
+#~ msgstr "未连接"
 
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "未配对"
@@ -1388,12 +1485,21 @@ msgid "本地文件删除后无法通过清空活动记录恢复。"
 msgstr "本地文件删除后无法通过清空活动记录恢复。"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "本机协助中"
-msgstr "本机协助中"
+#~ msgid "本机协助中"
+#~ msgstr "本机协助中"
 
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "本机弹出确认请求，你同意后配对完成"
 msgstr "本机弹出确认请求，你同意后配对完成"
+
+#. placeholder {0}: supported.map(transportDisplay).join(" · ")
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "本端支持的传输：{0}"
+msgstr "本端支持的传输：{0}"
+
+#: src/lib/node-status.ts
+msgid "本端点不支持这种传输"
+msgstr "本端点不支持这种传输"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "本设备作为局域网协助节点"
@@ -1410,6 +1516,10 @@ msgstr "来自"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "来自 {0}"
 msgstr "来自 {0}"
+
+#: src/components/network/node-status-sheet.tsx
+msgid "查看诊断信息"
+msgstr "查看诊断信息"
 
 #: src/routes/_app/devices/-components/connection-badge.tsx
 msgid "查看链路详情"
@@ -1448,6 +1558,7 @@ msgstr "正在保存..."
 msgid "正在准备下载"
 msgstr "正在准备下载"
 
+#: src/lib/node-status.ts
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "正在启动节点…"
 msgstr "正在启动节点…"
@@ -1462,9 +1573,19 @@ msgstr "正在建立会话..."
 msgid "正在计算校验和 ({0}/{1})"
 msgstr "正在计算校验和 ({0}/{1})"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 msgid "正在进行的 {activeTransferCount} 个传输会被中断。"
 msgstr "正在进行的 {activeTransferCount} 个传输会被中断。"
+
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "infraLink.settling"
+msgstr "正在连接"
+
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "nodeHealth.starting"
+msgstr "正在连接网络…"
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "此分类下暂无记录"
@@ -1497,6 +1618,10 @@ msgstr "深色"
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "添加"
 msgstr "添加"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "添加引导节点失败"
+msgstr "添加引导节点失败"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "添加自定义引导节点"
@@ -1533,6 +1658,10 @@ msgstr "点击复制"
 msgid "点击查看远端地址"
 msgstr "点击查看远端地址"
 
+#: src/components/layout/app-topbar.tsx
+msgid "点开查看节点状态与诊断信息"
+msgstr "点开查看节点状态与诊断信息"
+
 #: src/routes/_app/settings/index.lazy.tsx
 msgid "点窗口关闭按钮（✕）后的行为"
 msgstr "点窗口关闭按钮（✕）后的行为"
@@ -1554,8 +1683,7 @@ msgstr "由 AI 代理发起（{0}）"
 msgid "留空则使用设备名"
 msgstr "留空则使用设备名"
 
-#: src/components/network/start-node-sheet.tsx
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 msgid "监听地址"
 msgstr "监听地址"
 
@@ -1600,6 +1728,14 @@ msgstr "离线"
 msgid "移除"
 msgstr "移除"
 
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "移除引导节点"
+msgstr "移除引导节点"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "移除引导节点失败"
+msgstr "移除引导节点失败"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "空传输"
 msgstr "空传输"
@@ -1616,7 +1752,6 @@ msgstr "端到端加密直连"
 msgid "端口号需在 1024 ~ 65535 之间"
 msgstr "端口号需在 1024 ~ 65535 之间"
 
-#: src/components/network/stop-node-sheet.tsx
 #: src/lib/transfer-projection.ts
 msgid "等待中"
 msgstr "等待中"
@@ -1646,8 +1781,8 @@ msgid "策略拒绝"
 msgstr "策略拒绝"
 
 #: src/components/network/start-node-sheet.tsx
-msgid "管理 P2P 网络节点的启动和连接状态"
-msgstr "管理 P2P 网络节点的启动和连接状态"
+#~ msgid "管理 P2P 网络节点的启动和连接状态"
+#~ msgstr "管理 P2P 网络节点的启动和连接状态"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "管理分组"
@@ -1673,6 +1808,10 @@ msgstr "粘贴对方的配对邀请"
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "粘贴邀请"
 msgstr "粘贴邀请"
+
+#: src/components/network/node-status-sheet.tsx
+msgid "系统钥匙串"
+msgstr "系统钥匙串"
 
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "给设备取个名字"
@@ -1704,8 +1843,8 @@ msgid "网络发现设置已变更，需重启节点生效"
 msgstr "网络发现设置已变更，需重启节点生效"
 
 #: src/components/network/start-node-sheet.tsx
-msgid "网络节点"
-msgstr "网络节点"
+#~ msgid "网络节点"
+#~ msgstr "网络节点"
 
 #: src/lib/errors.ts
 msgid "网络连接出现问题，请稍后重试"
@@ -1714,6 +1853,10 @@ msgstr "网络连接出现问题，请稍后重试"
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "自动"
 msgstr "自动"
+
+#: src/lib/node-status.ts
+msgid "自动发现"
+msgstr "自动发现"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "自动发现局域网协助节点"
@@ -1738,30 +1881,50 @@ msgid "自定义 {0}"
 msgstr "自定义 {0}"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "自定义节点"
-msgstr "自定义节点"
+#~ msgid "自定义节点"
+#~ msgstr "自定义节点"
+
+#: src/components/network/node-status-sheet.tsx
+msgid "节点 ID"
+msgstr "节点 ID"
+
+#: src/components/network/node-status-sheet.tsx
+msgid "节点 ID 已复制"
+msgstr "节点 ID 已复制"
 
 #: src/stores/network-store.ts
 msgid "节点启动失败"
 msgstr "节点启动失败"
 
+#: src/lib/node-status.ts
+msgid "节点启动失败，重试或查看日志"
+msgstr "节点启动失败，重试或查看日志"
+
 #: src/hooks/use-node-restart.ts
 msgid "节点已重启"
 msgstr "节点已重启"
 
-#: src/components/network/start-node-sheet.tsx
 #: src/lib/errors.ts
 #: src/routes/_app/devices/-components/offline-empty-state.tsx
 #: src/stores/pairing-store.ts
 msgid "节点未启动"
 msgstr "节点未启动"
 
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "nodeHealth.notRunning"
+msgstr "节点未运行"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "节点未运行，下面是下次启动时会用的地址。"
+msgstr "节点未运行，下面是下次启动时会用的地址。"
+
 #: src/components/network/start-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
-msgid "节点状态"
-msgstr "节点状态"
+#~ msgid "节点状态"
+#~ msgstr "节点状态"
 
-#: src/components/layout/app-topbar.tsx
+#: src/lib/node-status.ts
 msgid "节点错误"
 msgstr "节点错误"
 
@@ -1871,13 +2034,21 @@ msgstr "设备身份读写失败"
 msgid "设置"
 msgstr "设置"
 
+#: src/components/network/node-status-sheet.tsx
+msgid "诊断信息"
+msgstr "诊断信息"
+
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "该分组中还没有设备"
 msgstr "该分组中还没有设备"
 
+#: src/lib/node-status.ts
+msgid "该引导节点已存在"
+msgstr "该引导节点已存在"
+
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
-msgid "该节点已存在"
-msgstr "该节点已存在"
+#~ msgid "该节点已存在"
+#~ msgstr "该节点已存在"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "该记录没有可用的本地路径"
@@ -1917,16 +2088,19 @@ msgstr "跟随系统"
 msgid "跨网络"
 msgstr "跨网络"
 
+#: src/components/network/node-status-sheet.tsx
+msgid "身份存放位置"
+msgstr "身份存放位置"
+
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "输入 Multiaddr 地址，如 /ip4/.../p2p/..."
 msgstr "输入 Multiaddr 地址，如 /ip4/.../p2p/..."
 
-#: src/components/network/stop-node-sheet.tsx
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "运行中"
 msgstr "运行中"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/components/network/node-status-sheet.tsx
 msgid "运行时长"
 msgstr "运行时长"
 
@@ -1955,6 +2129,14 @@ msgstr "还没有分组，可在下方创建。"
 msgid "还没有已配对设备"
 msgstr "还没有已配对设备"
 
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "还没有引导节点。"
+msgstr "还没有引导节点。"
+
+#: src/components/network/node-status-sheet.tsx
+msgid "还没有引导节点。设置页可以添加。"
+msgstr "还没有引导节点。设置页可以添加。"
+
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "这些信息仅保存在本机，不会同步给对端。"
 msgstr "这些信息仅保存在本机，不会同步给对端。"
@@ -1962,6 +2144,10 @@ msgstr "这些信息仅保存在本机，不会同步给对端。"
 #: src/stores/pairing-store.ts
 msgid "这是本机生成的邀请"
 msgstr "这是本机生成的邀请"
+
+#: src/lib/node-status.ts
+msgid "这是本机的地址"
+msgstr "这是本机的地址"
 
 #: src/lib/errors.ts
 msgid "这条记录已经不在了，请返回列表重新开始"
@@ -1979,9 +2165,36 @@ msgstr "进行中"
 msgid "远端地址"
 msgstr "远端地址"
 
+#: src/lib/node-status.ts
+msgid "连不上"
+msgstr "连不上"
+
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "infraLink.unreachable"
+msgstr "连不上"
+
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "nodeHealth.isolated"
+msgstr "连不上任何网络，检查引导节点"
+
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "连接"
 msgstr "连接"
+
+#: src/lib/node-status.ts
+msgid "连接中"
+msgstr "连接中"
+
+#. js-lingui-explicit-id
+#: src/lib/node-status.ts
+msgid "infraLink.lost"
+msgstr "连接已断"
+
+#: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+msgid "连接状态"
+msgstr "连接状态"
 
 #: src/components/pairing/connection-request-dialog.tsx
 msgid "连接请求"
@@ -2121,7 +2334,7 @@ msgstr "配对请求"
 msgid "配对邀请二维码"
 msgstr "配对邀请二维码"
 
-#: src/components/network/stop-node-sheet.tsx
+#: src/lib/node-status.ts
 msgid "配置节点"
 msgstr "配置节点"
 
@@ -2162,8 +2375,12 @@ msgid "链路详情"
 msgstr "链路详情"
 
 #: src/components/network/stop-node-sheet.tsx
-msgid "错误"
-msgstr "错误"
+#~ msgid "错误"
+#~ msgstr "错误"
+
+#: src/components/network/infra-link-parts.tsx
+msgid "错误信息已复制"
+msgstr "错误信息已复制"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "附近"

@@ -86,6 +86,13 @@ impl EventBus for TauriEventBus {
 
         match event {
             CoreEvent::NetworkStatusChanged { status } => {
+                // 托盘的「在线」此前只由生命周期命令写死传入，说不出「它连得上东西吗」。
+                // 这里是唯一每次状态变化都会经过的点，健康度顺路搭在同一条推送上，
+                // 不另开轮询。
+                crate::tray::refresh_tray_health(
+                    &self.app,
+                    crate::node_health::summarize(&status, chrono::Utc::now()).is_isolated(),
+                );
                 NetworkStatusChanged(status)
                     .emit(&self.app)
                     .map_err(map_err)?;

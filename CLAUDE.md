@@ -118,7 +118,7 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 | Routing | TanStack Router (file-system based, auto code-splitting) |
 | State | Zustand 5 |
 | UI | shadcn/ui (new-york style), Lucide icons, Radix primitives |
-| i18n | **三端同为 Lingui 6**（桌面 Babel macro · Web SWC plugin · 移动 Metro transformer）。桌面与 Web 同一组 locale（zh / zh-TW / en），移动是 zh-Hans / en；**三份独立 catalog** + 后端 rust-i18n（托盘与系统通知等原生串） |
+| i18n | **三端同为 Lingui 6**（桌面 Babel macro · Web SWC plugin · 移动 Metro transformer）。桌面与 Web 同一组 locale（zh / zh-TW / en），移动是 zh-Hans / en；**四份独立 catalog**——三份前端 Lingui + 后端 rust-i18n（托盘与系统通知等原生串，`pnpm i18n:extract` **扫不到**它） |
 | IPC | tauri-specta v2 —— TS bindings 自动生成，**不手写 invoke 封装** |
 | Backend | Rust 2024, Tauri 2 |
 | P2P | 自研 `crates/net`（iroh 风格 API，libp2p 底层，native + wasm 双 target） |
@@ -387,7 +387,12 @@ device」，常驻入口只会把用户领到那条本用于纠错的目标选�
 
 **节点状态徽章可点**，弹出节点状态弹窗（`node-status-dialog.tsx`）：状态 / 运行时长 / 已配对与
 在线数 / 中继，诊断（节点 ID、circuit 可达地址、身份存放位置）折叠，并提供**启停节点**。
-三端同一件事的第三份实现（桌面 `StopNodeSheet`、移动 `NodeControlSheet`），信息分层一致。
+三端同一件事的第三份实现（桌面 `NodeStatusSheet`、移动 `NodeControlSheet`）——**这三份必须
+遵守的信息分层、状态语义与文案，写在 `DESIGN.md` 的 `### Node Status Contract (cross-platform)`**。
+> 此处此前写作「信息分层一致」，**是错的**（2026-08-08 核实修正）：桌面那份当时按
+> `windowHeight >= 700` 门控七处信息位，矮窗口下中继状态、引导节点、公网地址、监听地址
+> 整片消失。那正是「先写断言、实现没跟上」的产物——所以判据现在住在契约里，且与实现同 PR 合入。
+
 启停编排收在 `_lib/node-lifecycle.ts`——`WebNodeBootstrap` 与弹窗共用同一套启动序列。
 
 **底座与形态**（2026-08 的 `web-ux-alignment` 起）：组件走 **shadcn/ui**（不再手写原生元素），

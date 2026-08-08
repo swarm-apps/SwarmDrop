@@ -7,6 +7,7 @@
 //!
 //! 命令按业务域分文件：
 //! - [`lifecycle`] —— 应用 / 网络生命周期、设备列表、应用更新
+//! - [`infra`] —— 引导节点（基础设施关系）的校验与增删
 //! - [`identity`] —— 身份密钥
 //! - [`pairing`] —— 设备配对
 //! - [`transfer`] —— 文件传输
@@ -31,6 +32,7 @@ mod external_open;
 mod i18n;
 mod identity;
 mod inbox;
+mod infra;
 mod lifecycle;
 mod logs;
 mod mcp;
@@ -43,6 +45,7 @@ pub use external_open::*;
 pub use i18n::*;
 pub use identity::*;
 pub use inbox::*;
+pub use infra::*;
 pub use lifecycle::*;
 pub use logs::*;
 pub use mcp::*;

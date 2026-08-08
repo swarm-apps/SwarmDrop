@@ -25,6 +25,7 @@
 use libp2p::Swarm;
 use libp2p::identity::Keypair;
 use std::num::NonZeroUsize;
+use swarmdrop_net_base::TransportKind;
 
 use crate::behaviour::Behaviour;
 use crate::config::EndpointConfig;
@@ -152,6 +153,36 @@ fn webrtc_and_relay(
     Ok((transport, relay_client.then_some(relay_behaviour)))
 }
 
+/// 本 target 实际装配的可拨传输种类。
+///
+/// **它必须与本模块两个 `build_swarm` 分支同步**——这是「这条地址本端拨得动吗」的唯一
+/// 判据（`Endpoint::supported_transports`）。多报一种会让用户配下一条永远连不上的引导
+/// 节点、且没有任何错误提示；少报一种会当场拒掉合法地址。所以它跟组装代码住同一个文件，
+/// 加/删 transport 时不可能只改一边还看不见另一边。
+///
+/// circuit 地址不占独立变体：`Addr::transport()` 取的是外层中继段的传输
+/// （`/ip4/../tcp/../p2p/<relay>/p2p-circuit/..` → `Tcp`），而那正是本机要拨的东西。
+pub(crate) fn supported_transports(config: &EndpointConfig) -> Vec<TransportKind> {
+    let mut kinds = Vec::with_capacity(4);
+
+    // native 的 `.with_tcp()` + `.with_quic()`；浏览器起不了本地 socket，两者都没有。
+    #[cfg(not(wasm_browser))]
+    {
+        kinds.push(TransportKind::Tcp);
+        kinds.push(TransportKind::Quic);
+    }
+
+    // direct 双 target 恒装配，不跟打洞开关走（见 `build_webrtc_p2p` 的文档）。
+    kinds.push(TransportKind::WebrtcDirect);
+
+    // 打洞按配置：关闭时 behaviour 不注册，拨 `/webrtc` 会以 BehaviourDetached 快速失败。
+    if config.webrtc_p2p.is_some() {
+        kinds.push(TransportKind::Webrtc);
+    }
+
+    kinds
+}
+
 #[cfg(not(wasm_browser))]
 pub(crate) fn build_swarm(
     keypair: Keypair,
@@ -273,4 +304,35 @@ pub(crate) fn build_swarm(
         .build();
 
     Ok(swarm)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 护栏：清单与本 target 的 `build_swarm` 同步。
+    ///
+    /// 两条断言方向相反，都得在——只查「有」会放过多报，只查「无」会放过少报。
+    #[test]
+    fn supported_transports_match_the_assembled_stack() {
+        let mut config = EndpointConfig::default();
+        config.webrtc_p2p = None;
+        let kinds = supported_transports(&config);
+
+        // direct 恒在（浏览器够到原生端的唯一入口，两个 target 都装）
+        assert!(kinds.contains(&TransportKind::WebrtcDirect));
+        // 打洞跟着配置走
+        assert!(!kinds.contains(&TransportKind::Webrtc));
+
+        let has_socket = cfg!(not(wasm_browser));
+        assert_eq!(kinds.contains(&TransportKind::Tcp), has_socket);
+        assert_eq!(kinds.contains(&TransportKind::Quic), has_socket);
+    }
+
+    #[test]
+    fn hole_punching_transport_appears_only_when_configured() {
+        let mut config = EndpointConfig::default();
+        config.webrtc_p2p = Some(crate::config::WebRtcP2pConfig::default());
+        assert!(supported_transports(&config).contains(&TransportKind::Webrtc));
+    }
 }

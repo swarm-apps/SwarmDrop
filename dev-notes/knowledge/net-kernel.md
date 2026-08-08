@@ -107,6 +107,42 @@ relay 角色交给 `InfraSupervisor` 按 `public_reachability` 闸门收敛—�
 
 现在 `upsert` 内部按**合并后的全部地址** `CandidateScope::infer`，签名里没有 scope 参数。
 
+### 「本端拨得动这条地址吗」是内核事实，不是部署配置（2026-08-08 加）
+
+`Endpoint::supported_transports() -> &[TransportKind]` 在 bind 时按 target + 配置算一次。
+清单的定义**紧挨着 `build_swarm` 住在 `crates/net/src/transport.rs`**，并有一条双向护栏测试
+（`supported_transports_match_the_assembled_stack`：既查"有"也查"无"）——只查其一会放过多报或少报。
+
+- 多报一种：用户能配下一条**永远连不上**的引导节点，且没有任何错误提示；
+- 少报一种：当场拒掉合法地址。
+
+上层判据在 `crates/core/src/infra/validate.rs`，**三端共用一份**：可解析 → 含合法 `/p2p/` →
+含可拨传输 → 该传输本端装配了 → 不是本机、不与既有条目重复。五条全部**无网络往返**。
+
+两个容易写错的点：
+
+- **circuit 地址取的是外层中继段的传输**（`/ip4/../tcp/../p2p/<relay>/p2p-circuit/p2p/<target>`
+  → `Tcp`），而那正是本机要拨的那一跳；身份则取末位（目标）。`Addr` 的 `transport()` 与
+  `p2p_node_id()` 各自已经是对的，别在上层再拼一遍。
+- **去重按「同 peer **且**同地址」**，不是按 peer。同一节点的 TCP 与 QUIC 地址是同一条关系的
+  两条路径，`upsert` 会合并；按 peer 去重会挡住用户补一条 QUIC 地址。
+
+⚠️ **不要用 `Endpoint::connect` 当连通性探测原语**：它把候选地址永久写进 address_book
+（无 TTL、无失败回滚，清理入口 `remove_infrastructure_peer` 会断连）；已连接时直接返回既有
+连接快照，所以对内置节点**永远绿**；而且它走直连，relay 的实际用法是 reservation。
+Web 端那颗「测试连通性」按钮就是这么变成一个不可能失败的测试的，已删。
+
+**相关文件**：`crates/net/src/transport.rs`、`crates/core/src/infra/validate.rs`
+
+### 集成测试里的「没有传输层」：`impl IncomingTransferRuntime for ()`
+
+`run_event_loop` 的泛型约束是 `IncomingTransferRuntime`，而 `NetManager<()>` 本来就是
+既有集成测试的常规构造（`TransferRuntime for ()` 早就有）。所以 `()` 也实现了
+`IncomingTransferRuntime`，全部入站请求以 `AppError::Transfer` **婉拒而不是 panic**。
+
+写新的网络层集成测试时直接传 `()`，不要在测试文件里手写 5 个方法的 no-op 双——那份样板
+会在 trait 每次改动时红一遍，而它表达的东西 `()` 已经表达了。
+
 ### 与旧栈（swarm-p2p-core）的关键差异
 
 | 旧 | 新 | 原因 |
