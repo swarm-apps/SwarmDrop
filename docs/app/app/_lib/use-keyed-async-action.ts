@@ -49,6 +49,12 @@ export function useKeyedAsyncAction() {
       errorFor: (key: string): WebError | undefined => errors[key],
       /** 原始的待处理键集合，供调用方自己做派生（比逐个 `isPending` 快，也能进依赖）。 */
       pendingKeys,
+      /**
+       * 出错的键与错误。**枚举用**——`errorFor` 只能点对点查，而调用方常常并不预先知道
+       * 有哪些键（收件箱的目录下载键里带着相对路径，那份清单只有点过的人才知道）。
+       * 少了它，一条失败会静静躺在这里没有任何人读，用户点完按钮什么也看不到。
+       */
+      errors,
       latestError,
       run,
     }),

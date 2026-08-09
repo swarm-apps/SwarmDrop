@@ -40,6 +40,82 @@ describe("file tree rows", () => {
     expect(onToggle).toHaveBeenCalledTimes(2);
   });
 
+  /**
+   * 目录取回是一个**独立的动作**，不是「替用户点 N 次文件下载」——那条路在浏览器上走不完
+   * （连续多次程序化下载会被拦），也留不住目录层级。所以 target 必须是整个目录。
+   */
+  it("downloads a folder as one target instead of its files", async () => {
+    const user = userEvent.setup();
+    const onDownload = vi.fn();
+    const onToggle = vi.fn();
+    renderWithI18n(
+      <FolderRow
+        node={directory}
+        level={0}
+        expanded
+        onToggle={onToggle}
+        actions={{ onDownload }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "下载" }));
+    expect(onDownload).toHaveBeenCalledWith({
+      type: "directory",
+      relativePath: "docs/",
+    });
+    // 动作按钮嵌在一整行可点击的目录行里——不挡住冒泡的话，点下载会顺带折叠这个目录。
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  /**
+   * pending 的查询键是**目录自己的相对路径**，也就是 target 里那个值——不是建树时派生的
+   * 节点 id。调用方只认识自己发出去和收回来的东西，`dir:` 那套编码不该漏出包外。
+   */
+  /**
+   * 回归：目录行整行是 `role="button"` 且在 Enter/Space 上 `preventDefault()`，不判事件来源
+   * 的话会把动作条里按钮的激活一起吞掉——按钮的 onClick 从来不跑，只有目录折叠了一下。
+   * **必须用键盘断言**：`user.click` 走的是另一条路径，鼠标下一切正常。
+   */
+  it("activates folder actions from the keyboard without toggling the row", async () => {
+    const user = userEvent.setup();
+    const onDownload = vi.fn();
+    const onToggle = vi.fn();
+    renderWithI18n(
+      <FolderRow
+        node={directory}
+        level={0}
+        expanded
+        onToggle={onToggle}
+        actions={{ onDownload }}
+      />,
+    );
+    screen.getByRole("button", { name: "下载" }).focus();
+    await user.keyboard("{Enter}");
+    expect(onDownload).toHaveBeenCalledWith({
+      type: "directory",
+      relativePath: "docs/",
+    });
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  it("marks a folder busy while its archive is being built", () => {
+    renderWithI18n(
+      <FolderRow
+        node={directory}
+        level={0}
+        expanded
+        onToggle={() => {}}
+        actions={{
+          onDownload: vi.fn(),
+          pendingIds: new Set([directory.relativePath]),
+        }}
+      />,
+    );
+    const button = screen.getByRole("button", {
+      name: "正在准备下载",
+    }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+  });
+
   it("keeps remove keyboard-accessible without firing a primary action", async () => {
     const user = userEvent.setup();
     const onRemove = vi.fn();

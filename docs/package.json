@@ -26,6 +26,7 @@
     "@swarmdrop/shared-view": "link:../packages/shared-view",
     "@tanstack/react-virtual": "^3.14.9",
     "class-variance-authority": "^0.7.1",
+    "client-zip": "^2.5.0",
     "clsx": "^2.1.1",
     "fumadocs-core": "16.9.3",
     "fumadocs-mdx": "15.0.10",

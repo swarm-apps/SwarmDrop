@@ -8,8 +8,12 @@
 // 留在编排层，因为那里才知道当前的归档可见性。
 
 import { Trans, useLingui } from "@lingui/react/macro";
-import { formatFileSize } from "@swarmdrop/shared-view";
-import { FileBrowser } from "@swarmdrop/file-browser";
+import { formatFileSize, inboxFileId } from "@swarmdrop/shared-view";
+import {
+  FileBrowser,
+  type FileBrowserActions,
+  type FileBrowserTarget,
+} from "@swarmdrop/file-browser";
 import {
   Archive,
   ArchiveRestore,
@@ -41,10 +45,12 @@ import { preferencesActions, usePreferences } from "../_lib/preferences-store";
 import { opfsThumbnailSource } from "../_lib/thumbnail-source";
 import type { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
 import {
-  DOWNLOAD_ALL_KEY,
   INBOX_CONTENT_KIND_LABEL,
   INBOX_SOURCE_KIND_LABEL,
+  allDownloadKey,
   inboxItemTitleLabel,
+  parseDownloadKey,
+  usableInboxFiles,
   type ItemAction,
   type InboxItemDetail,
   type InboxItemFileEntry,
@@ -264,7 +270,19 @@ export function InboxDetailPanel({
   downloadAction: ReturnType<typeof useKeyedAsyncAction>;
   archive: ItemAction;
   remove: ItemAction;
-  onDownload: (item: InboxItemDetail, file: InboxItemFileEntry) => void;
+  /**
+   * 取回一个目标：单个文件，或一整个目录（含全部后代）。
+   *
+   * **形状与 `FileBrowserActions.onDownload` 一致**，不拆成 `onDownload` /
+   * `onDownloadDirectory` 两个 prop：目录是一个独立目标而不是文件的循环，这正是 L2 把
+   * 签名收成 target 的理由，在这里拆开等于把它又散了一遍（每加一种目标就要加一个 prop
+   * 加一条分支）。分派统一在 `receive-panel` 做一次。
+   */
+  onDownload: (item: InboxItemDetail, target: FileBrowserTarget) => void;
+  /**
+   * 整条记录一次取走。**它不是 target 模型的一员**——集合级动作走表头的 `headerActions`
+   * 插槽，与「树里的某个节点」是两件事（见 file-browser 包 README）。
+   */
   onDownloadAll: (item: InboxItemDetail) => void;
 }) {
   const { t } = useLingui();
@@ -272,39 +290,69 @@ export function InboxDetailPanel({
   const ArchiveIcon = archived ? ArchiveRestore : Archive;
   const view = usePreferences((s) => s.fileBrowserViews.inbox);
   const items = useMemo(() => itemsFromInbox(item.id, item.files), [item.id, item.files]);
-  /** 逐文件下载键，与 `receive-panel` 的 `runDownload` 用的是同一个拼法。 */
-  const downloadKey = (fileId: number) => `${item.id}:${fileId}`;
   const { pendingKeys } = downloadAction;
-  // 这个 Set 一路传到每一行去判「我在不在下载中」，所以它的引用必须稳——否则行组件的
-  // memo 全被打穿。依赖只有真正会变的两样。
-  const pendingIds = useMemo(
-    () =>
-      new Set(
-        items
-          .filter((entry) => pendingKeys.has(`${item.id}:${entry.sourceId}`))
-          .map((entry) => entry.id),
-      ),
-    [items, item.id, pendingKeys],
-  );
+  /**
+   * 正在下载的目标（`FileBrowserActions.pendingIds` 要的形态：文件是展示 id、目录是
+   * 相对路径）。这个 Set 一路传到每一行去判「我在不在下载中」，所以引用必须稳——
+   * 否则行组件的 memo 全被打穿。
+   *
+   * **遍历的是 pending 键（通常 0–1 个），不是 `items`（可能几百个）。** 反过来写不只是
+   * 慢：`items` 每次收件箱刷新都是新数组，会让这个 Set、进而让 `actions` 换引用，
+   * 而行组件的比较器正是按 `actions` 的引用判等的——下载一结束（`markOpened` 改 item）
+   * 就整片重渲染。文件展示 id 由 L1 的 `inboxFileId` 纯函数派生，本来就不必查表。
+   */
+  const pendingIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const key of pendingKeys) {
+      const target = parseDownloadKey(item.id, key);
+      if (target?.kind === "file") ids.add(inboxFileId(item.id, target.fileId));
+      else if (target?.kind === "directory") ids.add(target.relativePath);
+    }
+    return ids;
+  }, [item.id, pendingKeys]);
   /**
    * **批量本身**在不在跑。判据是 `downloadAll` 自己那把 `:all` 键，不是逐文件 pending 的
    * 并集——后者会让「单点某一行的下载」也把头部按钮变成禁用的 spinner「下载中…」，
    * 界面在说「批量正在跑」而实际只有一个文件在走。
    */
-  const downloading = downloadAction.isPending(`${item.id}:${DOWNLOAD_ALL_KEY}`);
-  /** 有 `missing` 的文件取不回来，`downloadAll` 会跳过它们——一个都不剩时按钮不该亮着。 */
+  const downloading = downloadAction.isPending(allDownloadKey(item.id));
   /**
-   * 还能取回的文件。「全部下载」与「发送到设备」共用这一份——两者的判据本就是同一条。
+   * 还能取回的文件。「全部下载」与「发送到设备」共用这一份——两者的判据本就是同一条：
+   * `missing` 的取不回来，一个都不剩时两颗按钮都不该亮着。
    *
    * ⚠️ 这个过滤在 Web 端目前是**空转**的：`missing` 从未被置为 `true`（`mark_file_missing`
    * 在 `docs/app/app` 下没有调用点）。留着是为了让判据与移动端同形，等 OPFS 条目被驱逐的
    * 检测补上之后它就会真正生效——见 change 的「已知限制」L3。
    */
-  const usableFiles = item.files.filter((file) => !file.missing);
-  const failures = item.files.flatMap((file) => {
-    const error = downloadAction.errorFor(downloadKey(file.id));
-    return error ? [{ file, error }] : [];
-  });
+  const usableFiles = usableInboxFiles(item);
+  /**
+   * 下载失败的卡片。**三种目标一起收**：逐文件、目录、整条。
+   *
+   * 此前只遍历 `item.files`，于是「全部下载」整条失败时那条错误存进了 `:all` 键、
+   * 却没有任何人读它——用户点完按钮转一圈，什么也没发生、什么也没说。
+   */
+  const failures = useMemo(
+    () =>
+      Object.entries(downloadAction.errors).flatMap(([key, error]) => {
+        const target = parseDownloadKey(item.id, key);
+        if (!target) return [];
+        if (target.kind === "all") {
+          return [{ key, title: t`打包下载失败`, error }];
+        }
+        if (target.kind === "directory") {
+          // 先落成局部变量再插值：Lingui 只对**裸标识符**用它的名字当占位符，成员表达式
+          // 会提取成 `{0}`——那对译者毫无信息，而且改一次表达式就换一个 msgid、
+          // 三份 catalog 里的译文当场作废（这条正是这么漏翻过一轮的）。
+          const directory = target.relativePath;
+          return [{ key, title: t`下载目录「${directory}」失败`, error }];
+        }
+        const file = item.files.find(
+          (candidate) => candidate.id === target.fileId,
+        );
+        return file ? [{ key, title: t`下载「${file.name}」失败`, error }] : [];
+      }),
+    [downloadAction.errors, item.id, item.files, t],
+  );
 
   /** 待转发的文件；`null` = 对话框关着。整条与单个文件共用同一个出口。 */
   const [forwarding, setForwarding] = useState<InboxItemFileEntry[] | null>(null);
@@ -312,20 +360,29 @@ export function InboxDetailPanel({
   // 动作对象也要稳：它沿 FileBrowser → 视图 → 行/卡 一路下传，内联字面量会在每一层
   // 打穿 memo。浏览器里「取回」只有下载这一种，没有「打开」「在文件夹中显示」——那两个
   // 需要真实文件系统，不传即不渲染（见 `FileBrowserActions` 的并集说明）。
-  const actions = useMemo(
-    () => ({
-      onDownload: (entry: { sourceId?: string }) => {
-        const file = item.files.find((f) => String(f.id) === entry.sourceId);
-        if (file) onDownload(item, file);
-      },
-      onSend: (entry: { sourceId?: string }) => {
-        const file = item.files.find((f) => String(f.id) === entry.sourceId);
+  /**
+   * `item` 从 `actions` 的依赖里摘出去（同 `file-tree-view.tsx` 的 `itemsRef` 手法）。
+   *
+   * 它的任何无关字段变化都会换掉 `actions` 的引用，而**每次下载结束 `markOpened` 都会
+   * 改 `lastOpenedAt`**——行组件的比较器按 `actions` 引用判等，不摘的话每下载一次，
+   * 所有可见的文件行与目录行就整片重渲染一遍。
+   */
+  const itemRef = useRef(item);
+  itemRef.current = item;
+  const actions: FileBrowserActions = useMemo(() => {
+    /** 展示模型的 `sourceId` 是收件箱文件行主键的字符串形态（见 `itemsFromInbox`）。 */
+    const fileFor = (entry: { sourceId?: string }) =>
+      itemRef.current.files.find((f) => String(f.id) === entry.sourceId);
+    return {
+      // 目录目标整棵子树打成 zip（见 `_lib/zip-download.ts`），文件目标直接下载。
+      onDownload: (target) => onDownload(itemRef.current, target),
+      onSend: (entry) => {
+        const file = fileFor(entry);
         if (file) setForwarding([file]);
       },
       pendingIds,
-    }),
-    [item, onDownload, pendingIds],
-  );
+    };
+  }, [onDownload, pendingIds]);
 
   return (
     // 详情自己是滚动容器：宽屏下滚它不会带走左边的列表，窄屏下也不会把页头顶走。
@@ -435,15 +492,10 @@ export function InboxDetailPanel({
         files={forwarding ?? []}
       />
 
-      {/* 下载失败逐条报，且带上是哪个文件——`FileBrowser` 的行里塞不下错误卡片，
+      {/* 下载失败逐条报，且带上是哪个文件 / 哪个目录——`FileBrowser` 的行里塞不下错误卡片，
           而「哪个失败了」比「有东西失败了」有用得多。 */}
-      {failures.map(({ file, error }) => (
-        <WebErrorCard
-          key={file.id}
-          error={error}
-          className="text-xs"
-          title={t`下载「${file.name}」失败`}
-        />
+      {failures.map(({ key, title, error }) => (
+        <WebErrorCard key={key} error={error} className="text-xs" title={title} />
       ))}
 
       <div className="flex flex-wrap items-center justify-end gap-2 text-xs">

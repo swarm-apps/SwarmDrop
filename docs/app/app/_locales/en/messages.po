@@ -40,6 +40,11 @@ msgstr "{0, plural, one {# day ago} other {# days ago}}"
 msgid "{0, plural, other {# 小时前}}"
 msgstr "{0, plural, one {# hour ago} other {# hours ago}}"
 
+#. placeholder {0}: skipped.length
+#: app/app/_components/receive-panel.tsx
+msgid "{0, plural, other {有 # 个文件已不在浏览器存储中，未能打包}}"
+msgstr "{0, plural, one {# file is no longer in browser storage and was left out} other {# files are no longer in browser storage and were left out}}"
+
 #. placeholder {0}: offerList.length
 #: app/app/_components/incoming-offers-panel.tsx
 msgid "{0} 个待处理"
@@ -93,8 +98,8 @@ msgid "{minutes} 分钟"
 msgstr "{minutes} min"
 
 #: app/app/_components/receive-panel.tsx
-msgid "{started, plural, other {已开始下载 # 个文件}}"
-msgstr "{started, plural, one {Started downloading # file} other {Started downloading # files}}"
+#~ msgid "{started, plural, other {已开始下载 # 个文件}}"
+#~ msgstr "{started, plural, one {Started downloading # file} other {Started downloading # files}}"
 
 #: app/app/_lib/view-types.ts
 msgid "{title} 等 {itemCount} 个文件"
@@ -170,6 +175,10 @@ msgstr "Failed to download “{0}”"
 #: app/app/_components/inbox-views.tsx
 msgid "下载中…"
 msgstr "Downloading…"
+
+#: app/app/_components/inbox-views.tsx
+msgid "下载目录「{directory}」失败"
+msgstr "Could not download the folder “{directory}”"
 
 #: app/app/_components/pairing-panel.tsx
 msgid "与另一台设备互换一次邀请即可，之后长期有效。"
@@ -698,6 +707,10 @@ msgstr "Appearance and language"
 msgid "失败"
 msgstr "Failed"
 
+#: app/app/_components/receive-panel.tsx
+msgid "如果失败，可以改为逐个文件下载。"
+msgstr "If it fails, download the files one by one instead."
+
 #: app/app/_components/forward-to-device-dialog.tsx
 msgid "它们已不在浏览器存储里。"
 msgstr "They are no longer in browser storage."
@@ -846,6 +859,7 @@ msgid "已就绪"
 msgstr "Ready"
 
 #. placeholder {0}: file.name
+#. placeholder {0}: plan.fileName
 #: app/app/_components/receive-panel.tsx
 msgid "已开始下载 {0}"
 msgstr "Downloading {0}"
@@ -1042,6 +1056,10 @@ msgstr "Manually configured"
 msgid "手机上用 SwarmDrop 的「扫码」对准它；桌面端没有相机，复制链接发过去用「粘贴邀请」。"
 msgstr "On a phone, point SwarmDrop's scanner at it. Desktops have no camera — copy the link over and use “Paste invite”."
 
+#: app/app/_components/inbox-views.tsx
+msgid "打包下载失败"
+msgstr "Could not build the archive"
+
 #: app/app/_lib/view-types.ts
 msgid "打包内容"
 msgstr "Bundle"
@@ -1146,6 +1164,10 @@ msgstr "Inbox list"
 msgid "收到文件请求"
 msgstr "Incoming file request"
 
+#: app/app/_components/receive-panel.tsx
+msgid "收到的文件"
+msgstr "Received files"
+
 #: app/app/_components/transfer-detail.tsx
 #~ msgid "收起文件"
 #~ msgstr "Collapse files"
@@ -1239,6 +1261,11 @@ msgstr "Changelog"
 #: app/app/_lib/view-types.ts
 msgid "更早"
 msgstr "Earlier"
+
+#. placeholder {0}: skipped.length
+#: app/app/_components/receive-panel.tsx
+#~ msgid "有 {0} 个文件已不在浏览器存储中，未能打包"
+#~ msgstr ""
 
 #: app/app/_components/invite-share.tsx
 msgid "有效期已过，重新生成一条即可。"
@@ -1366,6 +1393,14 @@ msgid "正在启动节点…"
 msgstr "Starting node…"
 
 #: app/app/_components/receive-panel.tsx
+msgid "正在打包 {size}，大文件可能超出浏览器限制"
+msgstr "Building a {size} archive — large ones may exceed browser limits"
+
+#: app/app/_components/receive-panel.tsx
+msgid "正在打包上一个下载，请稍候"
+msgstr "Still building the previous archive — please wait"
+
+#: app/app/_components/receive-panel.tsx
 msgid "正在打开收件箱…"
 msgstr "Opening the inbox…"
 
@@ -1431,8 +1466,8 @@ msgid "浏览器不能被直接拨号，需要经引导节点建立一个可达�
 msgstr "A browser cannot be dialed directly. It needs a bootstrap node to establish a reachable address before anyone can find you. The built-in nodes connect automatically and rarely need changing."
 
 #: app/app/_components/receive-panel.tsx
-msgid "浏览器可能会询问是否允许下载多个文件。"
-msgstr "Your browser may ask whether to allow multiple downloads."
+#~ msgid "浏览器可能会询问是否允许下载多个文件。"
+#~ msgstr "Your browser may ask whether to allow multiple downloads."
 
 #: app/app/_components/connection-badge.tsx
 msgid "浏览器可能需要你允许「本地网络访问」；也可能是对方的防火墙拦了入站连接。 文件仍会经中继送达，只是更慢。"
@@ -1703,6 +1738,10 @@ msgstr "Once the node starts, the new name is broadcast with this device's ident
 msgid "节点已停止"
 msgstr "Node stopped"
 
+#: app/app/_components/receive-panel.tsx
+msgid "节点已停止，打包中断"
+msgstr "The node was stopped, so the archive was left unfinished"
+
 #: app/app/_lib/network-view.ts
 msgid "节点未运行"
 msgstr "Node is not running"
@@ -1889,6 +1928,10 @@ msgstr "This code is void — generate a new one."
 msgid "这个筛选下没有会话。"
 msgstr "No sessions match this filter."
 
+#: app/app/_components/receive-panel.tsx
+msgid "这些文件已不在浏览器存储中，无法打包下载"
+msgstr "These files are no longer in browser storage, so there is nothing to archive"
+
 #: app/app/_components/send-panel.tsx
 msgid "这台设备当前离线或已被阻止，换一台再试。"
 msgstr "That device is offline or blocked — pick another one."
@@ -1920,6 +1963,10 @@ msgstr "This entry has no files"
 #: app/app/_components/pairing-confirm-dialog.tsx
 msgid "这条邀请已过期，让对方重新生成一条。"
 msgstr "This invite has expired — ask for a new one."
+
+#: app/app/_components/receive-panel.tsx
+msgid "这里没有可取回的文件"
+msgstr "There is nothing here to retrieve"
 
 #: app/app/_components/transfer-labels.ts
 msgid "进行中"

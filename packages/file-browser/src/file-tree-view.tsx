@@ -128,7 +128,7 @@ export function FileTreeView({
                   level={level}
                   expanded={treeItem.isExpanded()}
                   onToggle={toggle}
-                  onRemove={actions?.onRemove}
+                  actions={actions}
                 />
               ) : (
                 <FileRow
