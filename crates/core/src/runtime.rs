@@ -14,6 +14,7 @@ use swarmdrop_net::{
 use crate::device::{DeviceName, OsInfo};
 use crate::error::{AppError, AppResult};
 use crate::host::{DeviceConfig, EventBus, Notifier, PairedDeviceStore};
+use crate::network::CandidateScope;
 use crate::network::NetManager;
 use crate::network::config::{
     NetworkRuntimeConfig, bootstrap_node_addrs, create_candidate_manager,
@@ -136,10 +137,14 @@ where
     // 注册引导节点为 **DHT 种子**（bootstrap 依赖至少一个 kad server 进路由表）。
     // 浏览器端无内置引导，整循环跳过。
     //
-    // **只给 kad 角色，relay 交给 `InfraSupervisor` 按 `public_reachability` 闸门收敛**
-    // ——与 `learn_candidate` 的即时接线一致。此前这里用 `InfraRoles::bootstrap()`
-    // （kad + relay），于是关掉「公网可达性」的用户照样在启动时建了公网 reservation，
-    // 绕过了那道闸门（`wants_reservation` 只管收敛环，管不到这条一次性注册）。
+    // **kad 角色无条件给，relay 角色就地过闸门。** 闸门查询放在这里而不是把 relay
+    // 整个推迟给 `InfraSupervisor::tick`：推迟会让每个引导节点先以 `relay: false`
+    // 注册一次、约一个 tick 后再以 kad+relay 注册第二次——首次可达性凭空晚一个 tick，
+    // 注册工作还做两遍。
+    //
+    // 判据必须与 `exclusion_for` 同一条（候选**持有公网地址** ⇒ 受开关约束），
+    // 否则同一个节点在启动路径和收敛环里得到两种结论：私网引导节点被全局开关一刀切
+    // 拦掉，而 tick 又会把它加回来，每次冷启动都白拨一轮。
     //
     // 反过来也不能把这整段删掉改走候选表：`wants_reservation` 要求 relay 角色，
     // `public_reachability=false` 时公网候选一次 `add_infrastructure_peer` 都不会发，
@@ -147,12 +152,14 @@ where
     // 两个开关是正交的（见 `NetworkRuntimeConfig` 上的注释），不能让一个吃掉另一个。
     if profile.registers_infra() {
         for peer in bootstrap_node_addrs(&network_config) {
+            let relay = network_config.public_reachability
+                || CandidateScope::infer(&peer.addrs) == CandidateScope::Lan;
             if let Err(e) = endpoint
                 .add_infrastructure_peer(
                     peer,
                     InfraRoles {
                         kad_server: true,
-                        relay: false,
+                        relay,
                     },
                 )
                 .await

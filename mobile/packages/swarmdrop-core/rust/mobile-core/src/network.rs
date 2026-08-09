@@ -8,8 +8,8 @@ use swarmdrop_core::infra::{
     InfraAddrError, InfraExclusion, InfraLink, RelayLinkState, supported_transport_names,
 };
 use swarmdrop_core::network::{
-    BootstrapCandidateSource, CandidateRoles, CandidateScope, CandidateSourceStatus, DiscoveryMode,
-    NatStatus, NetworkRuntimeConfig, NetworkStatus as CoreNetworkStatus, NodeStatus,
+    BootstrapCandidateSource, CandidateRoles, CandidateScope, CandidateSourceStatus, NatStatus,
+    NetworkRuntimeConfig, NetworkStatus as CoreNetworkStatus, NodeStatus,
 };
 
 use crate::app::MobileCore;
@@ -17,34 +17,9 @@ use crate::error::{FfiError, FfiResult};
 use crate::events::spawn_event_loop;
 use crate::utils::parse_peer_id;
 
-#[derive(Debug, Clone, Copy, uniffi::Enum)]
-pub enum MobileDiscoveryMode {
-    Auto,
-    LanOnly,
-}
-
-impl From<DiscoveryMode> for MobileDiscoveryMode {
-    fn from(mode: DiscoveryMode) -> Self {
-        match mode {
-            DiscoveryMode::Auto => Self::Auto,
-            DiscoveryMode::LanOnly => Self::LanOnly,
-        }
-    }
-}
-
-impl From<MobileDiscoveryMode> for DiscoveryMode {
-    fn from(mode: MobileDiscoveryMode) -> Self {
-        match mode {
-            MobileDiscoveryMode::Auto => Self::Auto,
-            MobileDiscoveryMode::LanOnly => Self::LanOnly,
-        }
-    }
-}
-
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct MobileNetworkRuntimeConfig {
     pub bootstrap_nodes: Vec<String>,
-    pub discovery_mode: MobileDiscoveryMode,
     pub auto_discover_lan_helpers: bool,
     pub provide_lan_helper: bool,
     /// 公网可达性：允许经公网中继被跨网设备访问（关闭 = 严格局域网）
@@ -55,7 +30,6 @@ impl From<MobileNetworkRuntimeConfig> for NetworkRuntimeConfig {
     fn from(config: MobileNetworkRuntimeConfig) -> Self {
         Self {
             bootstrap_nodes: config.bootstrap_nodes,
-            discovery_mode: config.discovery_mode.into(),
             auto_discover_lan_helpers: config.auto_discover_lan_helpers,
             provide_lan_helper: config.provide_lan_helper,
             public_reachability: config.public_reachability,
@@ -312,7 +286,6 @@ pub struct MobileNetworkStatus {
     pub public_reachability_enabled: bool,
     pub relay_peers: Vec<String>,
     pub bootstrap_connected: bool,
-    pub discovery_mode: MobileDiscoveryMode,
     pub auto_discover_lan_helpers: bool,
     pub local_lan_helper_enabled: bool,
     pub local_lan_helper_running: bool,
@@ -342,7 +315,6 @@ impl From<CoreNetworkStatus> for MobileNetworkStatus {
             public_reachability_enabled,
             relay_peers,
             bootstrap_connected,
-            discovery_mode,
             auto_discover_lan_helpers,
             local_lan_helper_enabled,
             local_lan_helper_running,
@@ -376,7 +348,6 @@ impl From<CoreNetworkStatus> for MobileNetworkStatus {
                 .map(|peer_id| peer_id.to_string())
                 .collect(),
             bootstrap_connected,
-            discovery_mode: discovery_mode.into(),
             auto_discover_lan_helpers,
             local_lan_helper_enabled,
             local_lan_helper_running,

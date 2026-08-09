@@ -46,6 +46,14 @@ msgstr "{0} 项"
 msgid "{0} 项 · {1}"
 msgstr "{0} 项 · {1}"
 
+#: src/components/network/node-status-sheet.tsx
+msgid "{activeTransferCount, plural, one {正在进行的 # 个传输会被中断。} other {正在进行的 # 个传输会被中断。}}"
+msgstr "{activeTransferCount, plural, one {正在进行的 # 个传输会被中断。} other {正在进行的 # 个传输会被中断。}}"
+
+#: src/routes/_app/settings/-settings-primitives.tsx
+msgid "{activeTransferCount, plural, one {重启会中断正在进行的 # 个传输。} other {重启会中断正在进行的 # 个传输。}}"
+msgstr "{activeTransferCount, plural, one {重启会中断正在进行的 # 个传输。} other {重启会中断正在进行的 # 个传输。}}"
+
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "{deviceCount, plural, one {# 台设备} other {# 台设备}}"
 msgstr "{deviceCount, plural, one {# 台设备} other {# 台设备}}"
@@ -215,7 +223,6 @@ msgstr "仅删除记录会保留本地文件；勾选删除本地文件后，会
 #~ msgstr "仅在需要接入私有或备用网络时添加。"
 
 #: src/lib/node-status.ts
-#: src/routes/_app/settings/-network-settings-section.tsx
 msgid "仅局域网"
 msgstr "仅局域网"
 
@@ -344,8 +351,12 @@ msgid "允许本机 AI 助手代为处置该设备需你确认的入站文件（
 msgstr "允许本机 AI 助手代为处置该设备需你确认的入站文件（接受或拒绝）；关闭则仍需你手动确认。已自动接收的入站不受此影响"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-msgid "允许通过公网中继被跨网设备访问；关闭后为严格局域网，跨网访问可能不可用"
-msgstr "允许通过公网中继被跨网设备访问；关闭后为严格局域网，跨网访问可能不可用"
+#~ msgid "允许通过公网中继被跨网设备访问；关闭后为严格局域网，跨网访问可能不可用"
+#~ msgstr "允许通过公网中继被跨网设备访问；关闭后为严格局域网，跨网访问可能不可用"
+
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "允许通过公网中继被跨网设备访问；关闭后仅局域网可达，跨网设备找不到你"
+msgstr "允许通过公网中继被跨网设备访问；关闭后仅局域网可达，跨网设备找不到你"
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "先验证，再确认"
@@ -523,8 +534,8 @@ msgid "去设置"
 msgstr "去设置"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-msgid "发现模式"
-msgstr "发现模式"
+#~ msgid "发现模式"
+#~ msgstr "发现模式"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "发现设备，配对，然后发送文件"
@@ -1363,8 +1374,8 @@ msgstr "昨天"
 #~ msgstr "是否主动连接公网引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-msgid "是否主动连接引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
-msgstr "是否主动连接引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
+#~ msgid "是否主动连接引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
+#~ msgstr "是否主动连接引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
 
 #: src/components/transfer/session-panel.tsx
 #: src/routes/_app/transfer/-session-row.tsx
@@ -1574,8 +1585,8 @@ msgid "正在计算校验和 ({0}/{1})"
 msgstr "正在计算校验和 ({0}/{1})"
 
 #: src/components/network/node-status-sheet.tsx
-msgid "正在进行的 {activeTransferCount} 个传输会被中断。"
-msgstr "正在进行的 {activeTransferCount} 个传输会被中断。"
+#~ msgid "正在进行的 {activeTransferCount} 个传输会被中断。"
+#~ msgstr "正在进行的 {activeTransferCount} 个传输会被中断。"
 
 #. js-lingui-explicit-id
 #: src/lib/node-status.ts
@@ -1851,8 +1862,8 @@ msgid "网络连接出现问题，请稍后重试"
 msgstr "网络连接出现问题，请稍后重试"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-msgid "自动"
-msgstr "自动"
+#~ msgid "自动"
+#~ msgstr "自动"
 
 #: src/lib/node-status.ts
 msgid "自动发现"
@@ -2343,8 +2354,8 @@ msgid "重启中..."
 msgstr "重启中..."
 
 #: src/routes/_app/settings/-settings-primitives.tsx
-msgid "重启会中断正在进行的 {activeTransferCount} 个传输。"
-msgstr "重启会中断正在进行的 {activeTransferCount} 个传输。"
+#~ msgid "重启会中断正在进行的 {activeTransferCount} 个传输。"
+#~ msgstr "重启会中断正在进行的 {activeTransferCount} 个传输。"
 
 #: src/components/pairing/sent-invites.tsx
 msgid "重启应用后它可能恢复可用，建议稍后再撤销一次。"

@@ -47,6 +47,14 @@ msgstr "{0} items"
 msgid "{0} 项 · {1}"
 msgstr "{0} items · {1}"
 
+#: src/components/network/node-status-sheet.tsx
+msgid "{activeTransferCount, plural, one {正在进行的 # 个传输会被中断。} other {正在进行的 # 个传输会被中断。}}"
+msgstr "{activeTransferCount, plural, one {# transfer in progress will be interrupted.} other {# transfers in progress will be interrupted.}}"
+
+#: src/routes/_app/settings/-settings-primitives.tsx
+msgid "{activeTransferCount, plural, one {重启会中断正在进行的 # 个传输。} other {重启会中断正在进行的 # 个传输。}}"
+msgstr "{activeTransferCount, plural, one {Restarting will interrupt # transfer in progress.} other {Restarting will interrupt # transfers in progress.}}"
+
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "{deviceCount, plural, one {# 台设备} other {# 台设备}}"
 msgstr "{deviceCount, plural, one {# device} other {# devices}}"
@@ -216,7 +224,6 @@ msgstr "Deleting the record only keeps the local files. Check Also delete local 
 #~ msgstr "Add only when you need to join a private or backup network."
 
 #: src/lib/node-status.ts
-#: src/routes/_app/settings/-network-settings-section.tsx
 msgid "仅局域网"
 msgstr "LAN only"
 
@@ -345,8 +352,12 @@ msgid "允许本机 AI 助手代为处置该设备需你确认的入站文件（
 msgstr "Let your local AI assistant handle inbound files from this device that need your confirmation (accept or reject); when off, they still need your manual confirmation. Inbound files already set to auto-accept are unaffected"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-msgid "允许通过公网中继被跨网设备访问；关闭后为严格局域网，跨网访问可能不可用"
-msgstr "Allow cross-network devices to reach this device through public relays; when disabled, strict LAN-only mode may make cross-network access unavailable"
+#~ msgid "允许通过公网中继被跨网设备访问；关闭后为严格局域网，跨网访问可能不可用"
+#~ msgstr "Allow cross-network devices to reach this device through public relays; when disabled, strict LAN-only mode may make cross-network access unavailable"
+
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "允许通过公网中继被跨网设备访问；关闭后仅局域网可达，跨网设备找不到你"
+msgstr "Let devices on other networks reach you through a public relay. Off means LAN only â they can’t find you."
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "先验证，再确认"
@@ -524,8 +535,8 @@ msgid "去设置"
 msgstr "Open settings"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-msgid "发现模式"
-msgstr "Discovery mode"
+#~ msgid "发现模式"
+#~ msgstr "Discovery mode"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "发现设备，配对，然后发送文件"
@@ -1364,8 +1375,8 @@ msgstr "Yesterday"
 #~ msgstr "Whether to actively connect to public bootstrap nodes; LAN-only mode can still be reached across networks unless public reachability is disabled"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-msgid "是否主动连接引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
-msgstr "Whether to actively connect to bootstrap nodes; LAN-only mode can still be reached across networks unless public reachability is disabled"
+#~ msgid "是否主动连接引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
+#~ msgstr "Whether to actively connect to bootstrap nodes; LAN-only mode can still be reached across networks unless public reachability is disabled"
 
 #: src/components/transfer/session-panel.tsx
 #: src/routes/_app/transfer/-session-row.tsx
@@ -1575,8 +1586,8 @@ msgid "正在计算校验和 ({0}/{1})"
 msgstr "Computing checksums ({0}/{1})"
 
 #: src/components/network/node-status-sheet.tsx
-msgid "正在进行的 {activeTransferCount} 个传输会被中断。"
-msgstr "{activeTransferCount} transfer(s) in progress will be interrupted."
+#~ msgid "正在进行的 {activeTransferCount} 个传输会被中断。"
+#~ msgstr "{activeTransferCount} transfer(s) in progress will be interrupted."
 
 #. js-lingui-explicit-id
 #: src/lib/node-status.ts
@@ -1852,8 +1863,8 @@ msgid "网络连接出现问题，请稍后重试"
 msgstr "A network problem occurred, please try again later"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-msgid "自动"
-msgstr "Auto"
+#~ msgid "自动"
+#~ msgstr "Auto"
 
 #: src/lib/node-status.ts
 msgid "自动发现"
@@ -2344,8 +2355,8 @@ msgid "重启中..."
 msgstr "Restarting..."
 
 #: src/routes/_app/settings/-settings-primitives.tsx
-msgid "重启会中断正在进行的 {activeTransferCount} 个传输。"
-msgstr "Restarting will interrupt {activeTransferCount} transfer(s) in progress."
+#~ msgid "重启会中断正在进行的 {activeTransferCount} 个传输。"
+#~ msgstr "Restarting will interrupt {activeTransferCount} transfer(s) in progress."
 
 #: src/components/pairing/sent-invites.tsx
 msgid "重启应用后它可能恢复可用，建议稍后再撤销一次。"

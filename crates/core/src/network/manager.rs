@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use dashmap::DashMap;
-use swarmdrop_net::{Addr, Endpoint, NodeAddr, NodeId, RelayState};
+use swarmdrop_net::{Addr, Endpoint, NodeAddr, NodeId};
 use tokio_util::sync::CancellationToken;
 
 use super::candidates::{BootstrapCandidateSource, CandidateRoles};
@@ -314,17 +314,6 @@ impl<TTransfer> Clone for SharedNetRefs<TTransfer> {
 }
 
 impl<TTransfer> SharedNetRefs<TTransfer> {
-    /// 当前持有活跃 reservation 的中继节点列表（本机经它们被动可达）。
-    pub fn active_relay_peers(&self) -> Vec<NodeId> {
-        // with()：只读 key 无需深拷贝整个 map（RelayState 三态化后 value 含堆数据）
-        self.endpoint.watch_relays().with(|map| {
-            map.iter()
-                .filter(|(_, state)| matches!(state, RelayState::Active { .. }))
-                .map(|(peer, _)| *peer)
-                .collect()
-        })
-    }
-
     /// 构建当前网络状态快照。
     ///
     /// `infra_links` 是逐条基础设施关系的完整状态；下面那批标量是它的压扁投影，
@@ -415,7 +404,6 @@ impl<TTransfer> SharedNetRefs<TTransfer> {
             public_reachability_enabled: self.network_config.public_reachability,
             relay_peers: relay_peers_list,
             bootstrap_connected: self.devices.has_connected_bootstrap_peer(),
-            discovery_mode: self.network_config.discovery_mode,
             auto_discover_lan_helpers: self.network_config.auto_discover_lan_helpers,
             // 迁移后三者同源于 `provide_lan_helper` 配置位——新内核 relay server
             // 装配在 bind 期、无运行时开关，`local_lan_helper_running` 不再是运行时事实

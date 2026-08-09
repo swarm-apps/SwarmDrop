@@ -13,7 +13,7 @@ use swarmdrop_core::infra::RelayLinkState;
 use swarmdrop_core::network::candidates::{BootstrapCandidateSource, CandidateRoles};
 use swarmdrop_core::network::config::create_candidate_manager;
 use swarmdrop_core::network::event_loop::handle_core_node_event;
-use swarmdrop_core::network::{DiscoveryMode, NetManager, NetworkRuntimeConfig};
+use swarmdrop_core::network::{NetManager, NetworkRuntimeConfig};
 use swarmdrop_net::{Addr, DhtConfig, Endpoint, RelayServerConfig, SecretKey};
 
 /// 已配对设备列表的持久化端口替身（本用例只关心 presence/infra，列表恒为空）。
@@ -96,12 +96,9 @@ async fn reservation_rebuilds_after_helper_restart() {
     let b_endpoint = client_endpoint(b_secret).await;
     let mut b_events = b_endpoint.subscribe().await.expect("subscribe B");
 
-    // LanOnly：不加载内置公网引导——否则 B 会同时在真实 bootstrap 上建 reservation，
+    // `bootstrap_nodes` 留空：否则 B 会同时在真实 bootstrap 上建 reservation，
     // 杀掉 helper 后 relay_ready 仍为真，掩盖本用例要验证的 helper 重建收敛。
-    let network_config = NetworkRuntimeConfig {
-        discovery_mode: DiscoveryMode::LanOnly,
-        ..NetworkRuntimeConfig::default()
-    };
+    let network_config = NetworkRuntimeConfig::default();
     let candidates = create_candidate_manager(&network_config);
     let bus: Arc<dyn EventBus> = Arc::new(NoopBus);
     let manager = NetManager::new(
@@ -147,8 +144,9 @@ async fn reservation_rebuilds_after_helper_restart() {
     )
     .await;
 
-    // 逐条读模型与聚合位必须同源：`relay_ready` 现在就是从 `infra_links` 派生的，
-    // 两者不一致说明 `build_infra_links` 与 `active_relay_peers` 读到了不同的世界。
+    // 逐条读模型与聚合位必须同源：`relay_ready` 现在就是从 `infra_links` 派生的。
+    // 两者不一致 = 有人绕开 `build_infra_links` 又读了一次 `watch_relays`——`relay_ready`
+    // 与 `infra_links[p].relay` 会在同一帧里互相矛盾，这条断言就是它的探测器。
     {
         let status = manager.get_network_status();
         let link = status
@@ -200,18 +198,20 @@ async fn reservation_rebuilds_after_helper_restart() {
     manager.cancel_background_tasks();
 }
 
-/// 启动路径的角色降级不能连带把 DHT 种子也关掉。
+/// 启动路径的 relay 角色闸门不能连带把 DHT 种子也关掉。
 ///
-/// `runtime.rs` 的启动注册从 `InfraRoles::bootstrap()`（kad + relay）降为
-/// `{ kad_server: true, relay: false }`，堵的是「关掉公网可达性的用户照样在启动时建了
-/// 公网 reservation」这个绕过闸门的漏洞。但两个开关是**正交**的——用户以为关掉的是
-/// 「别让我被动可达」，不该连带关掉「跨网还能不能找到人」。
+/// `runtime.rs` 的启动注册按 `CandidateScope` + `public_reachability` 决定 relay 角色，
+/// 堵的是「关掉公网可达性的用户照样在启动时建了公网 reservation」这个绕过闸门的漏洞。
+/// 但两个开关是**正交**的——用户以为关掉的是「别让我被动可达」，不该连带关掉
+/// 「跨网还能不能找到人」，所以 `kad_server` 无条件给。
 ///
-/// 所以这条钉死降级后**仍然会拨号并连上**：kad 路由表拿得到种子，`dht.bootstrap()`
-/// 与在线记录发布不受影响。反向的那一半（Public 范围候选在闸门关闭时不建 reservation）
-/// 由 `infra::supervisor` 的 `public_reachability_off_skips_public_candidates` 覆盖——
-/// 那半边在这里表达不了：集成测试只有 loopback 地址可用，而 `CandidateScope::infer`
-/// 见到 loopback 一律判 `Lan`，构造不出 `Public` 范围的真实连接。
+/// 所以这条钉死：闸门无论怎么判，启动注册**仍然会拨号并连上**，kad 路由表拿得到种子，
+/// `dht.bootstrap()` 与在线记录发布不受影响。反向的那一半（持有公网地址的候选在闸门
+/// 关闭时不建 reservation）由 `infra::supervisor` 的
+/// `public_reachability_off_skips_public_candidates` 与
+/// `public_reachability_off_also_stops_a_mixed_addr_relay` 覆盖——那半边在这里表达不了：
+/// 集成测试只有 loopback 地址可用，而 `CandidateScope::infer` 见不到公网地址一律判
+/// `Lan`，构造不出 `Public` 范围的真实连接。
 #[tokio::test(flavor = "multi_thread")]
 async fn kad_only_registration_still_dials_the_bootstrap_node() {
     use swarmdrop_net::{InfraRoles, NodeAddr};
@@ -285,10 +285,7 @@ async fn relay_state_transitions_are_pushed_to_the_host() {
     let client = client_endpoint(SecretKey::generate()).await;
     let events = client.subscribe().await.expect("subscribe");
 
-    let network_config = NetworkRuntimeConfig {
-        discovery_mode: DiscoveryMode::LanOnly,
-        ..NetworkRuntimeConfig::default()
-    };
+    let network_config = NetworkRuntimeConfig::default();
     let candidates = create_candidate_manager(&network_config);
     let bus = Arc::new(RecordingBus::default());
     let manager = NetManager::new(

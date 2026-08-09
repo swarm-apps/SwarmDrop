@@ -58,14 +58,13 @@ pub enum RelayLinkState {
 /// 目前只有一个变体，且刻意不预留第二个（本仓既有规矩：不造到不了 UI 的判别码）：
 /// - 没有 `NodeNotRunning`——节点运行态由 `NetworkStatus.status` 表达，而
 ///   `build_network_status` 里那个值恒为 `Running`，加进来就是一个永远为假的分支；
-/// - 没有 `NotARelay`——今天**每一个**候选写入点都传 `CandidateRoles::kad_and_relay()`，
-///   纯 kad 候选还不存在。等 `InfraSupervisor` 真按角色分档收敛、有了纯 kad 的写入方，
-///   再连同它的产生者一起加回来。提前导出一个三端都渲染不出来的分支，是
-///   `DESIGN.md:645-649`「永远为零的计数器比缺席更糟」在类型层的版本，而且它要过
-///   specta / uniffi / wasm 三条 codegen；
-/// - 没有任何基于 `DiscoveryMode` 的变体——那个轴当前零行为效果（全仓对该枚举无
-///   `match`），基于它写新逻辑等于给一个待删的开关增加依赖。
-#[derive(Debug, Clone, Copy, Serialize)]
+/// - 没有 `NotARelay`——纯 kad 候选**确实可构造**（`ensure_infra_intent` 把 roles 开成了
+///   参数），但它在读模型里由 `relay: None` + `roles.relay_server == false` 表达，
+///   shared-view 的 `deriveInfraLinkState` 据此判 `seedOnly`，那一档没有失败态。
+///   「不承担该角色」不是「承担但被拦下」，给它一个判别码只会让三端多一个渲染不出
+///   差异的分支——而且它要过 specta / uniffi / wasm 三条 codegen。判据见
+///   [`exclusion_for`](crate::infra::InfraSupervisor::exclusion_for)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum InfraExclusion {
@@ -187,11 +186,10 @@ pub fn build_infra_links<T>(shared: &SharedNetRefs<T>) -> Vec<InfraLink> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::network::DiscoveryMode;
     use crate::network::candidates::BootstrapCandidateManager;
 
     fn manager() -> BootstrapCandidateManager {
-        BootstrapCandidateManager::new(DiscoveryMode::Auto, true)
+        BootstrapCandidateManager::new(true)
     }
 
     fn peer() -> NodeId {

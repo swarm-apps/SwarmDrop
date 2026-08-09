@@ -7,7 +7,7 @@ TBD - created by archiving change auto-discover-lan-helper-nodes. Update Purpose
 系统 SHALL 维护统一的 bootstrap/relay 候选池，合并内置公网节点、用户自定义节点和自动发现的局域网协助节点。
 
 #### Scenario: 启动时加载内置公网节点
-- **WHEN** 网络节点以默认自动发现模式启动
+- **WHEN** 网络节点启动
 - **THEN** 候选池 SHALL 包含内置公网 bootstrap/relay 节点
 
 #### Scenario: 启动时加载用户自定义节点
@@ -19,21 +19,29 @@ TBD - created by archiving change auto-discover-lan-helper-nodes. Update Purpose
 - **WHEN** 系统通过 mDNS 和 Identify 识别到局域网协助节点
 - **THEN** 候选池 SHALL 增加该节点并标记来源为 `MdnsLanHelper`
 
-### Requirement: 自动发现模式控制候选来源
-系统 SHALL 提供发现模式，用于控制是否使用公网节点、局域网自动发现节点和自定义节点。
+### Requirement: 公网可达性开关控制 relay 收敛
+系统 SHALL 提供「公网可达性」开关，用于控制本机是否在**持有公网地址**的候选上建立
+relay reservation。该开关**只管 relay 一档**：DHT 种子（kad）角色不受它约束，否则关掉
+它的用户会连「跨网还能不能找到人」一起失去。
 
-#### Scenario: 自动模式使用所有可用来源
-- **WHEN** 发现模式为 `auto`
-- **THEN** 系统 SHALL 使用内置公网节点、用户自定义节点和局域网协助节点
+判据是候选的 `CandidateScope`（「是否持有公网地址」），**不是**「是否不含私网地址」——
+后者在混合地址候选（自建 bootstrap 跑在同一局域网、用户按内网地址加进来、identify 又并入
+它的公网地址）上会把一台真·公网中继判成局域网节点，开关静默失效。
 
-#### Scenario: 仅局域网模式不连接公网 bootstrap
-- **WHEN** 发现模式为 `lanOnly`
-- **THEN** 系统 SHALL 不主动连接内置公网 bootstrap 节点
-- **AND** 系统 SHALL 继续使用 mDNS 和自动发现到的局域网协助节点
+#### Scenario: 关闭后不在公网中继上建 reservation
+- **WHEN** 用户关闭公网可达性
+- **THEN** 系统 SHALL 不对任何持有公网地址的候选建立 relay reservation
+- **AND** 系统 SHALL 仍把这些候选注册为 kad 种子
+- **AND** 读模型 SHALL 对这些候选给出 `PublicReachabilityDisabled` 的排除原因，
+  使 UI 能说出「是你关的开关」而不是一句无归因的「连不上」
+
+#### Scenario: 纯局域网候选不受该开关约束
+- **WHEN** 用户关闭公网可达性，且某候选只持有私网/回环地址
+- **THEN** 系统 SHALL 照常对它收敛 relay reservation
 
 #### Scenario: 高级自定义节点保留
 - **WHEN** 用户在高级设置中添加自定义引导节点
-- **THEN** 系统 SHALL 在允许公网或自定义来源的发现模式下使用该节点
+- **THEN** 系统 SHALL 把它纳入候选池，并按上述闸门决定其 relay 角色
 
 ### Requirement: mDNS 发现的节点必须通过 Identify 确认
 系统 SHALL 只在 mDNS 发现的 peer 通过 SwarmDrop Identify 校验后，才将其作为局域网协助节点候选使用。
@@ -109,7 +117,7 @@ TBD - created by archiving change auto-discover-lan-helper-nodes. Update Purpose
 
 #### Scenario: 用户打开网络设置
 - **WHEN** 用户打开设置页网络区域
-- **THEN** UI SHALL 优先展示发现模式和局域网协助节点开关
+- **THEN** UI SHALL 优先展示公网可达性和局域网协助节点开关
 - **AND** 自定义 Multiaddr 列表 SHALL 位于高级设置区域
 
 #### Scenario: 自动发现不可用

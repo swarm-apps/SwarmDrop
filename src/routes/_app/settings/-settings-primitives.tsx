@@ -5,7 +5,7 @@
  */
 
 import type { ComponentType, ReactNode } from "react";
-import { Trans } from "@lingui/react/macro";
+import { Plural, Trans } from "@lingui/react/macro";
 import { RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -132,9 +132,12 @@ export function NodeRestartBanner({
         {activeTransferCount > 0 && (
           <>
             {" "}
-            <Trans>
-              重启会中断正在进行的 {activeTransferCount} 个传输。
-            </Trans>
+            {/* `<Plural>` 而不是插值：见 node-status-sheet.tsx 的同一条注释。 */}
+            <Plural
+              value={activeTransferCount}
+              one="重启会中断正在进行的 # 个传输。"
+              other="重启会中断正在进行的 # 个传输。"
+            />
           </>
         )}
       </span>

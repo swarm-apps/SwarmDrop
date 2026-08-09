@@ -5,10 +5,8 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
-  Globe2,
   RotateCw,
   ServerCog,
-  Wifi,
 } from "lucide-react-native";
 import { Fragment, useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
@@ -21,11 +19,7 @@ import { SettingsHeader } from "@/components/settings-header";
 import { StatusPill } from "@/components/status-pill";
 import { Switch } from "@/components/ui/switch";
 import { Text } from "@/components/ui/text";
-import {
-  type DiscoveryModePreference,
-  discoveryModeFromNative,
-  isNatMapped,
-} from "@/core/network-discovery";
+import { isNatMapped } from "@/core/network-discovery";
 import {
   NODE_HEALTH_CTA_LABEL,
   type NodePresentation,
@@ -60,26 +54,22 @@ export default function NetworkScreen() {
     );
   const {
     autoStart,
-    discoveryMode,
     autoDiscoverLanHelpers,
     provideLanHelper,
     publicReachability,
     customBootstrapNodes,
     setAutoStart,
-    setDiscoveryMode,
     setAutoDiscoverLanHelpers,
     setProvideLanHelper,
     setPublicReachability,
   } = usePreferencesStore(
     useShallow((s) => ({
       autoStart: s.autoStart,
-      discoveryMode: s.discoveryMode,
       autoDiscoverLanHelpers: s.autoDiscoverLanHelpers,
       provideLanHelper: s.provideLanHelper,
       publicReachability: s.publicReachability,
       customBootstrapNodes: s.customBootstrapNodes,
       setAutoStart: s.setAutoStart,
-      setDiscoveryMode: s.setDiscoveryMode,
       setAutoDiscoverLanHelpers: s.setAutoDiscoverLanHelpers,
       setProvideLanHelper: s.setProvideLanHelper,
       setPublicReachability: s.setPublicReachability,
@@ -97,19 +87,17 @@ export default function NetworkScreen() {
   // 引导节点的增删**不在这张表里**：它们经 `add_infra_node` / `remove_infra_node`
   // 即时生效，不需要重启（这正是本轮改掉的东西）。剩下这四项仍然只在
   // `start_node` 时读一次——`InfraSupervisor::new` 把 `public_reachability` 拷进了
-  // 自己的字段，`DiscoveryMode` 与 `auto_discover_lan_helpers` 同理住在
+  // 自己的字段，`auto_discover_lan_helpers` 同理住在
   // `NetworkRuntimeConfig` 里，运行期改不动。
   const runtimeConfigChanged = useMemo(() => {
     if (runtimeState !== "running" || !networkStatus) return false;
     return (
-      discoveryModeFromNative(networkStatus.discoveryMode) !== discoveryMode ||
       networkStatus.autoDiscoverLanHelpers !== autoDiscoverLanHelpers ||
       networkStatus.localLanHelperEnabled !== provideLanHelper ||
       networkStatus.publicReachabilityEnabled !== publicReachability
     );
   }, [
     autoDiscoverLanHelpers,
-    discoveryMode,
     networkStatus,
     provideLanHelper,
     publicReachability,
@@ -127,7 +115,7 @@ export default function NetworkScreen() {
       }
       const start = await startNode();
       if (start.ok && start.state === "running") {
-        toast.success(t`节点已按新发现设置重启`);
+        toast.success(t`节点已按新的网络设置重启`);
       } else {
         toast.error(t`重启节点失败`, start.ok ? undefined : start.error);
         // 错误已就地反馈，清掉全局 error 避免又延迟泄漏到设备页（重复提示）。
@@ -188,32 +176,7 @@ export default function NetworkScreen() {
       header={<SettingsHeader title={t`网络`} />}
       contentClassName="gap-5 pt-2"
     >
-      <SettingSection label={t`发现方式`}>
-        <View className="gap-3 px-3.5 py-3">
-          <View className="flex-row gap-2">
-            <DiscoveryModeOption
-              mode="auto"
-              selected={discoveryMode === "auto"}
-              onPress={() => setDiscoveryMode("auto")}
-            />
-            <DiscoveryModeOption
-              mode="lanOnly"
-              selected={discoveryMode === "lanOnly"}
-              onPress={() => setDiscoveryMode("lanOnly")}
-            />
-          </View>
-          <Text className="text-[12px] text-muted-foreground">
-            {discoveryMode === "auto" ? (
-              <Trans>自动模式会使用引导节点、中继和局域网协助节点。</Trans>
-            ) : (
-              <Trans>
-                LAN-only
-                不主动连接引导节点；仍可经局域网协助节点被跨网访问，除非关闭公网可达性。
-              </Trans>
-            )}
-          </Text>
-        </View>
-        <SettingDivider />
+      <SettingSection label={t`可达性`}>
         <View className="flex-row items-center gap-3 px-3.5 py-3">
           <View className="flex-1 gap-0.5">
             <Text className="text-[14px] text-foreground">
@@ -221,7 +184,7 @@ export default function NetworkScreen() {
             </Text>
             <Text className="text-[12px] text-muted-foreground">
               <Trans>
-                允许通过公网中继被跨网设备访问；关闭后为严格局域网。
+                允许通过公网中继被跨网设备访问；关闭后仅局域网可达，跨网设备找不到你。
               </Trans>
             </Text>
           </View>
@@ -422,67 +385,6 @@ export default function NetworkScreen() {
   );
 }
 
-function DiscoveryModeOption({
-  mode,
-  selected,
-  onPress,
-}: {
-  mode: DiscoveryModePreference;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  const colors = useThemeColors();
-  const Icon = mode === "auto" ? Globe2 : Wifi;
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      testID={
-        mode === "auto"
-          ? "network-discovery-auto"
-          : "network-discovery-lan-only"
-      }
-      className={cn(
-        "min-h-20 flex-1 gap-2 rounded-xl border px-3 py-3 active:opacity-70",
-        selected ? "border-primary bg-primary/10" : "border-border bg-card",
-      )}
-    >
-      <View className="flex-row items-center justify-between">
-        <Icon
-          color={selected ? colors.primary : colors.mutedForeground}
-          size={18}
-        />
-        <View
-          className={cn(
-            "size-2 rounded-full",
-            selected ? "bg-primary" : "bg-muted-foreground/40",
-          )}
-        />
-      </View>
-      <View className="gap-0.5">
-        <Text className="text-[13px] font-semibold text-foreground">
-          {mode === "auto" ? <Trans>自动</Trans> : <Trans>LAN-only</Trans>}
-        </Text>
-        <Text className="text-[11px] text-muted-foreground" numberOfLines={2}>
-          {mode === "auto" ? (
-            <Trans>公网 + 局域网</Trans>
-          ) : (
-            <Trans>仅本地网络</Trans>
-          )}
-        </Text>
-      </View>
-    </Pressable>
-  );
-}
-
-/**
- * 结论层的**后果句**（契约信息位 2）。
- *
- * 此前这里是本端独有的一段合成：只看 `bootstrapConnected` / `relayReady`，于是
- * 节点根本没启动时也会说「公网引导尚未连接，跨网络发现可能暂时不可用」——用户去查
- * 了一圈引导节点，而真正该点的是「启动节点」。判定现在整条交给
- * `summarizeNodeHealth`（三端同一份）+ 本端的生命周期覆盖层，本组件只负责渲染与接 CTA。
- */
 function NetworkHint({
   presentation,
   ctaHandlers,

@@ -2345,38 +2345,8 @@ const FfiConverterTypeMobileInvitePreview = (() => {
     return new FFIConverter();
 })();
 
-export enum MobileDiscoveryMode {
-    Auto,
-    LanOnly
-}
-
-const FfiConverterTypeMobileDiscoveryMode = (() => {
-    const ordinalConverter = FfiConverterInt32;
-    type TypeName = MobileDiscoveryMode;
-    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
-        read(from: RustBuffer): TypeName {
-            switch (ordinalConverter.read(from)) {
-                case 1: return MobileDiscoveryMode.Auto;
-                case 2: return MobileDiscoveryMode.LanOnly;
-                default: throw new UniffiInternalError.UnexpectedEnumCase();
-            }
-        }
-        write(value: TypeName, into: RustBuffer): void {
-            switch (value) {
-                case MobileDiscoveryMode.Auto: return ordinalConverter.write(1, into);
-                case MobileDiscoveryMode.LanOnly: return ordinalConverter.write(2, into);
-            }
-        }
-        allocationSize(value: TypeName): number {
-            return ordinalConverter.allocationSize(0);
-        }
-    }
-    return new FFIConverter();
-})();
-
 export type MobileNetworkRuntimeConfig = {
     bootstrapNodes: Array<string>,
-    discoveryMode: MobileDiscoveryMode,
     autoDiscoverLanHelpers: boolean,
     provideLanHelper: boolean,
     /**
@@ -2407,7 +2377,6 @@ const FfiConverterTypeMobileNetworkRuntimeConfig = (() => {
         read(from: RustBuffer): TypeName {
             return {
                 bootstrapNodes: FfiConverterSequenceString.read(from), 
-                discoveryMode: FfiConverterTypeMobileDiscoveryMode.read(from), 
                 autoDiscoverLanHelpers: FfiConverterBool.read(from), 
                 provideLanHelper: FfiConverterBool.read(from), 
                 publicReachability: FfiConverterBool.read(from)
@@ -2415,14 +2384,12 @@ const FfiConverterTypeMobileNetworkRuntimeConfig = (() => {
         }
         write(value: TypeName, into: RustBuffer): void {
             FfiConverterSequenceString.write(value.bootstrapNodes, into);
-            FfiConverterTypeMobileDiscoveryMode.write(value.discoveryMode, into);
             FfiConverterBool.write(value.autoDiscoverLanHelpers, into);
             FfiConverterBool.write(value.provideLanHelper, into);
             FfiConverterBool.write(value.publicReachability, into);
         }
         allocationSize(value: TypeName): number {
             return FfiConverterSequenceString.allocationSize(value.bootstrapNodes) +
-             FfiConverterTypeMobileDiscoveryMode.allocationSize(value.discoveryMode) +
              FfiConverterBool.allocationSize(value.autoDiscoverLanHelpers) +
              FfiConverterBool.allocationSize(value.provideLanHelper) +
              FfiConverterBool.allocationSize(value.publicReachability);
@@ -2487,7 +2454,6 @@ export type MobileNetworkStatus = {
     publicReachabilityEnabled: boolean,
     relayPeers: Array<string>,
     bootstrapConnected: boolean,
-    discoveryMode: MobileDiscoveryMode,
     autoDiscoverLanHelpers: boolean,
     localLanHelperEnabled: boolean,
     localLanHelperRunning: boolean,
@@ -2536,7 +2502,6 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
                 publicReachabilityEnabled: FfiConverterBool.read(from), 
                 relayPeers: FfiConverterSequenceString.read(from), 
                 bootstrapConnected: FfiConverterBool.read(from), 
-                discoveryMode: FfiConverterTypeMobileDiscoveryMode.read(from), 
                 autoDiscoverLanHelpers: FfiConverterBool.read(from), 
                 localLanHelperEnabled: FfiConverterBool.read(from), 
                 localLanHelperRunning: FfiConverterBool.read(from), 
@@ -2562,7 +2527,6 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
             FfiConverterBool.write(value.publicReachabilityEnabled, into);
             FfiConverterSequenceString.write(value.relayPeers, into);
             FfiConverterBool.write(value.bootstrapConnected, into);
-            FfiConverterTypeMobileDiscoveryMode.write(value.discoveryMode, into);
             FfiConverterBool.write(value.autoDiscoverLanHelpers, into);
             FfiConverterBool.write(value.localLanHelperEnabled, into);
             FfiConverterBool.write(value.localLanHelperRunning, into);
@@ -2587,7 +2551,6 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
              FfiConverterBool.allocationSize(value.publicReachabilityEnabled) +
              FfiConverterSequenceString.allocationSize(value.relayPeers) +
              FfiConverterBool.allocationSize(value.bootstrapConnected) +
-             FfiConverterTypeMobileDiscoveryMode.allocationSize(value.discoveryMode) +
              FfiConverterBool.allocationSize(value.autoDiscoverLanHelpers) +
              FfiConverterBool.allocationSize(value.localLanHelperEnabled) +
              FfiConverterBool.allocationSize(value.localLanHelperRunning) +
@@ -9242,7 +9205,6 @@ export default Object.freeze({
     FfiConverterTypeMobileDevice,
     FfiConverterTypeMobileDeviceReceivePolicy,
     FfiConverterTypeMobileDeviceTrustLevel,
-    FfiConverterTypeMobileDiscoveryMode,
     FfiConverterTypeMobileFailureCode,
     FfiConverterTypeMobileFileMetadata,
     FfiConverterTypeMobileFileProgress,

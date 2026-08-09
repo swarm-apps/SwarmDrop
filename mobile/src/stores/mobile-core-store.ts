@@ -236,7 +236,6 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           await core.startNode(
             buildNetworkRuntimeConfig({
               customBootstrapNodes: prefs.customBootstrapNodes,
-              discoveryMode: prefs.discoveryMode,
               autoDiscoverLanHelpers: prefs.autoDiscoverLanHelpers,
               provideLanHelper: prefs.provideLanHelper,
               publicReachability: prefs.publicReachability,

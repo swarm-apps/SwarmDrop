@@ -13,7 +13,7 @@ pub use config::NetworkRuntimeConfig;
 pub use manager::{NetManager, SharedNetRefs, TransferRuntime};
 pub use swarmdrop_net::NatStatus;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use swarmdrop_net::{Addr, NodeId};
 
 use crate::infra::InfraLink;
@@ -29,15 +29,6 @@ pub enum NodeStatus {
     Running,
     #[default]
     Stopped,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub enum DiscoveryMode {
-    #[default]
-    Auto,
-    LanOnly,
 }
 
 /// 网络状态快照。
@@ -69,8 +60,6 @@ pub struct NetworkStatus {
     pub relay_peers: Vec<NodeId>,
     /// 是否至少有一个引导节点已连接。
     pub bootstrap_connected: bool,
-    /// 当前发现模式。
-    pub discovery_mode: DiscoveryMode,
     /// 是否自动发现局域网协助节点。
     pub auto_discover_lan_helpers: bool,
     /// 本设备是否配置为提供局域网协助能力。

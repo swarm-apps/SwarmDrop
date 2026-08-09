@@ -15,7 +15,7 @@ use futures::StreamExt;
 use swarmdrop_core::device_manager::DeviceFilter;
 use swarmdrop_core::host::EventBus;
 use swarmdrop_core::network::event_loop::spawn_event_loop;
-use swarmdrop_core::network::{CandidateRoles, DiscoveryMode, NetManager, NetworkRuntimeConfig};
+use swarmdrop_core::network::{CandidateRoles, NetManager, NetworkRuntimeConfig};
 use swarmdrop_core::protocol::pairing::{PairingRefuseReason, PairingResponse};
 use swarmdrop_core::runtime::{EndpointProfile, start_node};
 use swarmdrop_host::device::{DeviceName, DeviceReceivePolicy, DeviceTrustLevel};
@@ -276,12 +276,10 @@ impl WebNode {
             // `OsInfo.name`，浏览器侧不再有第二份本机 OsInfo 副本。
             Arc::new(crate::device_config::IdbDeviceConfig),
             paired_store.clone(),
-            // LanOnly：浏览器拨不了 TCP/QUIC 内置 bootstrap，跳过它免得 infra 反复空拨刷屏；
-            // LAN 配对经直连 ws + invite，不需 DHT bootstrap（公网可达待 webrtc-direct bootstrap）。
-            NetworkRuntimeConfig {
-                discovery_mode: DiscoveryMode::LanOnly,
-                ..NetworkRuntimeConfig::default()
-            },
+            // `bootstrap_nodes` 留空：浏览器拨不了 TCP/QUIC 内置 bootstrap。公网入口
+            // 由前端的 `ensureConfiguredRelays` 用 webrtc-direct 地址经 `addInfraNode`
+            // 补，走的是候选表而不是这份启动配置。
+            NetworkRuntimeConfig::default(),
             EndpointProfile::Browser,
             event_bus.clone(),
             None, // 浏览器无系统通知

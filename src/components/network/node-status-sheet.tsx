@@ -20,7 +20,7 @@ import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ChevronRight, Copy } from "lucide-react";
 import { toast } from "sonner";
-import { Trans, useLingui } from "@lingui/react/macro";
+import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { useShallow } from "zustand/shallow";
 import { cn } from "@/lib/utils";
 import { copyText } from "@/lib/clipboard";
@@ -273,7 +273,14 @@ function NodeStatusContent({ onClose }: { onClose: () => void }) {
               {activeTransferCount > 0 && (
                 <>
                   {" "}
-                  <Trans>正在进行的 {activeTransferCount} 个传输会被中断。</Trans>
+                  {/* `<Plural>` 而不是插值：源 locale 只有一种复数形式，直接插值会让
+                      英文 catalog 被迫写成 "1 transfer(s)"——而这条提示最常见的取值
+                      恰恰就是 1。 */}
+                  <Plural
+                    value={activeTransferCount}
+                    one="正在进行的 # 个传输会被中断。"
+                    other="正在进行的 # 个传输会被中断。"
+                  />
                 </>
               )}
             </p>

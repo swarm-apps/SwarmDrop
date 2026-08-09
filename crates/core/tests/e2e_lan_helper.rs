@@ -20,7 +20,7 @@ use swarmdrop_core::event_adapter::CoreTransferEvents;
 use swarmdrop_core::host::{CoreEvent, EventBus, FileAccess, MemoryHost};
 use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_manager};
 use swarmdrop_core::network::event_loop::{handle_core_node_event, run_event_loop};
-use swarmdrop_core::network::{BootstrapCandidateSource, DiscoveryMode, NetManager};
+use swarmdrop_core::network::{BootstrapCandidateSource, NetManager};
 use swarmdrop_core::runtime::build_router;
 use swarmdrop_core::transfer::manager::TransferManager;
 use swarmdrop_storage_sql::SqlSessionStore;
@@ -279,7 +279,7 @@ fn routable_private_ipv4() -> Option<Ipv4Addr> {
     None
 }
 
-async fn run_three_node_lan_helper_flow(discovery_mode: DiscoveryMode) {
+async fn run_three_node_lan_helper_flow() {
     // 这两个用例已用 `#[ignore]` 标注，默认不计入测试结果，需手动 `--ignored` 运行。
     // 在 `--ignored` 上下文下若仍无可绑定私有 IPv4，直接 panic 显式失败，而不是静默
     // return 伪装通过——后者会在缺私网 IP 的环境里给出虚假的“覆盖通过”信号。
@@ -290,10 +290,9 @@ async fn run_three_node_lan_helper_flow(discovery_mode: DiscoveryMode) {
         );
     };
 
-    fn runtime_config(mode: DiscoveryMode, provide_lan_helper: bool) -> NetworkRuntimeConfig {
+    fn runtime_config(provide_lan_helper: bool) -> NetworkRuntimeConfig {
         NetworkRuntimeConfig {
             bootstrap_nodes: Vec::new(),
-            discovery_mode: mode,
             auto_discover_lan_helpers: true,
             provide_lan_helper,
             public_reachability: true,
@@ -305,7 +304,7 @@ async fn run_three_node_lan_helper_flow(discovery_mode: DiscoveryMode) {
         ip,
         lan_helper_agent(),
         true,
-        runtime_config(discovery_mode, true),
+        runtime_config(true),
     )
     .await;
     let node_a = spawn_node(
@@ -313,7 +312,7 @@ async fn run_three_node_lan_helper_flow(discovery_mode: DiscoveryMode) {
         ip,
         ordinary_agent(),
         false,
-        runtime_config(discovery_mode, false),
+        runtime_config(false),
     )
     .await;
     let node_b = spawn_node(
@@ -321,7 +320,7 @@ async fn run_three_node_lan_helper_flow(discovery_mode: DiscoveryMode) {
         ip,
         ordinary_agent(),
         false,
-        runtime_config(discovery_mode, false),
+        runtime_config(false),
     )
     .await;
 
@@ -337,19 +336,6 @@ async fn run_three_node_lan_helper_flow(discovery_mode: DiscoveryMode) {
     );
 
     assert_kad_record_roundtrip(&node_a, &node_b).await;
-
-    if matches!(discovery_mode, DiscoveryMode::LanOnly) {
-        for (label, node) in [("A", &node_a), ("B", &node_b)] {
-            let status = node.manager.get_network_status();
-            assert!(
-                !status
-                    .candidate_sources
-                    .iter()
-                    .any(|s| s.source == BootstrapCandidateSource::HostConfigured),
-                "LAN Only 模式下节点 {label} 不应加载 host 配置的公网候选"
-            );
-        }
-    }
 
     assert!(
         helper.host.events().iter().any(|event| matches!(
@@ -367,11 +353,5 @@ async fn run_three_node_lan_helper_flow(discovery_mode: DiscoveryMode) {
 #[ignore = "需要可绑定的私有 IPv4 / 真实局域网，手动用 --ignored 运行"]
 #[tokio::test(flavor = "multi_thread")]
 async fn three_node_auto_discovered_lan_helper_supports_kad_roundtrip() {
-    run_three_node_lan_helper_flow(DiscoveryMode::Auto).await;
-}
-
-#[ignore = "需要可绑定的私有 IPv4 / 真实局域网，手动用 --ignored 运行"]
-#[tokio::test(flavor = "multi_thread")]
-async fn lan_only_uses_mdns_lan_helper_without_builtin_public_candidates() {
-    run_three_node_lan_helper_flow(DiscoveryMode::LanOnly).await;
+    run_three_node_lan_helper_flow().await;
 }

@@ -64,7 +64,6 @@ describe("NetworkSettingsSection", () => {
     vi.clearAllMocks();
     usePreferencesStore.setState({
       autoStart: false,
-      discoveryMode: "auto",
       autoDiscoverLanHelpers: true,
       provideLanHelper: false,
     });

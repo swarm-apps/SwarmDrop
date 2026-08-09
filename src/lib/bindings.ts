@@ -15,15 +15,14 @@ export const commands = {
 	 *  transport 能力提供不同的 TCP、QUIC、WebSocket 或 WebRTC Direct 地址。
 	 */
 	bootstrapNodes?: string[],
-	discoveryMode?: DiscoveryMode,
 	autoDiscoverLanHelpers?: boolean,
 	provideLanHelper?: boolean,
 	/**
 	 *  公网可达性：允许在已知公网中继上建立 reservation 使本机可被跨网直达。
 	 * 
-	 *  与 discovery_mode 正交——LanOnly 只管"不主动连接内置公网引导"，
-	 *  经 LAN Helper 学到的公网中继仍受本开关控制。关闭 = 严格局域网，
-	 *  跨网可达仅剩 LAN Helper 转发路径（依赖打洞，可能不可用）。
+	 *  关闭 = 严格局域网，跨网可达仅剩 LAN Helper 转发路径（依赖打洞，可能不可用）。
+	 *  判据是候选的 [`CandidateScope`](super::CandidateScope)（「是否持有公网地址」），
+	 *  所以经局域网协助节点学到的公网中继同样受本开关约束。
 	 */
 	publicReachability?: boolean,
 } | null) => __TAURI_INVOKE<null>("start", { networkOptions }),
@@ -395,7 +394,7 @@ export type AppErrorPayload = {
 export type BootstrapCandidateSource = 
 /**  当前 host 注入的静态引导/中继配置（含各端默认值和用户追加地址）。 */
 "hostConfigured" | "mdnsLanHelper" | 
-/**  运行时经 identify 学到的基础设施节点（如 LanOnly 下经 LAN Helper 认识的公网中继） */
+/**  运行时经 identify 学到的基础设施节点（如经局域网协助节点认识的公网中继） */
 "learned";
 
 export type CandidateRoles = {
@@ -535,8 +534,6 @@ export type DeviceStatus = "online" | "offline";
 export type DeviceTrustLevel = "owned" | "collaborator" | "temporary" | "blocked";
 
 export type DevicesChanged = Device[];
-
-export type DiscoveryMode = "auto" | "lanOnly";
 
 /**
  *  目录遍历后的扁平化文件条目
@@ -746,13 +743,12 @@ supported: string[] } |
  *  目前只有一个变体，且刻意不预留第二个（本仓既有规矩：不造到不了 UI 的判别码）：
  *  - 没有 `NodeNotRunning`——节点运行态由 `NetworkStatus.status` 表达，而
  *    `build_network_status` 里那个值恒为 `Running`，加进来就是一个永远为假的分支；
- *  - 没有 `NotARelay`——今天**每一个**候选写入点都传 `CandidateRoles::kad_and_relay()`，
- *    纯 kad 候选还不存在。等 `InfraSupervisor` 真按角色分档收敛、有了纯 kad 的写入方，
- *    再连同它的产生者一起加回来。提前导出一个三端都渲染不出来的分支，是
- *    `DESIGN.md:645-649`「永远为零的计数器比缺席更糟」在类型层的版本，而且它要过
- *    specta / uniffi / wasm 三条 codegen；
- *  - 没有任何基于 `DiscoveryMode` 的变体——那个轴当前零行为效果（全仓对该枚举无
- *    `match`），基于它写新逻辑等于给一个待删的开关增加依赖。
+ *  - 没有 `NotARelay`——纯 kad 候选**确实可构造**（`ensure_infra_intent` 把 roles 开成了
+ *    参数），但它在读模型里由 `relay: None` + `roles.relay_server == false` 表达，
+ *    shared-view 的 `deriveInfraLinkState` 据此判 `seedOnly`，那一档没有失败态。
+ *    「不承担该角色」不是「承担但被拦下」，给它一个判别码只会让三端多一个渲染不出
+ *    差异的分支——而且它要过 specta / uniffi / wasm 三条 codegen。判据见
+ *    [`exclusion_for`](crate::infra::InfraSupervisor::exclusion_for)。
  */
 export type InfraExclusion = 
 /**  公网范围候选，但用户关闭了公网可达性。 */
@@ -833,15 +829,14 @@ export type NetworkRuntimeConfig = {
 	 *  transport 能力提供不同的 TCP、QUIC、WebSocket 或 WebRTC Direct 地址。
 	 */
 	bootstrapNodes?: string[],
-	discoveryMode?: DiscoveryMode,
 	autoDiscoverLanHelpers?: boolean,
 	provideLanHelper?: boolean,
 	/**
 	 *  公网可达性：允许在已知公网中继上建立 reservation 使本机可被跨网直达。
 	 * 
-	 *  与 discovery_mode 正交——LanOnly 只管"不主动连接内置公网引导"，
-	 *  经 LAN Helper 学到的公网中继仍受本开关控制。关闭 = 严格局域网，
-	 *  跨网可达仅剩 LAN Helper 转发路径（依赖打洞，可能不可用）。
+	 *  关闭 = 严格局域网，跨网可达仅剩 LAN Helper 转发路径（依赖打洞，可能不可用）。
+	 *  判据是候选的 [`CandidateScope`](super::CandidateScope)（「是否持有公网地址」），
+	 *  所以经局域网协助节点学到的公网中继同样受本开关约束。
 	 */
 	publicReachability?: boolean,
 };
@@ -872,8 +867,6 @@ export type NetworkStatus = {
 	relayPeers: string[],
 	/**  是否至少有一个引导节点已连接。 */
 	bootstrapConnected: boolean,
-	/**  当前发现模式。 */
-	discoveryMode: DiscoveryMode,
 	/**  是否自动发现局域网协助节点。 */
 	autoDiscoverLanHelpers: boolean,
 	/**  本设备是否配置为提供局域网协助能力。 */

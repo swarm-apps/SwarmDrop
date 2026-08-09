@@ -75,7 +75,6 @@ function networkStatus(
     publicReachabilityEnabled: true,
     relayPeers: [],
     bootstrapConnected: publicReachable,
-    discoveryMode: "auto",
     autoDiscoverLanHelpers: true,
     localLanHelperEnabled: false,
     localLanHelperRunning: false,

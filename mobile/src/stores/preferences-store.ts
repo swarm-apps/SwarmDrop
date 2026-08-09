@@ -13,7 +13,6 @@ import type {
   FileBrowserScope,
   FileBrowserView,
 } from "@/components/file-browser/types";
-import type { DiscoveryModePreference } from "@/core/network-discovery";
 
 interface PreferencesState {
   /**
@@ -30,7 +29,6 @@ interface PreferencesState {
   /** App 启动时是否自动启动 P2P 节点,默认 false(对齐桌面 autoStart) */
   autoStart: boolean;
   /** 网络发现模式：auto 使用公网引导 + LAN helper，lanOnly 只依赖局域网/自定义节点 */
-  discoveryMode: DiscoveryModePreference;
   /** 是否自动发现局域网协助节点，默认 true，对齐 shared core 默认发现能力 */
   autoDiscoverLanHelpers: boolean;
   /** 是否让本机提供 LAN Helper 能力。移动端默认 false，不作为主入口推广 */
@@ -44,7 +42,6 @@ interface PreferencesState {
   fileBrowserViews: Record<FileBrowserScope, FileBrowserView>;
   setDeviceName: (name: string) => void;
   setAutoStart: (value: boolean) => void;
-  setDiscoveryMode: (mode: DiscoveryModePreference) => void;
   setAutoDiscoverLanHelpers: (value: boolean) => void;
   setProvideLanHelper: (value: boolean) => void;
   setPublicReachability: (value: boolean) => void;
@@ -72,7 +69,6 @@ type PersistedPreferences = Partial<
     | "deviceName"
     | "deviceOrganization"
     | "autoStart"
-    | "discoveryMode"
     | "autoDiscoverLanHelpers"
     | "provideLanHelper"
     | "publicReachability"
@@ -88,7 +84,6 @@ export const usePreferencesStore = create<PreferencesState>()(
       deviceName: "",
       deviceOrganization: emptyDeviceOrganization,
       autoStart: false,
-      discoveryMode: "auto",
       autoDiscoverLanHelpers: true,
       provideLanHelper: false,
       publicReachability: true,
@@ -102,10 +97,6 @@ export const usePreferencesStore = create<PreferencesState>()(
 
       setAutoStart(value) {
         set({ autoStart: value });
-      },
-
-      setDiscoveryMode(value) {
-        set({ discoveryMode: value });
       },
 
       setAutoDiscoverLanHelpers(value) {
@@ -281,7 +272,6 @@ export const usePreferencesStore = create<PreferencesState>()(
         deviceName: state.deviceName,
         deviceOrganization: state.deviceOrganization,
         autoStart: state.autoStart,
-        discoveryMode: state.discoveryMode,
         autoDiscoverLanHelpers: state.autoDiscoverLanHelpers,
         provideLanHelper: state.provideLanHelper,
         publicReachability: state.publicReachability,
@@ -304,10 +294,6 @@ export const usePreferencesStore = create<PreferencesState>()(
             : {}),
           ...(typeof stored.autoStart === "boolean"
             ? { autoStart: stored.autoStart }
-            : {}),
-          ...(stored.discoveryMode === "auto" ||
-          stored.discoveryMode === "lanOnly"
-            ? { discoveryMode: stored.discoveryMode }
             : {}),
           ...(typeof stored.autoDiscoverLanHelpers === "boolean"
             ? { autoDiscoverLanHelpers: stored.autoDiscoverLanHelpers }

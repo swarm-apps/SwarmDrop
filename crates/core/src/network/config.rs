@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use swarmdrop_net::{Addr, NodeAddr, NodeId};
 
+use super::BootstrapCandidateManager;
 use super::candidates::{BootstrapCandidateSource, CandidateRoles};
-use super::{BootstrapCandidateManager, DiscoveryMode};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -14,17 +14,15 @@ pub struct NetworkRuntimeConfig {
     /// transport 能力提供不同的 TCP、QUIC、WebSocket 或 WebRTC Direct 地址。
     #[serde(default)]
     pub bootstrap_nodes: Vec<String>,
-    #[serde(default)]
-    pub discovery_mode: DiscoveryMode,
     #[serde(default = "default_true")]
     pub auto_discover_lan_helpers: bool,
     #[serde(default)]
     pub provide_lan_helper: bool,
     /// 公网可达性：允许在已知公网中继上建立 reservation 使本机可被跨网直达。
     ///
-    /// 与 discovery_mode 正交——LanOnly 只管"不主动连接内置公网引导"，
-    /// 经 LAN Helper 学到的公网中继仍受本开关控制。关闭 = 严格局域网，
-    /// 跨网可达仅剩 LAN Helper 转发路径（依赖打洞，可能不可用）。
+    /// 关闭 = 严格局域网，跨网可达仅剩 LAN Helper 转发路径（依赖打洞，可能不可用）。
+    /// 判据是候选的 [`CandidateScope`](super::CandidateScope)（「是否持有公网地址」），
+    /// 所以经局域网协助节点学到的公网中继同样受本开关约束。
     #[serde(default = "default_true")]
     pub public_reachability: bool,
 }
@@ -33,7 +31,6 @@ impl Default for NetworkRuntimeConfig {
     fn default() -> Self {
         Self {
             bootstrap_nodes: Vec::new(),
-            discovery_mode: DiscoveryMode::Auto,
             auto_discover_lan_helpers: true,
             provide_lan_helper: false,
             public_reachability: true,
@@ -77,8 +74,7 @@ fn merge_bootstrap_nodes(peers: &mut Vec<NodeAddr>, nodes: &[String]) {
 }
 
 pub fn create_candidate_manager(config: &NetworkRuntimeConfig) -> BootstrapCandidateManager {
-    let mut manager =
-        BootstrapCandidateManager::new(config.discovery_mode, config.auto_discover_lan_helpers);
+    let mut manager = BootstrapCandidateManager::new(config.auto_discover_lan_helpers);
     for (node_id, addr) in config
         .bootstrap_nodes
         .iter()
@@ -108,11 +104,10 @@ mod tests {
     }
 
     #[test]
-    fn host_configured_candidate_is_loaded_in_lan_only_mode() {
+    fn host_configured_local_candidate_is_loaded_as_lan() {
         let custom =
             "/ip4/127.0.0.1/tcp/4001/p2p/12D3KooWCq8xgrSap7VZZHpW7EYXw8zFmNEgru9D7cGHGW3bMASX";
         let config = NetworkRuntimeConfig {
-            discovery_mode: DiscoveryMode::LanOnly,
             bootstrap_nodes: vec![custom.to_string()],
             ..Default::default()
         };

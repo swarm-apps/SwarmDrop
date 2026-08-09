@@ -84,19 +84,24 @@ supervisor 走 2s→75s 退避。
 判据现在是 `relay_hints_from(candidates, relays)` 这个纯函数（读 `watch_relays` 的 `Active`），
 回归测试 `relay_hints_follow_live_relay_state` 钉住它。
 
-### 引导节点的启动登记只给 kad 角色（2026-08-08 修）
+### 引导节点的启动登记：kad 无条件，relay 就地过闸门（2026-08-09 定稿）
 
-`runtime.rs` 用 `InfraRoles { kad_server: true, relay: false }` 注册 host 配置的引导节点，
-relay 角色交给 `InfraSupervisor` 按 `public_reachability` 闸门收敛——与 `learn_candidate` 一致。
+`runtime.rs` 注册 host 配置的引导节点时，`kad_server` 恒为真，`relay` 按
+`public_reachability || CandidateScope::infer(addrs) == Lan` 现场算。
 
 此前用 `InfraRoles::bootstrap()`（kad + relay），于是关掉「公网可达性」的用户**照样在启动时
 建了公网 reservation**：`wants_reservation` 只管收敛环，管不到这条一次性注册。
+中间还有一版改成写死 `relay: false`、把 relay 整个推迟给 `InfraSupervisor::tick`——闸门是堵上了，
+但每个引导节点变成先注册一次再注册一次，首次可达性凭空晚一个 tick。**闸门查询要放在调用点，
+不是把整件事推迟。**
+
+⚠️ 判据必须与 `exclusion_for` 同一条（见下面 `CandidateScope` 那节）。写成全局开关一刀切，
+私网引导节点会在启动时被拦掉、又被 tick 加回来，每次冷启动白拨一轮。
 
 ⚠️ 反过来也不能把这段删掉改走候选表。`wants_reservation` 要求 relay 角色 + tick 里是
 `continue`，所以 `public_reachability=false` 时公网候选**一次 `add_infrastructure_peer` 都不会
 发** → kad 路由表拿不到任何公网种子 → `dht.bootstrap()` 与在线记录发布全塌。
-`public_reachability` 与 `discovery_mode` 是**正交**的（`NetworkRuntimeConfig` 注释写了），
-不能让一个吃掉另一个。
+「别让我被动可达」与「跨网还能不能找到人」是两件事，不能让一个吃掉另一个。
 
 ### 候选 scope 由 `upsert` 单点推断，调用方不得指定（2026-08-08 修）
 
@@ -106,6 +111,7 @@ relay 角色交给 `InfraSupervisor` 按 `public_reachability` 闸门收敛—�
 `wants_reservation` 直接吃它，该候选就在收敛环里时进时出。
 
 现在 `upsert` 内部按**合并后的全部地址** `CandidateScope::infer`，签名里没有 scope 参数。
+`infer` 自身的判据 2026-08-09 又翻转过一次，见下面单独那节——那次翻转修的是另一个 bug。
 
 ### 「本端拨得动这条地址吗」是内核事实，不是部署配置（2026-08-08 加）
 
@@ -142,6 +148,47 @@ Web 端那颗「测试连通性」按钮就是这么变成一个不可能失败�
 
 写新的网络层集成测试时直接传 `()`，不要在测试文件里手写 5 个方法的 no-op 双——那份样板
 会在 trait 每次改动时红一遍，而它表达的东西 `()` 已经表达了。
+
+### `CandidateScope` 是「持有公网地址」，不是「不含私网地址」（2026-08-09 翻转）
+
+`CandidateScope::infer` 判 `Public` 的条件是**任一非 circuit 的公网可路由地址**
+（`CandidateScope::is_infra_public_addr`，`usable_public_addrs` 共用同一个谓词）。
+
+**别翻回「任一私网地址即判 Lan」。** 那是原始写法，它有一个静默失效的开关：
+`upsert` 按合并后的全部地址重算 scope，而地址表**只增不减**——自建 bootstrap 跑在同一
+局域网、用户按内网地址把它加进来，随后 identify 并入它的公网地址，旧判据就让 scope
+永久停在 `Lan`。而 `InfraSupervisor::exclusion_for` 正是拿这个位当公网闸门，于是关掉
+「公网可达性」的用户照样在一台真·公网中继上建了 reservation，被跨网直达，**开关无声失效**。
+
+翻过来之后 `Public` 是吸收态，方向是安全那一侧：地址只增不减，「见过公网地址」这个事实
+本就不该被后来的私网地址抹掉。纯局域网 helper（只有私网/回环地址）仍判 `Lan`、仍不受公网
+开关约束——「用户手点的本地 helper 不该被公网开关拦下」这条原意保留。
+
+**这个位有两个消费方，必须同源**：`exclusion_for` 的闸门，和读模型下发给三端的
+`scope`（shared-view / `node_health.rs` 拿它算 `configuredLanOnly`）。闸门另写一份地址
+判据就会出现「被拦下了但 UI 说不出为什么」——用户看到红色的「找不到任何节点」，而真相
+是他自己关的开关。`runtime.rs` 的启动注册同理复用 `infer`，不要在那里写第三份。
+
+**相关文件**：`crates/core/src/network/candidates.rs`、`crates/core/src/infra/supervisor.rs`、
+`crates/core/src/runtime.rs`
+
+### relay 边沿事件**不推** `NetworkStatus`——那条轨由 `watch_relays` 独占
+
+`actor.rs` 在 emit `RelayReservationAccepted` / `Lost` **之前**必然先写 `watch_relays`
+（`set_relay_state` / `set_relay_failed` 就在 emit 上一行）。而 `run_event_loop` 已经订阅
+了那条 watch，所以 core 的 `NetEvent` 分支里**不要**再 `publish_network_status`：两边都推
+= 每次转换重建两遍全量状态（候选快照克隆 + 两张 watch 深拷贝，移动端还要多过一次 uniffi）。
+
+更隐蔽的一半：reservation 每轮续期都发 `Accepted { renewal: true }`，而 watch 侧
+`send_if_modified` 判值相等**不通知**（那是刻意的静音）。NetEvent 分支会把这份静音拆回来，
+于是每个 relay 每个续期周期都在推一份一模一样的状态。
+
+两条轨的到达顺序不定（`select!` 随机），但这不构成问题：watch 只承载 relay 三态，
+`ever_active` 由 `infra.handle_event` 折叠，而 `deriveInfraLinkState` 先判 `relay == active`
+才看 `everActive`——两者唯一同时生效的组合（曾活跃过、现已失败）里，`ever_active` 早在更早
+那次 `Accepted` 就置位了。**加新的 relay 相关字段时要重新过一遍这个论证。**
+
+**相关文件**：`crates/core/src/network/event_loop.rs`、`crates/net/src/actor.rs`
 
 ### 与旧栈（swarm-p2p-core）的关键差异
 

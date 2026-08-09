@@ -19,8 +19,6 @@ import {
   type FileBrowserView,
 } from "@swarmdrop/shared-view";
 
-export type DiscoveryMode = "auto" | "lanOnly";
-
 /** 点窗口 ✕ 时的行为：每次询问 / 最小化到托盘 / 退出应用。 */
 export type CloseBehavior = "ask" | "tray" | "quit";
 
@@ -35,8 +33,6 @@ interface PreferencesState {
   autoStart: boolean;
   /** 自定义引导节点地址列表（Multiaddr 格式） */
   customBootstrapNodes: string[];
-  /** 网络发现模式 */
-  discoveryMode: DiscoveryMode;
   /** 自动发现局域网协助节点 */
   autoDiscoverLanHelpers: boolean;
   /** 本设备提供局域网协助能力 */
@@ -82,7 +78,6 @@ interface PreferencesState {
   /** 删除自定义引导节点 */
   removeBootstrapNode: (addr: string) => void;
   /** 设置网络发现模式 */
-  setDiscoveryMode: (mode: DiscoveryMode) => void;
   /** 设置是否自动发现局域网协助节点 */
   setAutoDiscoverLanHelpers: (enabled: boolean) => void;
   /** 设置本设备是否提供局域网协助能力 */
@@ -125,7 +120,6 @@ export const usePreferencesStore = create<PreferencesState>()(
       deviceOrganization: emptyDeviceOrganization,
       autoStart: false,
       customBootstrapNodes: [],
-      discoveryMode: "auto",
       autoDiscoverLanHelpers: true,
       provideLanHelper: false,
       publicReachability: true,
@@ -283,10 +277,6 @@ export const usePreferencesStore = create<PreferencesState>()(
         }));
       },
 
-      setDiscoveryMode(discoveryMode: DiscoveryMode) {
-        set({ discoveryMode });
-      },
-
       setAutoDiscoverLanHelpers(autoDiscoverLanHelpers: boolean) {
         set({ autoDiscoverLanHelpers });
       },
@@ -365,7 +355,6 @@ export const usePreferencesStore = create<PreferencesState>()(
         deviceOrganization: state.deviceOrganization,
         autoStart: state.autoStart,
         customBootstrapNodes: state.customBootstrapNodes,
-        discoveryMode: state.discoveryMode,
         autoDiscoverLanHelpers: state.autoDiscoverLanHelpers,
         provideLanHelper: state.provideLanHelper,
         publicReachability: state.publicReachability,

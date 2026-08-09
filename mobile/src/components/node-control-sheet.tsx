@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/app-bottom-sheet";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Text } from "@/components/ui/text";
-import { discoveryModeFromNative, isNatMapped } from "@/core/network-discovery";
+import { isNatMapped } from "@/core/network-discovery";
 import {
   NODE_HEALTH_CTA_LABEL,
   resolveNodePresentation,
@@ -61,7 +61,7 @@ const IDENTITY_STORAGE: MessageDescriptor = Platform.select({
  * 按 `DESIGN.md` 的 Node Status Contract 分**两层**：
  * - **结论层**（常驻）：状态点 + 词 · 可达性后果句 · 已配对 N·在线 M · 至多一个 CTA
  * - **诊断层**（一个折叠，默认收起）：引导节点逐条（状态 · 归因 · `lastError` 原文 +
- *   复制）+ 本机真值（节点 ID / 公网地址 / 发现方式 / 已发现设备 / NAT / 局域网协助 /
+ *   复制）+ 本机真值（节点 ID / 公网地址 / 已发现设备 / NAT / 局域网协助 /
  *   身份存放位置 / 运行时长 / 监听地址）。**这张清单由契约钉死**，原生端没有豁免项
  *   （只有 Web 可以省掉 NAT 与已发现设备两格，因为那两个值在浏览器里恒为未知）。
  *
@@ -295,16 +295,6 @@ function NodeControlContent({ onDismiss }: { onDismiss: () => void }) {
                       : undefined
                   }
                   copyAccessibilityLabel={t`复制公网地址`}
-                />
-                <Divider />
-                <Row
-                  label={<Trans>发现方式</Trans>}
-                  value={
-                    discoveryModeFromNative(networkStatus?.discoveryMode) ===
-                    "auto"
-                      ? t`自动`
-                      : t`LAN-only`
-                  }
                 />
                 <Divider />
                 <Row

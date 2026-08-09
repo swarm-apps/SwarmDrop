@@ -1,16 +1,12 @@
 import {
   MobileBootstrapCandidateSource,
-  MobileDiscoveryMode,
   MobileNatStatus,
   type MobileNetworkRuntimeConfig,
 } from "react-native-swarmdrop-core";
 import { getMobileBootstrapNodes } from "@/core/bootstrap-nodes";
 
-export type DiscoveryModePreference = "auto" | "lanOnly";
-
 export interface NetworkRuntimePreferences {
   customBootstrapNodes: string[];
-  discoveryMode: DiscoveryModePreference;
   autoDiscoverLanHelpers: boolean;
   provideLanHelper: boolean;
   /** 公网可达性：允许经公网中继被跨网设备访问（关闭 = 严格局域网） */
@@ -22,25 +18,10 @@ export function buildNetworkRuntimeConfig(
 ): MobileNetworkRuntimeConfig {
   return {
     bootstrapNodes: getMobileBootstrapNodes(preferences.customBootstrapNodes),
-    discoveryMode: discoveryModeToNative(preferences.discoveryMode),
     autoDiscoverLanHelpers: preferences.autoDiscoverLanHelpers,
     provideLanHelper: preferences.provideLanHelper,
     publicReachability: preferences.publicReachability,
   };
-}
-
-export function discoveryModeToNative(
-  mode: DiscoveryModePreference,
-): MobileDiscoveryMode {
-  return mode === "lanOnly"
-    ? MobileDiscoveryMode.LanOnly
-    : MobileDiscoveryMode.Auto;
-}
-
-export function discoveryModeFromNative(
-  mode?: MobileDiscoveryMode | null,
-): DiscoveryModePreference {
-  return mode === MobileDiscoveryMode.LanOnly ? "lanOnly" : "auto";
 }
 
 export type CandidateSourceKey = "hostConfigured" | "mdnsLanHelper" | "learned";

@@ -98,6 +98,11 @@ impl InfraSupervisor {
         if !candidate.roles.relay_server {
             return None;
         }
+        // 读 `scope` 而不是在这里另写一遍地址判据：同一个位还被读模型下发给三端，
+        // 是 `nodeHealth.configuredLanOnly`（「你关掉了公网可达性」那句中性提示）的
+        // 判据。闸门与呈现各算各的，就会出现「被拦下了但 UI 说不出为什么」——
+        // 用户看到红色的「找不到任何节点」，而真相是他自己关的开关。
+        // `CandidateScope::infer` 的语义已改成「持有公网地址」，正是闸门要问的问题。
         if matches!(candidate.scope, CandidateScope::Public) && !self.public_reachability {
             return Some(InfraExclusion::PublicReachabilityDisabled);
         }
@@ -315,7 +320,7 @@ impl InfraSupervisor {
 fn usable_public_addrs(addrs: &[Addr]) -> Vec<Addr> {
     addrs
         .iter()
-        .filter(|addr| addr.circuit_hops() == 0 && addr.is_public_routable())
+        .filter(|addr| CandidateScope::is_infra_public_addr(addr))
         .cloned()
         .collect()
 }
@@ -323,7 +328,6 @@ fn usable_public_addrs(addrs: &[Addr]) -> Vec<Addr> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::network::DiscoveryMode;
     use swarmdrop_net::{ProtocolId, SecretKey};
 
     async fn test_endpoint() -> Endpoint {
@@ -338,10 +342,7 @@ mod tests {
         public_reachability: bool,
     ) -> (InfraSupervisor, Arc<RwLock<BootstrapCandidateManager>>) {
         let endpoint = test_endpoint().await;
-        let candidates = Arc::new(RwLock::new(BootstrapCandidateManager::new(
-            DiscoveryMode::Auto,
-            true,
-        )));
+        let candidates = Arc::new(RwLock::new(BootstrapCandidateManager::new(true)));
         let supervisor = InfraSupervisor::new(endpoint, candidates.clone(), public_reachability);
         (supervisor, candidates)
     }
@@ -522,6 +523,43 @@ mod tests {
         assert!(
             link_of(&s, &lan_peer).is_some(),
             "LAN 候选不受 public_reachability 约束"
+        );
+    }
+
+    /// 混合地址候选（既有内网又有公网地址）必须被公网闸门拦下。
+    ///
+    /// 这是 `scope` 判据翻转前的漏洞形态：自建 bootstrap 跑在同一局域网、用户按内网
+    /// 地址把它加进来，identify 再并入它的公网地址——旧判据「任一私网即 Lan」让 scope
+    /// 永久停在 `Lan`，`exclusion_for` 恒放行，于是关掉「公网可达性」的用户照样在一台
+    /// 公网中继上建了 reservation，被跨网直达。开关静默失效。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn public_reachability_off_also_stops_a_mixed_addr_relay() {
+        let (s, candidates) = ctx(false).await;
+        let p = peer();
+        candidates.write().unwrap().upsert(
+            p,
+            vec!["/ip4/192.168.7.7/tcp/4001".parse().unwrap()],
+            BootstrapCandidateSource::HostConfigured,
+            CandidateRoles::kad_and_relay(),
+        );
+        candidates.write().unwrap().upsert(
+            p,
+            vec!["/ip4/203.0.113.7/tcp/4001".parse().unwrap()],
+            BootstrapCandidateSource::Learned,
+            CandidateRoles::kad_and_relay(),
+        );
+
+        s.tick(Instant::now());
+
+        assert!(
+            link_of(&s, &p).is_none(),
+            "持有公网地址的候选必须受 public_reachability 约束，哪怕它同时有内网地址"
+        );
+        let candidate = candidates.read().unwrap().get(p).expect("候选应在表中");
+        assert_eq!(
+            s.exclusion_for(&candidate),
+            Some(InfraExclusion::PublicReachabilityDisabled),
+            "读模型要能说出被拦下的原因，否则 UI 只剩一句无归因的『连不上』"
         );
     }
 

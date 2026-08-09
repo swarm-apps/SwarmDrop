@@ -47,6 +47,14 @@ msgstr "{0} 項"
 msgid "{0} 项 · {1}"
 msgstr "{0} 項 · {1}"
 
+#: src/components/network/node-status-sheet.tsx
+msgid "{activeTransferCount, plural, one {正在进行的 # 个传输会被中断。} other {正在进行的 # 个传输会被中断。}}"
+msgstr "{activeTransferCount, plural, one {é²è¡ä¸­ç # åå³è¼¸æè¢«ä¸­æ·ã} other {é²è¡ä¸­ç # åå³è¼¸æè¢«ä¸­æ·ã}}"
+
+#: src/routes/_app/settings/-settings-primitives.tsx
+msgid "{activeTransferCount, plural, one {重启会中断正在进行的 # 个传输。} other {重启会中断正在进行的 # 个传输。}}"
+msgstr "{activeTransferCount, plural, one {éåæä¸­æ·é²è¡ä¸­ç # åå³è¼¸ã} other {éåæä¸­æ·é²è¡ä¸­ç # åå³è¼¸ã}}"
+
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "{deviceCount, plural, one {# 台设备} other {# 台设备}}"
 msgstr "{deviceCount, plural, other {# 台裝置}}"
@@ -216,7 +224,6 @@ msgstr "僅刪除記錄會保留本機檔案；勾選刪除本機檔案後，會
 #~ msgstr "僅在需要接入私有或備用網路時新增。"
 
 #: src/lib/node-status.ts
-#: src/routes/_app/settings/-network-settings-section.tsx
 msgid "仅局域网"
 msgstr "僅區域網路"
 
@@ -345,8 +352,12 @@ msgid "允许本机 AI 助手代为处置该设备需你确认的入站文件（
 msgstr "允許本機 AI 助手代為處置該裝置需你確認的入站檔案（接受或拒絕）；關閉則仍需你手動確認。已自動接收的入站不受此影響"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-msgid "允许通过公网中继被跨网设备访问；关闭后为严格局域网，跨网访问可能不可用"
-msgstr "允許跨網路裝置透過公網中繼存取；關閉後將採嚴格區域網路模式，跨網路存取可能無法使用"
+#~ msgid "允许通过公网中继被跨网设备访问；关闭后为严格局域网，跨网访问可能不可用"
+#~ msgstr "允許跨網路裝置透過公網中繼存取；關閉後將採嚴格區域網路模式，跨網路存取可能無法使用"
+
+#: src/routes/_app/settings/-network-settings-section.tsx
+msgid "允许通过公网中继被跨网设备访问；关闭后仅局域网可达，跨网设备找不到你"
+msgstr "åè¨±ééå¬ç¶²ä¸­ç¹¼è¢«è·¨ç¶²è£ç½®å­åï¼ééå¾åååç¶²è·¯å¯éï¼è·¨ç¶²è£ç½®æ¾ä¸å°ä½ "
 
 #: src/routes/_app/pairing/input.lazy.tsx
 msgid "先验证，再确认"
@@ -524,8 +535,8 @@ msgid "去设置"
 msgstr "前往設定"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-msgid "发现模式"
-msgstr "探索模式"
+#~ msgid "发现模式"
+#~ msgstr "探索模式"
 
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "发现设备，配对，然后发送文件"
@@ -1364,8 +1375,8 @@ msgstr "昨天"
 #~ msgstr "是否主動連線公網引導節點；僅區域網路模式下仍可被跨網路存取，除非關閉公網可達性"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-msgid "是否主动连接引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
-msgstr "是否主動連線引導節點；僅區域網路模式下仍可被跨網存取，除非關閉公網可達性"
+#~ msgid "是否主动连接引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性"
+#~ msgstr "是否主動連線引導節點；僅區域網路模式下仍可被跨網存取，除非關閉公網可達性"
 
 #: src/components/transfer/session-panel.tsx
 #: src/routes/_app/transfer/-session-row.tsx
@@ -1575,8 +1586,8 @@ msgid "正在计算校验和 ({0}/{1})"
 msgstr "正在計算校驗碼 ({0}/{1})"
 
 #: src/components/network/node-status-sheet.tsx
-msgid "正在进行的 {activeTransferCount} 个传输会被中断。"
-msgstr "進行中的 {activeTransferCount} 個傳輸會被中斷。"
+#~ msgid "正在进行的 {activeTransferCount} 个传输会被中断。"
+#~ msgstr "進行中的 {activeTransferCount} 個傳輸會被中斷。"
 
 #. js-lingui-explicit-id
 #: src/lib/node-status.ts
@@ -1852,8 +1863,8 @@ msgid "网络连接出现问题，请稍后重试"
 msgstr "網路連線發生問題，請稍後重試"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
-msgid "自动"
-msgstr "自動"
+#~ msgid "自动"
+#~ msgstr "自動"
 
 #: src/lib/node-status.ts
 msgid "自动发现"
@@ -2344,8 +2355,8 @@ msgid "重启中..."
 msgstr "重新啟動中..."
 
 #: src/routes/_app/settings/-settings-primitives.tsx
-msgid "重启会中断正在进行的 {activeTransferCount} 个传输。"
-msgstr "重啟會中斷進行中的 {activeTransferCount} 個傳輸。"
+#~ msgid "重启会中断正在进行的 {activeTransferCount} 个传输。"
+#~ msgstr "重啟會中斷進行中的 {activeTransferCount} 個傳輸。"
 
 #: src/components/pairing/sent-invites.tsx
 msgid "重启应用后它可能恢复可用，建议稍后再撤销一次。"

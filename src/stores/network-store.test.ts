@@ -81,7 +81,6 @@ describe("network-store", () => {
     });
     usePreferencesStore.setState({
       customBootstrapNodes: ["/ip4/192.168.1.10/tcp/4001/p2p/12D3KooWBootstrap"],
-      discoveryMode: "lanOnly",
       autoDiscoverLanHelpers: false,
       provideLanHelper: true,
       mcp: { port: 19527, autoStart: false },
@@ -99,7 +98,6 @@ describe("network-store", () => {
         "/ip4/47.115.172.218/udp/4001/quic-v1/p2p/12D3KooWCkajTewJhupefZpVK7LwYfjG8bDJyXNtCgQYxiH1utep",
         "/ip4/192.168.1.10/tcp/4001/p2p/12D3KooWBootstrap",
       ],
-      discoveryMode: "lanOnly",
       autoDiscoverLanHelpers: false,
       provideLanHelper: true,
       publicReachability: true,

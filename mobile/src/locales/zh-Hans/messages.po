@@ -29,7 +29,7 @@ msgid "{0} 个文件 · {1}"
 msgstr "{0} 个文件 · {1}"
 
 #. placeholder {0}: customBootstrapNodes.length
-#: src/app/settings/network.tsx:388
+#: src/app/settings/network.tsx:351
 msgid "{0} 个自定义节点"
 msgstr "{0} 个自定义节点"
 
@@ -118,7 +118,7 @@ msgstr "AI 代理 (MCP)"
 msgid "Android 密钥库"
 msgstr "Android 密钥库"
 
-#: src/app/settings/network.tsx:361
+#: src/app/settings/network.tsx:324
 msgid "App 启动后自动启动 P2P 节点。"
 msgstr "App 启动后自动启动 P2P 节点。"
 
@@ -126,21 +126,12 @@ msgstr "App 启动后自动启动 P2P 节点。"
 msgid "DHT 种子"
 msgstr "DHT 种子"
 
-#: src/app/settings/network.tsx:464
-#: src/components/node-control-sheet.tsx:306
-msgid "LAN-only"
-msgstr "LAN-only"
-
-#: src/app/settings/network.tsx:209
-msgid "LAN-only 不主动连接引导节点；仍可经局域网协助节点被跨网访问，除非关闭公网可达性。"
-msgstr "LAN-only 不主动连接引导节点；仍可经局域网协助节点被跨网访问，除非关闭公网可达性。"
-
 #: src/components/device-info-card.tsx:180
 msgid "NAT"
 msgstr "NAT"
 
-#: src/app/settings/network.tsx:164
-#: src/components/node-control-sheet.tsx:316
+#: src/app/settings/network.tsx:152
+#: src/components/node-control-sheet.tsx:306
 msgid "NAT 状态"
 msgstr "NAT 状态"
 
@@ -250,15 +241,11 @@ msgstr "仅删除记录"
 msgid "仅在自动接收开启时生效"
 msgstr "仅在自动接收开启时生效"
 
-#: src/app/settings/network.tsx:180
+#: src/app/settings/network.tsx:168
 #: src/core/network-labels.ts:48
 #: src/core/network-labels.ts:49
 msgid "仅局域网"
 msgstr "仅局域网"
-
-#: src/app/settings/network.tsx:470
-msgid "仅本地网络"
-msgstr "仅本地网络"
 
 #: src/app/activity.tsx:288
 msgid "从设备页发送文件，或接收其他设备发来的内容。"
@@ -308,7 +295,7 @@ msgstr "传输详情"
 msgid "但这条记录没能保存，重启应用后需要重新配对。"
 msgstr "但这条记录没能保存，重启应用后需要重新配对。"
 
-#: src/app/settings/network.tsx:390
+#: src/app/settings/network.tsx:353
 msgid "作为自动发现失败时的兜底路径。"
 msgstr "作为自动发现失败时的兜底路径。"
 
@@ -360,17 +347,17 @@ msgstr "信任级别"
 msgid "修复收件箱失败"
 msgstr "修复收件箱失败"
 
-#: src/components/node-control-sheet.tsx:451
+#: src/components/node-control-sheet.tsx:441
 msgid "停止后将断开所有连接，其他设备将无法发现你。"
 msgstr "停止后将断开所有连接，其他设备将无法发现你。"
 
-#: src/components/node-control-sheet.tsx:449
+#: src/components/node-control-sheet.tsx:439
 msgid "停止网络节点？"
 msgstr "停止网络节点？"
 
-#: src/components/node-control-sheet.tsx:413
-#: src/components/node-control-sheet.tsx:421
-#: src/components/node-control-sheet.tsx:453
+#: src/components/node-control-sheet.tsx:403
+#: src/components/node-control-sheet.tsx:411
+#: src/components/node-control-sheet.tsx:443
 msgid "停止节点"
 msgstr "停止节点"
 
@@ -394,9 +381,9 @@ msgstr "允许文件夹"
 msgid "允许相机权限"
 msgstr "允许相机权限"
 
-#: src/app/settings/network.tsx:223
-msgid "允许通过公网中继被跨网设备访问；关闭后为严格局域网。"
-msgstr "允许通过公网中继被跨网设备访问；关闭后为严格局域网。"
+#: src/app/settings/network.tsx:186
+msgid "允许通过公网中继被跨网设备访问；关闭后仅局域网可达，跨网设备找不到你。"
+msgstr "允许通过公网中继被跨网设备访问；关闭后仅局域网可达，跨网设备找不到你。"
 
 #. placeholder {0}: file.name
 #: src/app/inbox/[itemId].tsx:846
@@ -418,16 +405,12 @@ msgstr "全部"
 msgid "公网"
 msgstr "公网"
 
-#: src/app/settings/network.tsx:468
-msgid "公网 + 局域网"
-msgstr "公网 + 局域网"
-
-#: src/app/settings/network.tsx:179
+#: src/app/settings/network.tsx:167
 msgid "公网可达"
 msgstr "公网可达"
 
-#: src/app/settings/network.tsx:220
-#: src/app/settings/network.tsx:231
+#: src/app/settings/network.tsx:183
+#: src/app/settings/network.tsx:194
 msgid "公网可达性"
 msgstr "公网可达性"
 
@@ -681,12 +664,7 @@ msgstr "发出"
 msgid "发现 {attentionCount} 条异常内容"
 msgstr "发现 {attentionCount} 条异常内容"
 
-#: src/app/settings/network.tsx:191
-#: src/components/node-control-sheet.tsx:301
-msgid "发现方式"
-msgstr "发现方式"
-
-#: src/app/settings/network.tsx:260
+#: src/app/settings/network.tsx:223
 msgid "发现设置已变更，重启节点后生效。"
 msgstr "发现设置已变更，重启节点后生效。"
 
@@ -746,7 +724,7 @@ msgstr "发送请求没能送达对方，请确认对方在线后重试"
 #: src/app/settings/bootstrap-nodes.tsx:281
 #: src/app/transfer/[sessionId].tsx:686
 #: src/components/device-organization-sheets.tsx:239
-#: src/components/node-control-sheet.tsx:405
+#: src/components/node-control-sheet.tsx:395
 #: src/components/ui/confirm-dialog.tsx:61
 #: src/core/foreground-service.ts:207
 msgid "取消"
@@ -803,10 +781,14 @@ msgstr "可恢复"
 msgid "可恢复中断"
 msgstr "可恢复中断"
 
-#: src/app/settings/network.tsx:180
+#: src/app/settings/network.tsx:168
 #: src/core/network-labels.ts:47
 msgid "可达"
 msgstr "可达"
+
+#: src/app/settings/network.tsx:179
+msgid "可达性"
+msgstr "可达性"
 
 #: src/app/(main)/index.tsx:539
 #: src/app/(main)/index.tsx:832
@@ -841,13 +823,13 @@ msgstr "启动后显示可发送的设备"
 msgid "启动失败"
 msgstr "启动失败"
 
-#: src/components/node-control-sheet.tsx:430
-#: src/components/node-control-sheet.tsx:438
+#: src/components/node-control-sheet.tsx:420
+#: src/components/node-control-sheet.tsx:428
 #: src/core/network-labels.ts:60
 msgid "启动节点"
 msgstr "启动节点"
 
-#: src/components/node-control-sheet.tsx:393
+#: src/components/node-control-sheet.tsx:383
 msgid "启动节点后才能发现和连接其他设备"
 msgstr "启动节点后才能发现和连接其他设备"
 
@@ -857,7 +839,7 @@ msgstr "启动节点后才能添加引导节点——校验需要内核确认本
 
 #: src/app/(main)/index.tsx:243
 #: src/app/(main)/index.tsx:246
-#: src/app/settings/network.tsx:145
+#: src/app/settings/network.tsx:133
 #: src/components/node-control-sheet.tsx:138
 msgid "启动节点失败"
 msgstr "启动节点失败"
@@ -876,7 +858,7 @@ msgstr "在你的设备之间,安全地传文件"
 msgid "在收件箱查看"
 msgstr "在收件箱查看"
 
-#: src/app/settings/network.tsx:242
+#: src/app/settings/network.tsx:205
 msgid "在本地网络发现可协助连接的节点。"
 msgstr "在本地网络发现可协助连接的节点。"
 
@@ -931,7 +913,7 @@ msgstr "复制协助地址"
 msgid "复制后可供浏览器端快速连接本机。"
 msgstr "复制后可供浏览器端快速连接本机。"
 
-#: src/components/node-control-sheet.tsx:360
+#: src/components/node-control-sheet.tsx:350
 msgid "复制监听地址"
 msgstr "复制监听地址"
 
@@ -1102,8 +1084,8 @@ msgstr "已删除记录和本地文件"
 msgid "已发出的邀请"
 msgstr "已发出的邀请"
 
-#: src/app/settings/network.tsx:174
-#: src/components/node-control-sheet.tsx:311
+#: src/app/settings/network.tsx:162
+#: src/components/node-control-sheet.tsx:301
 msgid "已发现设备"
 msgstr "已发现设备"
 
@@ -1141,7 +1123,7 @@ msgstr "已复制公网地址"
 msgid "已复制到剪贴板"
 msgstr "已复制到剪贴板"
 
-#: src/components/node-control-sheet.tsx:358
+#: src/components/node-control-sheet.tsx:348
 msgid "已复制监听地址"
 msgstr "已复制监听地址"
 
@@ -1220,7 +1202,7 @@ msgstr "已过期"
 msgid "已连接"
 msgstr "已连接"
 
-#: src/app/settings/network.tsx:169
+#: src/app/settings/network.tsx:157
 msgid "已连接设备"
 msgstr "已连接设备"
 
@@ -1304,8 +1286,8 @@ msgid "异常"
 msgstr "异常"
 
 #: src/app/settings/bootstrap-nodes.tsx:212
-#: src/app/settings/network.tsx:338
-#: src/components/node-control-sheet.tsx:376
+#: src/app/settings/network.tsx:301
+#: src/components/node-control-sheet.tsx:366
 msgid "引导节点"
 msgstr "引导节点"
 
@@ -1329,7 +1311,7 @@ msgstr "引导节点用于发现 P2P 网络。增删立即生效，不需要重�
 msgid "归档"
 msgstr "归档"
 
-#: src/app/settings/network.tsx:284
+#: src/app/settings/network.tsx:247
 msgid "当前状态"
 msgstr "当前状态"
 
@@ -1645,7 +1627,7 @@ msgstr "收到的内容都替你放在这儿"
 msgid "收起"
 msgstr "收起"
 
-#: src/app/settings/network.tsx:305
+#: src/app/settings/network.tsx:268
 msgid "收起诊断详情"
 msgstr "收起诊断详情"
 
@@ -1741,9 +1723,9 @@ msgstr "日志尚未生成，请先使用一段时间再试"
 msgid "明文不经过任何服务器"
 msgstr "明文不经过任何服务器"
 
-#: src/app/settings/network.tsx:165
+#: src/app/settings/network.tsx:153
 #: src/components/device-info-card.tsx:181
-#: src/components/node-control-sheet.tsx:319
+#: src/components/node-control-sheet.tsx:309
 msgid "映射成功"
 msgstr "映射成功"
 
@@ -1845,7 +1827,7 @@ msgstr "未分组"
 msgid "未及时处理"
 msgstr "未及时处理"
 
-#: src/components/node-control-sheet.tsx:327
+#: src/components/node-control-sheet.tsx:317
 msgid "未启用"
 msgstr "未启用"
 
@@ -1858,10 +1840,10 @@ msgid "未找到该设备"
 msgstr "未找到该设备"
 
 #: src/app/inbox/[itemId].tsx:1162
-#: src/app/settings/network.tsx:165
+#: src/app/settings/network.tsx:153
 #: src/components/connection-details.tsx:95
 #: src/components/device-info-card.tsx:181
-#: src/components/node-control-sheet.tsx:320
+#: src/components/node-control-sheet.tsx:310
 #: src/components/transfer/shared.tsx:182
 msgid "未知"
 msgstr "未知"
@@ -1890,9 +1872,9 @@ msgstr "本人设备"
 msgid "本机可拨号地址"
 msgstr "本机可拨号地址"
 
-#: src/app/settings/network.tsx:400
-#: src/app/settings/network.tsx:411
-#: src/components/node-control-sheet.tsx:325
+#: src/app/settings/network.tsx:363
+#: src/app/settings/network.tsx:374
+#: src/components/node-control-sheet.tsx:315
 msgid "本机局域网协助"
 msgstr "本机局域网协助"
 
@@ -1970,7 +1952,7 @@ msgstr "查看节点状态与诊断"
 msgid "查看诊断"
 msgstr "查看诊断"
 
-#: src/app/settings/network.tsx:307
+#: src/app/settings/network.tsx:270
 msgid "查看诊断详情"
 msgstr "查看诊断详情"
 
@@ -2193,7 +2175,7 @@ msgstr "由 AI 代理发起（{0}）"
 msgid "留空则用对端名称"
 msgstr "留空则用对端名称"
 
-#: src/components/node-control-sheet.tsx:344
+#: src/components/node-control-sheet.tsx:334
 msgid "监听地址"
 msgstr "监听地址"
 
@@ -2368,7 +2350,7 @@ msgid "网格视图"
 msgstr "网格视图"
 
 #: src/app/(main)/settings.tsx:54
-#: src/app/settings/network.tsx:188
+#: src/app/settings/network.tsx:176
 msgid "网络"
 msgstr "网络"
 
@@ -2389,17 +2371,12 @@ msgstr "网络诊断"
 msgid "网络连接出现问题，请稍后重试"
 msgstr "网络连接出现问题，请稍后重试"
 
-#: src/app/settings/network.tsx:464
-#: src/components/node-control-sheet.tsx:305
-msgid "自动"
-msgstr "自动"
-
 #: src/core/network-labels.ts:139
 msgid "自动发现"
 msgstr "自动发现"
 
-#: src/app/settings/network.tsx:239
-#: src/app/settings/network.tsx:248
+#: src/app/settings/network.tsx:202
+#: src/app/settings/network.tsx:211
 msgid "自动发现局域网协助"
 msgstr "自动发现局域网协助"
 
@@ -2407,8 +2384,8 @@ msgstr "自动发现局域网协助"
 msgid "自动发现的节点"
 msgstr "自动发现的节点"
 
-#: src/app/settings/network.tsx:358
-#: src/app/settings/network.tsx:367
+#: src/app/settings/network.tsx:321
+#: src/app/settings/network.tsx:330
 msgid "自动启动节点"
 msgstr "自动启动节点"
 
@@ -2417,11 +2394,7 @@ msgstr "自动启动节点"
 msgid "自动接收"
 msgstr "自动接收"
 
-#: src/app/settings/network.tsx:207
-msgid "自动模式会使用引导节点、中继和局域网协助节点。"
-msgstr "自动模式会使用引导节点、中继和局域网协助节点。"
-
-#: src/app/settings/network.tsx:384
+#: src/app/settings/network.tsx:347
 msgid "自定义引导节点"
 msgstr "自定义引导节点"
 
@@ -2437,9 +2410,9 @@ msgstr "自己的设备，可自动接收入站文件。"
 msgid "节点启动失败，重试或查看日志"
 msgstr "节点启动失败，重试或查看日志"
 
-#: src/app/settings/network.tsx:130
-msgid "节点已按新发现设置重启"
-msgstr "节点已按新发现设置重启"
+#: src/app/settings/network.tsx:118
+msgid "节点已按新的网络设置重启"
+msgstr "节点已按新的网络设置重启"
 
 #: src/app/send/select-device.tsx:361
 #: src/lib/errors.ts:51
@@ -2458,7 +2431,7 @@ msgstr "节点未运行"
 msgid "节点未运行，无法校验地址"
 msgstr "节点未运行，无法校验地址"
 
-#: src/app/settings/network.tsx:281
+#: src/app/settings/network.tsx:244
 msgid "节点状态"
 msgstr "节点状态"
 
@@ -2474,7 +2447,7 @@ msgstr "解除阻止"
 msgid "让另一台设备扫码或粘贴此邀请"
 msgstr "让另一台设备扫码或粘贴此邀请"
 
-#: src/app/settings/network.tsx:403
+#: src/app/settings/network.tsx:366
 msgid "让本机作为局域网协助节点。默认关闭，以避免后台和电量风险。"
 msgstr "让本机作为局域网协助节点。默认关闭，以避免后台和电量风险。"
 
@@ -2648,7 +2621,7 @@ msgstr "跟随系统"
 msgid "跨网络直连,不同 WiFi 也能传"
 msgstr "跨网络直连,不同 WiFi 也能传"
 
-#: src/components/node-control-sheet.tsx:332
+#: src/components/node-control-sheet.tsx:322
 msgid "身份存放位置"
 msgstr "身份存放位置"
 
@@ -2661,11 +2634,11 @@ msgstr "软件更新"
 msgid "输入设备名或文件名，结果即时出现"
 msgstr "输入设备名或文件名，结果即时出现"
 
-#: src/components/node-control-sheet.tsx:327
+#: src/components/node-control-sheet.tsx:317
 msgid "运行中"
 msgstr "运行中"
 
-#: src/components/node-control-sheet.tsx:338
+#: src/components/node-control-sheet.tsx:328
 msgid "运行时长"
 msgstr "运行时长"
 
@@ -2688,12 +2661,12 @@ msgstr "还没有分组"
 msgid "还没有分组,可在下方创建"
 msgstr "还没有分组,可在下方创建"
 
-#: src/app/settings/network.tsx:343
-#: src/components/node-control-sheet.tsx:381
+#: src/app/settings/network.tsx:306
+#: src/components/node-control-sheet.tsx:371
 msgid "还没有引导节点进入候选表。"
 msgstr "还没有引导节点进入候选表。"
 
-#: src/components/node-control-sheet.tsx:352
+#: src/components/node-control-sheet.tsx:342
 msgid "还没有监听地址。"
 msgstr "还没有监听地址。"
 
@@ -2810,7 +2783,7 @@ msgstr "通常是某一端的防火墙拦了入站连接。文件仍会经中继
 
 #: src/app/(main)/settings.tsx:36
 #: src/app/settings/general.tsx:34
-#: src/app/settings/network.tsx:354
+#: src/app/settings/network.tsx:317
 msgid "通用"
 msgstr "通用"
 
@@ -2917,7 +2890,7 @@ msgstr "配对邀请二维码"
 msgid "配置节点"
 msgstr "配置节点"
 
-#: src/app/settings/network.tsx:275
+#: src/app/settings/network.tsx:238
 msgid "重启中"
 msgstr "重启中"
 
@@ -2929,13 +2902,13 @@ msgstr "重启应用后它可能恢复可用，建议稍后再撤销一次。"
 msgid "重启应用后需要重新配对。"
 msgstr "重启应用后需要重新配对。"
 
-#: src/app/settings/network.tsx:275
+#: src/app/settings/network.tsx:238
 msgid "重启节点"
 msgstr "重启节点"
 
-#: src/app/settings/network.tsx:124
-#: src/app/settings/network.tsx:132
-#: src/app/settings/network.tsx:137
+#: src/app/settings/network.tsx:112
+#: src/app/settings/network.tsx:120
+#: src/app/settings/network.tsx:125
 msgid "重启节点失败"
 msgstr "重启节点失败"
 
@@ -3024,7 +2997,7 @@ msgstr "马上就好，正在让附近设备能找到你。"
 
 #: src/app/device/[peerId].tsx:725
 #: src/app/device/[peerId].tsx:731
-#: src/app/settings/network.tsx:372
+#: src/app/settings/network.tsx:335
 msgid "高级"
 msgstr "高级"
 

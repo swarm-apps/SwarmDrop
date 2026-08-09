@@ -46,12 +46,20 @@ pub async fn handle_core_node_event<TTransfer>(
         NetEvent::PeerConnected { .. } | NetEvent::PeerDisconnected { .. } => {
             publish_devices_and_status(shared, event_bus).await;
         }
-        NetEvent::RelayReservationAccepted { .. } | NetEvent::RelayReservationLost { .. } => {
-            // 重建由 InfraSupervisor 负责（顶部 handle_event 已折叠）；这里只推状态视图。
-            // 注意这两个边沿并**不是** relay 状态的唯一来源——`Connecting` 与
-            // `Failed{last_error}` 没有对应事件，靠 `run_event_loop` 订阅 `watch_relays`。
-            publish_network_status(shared, event_bus).await;
-        }
+        // relay 两个边沿**刻意不推**：内核在 emit 之前必然先写 `watch_relays`
+        // （`actor.rs` 的 `set_relay_state` / `set_relay_failed` 都在 emit 前一行），
+        // 而 `run_event_loop` 订阅了那条 watch —— 两边都推就是每次转换重建两遍全量
+        // `NetworkStatus`（候选快照克隆 + 两张 watch 深拷贝，移动端还要再过一次 uniffi）。
+        //
+        // 顺带修掉一处周期性空推送：reservation 每轮续期都发 `Accepted{renewal:true}`，
+        // 而 watch 侧 `send_if_modified` 判值相等**不通知**（那是刻意的静音）。这条分支
+        // 把静音又拆了回来，于是每个 relay 每个续期周期都在推一份一模一样的状态。
+        //
+        // watch 只承载 relay 三态，`ever_active` 由顶部 `infra.handle_event` 折叠、
+        // 两条轨的到达顺序不定——但 `deriveInfraLinkState` 先判 `relay == active`
+        // 才看 `everActive`，两者唯一同时生效的组合（曾活跃过、现已失败）里
+        // `ever_active` 早在更早的 `Accepted` 就置位了，读得到。
+        NetEvent::RelayReservationAccepted { .. } | NetEvent::RelayReservationLost { .. } => {}
         // ping 是**周期性心跳**（`ping_interval` 30s/peer），不是状态变更。它能改到的
         // 只有 `PeerInfo.rtt_ms` 与已配对 peer 的 presence 档位——两者都只出现在
         // `Device`，`NetworkStatus` 的任何字段都动不了（`connected_count` /

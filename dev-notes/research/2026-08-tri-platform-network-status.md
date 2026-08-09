@@ -529,7 +529,7 @@ stateDiagram-v2
 | 4 | `Reach { Idle, Dialing, Connected, Unreachable }` / `DhtRole { Seeded, NotInRoutingTable }` | 内核无观测面：`watch_conns` 只有已建立（`endpoint.rs:378`，`ConnInfo` 无错误无在途）；kad 只处理 `OutboundQueryProgressed`，无 `RoutingUpdated`；`Dht` 句柄无路由表查询。`Seeded` 会是恒真常量 |
 | 5 | `Reachability { PublicDirect \| ViaRelay \| LanOnly \| Unreachable }` 单枚举 | 直达与中继在领域里**并存且分别下发**（`presence/supervisor.rs:610-623` 的 `classify_announce_addrs` 分两组进 `OnlineRecord`）。压成互斥四选一会丢「直连有了但中继全挂」这句退避期最常见的话；`LanOnly` 与 `Unreachable` 在桌面上几乎不可区分。保留 `public_reachable` 析取 + `public_addr` + `relay_ready` 三个原子事实分别下发 |
 | 6 | `NodeCapabilities { nat_probe, lan_discovery, socket_listen, can_serve_relay }` 跨 IPC 类型 | mDNS 是**运行时退化**不是编译期能力（`behaviour/mod.rs:108-120` 失败只 warn + `Toggle::from(None)`，`Endpoint` 无 accessor），从 `EndpointProfile` 推不出来。改为 `DESIGN.md` 的 Degradation 条款 + 各端自知 |
-| 7 | 本轮删 `DiscoveryMode` | 它**确实零行为效果**（`discovery_mode()` / `auto_discover_lan_helpers()` getter 全域零调用；`create_candidate_manager` 不看它，且 `config.rs:110-125` 有测试钉死「LanOnly 照样加载」；`e2e_lan_helper.rs:341` 的 LanOnly 断言跑在空 `bootstrap_nodes` 上）。但它有整条 openspec SHALL + 两端设置开关 + 持久化校验分支 + 两条 e2e。**单独一个 change**。**本轮禁止基于它写任何新逻辑**（`InfraExclusion::LanOnlyMode` 因此否决） |
+| 7 | 本轮删 `DiscoveryMode`（**已于 2026-08-09 单独执行**，见开放问题 2） | 它**确实零行为效果**（`discovery_mode()` / `auto_discover_lan_helpers()` getter 全域零调用；`create_candidate_manager` 不看它，且 `config.rs:110-125` 有测试钉死「LanOnly 照样加载」；`e2e_lan_helper.rs:341` 的 LanOnly 断言跑在空 `bootstrap_nodes` 上）。但它有整条 openspec SHALL + 两端设置开关 + 持久化校验分支 + 两条 e2e。**单独一个 change**。**本轮禁止基于它写任何新逻辑**（`InfraExclusion::LanOnlyMode` 因此否决） |
 | 8 | `InfraExclusion::NodeNotRunning` | `build_network_status`（`manager.rs:350`）里 `status` 硬编码 `NodeStatus::Running`，恒不可达；且 `NetworkStatus.status` 已有 `Stopped`。同一事实三个来源、一个永远为假——正是本案要消灭的病 |
 | 9 | 移动端「网络状况 良好/受限」上移 `shared-view` | 违反该包判据 2（`README.md:14-17`「至少两端在用」——今天一端独有）与判据 3（规则里含 `discoveryMode` 分支，而那个轴要删）。**删除该合成**，不上移 |
 | 10 | `DeviceManager` 分类从白名单（`is_swarmdrop_agent`）改黑名单（查 intent store） | fail-open：`PeerConnected` 先插 `agent_version: None`，identify 完成前每个对端闪进设备列表；`learn_candidate` 的 `MAX_LEARNED_CANDIDATES=4` 与「`usable_public_addrs` 为空」两条 return 使未纳管 bootstrap 永久漏进 |
@@ -554,7 +554,7 @@ stateDiagram-v2
 
 1. **`public_reachability` / `auto_discover_lan_helpers` 要不要改成运行时可写？** 不做，则同一个设置页里一部分行即时生效、一部分行要重启，比现在「整页都要重启」更难读。做，则要给 `NetworkRuntimeConfig` 的三份副本（`manager.rs:39` 的 `network_config`、每个 `SharedNetRefs` 的克隆、`InfraSupervisor.public_reachability` 的裸 bool）一个共同事实源——本轮清单没有这一项。
 
-2. **`DiscoveryMode` 删还是重新实现？** 删 = 承认一个用户可见开关三个版本没生效（两端设置页都有它）。重新实现 = 要先定义「仅局域网」到底禁什么，以及它与 `public_reachability` 语义重叠多少（后者已经表达了它一半）。附带：Web 硬编码的 `DiscoveryMode::LanOnly`（`node.rs:293-297`）注释描述的机制（「跳过内置 bootstrap 免得空拨刷屏」）在 core 里已不存在，今天没出事只因 Web 传的 `bootstrap_nodes` 是空的。
+2. ~~**`DiscoveryMode` 删还是重新实现？**~~ **已拍板（2026-08-09）：删。** 判据就是这里写的那条语义重叠——`public_reachability` 已经表达了「别让跨网设备找到我」，而「发现模式」自己的描述文案还写着「仅局域网模式下仍可被跨网访问，除非关闭公网可达性」，等于承认它不是那个开关。两个开关摆一起只制造「我到底该关哪个」。全端删干净（core 枚举 + 两处 `NetworkRuntimeConfig` / `NetworkStatus` 字段 + 三条 codegen + 桌面下拉 + 移动双卡 + 两份 preferences + 四份 catalog），Web 硬编码的 `LanOnly` 一并去掉（它的注释描述的机制在 core 里本就不存在，没出事只因 `bootstrap_nodes` 是空的）。它此前**比死代码更糟**：改它会触发「需重启节点」提示，用户中断在途传输重启一遍，什么也没发生。
 
 3. **宽限期 `GRACE` 取值，以及 `ever_active` 在用户手动重启节点后是否清零。** 清零 = 用户刚看到红、重启后变回安静的「正在连接…」，可能被读成「修好了」；不清零 = 一次真实修复后仍显示旧的失败归因。需要实机看。
 

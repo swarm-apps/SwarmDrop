@@ -101,7 +101,6 @@ function networkStatus(links: InfraLink[]): NetworkStatus {
     publicReachabilityEnabled: true,
     relayPeers: [],
     bootstrapConnected: false,
-    discoveryMode: "auto",
     autoDiscoverLanHelpers: true,
     localLanHelperEnabled: false,
     localLanHelperRunning: false,

@@ -143,7 +143,6 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
 
       const {
         customBootstrapNodes,
-        discoveryMode,
         autoDiscoverLanHelpers,
         provideLanHelper,
         publicReachability,
@@ -151,7 +150,6 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
       } = usePreferencesStore.getState();
       const networkOptions = {
         bootstrapNodes: getDesktopBootstrapNodes(customBootstrapNodes),
-        discoveryMode,
         autoDiscoverLanHelpers,
         provideLanHelper,
         publicReachability,

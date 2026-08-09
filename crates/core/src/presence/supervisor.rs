@@ -657,11 +657,10 @@ fn classify_announce_addrs(addrs: Vec<Addr>) -> (Vec<Addr>, Vec<Addr>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::network::DiscoveryMode;
     use swarmdrop_net::{PathKind, SecretKey};
 
     fn relay_candidate_for_hints(addr: &str) -> BootstrapCandidate {
-        let mut mgr = BootstrapCandidateManager::new(DiscoveryMode::Auto, true);
+        let mut mgr = BootstrapCandidateManager::new(true);
         let peer = SecretKey::generate().node_id();
         mgr.upsert(
             peer,
@@ -763,10 +762,7 @@ mod tests {
 
         let paired: Arc<DashMap<NodeId, PairedDeviceInfo>> = Arc::new(DashMap::new());
         let presence: PresenceMap = Arc::new(DashMap::new());
-        let candidates = Arc::new(RwLock::new(BootstrapCandidateManager::new(
-            DiscoveryMode::Auto,
-            true,
-        )));
+        let candidates = Arc::new(RwLock::new(BootstrapCandidateManager::new(true)));
         let supervisor =
             PresenceSupervisor::new(endpoint, paired.clone(), presence.clone(), candidates);
         TestCtx {
