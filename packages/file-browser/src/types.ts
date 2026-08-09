@@ -27,8 +27,15 @@ export interface FileBrowserActions {
   onOpen?: (item: FileBrowserItem) => void;
   onReveal?: (item: FileBrowserItem) => void;
   onRetry?: (item: FileBrowserItem) => void;
-  /** 取回到本机。Web 端把 OPFS 里的文件另存为下载。 */
-  onDownload?: (item: FileBrowserItem) => void;
+  /**
+   * 取回到本机（Web 端唯一的取出口；桌面接收即落盘，不传）。
+   *
+   * **与 `onRemove` 同为 target 形态，不是 `(item)`**，且这是一条契约而不只是签名：
+   * 目录是一个独立目标，调用方**不得**把它拆成「循环调 N 次文件取回」。为什么那样做不
+   * 可行是各端自己的事（Web 端的推导与实现见 `docs/app/app/_lib/zip-download.ts`），
+   * 本包只要求这个动作能被单独实现。
+   */
+  onDownload?: (target: FileBrowserTarget) => void;
   /**
    * 转发到另一台设备（收件箱专用）。
    *
@@ -37,7 +44,12 @@ export interface FileBrowserActions {
    */
   onSend?: (item: FileBrowserItem) => void;
   /**
-   * 有取回动作正在执行的条目 ID（`FileBrowserItem.id`）。这些行的下载按钮转成 spinner 并禁用。
+   * 有取回动作正在执行的目标。这些行的下载按钮转成 spinner 并禁用。
+   *
+   * **放的是 target 自报的身份**：文件是 `item.id`，目录是 `relativePath`（带尾斜杠）
+   * ——也就是调用方在 `onDownload(target)` 里**原样收到**的那个值。两种身份共用一个集合，
+   * 因为「谁在转圈」这件事对调用方只有一份；而用 target 里已有的字段，调用方就不必知道
+   * 建树时怎么给节点编 id。
    *
    * 传集合而不是 `isPending(item)` 回调：后者每次渲染都是新引用，会把行组件的 `memo`
    * 打穿——而这些行正是在传输中每秒重画的那批。

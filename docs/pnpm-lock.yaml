@@ -41,6 +41,9 @@ importers:
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
+      client-zip:
+        specifier: ^2.5.0
+        version: 2.5.0
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
@@ -2080,6 +2083,9 @@ packages:
 
   client-only@0.0.1:
     resolution: {integrity: sha512-IV3Ou0jSMzZrd3pZ48nLkT9DA7Ag1pnPzaiQhpW7c3RbcqqzvzzVu+L8gfqMp/8IM2MQtSiqaCxrrcfu8I8rMA==}
+
+  client-zip@2.5.0:
+    resolution: {integrity: sha512-ydG4nDZesbFurnNq0VVCp/yyomIBh+X/1fZPI/P24zbnG4dtC4tQAfI5uQsomigsUMeiRO2wiTPizLWQh+IAyQ==}
 
   clipboardy@3.0.0:
     resolution: {integrity: sha512-Su+uU5sr1jkUy1sGRpLKjKrvEOVXgSgiSInwa/qeID6aJ07yh+5NWc3h2QfjHjBnfX4LhtFcuAWKUsJ3r+fjbg==}
@@ -5765,6 +5771,8 @@ snapshots:
       '@colors/colors': 1.5.0
 
   client-only@0.0.1: {}
+
+  client-zip@2.5.0: {}
 
   clipboardy@3.0.0:
     dependencies:

@@ -5,7 +5,7 @@ import { Progress } from "./progress";
 import { cn } from "./cn";
 import { formatFileSize } from "@swarmdrop/shared-view";
 import { getFileIconStyle } from "./file-icon";
-import { FileItemActions, hasPrimaryAction } from "./item-actions";
+import { FileItemActions } from "./item-actions";
 import { useThumbnail } from "./use-thumbnail";
 import { getParentPath } from "@swarmdrop/shared-view";
 import type { FileBrowserItem } from "@swarmdrop/shared-view";
@@ -70,19 +70,14 @@ function FileCardComponent({
           onClick={() => actions?.onOpen?.(item)}
         />
       )}
-      {/* 动作条。主动作（下载）在场时常驻——见 `hasPrimaryAction`：那是浏览器端取回文件的
-          唯一入口，压在 hover 后面等于不存在。其余动作是便利项，悬停才露出；
-          `pointer-coarse:opacity-100` 兜住触摸屏——那里没有 hover，第一次点只是把按钮显出来、
-          第二次才真的触发，而 Web 端是移动优先的。 */}
-      <div
-        className={cn(
-          "absolute right-2 top-2 z-20 rounded-lg border border-white/40 bg-background/75 p-0.5 shadow-sm backdrop-blur-md dark:border-white/10",
-          !hasPrimaryAction(actions) &&
-            "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100",
-        )}
-      >
-        <FileItemActions item={item} actions={actions} />
-      </div>
+      {/* 动作条。浮层样式**作为 className 交给动作条自己**，而不是外面再包一层 div：
+          「常驻还是 hover 才露出」的判据住在 `ActionBar` 里（见 `item-actions.tsx`），
+          包一层就得在这里把同一条判据再写一遍，而那层背板还会在按钮已经隐藏时空着一块。 */}
+      <FileItemActions
+        item={item}
+        actions={actions}
+        className="absolute right-2 top-2 z-20 rounded-lg border border-white/40 bg-background/75 p-0.5 shadow-sm backdrop-blur-md dark:border-white/10"
+      />
       {item.status === "transferring" && (
         <div className="absolute inset-x-2 bottom-2 rounded-md bg-background/80 p-2 backdrop-blur-md">
           <div className="mb-1 flex justify-between text-[10px] font-medium tabular-nums">

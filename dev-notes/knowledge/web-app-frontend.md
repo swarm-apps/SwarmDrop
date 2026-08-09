@@ -1666,6 +1666,48 @@ Web 的三处文件清单（传输详情 / 收件箱详情 / 发送面板）以�
 **相关文件**：`docs/app/app/_lib/file-browser-adapters.ts`、`docs/app/app/_lib/thumbnail-source.ts`、
 `packages/shared-view/src/file-browser/adapters.ts`、`packages/file-browser/README.md`
 
+## ⚠️ 浏览器上「取回一组文件」不能循环触发 `<a download>`（2026-08-09）
+
+收件箱的「全部下载」原本是串行 `for` 循环，逐个文件建 blob URL 再 `anchor.click()`。
+**线上症状是「目录只下载了第一层」**，而代码里找不到任何「只取一层」的逻辑——两条原因叠在
+一起，都不在 JS 的可观测面内：
+
+1. **连续多次程序化下载会被浏览器拦。** 第二次起会弹「是否允许下载多个文件」，而我们的
+   `click()` 跑在 `await download_url()` 之后，**早已脱离用户手势**，更容易被直接静默丢弃。
+   关键在于 **`anchor.click()` 被拦时既不回调也不抛错**——代码看起来全都成功了。
+2. **落盘顺序恰好是「先浅后深」。** 收件箱文件按 `file_id` 升序（`inbox.rs` 的
+   `ordered.sort_by_key`），而 `file_id` 来自发送侧 manifest 顺序 = 桌面 `WalkDir` 的顺序：
+   先第一层的文件，再逐层深入。于是被拦掉的**恰好是深层那些**，看起来就像「只支持一层」。
+
+外加第三条，即使全下来了也不对：**`<a download>` 的文件名会被浏览器消毒掉路径分隔符**，
+塞完整相对路径没有用，所有文件平铺进下载目录，同名的被改成 `a(1).txt`——目录层级留不住。
+
+**做法：一组文件 = 一个 zip = 一次下载**（`docs/app/app/_lib/zip-download.ts`，用
+`client-zip` 2.6KB gzip）。一次下载不触发拦截，层级写在 zip 条目名里。
+
+几条只有写的时候会想到的：
+
+- **`downloadZip(...).blob()` 会物化整包**。浏览器视大小落到磁盘 backing store，但仍占配额，
+  所以 zip 的 object URL TTL 与单文件那条**不是一个数**（3s vs 30s）：单文件的 blob 背后是
+  OPFS 快照，钉住它几乎不花内存。同理，`saveObjectUrl` 之后**不要再 `await`** 别的东西
+  ——挂起的 async 帧不会被单独回收，整包字节会跟着那个帧多活一个往返。
+  真正的零内存写法是 `showSaveFilePicker()` + `makeZip()` 流式写盘，但只有 Chromium 有。
+- **取不到字节的条目跳过，不要让整包失败**（OPFS 是配额存储，条目会被驱逐）；但**全部**
+  取不到时必须报错——`downloadZip` 会照样产出一个 22 字节的空包（只有中央目录结尾记录），
+  用户拿到它会以为文件真的没了。
+- **`lastModified` 用条目的接收时间，不要用 `new Date()`**：同一份内容打两次会得到两个
+  字节不同的包。
+- 目录 zip 的条目名**保留目录名自身那一层**（`photos/2024/` → `2024/a.jpg`），解压出来是
+  一个文件夹而不是散落一地的文件，与各家云盘一致。
+
+**相关文件**：`docs/app/app/_lib/zip-download.ts`、`docs/app/app/_components/receive-panel.tsx`
+
+### 推论：目录动作只能是增强，不能是唯一入口
+
+目录行只存在于**树形视图**（网格是扁平卡片，没有目录这个节点），而收件箱的默认视图恰恰是
+**网格**（`shared-view` 的 `view-preference.ts`）。所以「下载整个目录」这类能力必须有一个
+两个视图都够得着的兜底，位置是 `FileBrowser` 的 `headerActions`（表头）。
+
 ## 改了 `packages/file-browser` 就必须在 `docs/` 重装（2026-08-06 实证）
 
 `docs` 用 `file:` 协议引它（不能用 `link:`，理由见 `toolchain.md` 的实例分裂那条），而 pnpm

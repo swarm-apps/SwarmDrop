@@ -40,6 +40,11 @@ msgstr "{0, plural, other {# 天前}}"
 msgid "{0, plural, other {# 小时前}}"
 msgstr "{0, plural, other {# 小時前}}"
 
+#. placeholder {0}: skipped.length
+#: app/app/_components/receive-panel.tsx
+msgid "{0, plural, other {有 # 个文件已不在浏览器存储中，未能打包}}"
+msgstr "{0, plural, other {有 # 個檔案已不在瀏覽器儲存空間中，未能打包}}"
+
 #. placeholder {0}: offerList.length
 #: app/app/_components/incoming-offers-panel.tsx
 msgid "{0} 个待处理"
@@ -93,8 +98,8 @@ msgid "{minutes} 分钟"
 msgstr "{minutes} 分鐘"
 
 #: app/app/_components/receive-panel.tsx
-msgid "{started, plural, other {已开始下载 # 个文件}}"
-msgstr "{started, plural, other {已開始下載 # 個檔案}}"
+#~ msgid "{started, plural, other {已开始下载 # 个文件}}"
+#~ msgstr "{started, plural, other {已開始下載 # 個檔案}}"
 
 #: app/app/_lib/view-types.ts
 msgid "{title} 等 {itemCount} 个文件"
@@ -170,6 +175,10 @@ msgstr "下載「{0}」失敗"
 #: app/app/_components/inbox-views.tsx
 msgid "下载中…"
 msgstr "下載中…"
+
+#: app/app/_components/inbox-views.tsx
+msgid "下载目录「{directory}」失败"
+msgstr "下載目錄「{directory}」失敗"
 
 #: app/app/_components/pairing-panel.tsx
 msgid "与另一台设备互换一次邀请即可，之后长期有效。"
@@ -698,6 +707,10 @@ msgstr "外觀與語言"
 msgid "失败"
 msgstr "失敗"
 
+#: app/app/_components/receive-panel.tsx
+msgid "如果失败，可以改为逐个文件下载。"
+msgstr "如果失敗，可以改為逐個檔案下載。"
+
 #: app/app/_components/forward-to-device-dialog.tsx
 msgid "它们已不在浏览器存储里。"
 msgstr "它們已不在瀏覽器儲存空間裡。"
@@ -846,6 +859,7 @@ msgid "已就绪"
 msgstr "已就緒"
 
 #. placeholder {0}: file.name
+#. placeholder {0}: plan.fileName
 #: app/app/_components/receive-panel.tsx
 msgid "已开始下载 {0}"
 msgstr "已開始下載 {0}"
@@ -1042,6 +1056,10 @@ msgstr "手動設定"
 msgid "手机上用 SwarmDrop 的「扫码」对准它；桌面端没有相机，复制链接发过去用「粘贴邀请」。"
 msgstr "在手機上用 SwarmDrop 的「掃碼」對準它；桌面端沒有相機，請複製連結傳過去並使用「貼上邀請」。"
 
+#: app/app/_components/inbox-views.tsx
+msgid "打包下载失败"
+msgstr "打包下載失敗"
+
 #: app/app/_lib/view-types.ts
 msgid "打包内容"
 msgstr "打包內容"
@@ -1146,6 +1164,10 @@ msgstr "收件匣清單"
 msgid "收到文件请求"
 msgstr "收到檔案請求"
 
+#: app/app/_components/receive-panel.tsx
+msgid "收到的文件"
+msgstr "收到的檔案"
+
 #: app/app/_components/transfer-detail.tsx
 #~ msgid "收起文件"
 #~ msgstr "收起檔案"
@@ -1239,6 +1261,11 @@ msgstr "更新日誌"
 #: app/app/_lib/view-types.ts
 msgid "更早"
 msgstr "更早"
+
+#. placeholder {0}: skipped.length
+#: app/app/_components/receive-panel.tsx
+#~ msgid "有 {0} 个文件已不在浏览器存储中，未能打包"
+#~ msgstr ""
 
 #: app/app/_components/invite-share.tsx
 msgid "有效期已过，重新生成一条即可。"
@@ -1366,6 +1393,14 @@ msgid "正在启动节点…"
 msgstr "正在啟動節點…"
 
 #: app/app/_components/receive-panel.tsx
+msgid "正在打包 {size}，大文件可能超出浏览器限制"
+msgstr "正在打包 {size}，大檔案可能超出瀏覽器限制"
+
+#: app/app/_components/receive-panel.tsx
+msgid "正在打包上一个下载，请稍候"
+msgstr "正在打包上一個下載，請稍候"
+
+#: app/app/_components/receive-panel.tsx
 msgid "正在打开收件箱…"
 msgstr "正在開啟收件匣…"
 
@@ -1431,8 +1466,8 @@ msgid "浏览器不能被直接拨号，需要经引导节点建立一个可达�
 msgstr "瀏覽器不能被直接撥號，需要經引導節點建立一個可達位址，對方才找得到你。內建節點會自動連線，通常無需調整。"
 
 #: app/app/_components/receive-panel.tsx
-msgid "浏览器可能会询问是否允许下载多个文件。"
-msgstr "瀏覽器可能會詢問是否允許下載多個檔案。"
+#~ msgid "浏览器可能会询问是否允许下载多个文件。"
+#~ msgstr "瀏覽器可能會詢問是否允許下載多個檔案。"
 
 #: app/app/_components/connection-badge.tsx
 msgid "浏览器可能需要你允许「本地网络访问」；也可能是对方的防火墙拦了入站连接。 文件仍会经中继送达，只是更慢。"
@@ -1703,6 +1738,10 @@ msgstr "節點啟動後，新名字會隨本機身分一起廣播出去。"
 msgid "节点已停止"
 msgstr "節點已停止"
 
+#: app/app/_components/receive-panel.tsx
+msgid "节点已停止，打包中断"
+msgstr "節點已停止，打包中斷"
+
 #: app/app/_lib/network-view.ts
 msgid "节点未运行"
 msgstr "節點未執行"
@@ -1889,6 +1928,10 @@ msgstr "這組碼已經作廢，請重新產生一組。"
 msgid "这个筛选下没有会话。"
 msgstr "這個篩選下沒有工作階段。"
 
+#: app/app/_components/receive-panel.tsx
+msgid "这些文件已不在浏览器存储中，无法打包下载"
+msgstr "這些檔案已不在瀏覽器儲存空間中，無法打包下載"
+
 #: app/app/_components/send-panel.tsx
 msgid "这台设备当前离线或已被阻止，换一台再试。"
 msgstr "這台裝置目前離線或已被封鎖，換一台再試。"
@@ -1920,6 +1963,10 @@ msgstr "這筆紀錄裡沒有檔案"
 #: app/app/_components/pairing-confirm-dialog.tsx
 msgid "这条邀请已过期，让对方重新生成一条。"
 msgstr "這組邀請已過期，請對方重新產生一組。"
+
+#: app/app/_components/receive-panel.tsx
+msgid "这里没有可取回的文件"
+msgstr "這裡沒有可取回的檔案"
 
 #: app/app/_components/transfer-labels.ts
 msgid "进行中"
