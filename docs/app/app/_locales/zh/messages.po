@@ -497,6 +497,16 @@ msgstr "发送"
 msgid "发送中…"
 msgstr "发送中…"
 
+#: app/app/_components/forward-to-device-dialog.tsx
+msgid "发送到 {name}"
+msgstr "发送到 {name}"
+
+#: ../packages/file-browser/src/item-actions.tsx
+#: app/app/_components/forward-to-device-dialog.tsx
+#: app/app/_components/inbox-views.tsx
+msgid "发送到设备"
+msgstr "发送到设备"
+
 #: app/app/_components/send-panel.tsx
 msgid "发送失败"
 msgstr "发送失败"
@@ -515,6 +525,7 @@ msgstr "发送需要先与对方配对。配对是一次性动作，配完即长
 
 #: app/app/_components/connection-panel.tsx
 #: app/app/_components/device-organization-dialog.tsx
+#: app/app/_components/forward-to-device-dialog.tsx
 #: app/app/_components/group-manager-dialog.tsx
 #: app/app/_components/pairing-confirm-dialog.tsx
 #: app/app/_components/transfer-detail.tsx
@@ -604,6 +615,7 @@ msgstr "在文件夹中显示"
 
 #: app/app/_components/device-card.tsx
 #: app/app/_components/device-stats.tsx
+#: app/app/_components/forward-to-device-dialog.tsx
 #: app/app/_components/send-panel.tsx
 msgid "在线"
 msgstr "在线"
@@ -685,6 +697,10 @@ msgstr "外观与语言"
 #: app/app/_components/transfer-labels.ts
 msgid "失败"
 msgstr "失败"
+
+#: app/app/_components/forward-to-device-dialog.tsx
+msgid "它们已不在浏览器存储里。"
+msgstr "它们已不在浏览器存储里。"
 
 #: app/app/_components/group-manager-dialog.tsx
 msgid "完成"
@@ -894,6 +910,11 @@ msgstr "已被使用"
 msgid "已识别到「{0}」的邀请"
 msgstr "已识别到「{0}」的邀请"
 
+#. placeholder {0}: skipped.length
+#: app/app/_components/forward-to-device-dialog.tsx
+msgid "已跳过 {0} 个文件"
+msgstr "已跳过 {0} 个文件"
+
 #: app/app/_lib/invite.ts
 msgid "已过期"
 msgstr "已过期"
@@ -929,6 +950,10 @@ msgstr "已配对"
 #: app/app/_components/pairing-panel.tsx
 msgid "已配对：<0>{0}</0>"
 msgstr "已配对：<0>{0}</0>"
+
+#: app/app/_components/forward-to-device-dialog.tsx
+msgid "已配对的设备都不在线，等对方上线后再试。"
+msgstr "已配对的设备都不在线，等对方上线后再试。"
 
 #: app/app/_components/device-grid.tsx
 #: app/app/_components/node-status-dialog.tsx
@@ -1042,9 +1067,19 @@ msgstr "打洞"
 msgid "打洞直连"
 msgstr "打洞直连"
 
+#. placeholder {0}: files[0].name
+#: app/app/_components/forward-to-device-dialog.tsx
+msgid "把「{0}」发给另一台已配对的设备。"
+msgstr "把「{0}」发给另一台已配对的设备。"
+
 #: app/app/_components/send-panel.tsx
 msgid "把文件拖到这里"
 msgstr "把文件拖到这里"
+
+#. placeholder {0}: files.length
+#: app/app/_components/forward-to-device-dialog.tsx
+msgid "把这 {0} 个文件发给另一台已配对的设备。"
+msgstr "把这 {0} 个文件发给另一台已配对的设备。"
 
 #: app/app/_components/incoming-offers-panel.tsx
 #: app/app/_components/pairing-request-host.tsx
@@ -1361,6 +1396,10 @@ msgstr "每次确认"
 #: app/app/_components/receive-panel.tsx
 msgid "没有匹配的收件箱条目。"
 msgstr "没有匹配的收件箱条目。"
+
+#: app/app/_components/forward-to-device-dialog.tsx
+msgid "没有可发送的设备"
+msgstr "没有可发送的设备"
 
 #: app/app/_components/active-transfers-section.tsx
 msgid "活跃传输"

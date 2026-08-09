@@ -152,6 +152,19 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 > 根因（SAF 的 fd 不归本进程所有，`lseek` 会 `EBADF`）与完整推导见
 > [`knowledge/rust-backend.md`](dev-notes/knowledge/rust-backend.md) 与
 > `openspec/changes/receive-staging-publish/`。
+>
+> **接收落点恒为用户可见位置，且与应用私有数据区分离（2026-08-09）。** 移动端曾把两者放在
+> 同一个 `Paths.document.uri` 下（库 + staging + 收到的文件），落点因此继承了「私有」属性：
+> Android 的 SAF 看不见它、iOS 没开文件共享也看不见它——收到的文件既在文件管理器里找不到，
+> 也无法在发送页被选中转发（发送侧四个来源全是系统 picker）。现在两个角色分开：
+> `getPrivateDataDir()`（iOS = `Library/Application Support/`，Android = `<internal>/files/`）
+> 装库与 staging；`@/core/receive-location` 管用户可见接收区（iOS = `Documents`，经
+> `UIFileSharingEnabled` 暴露；Android = 用户在引导流程里选定的 SAF tree）。
+> **没有私有目录回退**——落点是 `ready` / `unconfigured` / `revoked` 三态，未就绪时接收被拦。
+> 副产品是 `save_dir` 的第三态消失：iOS 恒 `file://`、Android 恒 `content://`，两条 publish
+> 路径各自对应一个平台。判据与三端形态写在 `DESIGN.md` 的 **Receive Location Contract**，
+> 「从收件箱转发」写在 **Received File Reuse Contract**。见
+> `openspec/changes/visible-receive-location/`。
 
 ## Architecture
 

@@ -872,6 +872,35 @@ export class WebNode {
         return ret;
     }
     /**
+     * 转发已接收的文件：把 OPFS 里的条目取回成 `File`，之后与用户选文件发送**完全同路**。
+     *
+     * `paths` 是收件箱条目的 OPFS 相对路径（落盘时写的那个）。`FileSystemFileHandle::get_file()`
+     * 返回的正是 `send_files` 已经在吃的 `web_sys::File`，所以读分块那条路径一行都不用动——
+     * 转发在后端从来不缺能力，缺的只是一个入口。
+     *
+     * 拿到的 `File.name()` 是路径末段，`webkitRelativePath` 为空，于是 `relative_path` 回落
+     * 到文件名。这是要的行为：转发是一次新的发送，把上一次传输的目录结构带给第三台设备
+     * 只会让对方莫名其妙（移动端同此约定）。
+     * **取不到的条目被跳过，而不是让整批失败。** OPFS 是配额存储，条目可能被浏览器驱逐；
+     * 「一个死路径 → 整次转发失败 → 用户看到一条没有文件名的 DOMException」正是
+     * Received File Reuse Contract 里「发起前筛掉」要杜绝的。移动端由 `selectForwardable`
+     * 承担这件事，浏览器这边没有对应的 per-path 原语可用，所以筛在这里。
+     *
+     * 被跳过的路径经 [`Self::take_skipped_forward_paths`] 取回，由 UI 告诉用户。全部取不到
+     * 才算失败——那时确实没有任何东西可发。
+     * @param {string} to
+     * @param {string[]} paths
+     * @returns {Promise<string>}
+     */
+    send_inbox_files(to, paths) {
+        const ptr0 = passStringToWasm0(to, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArrayJsValueToWasm0(paths, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_send_inbox_files(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        return ret;
+    }
+    /**
      * 建节点：持久化身份（Window=localStorage / Worker=OPFS）+ IndexedDB 恢复已配对设备 → 包 core 组合根 [`start_node`]
      * （Browser [`EndpointProfile`] + Web 端口）→ 完整 [`NetManager`] + 3 协议 Router（含
      * pairing）。**须在主线程 Window 跑**——webrtc-websys dial 碰 window，Worker 里会 panic。
@@ -880,6 +909,19 @@ export class WebNode {
     static spawn() {
         const ret = wasm.webnode_spawn();
         return ret;
+    }
+    /**
+     * 取回上一次转发中被跳过的路径，**取过即清**。
+     *
+     * 单独一个方法而不是塞进 `send_inbox_files` 的返回值：那个返回的是 session_id，
+     * 换成结构体会让所有既有调用点跟着改，而这条信息只有转发这一个入口关心。
+     * @returns {string[]}
+     */
+    take_skipped_forward_paths() {
+        const ret = wasm.webnode_take_skipped_forward_paths(this.__wbg_ptr);
+        var v1 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
     }
     /**
      * 已持久化的传输会话投影，**按 `startedAt` 倒序**（端口契约，三端一致）。
@@ -1942,37 +1984,37 @@ function __wbg_get_imports() {
             return ret;
         }, arguments); },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2292, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 2293, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2297, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 2298, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2292, function: Function { arguments: [NamedExternref("RTCDataChannelEvent")], shim_idx: 2293, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2297, function: Function { arguments: [NamedExternref("RTCDataChannelEvent")], shim_idx: 2298, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000003: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2292, function: Function { arguments: [NamedExternref("RTCPeerConnectionIceEvent")], shim_idx: 2293, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2297, function: Function { arguments: [NamedExternref("RTCPeerConnectionIceEvent")], shim_idx: 2298, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000004: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2436, function: Function { arguments: [], shim_idx: 2437, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2441, function: Function { arguments: [], shim_idx: 2442, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______);
             return ret;
         },
         __wbindgen_cast_0000000000000005: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 3012, function: Function { arguments: [Externref], shim_idx: 3013, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 3017, function: Function { arguments: [Externref], shim_idx: 3018, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____);
             return ret;
         },
         __wbindgen_cast_0000000000000006: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 3066, function: Function { arguments: [], shim_idx: 3067, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 3071, function: Function { arguments: [], shim_idx: 3072, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output________1_, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______1_);
             return ret;
         },
         __wbindgen_cast_0000000000000007: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 911, function: Function { arguments: [NamedExternref("Event")], shim_idx: 912, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 916, function: Function { arguments: [NamedExternref("Event")], shim_idx: 917, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_CloseEvent__CloseEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_CloseEvent__CloseEvent_____);
             return ret;
         },

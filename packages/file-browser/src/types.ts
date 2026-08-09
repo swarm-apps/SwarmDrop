@@ -30,6 +30,13 @@ export interface FileBrowserActions {
   /** 取回到本机。Web 端把 OPFS 里的文件另存为下载。 */
   onDownload?: (item: FileBrowserItem) => void;
   /**
+   * 转发到另一台设备（收件箱专用）。
+   *
+   * 与 `onDownload` 是两个方向：那个把文件取回本机，这个把它送去别处。浏览器里两者都得
+   * 由应用提供——OPFS 对用户不可见，系统 picker 选不到它。
+   */
+  onSend?: (item: FileBrowserItem) => void;
+  /**
    * 有取回动作正在执行的条目 ID（`FileBrowserItem.id`）。这些行的下载按钮转成 spinner 并禁用。
    *
    * 传集合而不是 `isPending(item)` 回调：后者每次渲染都是新引用，会把行组件的 `memo`

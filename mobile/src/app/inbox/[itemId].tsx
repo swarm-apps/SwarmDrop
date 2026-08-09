@@ -24,6 +24,7 @@ import {
   type LucideIcon,
   MoreHorizontal,
   Package,
+  Send,
   Share2,
   Smartphone,
   Tag,
@@ -62,6 +63,11 @@ import {
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
+import {
+  ensureAvailable,
+  isMissingFileError,
+  selectForwardable,
+} from "@/core/inbox-file-availability";
 import { canOpenSaveFolder } from "@/core/saf-intent";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { inboxItemTitle } from "@/lib/inbox-title";
@@ -70,6 +76,7 @@ import { openSaveFolderOrToast } from "@/lib/save-folder";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { type InboxFileEntry, useInboxStore } from "@/stores/inbox-store";
+import { useShareStore } from "@/stores/share-store";
 
 export default function InboxDetailScreen() {
   const { t } = useLingui();
@@ -106,6 +113,8 @@ export default function InboxDetailScreen() {
       markFileMissing: s.markFileMissing,
     })),
   );
+
+  const setSharedFiles = useShareStore((s) => s.setSharedFiles);
 
   useFocusEffect(
     useCallback(() => {
@@ -223,6 +232,40 @@ export default function InboxDetailScreen() {
     [itemId, markFileMissing, t],
   );
 
+  /**
+   * 转发到另一台设备 —— 复用「文件已定 → 挑设备」这条既有反向流（系统分享入口与
+   * 「重新发送」走的也是它），不新增传输概念。
+   *
+   * 在**发起前**筛掉已不在原位的文件：`prepareSend` 会为每个文件算 BLAKE3，一个死 URI
+   * 会让整批准备失败，而用户看到的错误与「哪个文件没了」毫无关系。
+   */
+  const forwardFiles = useCallback(
+    async (entries: readonly InboxFileEntry[]) => {
+      if (!itemId || entries.length === 0) return;
+      const { files, missing } = selectForwardable(entries);
+      // `allSettled` 而非串行 await：这些写彼此独立（store 用函数式 set，并发安全），
+      // 而串行版每次都会替换 `selectedDetail`、把整个文件列表重画一遍。
+      //
+      // 更要紧的是**不能让标记失败挡住转发**：`markFileMissing` 会 rethrow，串行 await
+      // 的第一次失败就会抛出整个 `forwardFiles`，而调用点是 `void forwardFiles(...)`
+      // ——用户看不到任何提示，转发也没发生。文件确实不在了这件事已经判定完毕，记录没
+      // 更新上不该改变结论。
+      await Promise.allSettled(
+        missing.map((entry) => markFileMissing(itemId, entry.id, true)),
+      );
+      if (files.length === 0) {
+        toast.error(t`文件已不在原位置`);
+        return;
+      }
+      if (missing.length > 0) {
+        toast.info(t`已跳过 ${missing.length} 个不在原位置的文件`);
+      }
+      setSharedFiles(files);
+      router.push("/send/share-target" as never);
+    },
+    [itemId, markFileMissing, setSharedFiles, router, t],
+  );
+
   // 「打开」= 让用户看到内容:iOS QuickLook / Android 系统应用。
   // 打不开(无处理应用)降级到分享面板 —— 至少能把文件带去别的应用,
   // 这也是分享路径仍然保留的原因(design R4)。
@@ -251,7 +294,8 @@ export default function InboxDetailScreen() {
   );
 
   // 打开文件夹:直接用记录的真实容器目录 rootPath(core 以 finalize_sink 的文件父目录
-  // URI 为事实源算出)。canOpenSaveFolder=false(Android 私有目录)时入口不渲染。
+  // URI 为事实源算出)。canOpenSaveFolder=false 时入口不渲染 —— 落点治本后这只剩
+  // 「历史记录里的旧形态 URI」一种情形，当前配置产出的落点两端都恒可打开。
   const folderTarget = detail?.item.rootPath ?? null;
   const canOpenFolder = folderTarget != null && canOpenSaveFolder(folderTarget);
   const openFolder = useCallback(() => {
@@ -279,6 +323,9 @@ export default function InboxDetailScreen() {
   }, [openFile, primaryFile]);
 
   const canShare = primaryFile != null && !primaryFile.missing;
+  // 整条记录级的转发：只要还有一个文件没被标记缺失就给入口，具体哪些能发由
+  // `selectForwardable` 在发起时逐个探活决定。
+  const canSend = (detail?.files ?? []).some((file) => !file.missing);
   const sharePrimaryFile = useCallback(() => {
     if (!primaryFile) return;
     void shareFile(primaryFile);
@@ -320,8 +367,15 @@ export default function InboxDetailScreen() {
         );
         if (file) void shareFile(file);
       },
+      sendItem: (item) => {
+        const file = detail?.files.find(
+          (candidate) =>
+            itemId && inboxFileId(itemId, candidate.id) === item.id,
+        );
+        if (file) void forwardFiles([file]);
+      },
     }),
-    [detail, itemId, openFile, shareFile],
+    [detail, itemId, openFile, shareFile, forwardFiles],
   );
 
   return (
@@ -508,6 +562,12 @@ export default function InboxDetailScreen() {
               sharePrimaryFile();
             })
           }
+          canSend={canSend}
+          onSend={() =>
+            runAfterSheetDismiss(() => {
+              void forwardFiles(detail.files);
+            })
+          }
           onArchive={() =>
             runAfterSheetDismiss(() => {
               void performArchive();
@@ -670,6 +730,8 @@ function InboxActionsSheet({
   canOpenFolder,
   canShare,
   onShare,
+  canSend,
+  onSend,
   onArchive,
   onOpenFolder,
   onOpenTransfer,
@@ -684,6 +746,8 @@ function InboxActionsSheet({
   canOpenFolder: boolean;
   canShare: boolean;
   onShare: () => void;
+  canSend: boolean;
+  onSend: () => void;
   onArchive: () => void;
   onOpenFolder: () => void;
   onOpenTransfer: () => void;
@@ -703,6 +767,17 @@ function InboxActionsSheet({
         </View>
 
         <View className="overflow-hidden rounded-lg border border-border bg-background">
+          {canSend ? (
+            <>
+              <SheetActionRow
+                icon={Send}
+                label={<Trans>发送到设备</Trans>}
+                onPress={onSend}
+                testID="inbox-detail-send-action"
+              />
+              <Divider />
+            </>
+          ) : null}
           {canShare ? (
             <>
               <SheetActionRow
@@ -1220,43 +1295,6 @@ function DetailLine({
       </View>
     </View>
   );
-}
-
-function ensureAvailable(file: InboxFileEntry): void {
-  if (file.missing) {
-    throw new MissingFileError();
-  }
-  // file:// 与 SAF content:// 都先查存在性：文件被删时在这里拦下并给「文件已
-  // 不在原位置」，而不是把死 URI 交给系统（打开失败我们拿不到信号）。
-  // 只有**明确查到不存在**才判缺失；查询本身抛错(provider 瞬时故障、授权状态
-  // 未知)不算——missing 是持久化且无解除路径的单向标记，一次抖动误判会永久锁死
-  // 好文件，宁可当普通错误让用户重试。
-  if (fileExists(file.localPath) === false) {
-    throw new MissingFileError();
-  }
-}
-
-/** expo-fs File 对 file:// 与 SAF document URI 都能查 exists。
- *  true=存在 / false=确定不存在 / null=查询失败(未知，不可判缺失)。 */
-function fileExists(localPath: string): boolean | null {
-  try {
-    return new File(localPath).exists;
-  } catch {
-    return null;
-  }
-}
-
-class MissingFileError extends Error {
-  constructor() {
-    super("missing inbox file");
-  }
-}
-
-function isMissingFileError(err: unknown, file: InboxFileEntry): boolean {
-  if (err instanceof MissingFileError) return true;
-  // 不靠错误文案判断（本地化 / 不同平台下英文子串会漏判）：复查文件是否还在原位。
-  // 同样只认「明确不存在」，查询失败不判缺失。
-  return fileExists(file.localPath) === false;
 }
 
 const detailStyles = StyleSheet.create({

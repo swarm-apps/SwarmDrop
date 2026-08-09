@@ -71,6 +71,13 @@ pub struct ReceivePolicyContext<'a> {
     pub total_size: u64,
     pub via_relay: bool,
     pub now_ms: i64,
+    /// 宿主**此刻**的默认接收落点。
+    ///
+    /// 设备策略的 `default_save_location` 为空时用它——那意味着「跟随宿主默认」，而不是
+    /// 「没有落点」。宿主此前是在**设置策略时**把当时的落点抄一份进去，于是用户之后换了
+    /// 目录、或那个目录被删，自动接收仍然照着旧值写：要么落在用户已经不再期待的地方，
+    /// 要么在接受之后才失败——正是「接受前校验」本该消除的那种沉默。
+    pub host_default_save_location: Option<&'a str>,
 }
 
 pub fn evaluate_receive_policy(ctx: ReceivePolicyContext<'_>) -> ReceivePolicyDecision {
@@ -112,7 +119,12 @@ pub fn evaluate_receive_policy(ctx: ReceivePolicyContext<'_>) -> ReceivePolicyDe
         return ReceivePolicyDecision::require_confirmation("当前通过中继连接，需手动确认");
     }
 
-    let Some(path) = policy.default_save_location.clone() else {
+    // 按设备的显式覆盖优先；没有覆盖就跟随宿主当下的默认落点。两者都没有才退回手动确认。
+    let Some(path) = policy
+        .default_save_location
+        .clone()
+        .or_else(|| ctx.host_default_save_location.map(str::to_owned))
+    else {
         return ReceivePolicyDecision::require_confirmation("未配置自动接收保存位置");
     };
 
@@ -129,6 +141,7 @@ mod tests {
 
     use super::{ReceivePolicyAction, ReceivePolicyContext, evaluate_receive_policy};
     use crate::device::{DeviceTrustLevel, OsInfo, PairedDeviceInfo};
+    use crate::host::CoreSaveLocation;
     use crate::protocol::FileInfo;
 
     fn file(relative_path: &str, size: u64) -> FileInfo {
@@ -172,6 +185,7 @@ mod tests {
             total_size: 1,
             via_relay: false,
             now_ms: 1,
+            host_default_save_location: None,
         });
 
         assert_eq!(decision.action, ReceivePolicyAction::RequireConfirmation);
@@ -188,6 +202,7 @@ mod tests {
             total_size: 1,
             via_relay: false,
             now_ms: 1,
+            host_default_save_location: None,
         });
 
         assert_eq!(decision.action, ReceivePolicyAction::AutoAccept);
@@ -204,8 +219,78 @@ mod tests {
             total_size: 1,
             via_relay: false,
             now_ms: 1,
+            host_default_save_location: None,
         });
 
         assert_eq!(decision.action, ReceivePolicyAction::Reject);
+    }
+
+    /// 设备策略没有显式落点时跟随宿主当下的默认值。
+    ///
+    /// 这条替代的是宿主侧「设置策略时把当时的落点抄一份进去」——那份快照会随用户换目录
+    /// 而过期，自动接收于是继续往旧目录写（或在接受之后才失败）。跟随宿主意味着落点永远
+    /// 是此刻那一个。
+    #[test]
+    fn auto_accept_falls_back_to_host_default_location() {
+        let mut device = device(DeviceTrustLevel::Owned);
+        device.receive_policy.default_save_location = None;
+        let files = vec![file("a.txt", 1)];
+        let decision = evaluate_receive_policy(ReceivePolicyContext {
+            device: Some(&device),
+            files: &files,
+            total_size: 1,
+            via_relay: false,
+            now_ms: 1,
+            host_default_save_location: Some("/tmp/host-default"),
+        });
+
+        assert_eq!(decision.action, ReceivePolicyAction::AutoAccept);
+        assert_eq!(
+            decision.save_location,
+            Some(CoreSaveLocation::Path {
+                path: "/tmp/host-default".to_string()
+            })
+        );
+    }
+
+    /// 按设备的显式覆盖压过宿主默认——那是用户对这一台设备单独做的决定。
+    #[test]
+    fn explicit_device_location_wins_over_host_default() {
+        let mut device = device(DeviceTrustLevel::Owned);
+        device.receive_policy.default_save_location = Some("/tmp/per-device".to_string());
+        let files = vec![file("a.txt", 1)];
+        let decision = evaluate_receive_policy(ReceivePolicyContext {
+            device: Some(&device),
+            files: &files,
+            total_size: 1,
+            via_relay: false,
+            now_ms: 1,
+            host_default_save_location: Some("/tmp/host-default"),
+        });
+
+        assert_eq!(
+            decision.save_location,
+            Some(CoreSaveLocation::Path {
+                path: "/tmp/per-device".to_string()
+            })
+        );
+    }
+
+    /// 两者都没有才退回手动确认——自动接收开着但没有落点可用，不该悄悄收下。
+    #[test]
+    fn no_location_anywhere_requires_confirmation() {
+        let mut device = device(DeviceTrustLevel::Owned);
+        device.receive_policy.default_save_location = None;
+        let files = vec![file("a.txt", 1)];
+        let decision = evaluate_receive_policy(ReceivePolicyContext {
+            device: Some(&device),
+            files: &files,
+            total_size: 1,
+            via_relay: false,
+            now_ms: 1,
+            host_default_save_location: None,
+        });
+
+        assert_eq!(decision.action, ReceivePolicyAction::RequireConfirmation);
     }
 }

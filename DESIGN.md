@@ -451,6 +451,77 @@ Say how many remain when more than one is waiting — all three builds do.
 - **Deep-linked targets are untrusted input.** A `?peerId=` may point at a device that was unpaired
   or went offline since the link was made — say so in place and keep submit disabled.
 
+### Receive Location Contract (cross-platform)
+
+**Received files land where the user can find them — with the operating system's own tools, not
+only ours.** This is a hard invariant, not a preference. It was violated for the entire life of the
+mobile build, and the damage was not "slightly inconvenient": files landed in the app-private
+directory, which no Android file manager can browse and no system picker can see. Users could
+neither locate what they had received nor forward it to a third device, because every source in the
+send flow is a system picker and not one of them can see a private directory.
+
+- **No build may fall back to app-private storage for received files.** If no location is
+  configured, receiving MUST be blocked and the user guided to configure one. A fallback that
+  "always returns something" is exactly how the invariant was lost — `resolveReceiveLocation():
+  string` could not express "not configured", so it returned the private directory.
+- **The location is three states, not a string.** `ready` / `unconfigured` / `revoked`, each
+  handled exhaustively. `unconfigured` and `revoked` MUST give different guidance: "pick a folder"
+  versus "the folder you picked is gone, here is where it was".
+- **App-private data never shares a directory with the receive area.** Database, staging, logs and
+  any internal state live in a separate app-private location. Where a platform exposes a directory
+  wholesale (iOS `UIFileSharingEnabled` exposes all of `Documents`), this is what decides whether
+  the switch can be flipped at all.
+- **Validate before accepting, never after.** A revoked grant surfaces as a silent write failure if
+  checked late. The probe belongs in front of the accept action, and recovery MUST resume the
+  interrupted accept rather than making the user start over.
+- **"Show in folder" is available whenever the location is `ready`.** Never render an entry that is
+  guaranteed to fail — and after this contract holds, that guarantee no longer exists on any build.
+
+Permitted divergence — the platforms genuinely differ in what they offer:
+
+| | Receive area | User choice |
+|---|---|---|
+| Desktop | User-chosen directory | Yes |
+| iOS | `Documents`, exposed to the Files app | No — the system provides it |
+| Android | User-chosen SAF tree | **Required**, asked during onboarding |
+| Web | OPFS, with download as the delivery path | N/A — see below |
+
+**Web is deliberately not the same shape.** OPFS is not "a filesystem the user can't see", it is
+quota storage that the spec defines as invisible to the user; the browser's own idiom for handing
+a file to a user is a download. The File System Access API is not a substitute: Safari and Firefox
+support no directory picker in any version, so adopting it means either two sink implementations or
+taking receiving away from those users. So the Web build treats OPFS as the holding area and
+download as publication — the same two-stage model as `receive-staging-publish`.
+
+### Received File Reuse Contract (cross-platform)
+
+**A received file is a file. It can be sent onward.** Every build MUST offer this without routing
+the user through the system share sheet — asking someone to "share a file with the app they are
+currently using" is not a path, it is a workaround.
+
+- **Reuse the file-first reverse flow** (files fixed → pick a device). It already exists, serving
+  the system-share entry and "resend". The inbox is a third source, not a new concept — no new
+  session type, no new IPC contract, no new transfer semantics.
+- **The file source is the landing path itself.** Never copy, never derive it by joining save
+  directory with relative path (under SAF that produces an unresolvable pseudo-URI, and a
+  system-renamed `foo (1).jpg` breaks it outright).
+- **Filter before initiating, not mid-transfer.** A file deleted from under us must be caught
+  before prepare — hashing a dead URI fails the whole batch with an error that names nothing.
+- **Two entry levels, no multi-select.** The whole record, and a single file. "Three of these
+  seven" is a third level that needs selection state in `FileBrowser`, and it only covers the
+  narrow gap between the other two.
+- **This does not enter persistent navigation** and does not alter the Send Entry Contract's main
+  path. Forwarding is an action in a file's context.
+
+Shape may diverge with the input device: mobile pushes a screen (an overlay covers half a touch
+screen), Web opens a dialog (pointers make floating layers cheap) — the same latitude the Node
+Status Contract gives popover versus in-place disclosure.
+
+**Desktop is exempt from providing the entry, and the reason is specific**: its receive location has
+always been user-visible, so the system picker in the ordinary send flow already sees received
+files, and "show in folder" gets the user there. The shared `FileBrowser`'s `onSend` action is
+wired and available should that judgment change — desktop simply does not pass it today.
+
 ### Node Status Contract (cross-platform)
 
 **This section binds all three builds.** Like the Device Card Contract, data is not the constraint:

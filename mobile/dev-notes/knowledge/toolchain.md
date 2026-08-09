@@ -331,13 +331,49 @@ Android 自动更新的安装入口只会告诉用户“安装包解析失败”
 
 ## Expo / Prebuild
 
-### android/ 和 ios/ 在根目录是 prebuild 产物（已入 git）
+### android/ 和 ios/ 是 prebuild 产物且**不入 git**（2026-08-09 核实修正）
 
-仓库选择把 prebuild 出的原生壳入 git（`.gitignore` 用 `/android/` `/ios/` 只忽略根级，但实际
-android/ios 目录在 git 跟踪下）—— `packages/*/android` 和 `packages/*/ios` 是 ubrn 的原生
-桥接代码，必须入 git。详细原生构建流程见 [dev-notes/native-build.md](../native-build.md)。
+此前这条写作「已入 git（`.gitignore` 只忽略根级但实际在跟踪下）」，**已不成立**——合并进
+单仓之后 `mobile/ios` 与 `mobile/android` 各自 `git ls-files` 都是**零文件**，`.gitignore`
+的 `/ios/` `/android/` 真正生效。而 `packages/*/android` 和 `packages/*/ios`（ubrn 的原生
+桥接代码）确实入 git，那部分没变。
 
-**相关文件**：[.gitignore](../../.gitignore), [dev-notes/native-build.md](../native-build.md)
+实际影响是正面的：**`modules/` 下的本地 Expo module 由 autolinking 自动接管**，加一个原生
+模块只要建目录 + 写 `expo-module.config.json`，然后 `pnpm prebuild` / `pod install`，不需要
+手改 Xcode 工程或 gradle。`modules/app-paths`（iOS）就是这么加进来的。
+
+详细原生构建流程见 [dev-notes/native-build.md](../native-build.md)。
+
+**相关文件**：[.gitignore](../../.gitignore), `modules/app-paths/`, [dev-notes/native-build.md](../native-build.md)
+
+### 引导完成状态要**派生**，一个持久位都不要存（2026-08-09）
+
+`onboarding-store` 曾持久化 `hasOnboarded: boolean`。代价在**新增步骤时**才显形：存量用户
+那一位已经是 `true`，新步骤对他们永远不会出现。接收目录这一步要是这么加，Android 存量用户
+会卡在「没有落点、又不许回退私有目录」的死角，且没有任何界面能把他们领出来。
+
+中途还有过一版「介绍性步骤共用一个持久位」，同样不成立：换个字段名（`hasOnboarded` →
+`hasCompletedIntro`）在同一个 persist key 下没有 migrate，**所有存量用户的那一位读回 false**，
+于是被整体扔回欢迎页——iOS 上尤其荒唐，那边根本没有新步骤要补。
+
+**正确做法**：引导是一组有序步骤，每步带一个 `isSatisfied(state)` 判据；路由指向第一个
+未满足的步骤。判据抽成接收 `FlowState` 的纯函数，让快照版（事件回调等拿不到 hook 的地方）
+与订阅版（hook）**共用同一份实现**。
+
+- 配置性步骤（设备名、接收目录）判据 = 真实状态
+- **介绍性步骤借用配置性步骤的判据**：欢迎页的判据就是「设备名填过没」——填过就说明这个人
+  走过引导。于是零持久位，`onboarding-store` 整个删除
+- 终点屏（身份就绪/通知授权）**不是步骤**：它没有可判定的完成条件，借别人的判据会把存量
+  用户也拉来看一遍。由最后一个配置步骤显式导航过去，守卫看不见它
+- 平台不适用的步骤靠 `applies` 过滤（`Platform.OS` 恒定，模块加载时求值一次即可），
+  步骤指示器的总数随之变
+
+⚠️ **判据在哪个 store，boot 就必须等哪个 store 水合。** 判据搬进 `preferences-store` 之后，
+只等 `waitForOnboardingHydration()` 就不够了——水合前 `deviceName` 是初始值，一个配置齐全的
+用户会被判成「没引导过」并 `<Redirect>` 进引导流程，而 `Redirect` 是**一次性导航**，水合完
+也回不来。同一个窗口还会让冷启动的分享意图被当成「未完成设置」直接丢弃。
+
+**相关文件**：`src/core/onboarding-flow.ts`、`src/stores/preferences-store.ts`（`waitForPreferencesHydration`）
 
 ### 文件预览的原生依赖选型（RN 0.85 new-arch 实测）
 

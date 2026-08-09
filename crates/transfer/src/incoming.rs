@@ -74,6 +74,13 @@ pub trait IncomingTransferRuntime: Send + Sync {
         let _ = peer_id;
     }
 
+    /// 宿主**此刻**的默认接收落点，供设备策略未显式指定落点时使用。
+    ///
+    /// 默认 `None`：未实现的平台行为与引入本能力前完全一致（策略为空即退回手动确认）。
+    fn host_default_save_location(&self) -> Option<String> {
+        None
+    }
+
     /// 是否处于全局「暂停接收」状态。
     ///
     /// 默认 `false`：未实现该开关的平台（如 mobile-core）行为与引入本能力前完全一致。
@@ -285,12 +292,14 @@ where
                 ));
             }
 
+            let host_default = runtime.host_default_save_location();
             let policy_decision = evaluate_receive_policy(ReceivePolicyContext {
                 device: Some(&paired_device),
                 files: &files,
                 total_size,
                 via_relay,
                 now_ms: chrono::Utc::now().timestamp_millis(),
+                host_default_save_location: host_default.as_deref(),
             });
             let device_name = paired_device.os_info.display_name();
 

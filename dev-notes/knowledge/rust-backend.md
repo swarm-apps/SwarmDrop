@@ -427,6 +427,80 @@ fallback，仅在 `parse_completed_ranges` 为空时生效，不构成「线性�
 
 **相关文件**：`crates/transfer/src/lib.rs`、`crates/transfer/src/{actor,flow,wire}/mod.rs`、`crates/transfer/src/epoch.rs`
 
+### `dataDir` 是**应用私有数据区**，不是 documentDirectory（2026-08-09）
+
+移动端传给 `MobileCore::new` 的 `data_dir` 决定了库（`swarmdrop.db`）与接收暂存
+（`<data_dir>/staging/`）住哪。它曾经恒等于 `Paths.document.uri`，而那在 iOS 上正是
+**用户可见的 `Documents`**——一旦开启文件共享（`UIFileSharingEnabled` +
+`LSSupportsOpeningDocumentsInPlace`），用户会在「文件」App 里看到自己的数据库和一堆
+hash 命名的暂存半成品，并且可以删。
+
+**正确做法**：
+
+- `dataDir` 走 `mobile/src/core/paths.ts` 的 `getPrivateDataDir()`：iOS = Application
+  Support（新增的 `modules/app-paths` 原生模块，官方 `FileManager.urls(for:)`），
+  Android = `Paths.document.uri`（系统本就不对用户暴露应用内部存储）。
+- 用户可见的接收落点是**另一个概念**，在 `mobile/src/core/receive-location.ts`，与
+  `dataDir` 没有任何路径关系。
+
+**不要做**：
+
+- 不要从 `Paths.document.uri` 做字符串替换推导 Application Support。那把「两者是兄弟
+  目录」这一容器布局实现细节当成契约，且失败是静默的（在不存在的目录下开库）。iOS 上
+  Application Support **默认不存在，必须显式创建**，推导方案很容易连这步一起漏掉。
+- 不要把 staging 挪去 cache 换取「不占 Documents」——它要跨「中断 → 用户过几天再恢复」
+  存活，cache 会被系统清理（`file_staging.rs:33` 已论证过一次）。
+
+⚠️ Application Support 的路径**含空格**（`…/Library/Application Support`）。原生模块返回
+`URL.absoluteString`（空格编码成 `%20`），由 `utils::parse_host_dir` 的 percent-decode 还原。
+换成裸路径也能工作（decode 对无 `%` 的串幂等），但两端形态就不一致了。
+
+**相关文件**：`mobile/modules/app-paths/`、`mobile/src/core/paths.ts`、
+`mobile/src/core/mobile-core.ts`、`openspec/changes/visible-receive-location/`
+
+### 自动接收的落点跟随宿主，不复制快照（2026-08-09）
+
+`DeviceReceivePolicy.default_save_location` 为空的含义是「**跟随宿主默认**」，不是「没有落点」。
+`evaluate_receive_policy` 在它为空时取 `ReceivePolicyContext.host_default_save_location`，
+后者来自 `IncomingTransferRuntime::host_default_save_location()` → `TransferManager` 里的一份
+运行时镜像，宿主经 uniffi `set_default_save_location` 在**节点启动后**与**用户改接收目录后**推送。
+
+**不要恢复成宿主侧复制**。移动端此前在设置信任策略时把**当时的**全局落点抄进每台设备的策略并
+持久化，代价是：用户之后换了接收目录，被设为「本人设备」的那些仍往旧目录写；旧目录被删则在
+**接受之后**才失败——而「接受前校验」正是落点治本声称消除的东西，那条保证当时只覆盖手动确认。
+
+判据由三条测试钉住（`crates/transfer/src/policy.rs`）：跟随宿主默认、按设备覆盖优先、
+两者皆无才退回手动确认。
+
+**相关文件**：`crates/transfer/src/policy.rs`、`crates/transfer/src/manager.rs`、
+`mobile/packages/swarmdrop-core/rust/mobile-core/src/transfer.rs`、
+`mobile/src/core/receive-location.ts`（`syncReceiveLocationToCore`）
+
+### 接收落点选 SAF 而非 MediaStore（Android，2026-08-09）
+
+Android 11 起 `Android/data/` 连系统文件管理器都不可达，所以「用户可见的接收落点」只有
+两条路。选了 SAF：
+
+| | SAF | MediaStore.Downloads |
+|---|---|---|
+| 新原生代码 | **零**（`publishToTarget` 已走 `content://`） | 需自研 Expo module |
+| 用户交互 | 选一次目录（进引导流程） | 无 |
+| 落点 | 用户指定 | `Download/SwarmDrop/`（`RELATIVE_PATH` 仅为 hint，系统不保证遵守） |
+| 授权持久化 | expo-fs 的 `FilePickerContract.kt:48` 已调 `takePersistableUriPermission` | 不适用 |
+
+判据是「复用已有的整条 publish 路径」压过「省掉一次目录选择」——而那次选择本就该发生：
+「收到的文件放哪」是本应用的核心语义。LocalSend 走的是 MediaStore 默认 + SAF 可改的混合
+形态，将来要做「零交互默认落点」时 MediaStore 是唯一的路，两者可共存。
+
+**探活用 `Directory.exists` 不用 `list()`**：后者要枚举整个目录，用户选 Downloads 时代价
+可观，而我们只想知道能不能访问。
+
+⚠️ **`revoked` 的判定与收件箱 `missing` 的取舍是相反的，别照抄**：探测抛错时 `revoked`
+**判失效**（它每次重算、不落库，误判只是一次多余提示），而 `missing` **不判缺失**
+（单向持久标记，一次 SAF 抖动会永久锁死好文件）。取舍不同的根源是**标记会不会留下**。
+
+**相关文件**：`mobile/src/core/receive-location.ts`、`mobile/src/core/inbox-file-availability.ts`
+
 ### 接收是「暂存 → 发布」两段，随机写只施加于本进程拥有的 fd（2026-08-07）
 
 `FileAccess` 的三段式（`create_sink → write_sink_chunk(offset) → finalize_sink`）语义上

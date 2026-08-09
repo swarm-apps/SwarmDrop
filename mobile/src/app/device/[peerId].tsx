@@ -5,7 +5,6 @@ import {
 } from "@gorhom/bottom-sheet";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { organizedDeviceName } from "@swarmdrop/shared-view";
-import { Directory } from "expo-file-system";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Ban,
@@ -65,6 +64,7 @@ import {
   type TrustLevel,
   trustLevelToNative,
 } from "@/core/device-trust";
+import { pickDirectory } from "@/core/receive-location";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { getErrorMessage } from "@/lib/errors";
@@ -592,17 +592,12 @@ function PolicyEditor({
   };
 
   const onPickSaveLocation = async () => {
-    try {
-      const dir = await Directory.pickDirectoryAsync();
-      try {
-        dir.list();
-      } catch (probeErr) {
-        toast.error(t`此目录不可读`, getErrorMessage(probeErr));
-        return;
-      }
-      patchPolicy({ defaultSaveLocation: dir.uri });
-    } catch (err) {
-      toast.error(t`选择失败`, getErrorMessage(err));
+    // 选目录 + 探活走 `receive-location` 的共享判据——此前这里、本次接收的覆盖、以及
+    // 全局落点各写一份，连把探活从 `list()` 换成 `exists` 都得改三个文件。
+    const picked = await pickDirectory();
+    if (picked.outcome === "unusable") toast.error(t`此目录不可读`);
+    else if (picked.outcome === "picked") {
+      patchPolicy({ defaultSaveLocation: picked.uri });
     }
   };
 
@@ -1130,8 +1125,15 @@ function Divider() {
   return <View className="h-px bg-border" />;
 }
 
+/**
+ * 按设备的保存位置覆盖。**未设置不等于没有落点**——`withHostSaveLocation` 会在这一项为空时
+ * 补上全局接收位置（`@/core/receive-location`），所以这里说的是「跟随」而不是某个具体目录。
+ *
+ * 此前这里写「收件箱」，那是治本前的说法：那时的默认落点是应用私有目录，用户在文件管理器里
+ * 根本找不到它，「收件箱」指的是应用内那个列表。现在默认落点本身就是用户可见目录了。
+ */
 function formatSaveLocation(uri?: string | null): React.ReactNode {
-  if (!uri) return <Trans>收件箱</Trans>;
+  if (!uri) return <Trans>跟随默认接收位置</Trans>;
   return lastPathSegment(uri) || <Trans>默认位置</Trans>;
 }
 

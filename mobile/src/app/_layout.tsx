@@ -22,10 +22,12 @@ import { UpdateHost } from "@/components/update-host";
 import { UpdateProvider } from "@/components/update-provider";
 import { initMobileCore } from "@/core/mobile-core";
 import { initNotifications } from "@/core/notifications";
+import { useIsOnboardingComplete } from "@/core/onboarding-flow";
 import {
   subscribePendingInvite,
   takePendingInvite,
 } from "@/core/pending-deep-link";
+import { useReceiveLocationWatch } from "@/core/receive-location";
 import { shareFilesToTransferFiles } from "@/core/share-intent";
 import { useNavTheme } from "@/hooks/useThemeColors";
 import { LinguiProvider } from "@/i18n/LinguiProvider";
@@ -33,11 +35,8 @@ import { i18n, initI18n } from "@/i18n/lingui";
 import { getErrorMessage } from "@/lib/errors";
 import { restoreThemePreference } from "@/lib/theme-persistence";
 import { toast } from "@/lib/toast";
-import {
-  useOnboardingStore,
-  waitForOnboardingHydration,
-} from "@/stores/onboarding-store";
 import { usePairingInviteStore } from "@/stores/pairing-invite-store";
+import { waitForPreferencesHydration } from "@/stores/preferences-store";
 import { useShareStore } from "@/stores/share-store";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -71,7 +70,9 @@ export default function RootLayout() {
     try {
       await Promise.all([
         restoreThemePreference(),
-        waitForOnboardingHydration(),
+        // 引导守卫的判据全在偏好里（设备名、接收目录），水合前它们是初始值——
+        // 不等它，一个配置齐全的用户会被 `<Redirect>` 一次性扔进引导流程。
+        waitForPreferencesHydration(),
         initMobileCore(),
         initI18n(),
       ]);
@@ -94,6 +95,10 @@ export default function RootLayout() {
   useEffect(() => {
     void runBoot();
   }, [runBoot]);
+
+  // 落点失效探活：回前台时重探一次，让设置页与引导判据也能看见「目录没了」，
+  // 而不是拖到下一次接受传输才发现。
+  useReceiveLocationWatch();
 
   // 节点开关由用户在 NodeControlSheet 控制,不再随 AppState 自动 shutdown/start —
   // 文件选择器等瞬间退台会反复重建 NetManager 打断传输,且 iOS/Android 后台本身
@@ -232,7 +237,7 @@ function ShareIntentHandler() {
     useShareIntentContext();
   const router = useRouter();
   const { t } = useLingui();
-  const hasOnboarded = useOnboardingStore((s) => s.hasOnboarded);
+  const onboarded = useIsOnboardingComplete();
   const setSharedFiles = useShareStore((s) => s.setSharedFiles);
 
   useEffect(() => {
@@ -243,7 +248,7 @@ function ShareIntentHandler() {
       resetShareIntent();
       return;
     }
-    if (!hasOnboarded) {
+    if (!onboarded) {
       toast.info(t`请先完成 SwarmDrop 设置`);
       resetShareIntent();
       return;
@@ -255,7 +260,7 @@ function ShareIntentHandler() {
     isReady,
     hasShareIntent,
     shareIntent,
-    hasOnboarded,
+    onboarded,
     router,
     setSharedFiles,
     resetShareIntent,
@@ -281,14 +286,14 @@ function ShareIntentHandler() {
 function DeepLinkInviteHandler() {
   const router = useRouter();
   const { t } = useLingui();
-  const hasOnboarded = useOnboardingStore((s) => s.hasOnboarded);
+  const onboarded = useIsOnboardingComplete();
   const previewInvite = usePairingInviteStore((s) => s.previewInvite);
 
   useEffect(() => {
     const handle = async () => {
       const invite = takePendingInvite();
       if (invite === null) return;
-      if (!hasOnboarded) {
+      if (!onboarded) {
         toast.info(t`请先完成 SwarmDrop 设置`);
         return;
       }
@@ -313,7 +318,7 @@ function DeepLinkInviteHandler() {
     });
     void handle();
     return unsubscribe;
-  }, [hasOnboarded, previewInvite, router, t]);
+  }, [onboarded, previewInvite, router, t]);
 
   return null;
 }

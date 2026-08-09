@@ -497,6 +497,16 @@ msgstr "Send"
 msgid "发送中…"
 msgstr "Sending…"
 
+#: app/app/_components/forward-to-device-dialog.tsx
+msgid "发送到 {name}"
+msgstr "Send to {name}"
+
+#: ../packages/file-browser/src/item-actions.tsx
+#: app/app/_components/forward-to-device-dialog.tsx
+#: app/app/_components/inbox-views.tsx
+msgid "发送到设备"
+msgstr "Send to device"
+
 #: app/app/_components/send-panel.tsx
 msgid "发送失败"
 msgstr "Send failed"
@@ -515,6 +525,7 @@ msgstr "Sending requires pairing first. Pairing is a one-time action — afterwa
 
 #: app/app/_components/connection-panel.tsx
 #: app/app/_components/device-organization-dialog.tsx
+#: app/app/_components/forward-to-device-dialog.tsx
 #: app/app/_components/group-manager-dialog.tsx
 #: app/app/_components/pairing-confirm-dialog.tsx
 #: app/app/_components/transfer-detail.tsx
@@ -604,6 +615,7 @@ msgstr "Show in Folder"
 
 #: app/app/_components/device-card.tsx
 #: app/app/_components/device-stats.tsx
+#: app/app/_components/forward-to-device-dialog.tsx
 #: app/app/_components/send-panel.tsx
 msgid "在线"
 msgstr "Online"
@@ -685,6 +697,10 @@ msgstr "Appearance and language"
 #: app/app/_components/transfer-labels.ts
 msgid "失败"
 msgstr "Failed"
+
+#: app/app/_components/forward-to-device-dialog.tsx
+msgid "它们已不在浏览器存储里。"
+msgstr "They are no longer in browser storage."
 
 #: app/app/_components/group-manager-dialog.tsx
 msgid "完成"
@@ -894,6 +910,11 @@ msgstr "Used"
 msgid "已识别到「{0}」的邀请"
 msgstr "Invite from “{0}” detected"
 
+#. placeholder {0}: skipped.length
+#: app/app/_components/forward-to-device-dialog.tsx
+msgid "已跳过 {0} 个文件"
+msgstr "Skipped {0} file(s)"
+
 #: app/app/_lib/invite.ts
 msgid "已过期"
 msgstr "Expired"
@@ -929,6 +950,10 @@ msgstr "Paired"
 #: app/app/_components/pairing-panel.tsx
 msgid "已配对：<0>{0}</0>"
 msgstr "Paired: <0>{0}</0>"
+
+#: app/app/_components/forward-to-device-dialog.tsx
+msgid "已配对的设备都不在线，等对方上线后再试。"
+msgstr "None of your paired devices are online. Try again once one of them comes back."
 
 #: app/app/_components/device-grid.tsx
 #: app/app/_components/node-status-dialog.tsx
@@ -1042,9 +1067,19 @@ msgstr "Hole-punch"
 msgid "打洞直连"
 msgstr "Hole-punched direct"
 
+#. placeholder {0}: files[0].name
+#: app/app/_components/forward-to-device-dialog.tsx
+msgid "把「{0}」发给另一台已配对的设备。"
+msgstr "Send “{0}” to another paired device."
+
 #: app/app/_components/send-panel.tsx
 msgid "把文件拖到这里"
 msgstr "Drop files here"
+
+#. placeholder {0}: files.length
+#: app/app/_components/forward-to-device-dialog.tsx
+msgid "把这 {0} 个文件发给另一台已配对的设备。"
+msgstr "Send these {0} files to another paired device."
 
 #: app/app/_components/incoming-offers-panel.tsx
 #: app/app/_components/pairing-request-host.tsx
@@ -1361,6 +1396,10 @@ msgstr "Ask every time"
 #: app/app/_components/receive-panel.tsx
 msgid "没有匹配的收件箱条目。"
 msgstr "No inbox items match."
+
+#: app/app/_components/forward-to-device-dialog.tsx
+msgid "没有可发送的设备"
+msgstr "No devices available"
 
 #: app/app/_components/active-transfers-section.tsx
 msgid "活跃传输"

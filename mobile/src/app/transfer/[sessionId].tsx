@@ -1,5 +1,4 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { File } from "expo-file-system";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   CheckCircle2,
@@ -44,6 +43,7 @@ import {
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
+import { fileExists } from "@/core/inbox-file-availability";
 import { getMobileCore } from "@/core/mobile-core";
 import { canOpenSaveFolder } from "@/core/saf-intent";
 import {
@@ -719,7 +719,8 @@ function TransferActionBar({
     );
   }
 
-  // canOpenSaveFolder=false(Android 私有目录)时不给一个必败按钮;文件去收件箱打开/分享。
+  // canOpenSaveFolder=false 时不给一个必败按钮;文件去收件箱打开/分享。落点治本后
+  // 当前配置产出的落点两端都恒可打开，这条只兜历史记录里的旧形态 URI。
   if (savePath && status === "completed" && canOpenSaveFolder(savePath)) {
     actions.push(
       <ActionButton
@@ -847,19 +848,9 @@ function resendFilesOf(
     relativePath: file.relativePath,
     size: file.size,
   }));
-  return files.every((file) => sourceExists(file.sourceId) !== false)
+  return files.every((file) => fileExists(file.sourceId) !== false)
     ? files
     : [];
-}
-
-/** expo-fs File 对 file:// 与 SAF document URI 都能查 exists。
- *  true=存在 / false=确定不存在 / null=查询失败(未知,不可判缺失)。 */
-function sourceExists(uri: string): boolean | null {
-  try {
-    return new File(uri).exists;
-  } catch {
-    return null;
-  }
 }
 
 function formatDuration(seconds: number): string {

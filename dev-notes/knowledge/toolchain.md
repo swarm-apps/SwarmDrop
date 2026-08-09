@@ -601,6 +601,29 @@ grep -o -- "--你新加的-token:[^;}]*" $CSS   # 空 = 产物是旧的
 这也是「一次只起一个 server」那条纪律的具体成因之一。要看真实形态用 `pnpm start`
 （`serve out`，只读静态产物，不碰 `.next`），别再开一个 dev。
 
+## 测试
+
+### mobile-core 的文件测试用**固定** temp 路径，别并发跑两次 `cargo test --workspace`
+
+`file_staging` 与 `file_access` 的 6 个测试各自写死了 `std::env::temp_dir().join("swarmdrop_staging_truncate")`
+这类固定目录名。同时跑两个 `cargo test --workspace`（比如一个丢后台、又在前台跑一次）会让
+两边抢同一个目录，表现是这 4 条稳定失败：
+
+```
+file_staging::tests::discard_removes_the_file
+file_staging::tests::truncate_clears_while_reopen_preserves
+file_access::tests::publish_to_local_renames_within_the_same_volume
+file_access::tests::publish_to_local_rejects_escape_through_symlink
+```
+
+**判据**：单独 `cargo test -p swarmdrop-mobile-core` 全过 = 是并发干扰，不是回归。2026-08-09
+就这么误判过一次。真要并发验证，先确认没有另一个 cargo test 在跑。
+
+（治本是给这些路径加唯一后缀，属于既有缺陷，未在本轮处理。）
+
+**相关文件**：`mobile/packages/swarmdrop-core/rust/mobile-core/src/file_staging.rs`、
+`mobile/packages/swarmdrop-core/rust/mobile-core/src/file_access.rs`
+
 ## 版本号同步：两条独立版本线
 
 单仓但**两条版本线**，各自打 tag、各自发版，互不干扰：

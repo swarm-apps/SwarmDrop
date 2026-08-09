@@ -1199,11 +1199,37 @@ export class WebNode {
      */
     send_files(to: string, files: File[]): Promise<string>;
     /**
+     * 转发已接收的文件：把 OPFS 里的条目取回成 `File`，之后与用户选文件发送**完全同路**。
+     *
+     * `paths` 是收件箱条目的 OPFS 相对路径（落盘时写的那个）。`FileSystemFileHandle::get_file()`
+     * 返回的正是 `send_files` 已经在吃的 `web_sys::File`，所以读分块那条路径一行都不用动——
+     * 转发在后端从来不缺能力，缺的只是一个入口。
+     *
+     * 拿到的 `File.name()` 是路径末段，`webkitRelativePath` 为空，于是 `relative_path` 回落
+     * 到文件名。这是要的行为：转发是一次新的发送，把上一次传输的目录结构带给第三台设备
+     * 只会让对方莫名其妙（移动端同此约定）。
+     * **取不到的条目被跳过，而不是让整批失败。** OPFS 是配额存储，条目可能被浏览器驱逐；
+     * 「一个死路径 → 整次转发失败 → 用户看到一条没有文件名的 DOMException」正是
+     * Received File Reuse Contract 里「发起前筛掉」要杜绝的。移动端由 `selectForwardable`
+     * 承担这件事，浏览器这边没有对应的 per-path 原语可用，所以筛在这里。
+     *
+     * 被跳过的路径经 [`Self::take_skipped_forward_paths`] 取回，由 UI 告诉用户。全部取不到
+     * 才算失败——那时确实没有任何东西可发。
+     */
+    send_inbox_files(to: string, paths: string[]): Promise<string>;
+    /**
      * 建节点：持久化身份（Window=localStorage / Worker=OPFS）+ IndexedDB 恢复已配对设备 → 包 core 组合根 [`start_node`]
      * （Browser [`EndpointProfile`] + Web 端口）→ 完整 [`NetManager`] + 3 协议 Router（含
      * pairing）。**须在主线程 Window 跑**——webrtc-websys dial 碰 window，Worker 里会 panic。
      */
     static spawn(): Promise<WebNode>;
+    /**
+     * 取回上一次转发中被跳过的路径，**取过即清**。
+     *
+     * 单独一个方法而不是塞进 `send_inbox_files` 的返回值：那个返回的是 session_id，
+     * 换成结构体会让所有既有调用点跟着改，而这条信息只有转发这一个入口关心。
+     */
+    take_skipped_forward_paths(): string[];
     /**
      * 已持久化的传输会话投影，**按 `startedAt` 倒序**（端口契约，三端一致）。
      *
@@ -1340,7 +1366,9 @@ export interface InitOutput {
     readonly webnode_revoke_invite_by_id: (a: number, b: number, c: number) => any;
     readonly webnode_search_inbox: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly webnode_send_files: (a: number, b: number, c: number, d: number, e: number) => any;
+    readonly webnode_send_inbox_files: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly webnode_spawn: () => any;
+    readonly webnode_take_skipped_forward_paths: (a: number) => [number, number];
     readonly webnode_transfer_history: (a: number) => any;
     readonly webnode_update_paired_device_policy: (a: number, b: number, c: number, d: any, e: number) => any;
     readonly start: () => void;

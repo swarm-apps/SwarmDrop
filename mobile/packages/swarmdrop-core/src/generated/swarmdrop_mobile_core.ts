@@ -7041,6 +7041,16 @@ export interface MobileCoreLike {
  */
     sendPrepared(preparedId: string, peerId: string, peerName: string, fileIds: Array<number>, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileSendResult>;
 /**
+ * 告知内核宿主**此刻**的默认接收落点。
+ *
+ * 设备策略未显式指定落点时，自动接收用它。RN 侧应在节点启动后、以及用户改动接收
+ * 目录之后调用——**这正是它存在的理由**：此前宿主是在设置策略时把当时的落点抄一份
+ * 进每台设备的策略里，用户之后换目录，自动接收还照着旧值写。
+ *
+ * 节点未启动时静默忽略：落点会在下次启动后由 RN 侧重新推上来。
+ */
+    setDefaultSaveLocation(uri: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+/**
  * 设置全局「暂停接收」。暂停期间节点仍在线可发现、配对不受影响，但对新 offer
  * 以 ReceivingPaused 婉拒。镜像桌面托盘的「暂停接收」开关（core 3d2d764）。
  */
@@ -8553,6 +8563,42 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     
 /**
+ * 告知内核宿主**此刻**的默认接收落点。
+ *
+ * 设备策略未显式指定落点时，自动接收用它。RN 侧应在节点启动后、以及用户改动接收
+ * 目录之后调用——**这正是它存在的理由**：此前宿主是在设置策略时把当时的落点抄一份
+ * 进每台设备的策略里，用户之后换目录，自动接收还照着旧值写。
+ *
+ * 节点未启动时静默忽略：落点会在下次启动后由 RN 侧重新推上来。
+ */
+    async setDefaultSaveLocation(uri: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_default_save_location(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(uri, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
  * 设置全局「暂停接收」。暂停期间节点仍在线可发现、配对不受影响，但对新 offer
  * 以 ReceivingPaused 婉拒。镜像桌面托盘的「暂停接收」开关（core 3d2d764）。
  */
@@ -9160,6 +9206,9 @@ function uniffiEnsureInitialized() {
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared() !== 28705) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_default_save_location() !== 11522) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_default_save_location");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused() !== 14427) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused");

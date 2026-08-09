@@ -7,6 +7,7 @@ import {
   normalizeFileBrowserViews,
 } from "@swarmdrop/shared-view";
 import * as Crypto from "expo-crypto";
+import { Platform } from "react-native";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type {
@@ -37,7 +38,14 @@ interface PreferencesState {
   publicReachability: boolean;
   /** 自定义引导节点(Multiaddr 字符串数组),启动时与移动端默认节点合并 */
   customBootstrapNodes: string[];
-  /** 用户自定义接收文件保存目录的 URI(file:// 或 content://);null 走默认 transfersInboxUri */
+  /**
+   * Android 的接收目录（用户选定的 SAF tree `content://`）。**没有默认值**——`null` 表示
+   * 尚未选择，此时不能接收，引导流程会把用户领到目录选择步骤。曾经的「回退应用私有目录」
+   * 已经取消：那个目录自 Android 11 起连系统文件管理器都进不去。
+   *
+   * iOS 不读这一项（落点恒为 `Documents`）。判据与三态语义都在 `@/core/receive-location`，
+   * 不要直接读这个字段做决策。
+   */
   receivePath: string | null;
   fileBrowserViews: Record<FileBrowserScope, FileBrowserView>;
   setDeviceName: (name: string) => void;
@@ -47,7 +55,8 @@ interface PreferencesState {
   setPublicReachability: (value: boolean) => void;
   addBootstrapNode: (addr: string) => void;
   removeBootstrapNode: (addr: string) => void;
-  setReceivePath: (uri: string | null) => void;
+  /** 只接受一个真实目录：三态模型下「清空」不是一个用户能做的动作（清了就收不了文件）。 */
+  setReceivePath: (uri: string) => void;
   setFileBrowserView: (scope: FileBrowserScope, view: FileBrowserView) => void;
   /** 设置 / 清空某设备的本机别名（空串或纯空白清空）。 */
   setDeviceAlias: (peerId: string, name: string) => void;
@@ -128,7 +137,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       },
 
       setReceivePath(uri) {
-        set({ receivePath: uri && uri.length > 0 ? uri : null });
+        set({ receivePath: uri });
       },
 
       setFileBrowserView(scope, view) {
@@ -311,8 +320,12 @@ export const usePreferencesStore = create<PreferencesState>()(
                 ),
               }
             : {}),
-          ...(typeof stored.receivePath === "string" ||
-          stored.receivePath === null
+          // iOS 不再有「自定义接收目录」这回事（落点恒为 `Documents`，见
+          // `@/core/receive-location`），旧版本存下的那条路径已经不可达——不丢掉的话
+          // 它会作为一份永远不被读取的幽灵数据留在偏好里。
+          ...(Platform.OS !== "ios" &&
+          (typeof stored.receivePath === "string" ||
+            stored.receivePath === null)
             ? { receivePath: stored.receivePath }
             : {}),
           fileBrowserViews: normalizeFileBrowserViews(stored.fileBrowserViews),
@@ -321,3 +334,23 @@ export const usePreferencesStore = create<PreferencesState>()(
     },
   ),
 );
+
+/**
+ * 等待偏好从 AsyncStorage 水合。
+ *
+ * **引导路由必须等它**：完成状态由 `deviceName` / `receivePath` 派生，水合前它们是初始值，
+ * 一个早就配置好的用户会被判成「还没引导」并 `<Redirect>` 进引导流程——而 `Redirect` 是
+ * 一次性导航，之后水合完也回不来。同一个窗口还会让冷启动的分享意图被当成「未完成设置」
+ * 直接丢弃。
+ */
+export const waitForPreferencesHydration = (): Promise<void> =>
+  new Promise((resolve) => {
+    if (usePreferencesStore.persist.hasHydrated()) {
+      resolve();
+      return;
+    }
+    const unsub = usePreferencesStore.persist.onFinishHydration(() => {
+      unsub();
+      resolve();
+    });
+  });

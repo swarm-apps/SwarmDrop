@@ -41,6 +41,8 @@ export interface FileBrowserActions {
   removeDirectory?: (relativeDirectory: string) => void;
   openItem?: (item: FileBrowserItem) => void;
   shareItem?: (item: FileBrowserItem) => void;
+  /** 转发到另一台设备（收件箱专用）。 */
+  sendItem?: (item: FileBrowserItem) => void;
   revealItem?: (item: FileBrowserItem) => void;
   retryItem?: (item: FileBrowserItem) => void;
 }

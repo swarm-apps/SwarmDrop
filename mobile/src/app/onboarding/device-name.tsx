@@ -10,6 +10,7 @@ import {
   OnboardingScreen,
 } from "@/components/onboarding/onboarding-scaffold";
 import { Text } from "@/components/ui/text";
+import { nextRouteAfter } from "@/core/onboarding-flow";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import {
   applyDeviceName,
@@ -17,14 +18,12 @@ import {
   suggestedDeviceName,
 } from "@/lib/device-name";
 import { getErrorMessage } from "@/lib/errors";
-import { useOnboardingStore } from "@/stores/onboarding-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
 export default function DeviceName() {
   const { t } = useLingui();
   const router = useRouter();
   const colors = useThemeColors();
-  const nextStep = useOnboardingStore((s) => s.nextStep);
   const existing = usePreferencesStore((s) => s.deviceName);
 
   const [name, setName] = useState("");
@@ -46,8 +45,7 @@ export default function DeviceName() {
       // onboarding 阶段节点还没起来,core 的改名编排走「只落盘」分支并正常返回;
       // 名字会在随后 startNode 时进本机 OsInfo。存不住会 throw,走下面的 catch。
       await applyDeviceName(trimmed);
-      nextStep();
-      router.push("/onboarding/setup" as never);
+      router.push(nextRouteAfter("device-name") as never);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -67,7 +65,7 @@ export default function DeviceName() {
             accessibilityLabel={t`继续`}
             testID="onboarding-device-name-continue-button"
           />
-          <OnboardingDots step={1} />
+          <OnboardingDots stepId="device-name" />
         </>
       }
     >

@@ -74,6 +74,7 @@ class NativeSwarmdropMobileCore : public jsi::HostObject {
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_prepare_send(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_reject_receive(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_prepared(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_default_save_location(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_clone_foreigneventbus(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_fn_free_foreigneventbus(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
@@ -200,6 +201,7 @@ class NativeSwarmdropMobileCore : public jsi::HostObject {
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_default_save_location(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_source_metadata(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);

@@ -5,6 +5,7 @@ import {
   Check,
   CirclePause,
   RotateCcw,
+  Send,
   Share2,
   Timer,
   X,
@@ -81,6 +82,14 @@ function FileRowComponent({ item, depth = 0, actions, testID }: FileRowProps) {
     [actions, item],
   );
 
+  const send = useCallback(
+    (event: GestureResponderEvent) => {
+      event.stopPropagation();
+      actions?.sendItem?.(item);
+    },
+    [actions, item],
+  );
+
   return (
     <View
       className={cn(
@@ -131,6 +140,17 @@ function FileRowComponent({ item, depth = 0, actions, testID }: FileRowProps) {
             className="size-11 items-center justify-center rounded-xl active:bg-destructive/15"
           >
             <RotateCcw size={16} color={colors.destructive} />
+          </Pressable>
+        ) : null}
+
+        {actions?.sendItem && item.status !== "missing" ? (
+          <Pressable
+            onPress={send}
+            accessibilityRole="button"
+            accessibilityLabel={t`发送 ${item.name} 到设备`}
+            className="size-11 items-center justify-center rounded-xl active:bg-muted"
+          >
+            <Send size={16} color={colors.mutedForeground} />
           </Pressable>
         ) : null}
 

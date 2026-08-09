@@ -221,6 +221,8 @@ pub struct WebNode {
             futures::channel::mpsc::UnboundedReceiver<swarmdrop_transfer::events::TransferEvent>,
         >,
     >,
+    /// 上一次转发中取不到、因而被跳过的 OPFS 路径，等 UI 来取（见 `send_inbox_files`）。
+    skipped_forward_paths: RefCell<Vec<String>>,
 }
 
 #[wasm_bindgen]
@@ -352,6 +354,7 @@ impl WebNode {
             session_store,
             file_access: file_access_impl,
             events_rx: RefCell::new(Some(events_rx)),
+            skipped_forward_paths: RefCell::new(Vec::new()),
         })
     }
 
@@ -940,6 +943,57 @@ impl WebNode {
             .await
             .map_err(WebError::from)?;
         Ok(result.session_id.to_string())
+    }
+
+    /// 转发已接收的文件：把 OPFS 里的条目取回成 `File`，之后与用户选文件发送**完全同路**。
+    ///
+    /// `paths` 是收件箱条目的 OPFS 相对路径（落盘时写的那个）。`FileSystemFileHandle::get_file()`
+    /// 返回的正是 `send_files` 已经在吃的 `web_sys::File`，所以读分块那条路径一行都不用动——
+    /// 转发在后端从来不缺能力，缺的只是一个入口。
+    ///
+    /// 拿到的 `File.name()` 是路径末段，`webkitRelativePath` 为空，于是 `relative_path` 回落
+    /// 到文件名。这是要的行为：转发是一次新的发送，把上一次传输的目录结构带给第三台设备
+    /// 只会让对方莫名其妙（移动端同此约定）。
+    /// **取不到的条目被跳过，而不是让整批失败。** OPFS 是配额存储，条目可能被浏览器驱逐；
+    /// 「一个死路径 → 整次转发失败 → 用户看到一条没有文件名的 DOMException」正是
+    /// Received File Reuse Contract 里「发起前筛掉」要杜绝的。移动端由 `selectForwardable`
+    /// 承担这件事，浏览器这边没有对应的 per-path 原语可用，所以筛在这里。
+    ///
+    /// 被跳过的路径经 [`Self::take_skipped_forward_paths`] 取回，由 UI 告诉用户。全部取不到
+    /// 才算失败——那时确实没有任何东西可发。
+    pub async fn send_inbox_files(
+        &self,
+        to: String,
+        paths: Vec<String>,
+    ) -> Result<String, JsValue> {
+        if paths.is_empty() {
+            return Err(WebError::invalid_input("未选择文件").into());
+        }
+        let mut files = Vec::with_capacity(paths.len());
+        let mut skipped = Vec::new();
+        for path in &paths {
+            match crate::opfs::open_file(path).await {
+                Ok(file) => files.push(file),
+                Err(err) => {
+                    tracing::warn!(path, error = %err, "转发跳过取不到的文件");
+                    skipped.push(path.clone());
+                }
+            }
+        }
+        if files.is_empty() {
+            *self.skipped_forward_paths.borrow_mut() = Vec::new();
+            return Err(WebError::storage("这些文件都已不在浏览器存储里").into());
+        }
+        *self.skipped_forward_paths.borrow_mut() = skipped;
+        self.send_files(to, files).await
+    }
+
+    /// 取回上一次转发中被跳过的路径，**取过即清**。
+    ///
+    /// 单独一个方法而不是塞进 `send_inbox_files` 的返回值：那个返回的是 session_id，
+    /// 换成结构体会让所有既有调用点跟着改，而这条信息只有转发这一个入口关心。
+    pub fn take_skipped_forward_paths(&self) -> Vec<String> {
+        std::mem::take(&mut self.skipped_forward_paths.borrow_mut())
     }
 
     /// 发送记录里存的对端显示名。

@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
+import { type OnboardingStepId, useStepPosition } from "@/core/onboarding-flow";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { cn } from "@/lib/utils";
 
@@ -69,21 +70,26 @@ export function OnboardingButton({
   );
 }
 
-/** 进度点(共 3 步),带"第 X 步,共 3 步"无障碍标签。 */
-export function OnboardingDots({ step }: { step: 0 | 1 | 2 }) {
+/**
+ * 进度点。步数**按平台实际步骤算**，不是写死的 3——接收目录那一步只在 Android 存在，
+ * iOS 上硬画三格会多出一个永远走不到的点。
+ */
+export function OnboardingDots({ stepId }: { stepId: OnboardingStepId }) {
   const { t } = useLingui();
+  const { index, total } = useStepPosition(stepId);
   return (
     <View
       className="flex-row items-center justify-center gap-2"
       accessible
-      accessibilityLabel={t`第 ${step + 1} 步,共 3 步`}
+      accessibilityLabel={t`第 ${index + 1} 步，共 ${total} 步`}
     >
-      {[0, 1, 2].map((i) => (
+      {Array.from({ length: total }, (_, i) => (
         <View
+          // biome-ignore lint/suspicious/noArrayIndexKey: 进度点就是序号本身，没有别的身份
           key={i}
           className={cn(
             "rounded-full",
-            i === step
+            i === index
               ? "size-2.5 bg-primary"
               : "size-2 bg-muted-foreground/40",
           )}

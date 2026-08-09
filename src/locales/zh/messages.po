@@ -566,6 +566,10 @@ msgstr "发送到"
 msgid "发送到 {0}"
 msgstr "发送到 {0}"
 
+#: packages/file-browser/src/item-actions.tsx
+msgid "发送到设备"
+msgstr "发送到设备"
+
 #: src/components/layout/app-topbar.tsx
 #: src/routes/_app/send/-components/send-progress-view.tsx
 msgid "发送文件"

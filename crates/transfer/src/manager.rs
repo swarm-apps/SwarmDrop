@@ -13,8 +13,8 @@
 //! - [`super::flow::resume`]  —— 双侧断点续传 + IncomingTransferRuntime 续传 helper
 
 use n0_future::time::Instant;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 
 use dashmap::{DashMap, DashSet};
 use serde::Serialize;
@@ -177,6 +177,12 @@ pub struct TransferManager {
     /// 全局「暂停接收」开关。运行时态、不持久化（重启回到「接收中」）。
     /// 暂停期间节点仍在线可发现、配对不受影响，仅对新 offer 婉拒（见 `incoming.rs`）。
     receiving_paused: AtomicBool,
+    /// 宿主**此刻**的默认接收落点，供未显式指定落点的设备策略使用（见 `policy.rs`）。
+    ///
+    /// 运行时态、不持久化：事实源在宿主那边（移动端是用户选的 SAF 目录 / iOS 的
+    /// `Documents`），这里只是一份随时可被刷新的镜像。宿主此前的做法是在**设置策略时**
+    /// 把当时的落点抄进每台设备的 `default_save_location`，那份快照会随用户换目录而过期。
+    host_default_save_location: RwLock<Option<String>>,
 }
 
 impl TransferManager {
@@ -202,10 +208,19 @@ impl TransferManager {
             cancelled_outbound_offers: DashSet::new(),
             actors: ActorRegistry::new(),
             receiving_paused: AtomicBool::new(false),
+            host_default_save_location: RwLock::new(None),
         }
     }
 
     /// 设置「暂停接收」状态。
+    /// 更新宿主默认落点。宿主应在节点启动时、以及用户改动接收目录后调用。
+    pub fn set_host_default_save_location(&self, location: Option<String>) {
+        *self
+            .host_default_save_location
+            .write()
+            .expect("host_default_save_location 锁中毒") = location;
+    }
+
     pub fn set_receiving_paused(&self, paused: bool) {
         self.receiving_paused.store(paused, Ordering::Relaxed);
     }
@@ -321,6 +336,13 @@ impl TransferRuntime for TransferManager {
 impl IncomingTransferRuntime for TransferManager {
     fn is_receiving_paused(&self) -> bool {
         self.receiving_paused.load(Ordering::Relaxed)
+    }
+
+    fn host_default_save_location(&self) -> Option<String> {
+        self.host_default_save_location
+            .read()
+            .expect("host_default_save_location 锁中毒")
+            .clone()
     }
 
     async fn handle_cancel(

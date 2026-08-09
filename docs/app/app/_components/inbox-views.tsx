@@ -19,6 +19,7 @@ import {
   LoaderCircle,
   MonitorSmartphone,
   Search,
+  Send,
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
@@ -28,6 +29,7 @@ import { cn } from "@/lib/cn";
 import { PANEL_SURFACE, fileSectionHeightClass, selectedRowClass } from "./section";
 import { ConfirmAction, INLINE_ACTION_CLASS } from "./confirm-action";
 import { CenteredEmptyState } from "./empty-state";
+import { ForwardToDeviceDialog } from "./forward-to-device-dialog";
 import { OpenListButton } from "./master-detail";
 import { RelativeTime } from "./relative-time";
 import { StatusDot } from "./status-dot";
@@ -291,11 +293,21 @@ export function InboxDetailPanel({
    */
   const downloading = downloadAction.isPending(`${item.id}:${DOWNLOAD_ALL_KEY}`);
   /** 有 `missing` 的文件取不回来，`downloadAll` 会跳过它们——一个都不剩时按钮不该亮着。 */
-  const downloadableCount = item.files.filter((file) => !file.missing).length;
+  /**
+   * 还能取回的文件。「全部下载」与「发送到设备」共用这一份——两者的判据本就是同一条。
+   *
+   * ⚠️ 这个过滤在 Web 端目前是**空转**的：`missing` 从未被置为 `true`（`mark_file_missing`
+   * 在 `docs/app/app` 下没有调用点）。留着是为了让判据与移动端同形，等 OPFS 条目被驱逐的
+   * 检测补上之后它就会真正生效——见 change 的「已知限制」L3。
+   */
+  const usableFiles = item.files.filter((file) => !file.missing);
   const failures = item.files.flatMap((file) => {
     const error = downloadAction.errorFor(downloadKey(file.id));
     return error ? [{ file, error }] : [];
   });
+
+  /** 待转发的文件；`null` = 对话框关着。整条与单个文件共用同一个出口。 */
+  const [forwarding, setForwarding] = useState<InboxItemFileEntry[] | null>(null);
 
   // 动作对象也要稳：它沿 FileBrowser → 视图 → 行/卡 一路下传，内联字面量会在每一层
   // 打穿 memo。浏览器里「取回」只有下载这一种，没有「打开」「在文件夹中显示」——那两个
@@ -305,6 +317,10 @@ export function InboxDetailPanel({
       onDownload: (entry: { sourceId?: string }) => {
         const file = item.files.find((f) => String(f.id) === entry.sourceId);
         if (file) onDownload(item, file);
+      },
+      onSend: (entry: { sourceId?: string }) => {
+        const file = item.files.find((f) => String(f.id) === entry.sourceId);
+        if (file) setForwarding([file]);
       },
       pendingIds,
     }),
@@ -372,28 +388,51 @@ export function InboxDetailPanel({
         // 单文件条目不给这颗按钮：那一行上就有下载，两个入口做同一件事只是噪音。
         // 全部 missing 时同样不给——它点下去一个字节也取不到。
         headerActions={
-          items.length > 1 && downloadableCount > 0 && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => onDownloadAll(item)}
-              disabled={!ready || downloading}
-              className="h-8 gap-1.5 text-xs"
-            >
-              {downloading ? (
-                <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-              ) : (
-                <Download className="size-3.5" aria-hidden />
-              )}
-              {downloading ? <Trans>下载中…</Trans> : <Trans>全部下载</Trans>}
-            </Button>
-          )
+          // 两颗按钮共用一个判据，所以共用一个条件块：单文件条目一行上就有下载与转发，
+          // 头部再来一遍只是噪音；全部 missing 时两者都点不出东西。此前它们各写各的
+          // 条件，注释声称「判据同一条」而代码并不是——现在这句话由结构保证。
+          items.length > 1 && usableFiles.length > 0 ? (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setForwarding(usableFiles)}
+                disabled={!ready}
+                className="h-8 gap-1.5 text-xs"
+              >
+                <Send className="size-3.5" aria-hidden />
+                <Trans>发送到设备</Trans>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onDownloadAll(item)}
+                disabled={!ready || downloading}
+                className="h-8 gap-1.5 text-xs"
+              >
+                {downloading ? (
+                  <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <Download className="size-3.5" aria-hidden />
+                )}
+                {downloading ? <Trans>下载中…</Trans> : <Trans>全部下载</Trans>}
+              </Button>
+            </>
+          ) : null
         }
         emptyState={{ title: <Trans>这条记录里没有文件</Trans> }}
         // 详情侧自己是滚动容器，本区块按内容定高；高度给**上限**不给下限，两档按视图分
         // ——理由都在 `fileSectionHeightClass` 上（与传输详情共用同一条规则）。
         className="flex-none"
         contentClassName={fileSectionHeightClass(view)}
+      />
+
+      <ForwardToDeviceDialog
+        open={forwarding !== null}
+        onOpenChange={(open) => {
+          if (!open) setForwarding(null);
+        }}
+        files={forwarding ?? []}
       />
 
       {/* 下载失败逐条报，且带上是哪个文件——`FileBrowser` 的行里塞不下错误卡片，

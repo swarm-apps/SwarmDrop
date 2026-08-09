@@ -1,4 +1,4 @@
-import { Download, FolderOpen, LoaderCircle, LocateFixed, RotateCcw, X } from "lucide-react";
+import { Download, FolderOpen, LoaderCircle, LocateFixed, RotateCcw, Send, X } from "lucide-react";
 import { useLingui } from "@lingui/react/macro";
 import { cn } from "./cn";
 import type { FileBrowserItem } from "@swarmdrop/shared-view";
@@ -58,17 +58,18 @@ export function RemoveAction({
 }
 
 /**
- * 这组动作里有没有「取回」这一**主动作**——有的话动作条常驻，而不是 hover 才露出。
+ * 这组动作里有没有**主动作**——有的话动作条常驻，而不是 hover 才露出。
  *
- * `onDownload` 是浏览器端把文件从 OPFS 拿到本机的**唯一**途径：那一端没有「打开文件」
- * 也没有「在文件夹中显示」，藏起下载就等于藏起整个取回入口，而收件箱存在的理由正是
- * 「把收到的东西拿走」。桌面端的动作全是便利项（文件早就落盘了），继续 hover 才露出。
+ * 主动作 = 把文件从沙盒里弄出去的那条路。浏览器端有两条：`onDownload` 取回本机，
+ * `onSend` 送去另一台设备；那一端没有「打开文件」也没有「在文件夹中显示」，藏起这两个
+ * 就等于藏起整个出口，而收件箱存在的理由正是「把收到的东西弄走」。桌面端的动作全是
+ * 便利项（文件早就落盘了），继续 hover 才露出。
  *
  * 判据是「这组动作里有没有主动作」，**不是「跑在哪一端」**——组件仍然不认识平台，
  * 与 `FileBrowserActions` 那条「不传就不渲染」的并集约定同一个路子。
  */
 export function hasPrimaryAction(actions?: FileBrowserActions): boolean {
-  return Boolean(actions?.onDownload);
+  return Boolean(actions?.onDownload || actions?.onSend);
 }
 
 export function FileItemActions({
@@ -101,6 +102,15 @@ export function FileItemActions({
           ) : (
             <Download className="size-3.5" />
           )}
+        </ActionButton>
+      )}
+      {actions.onSend && (
+        <ActionButton
+          label={t`发送到设备`}
+          disabled={isMissing}
+          onClick={() => actions.onSend?.(item)}
+        >
+          <Send className="size-3.5" />
         </ActionButton>
       )}
       {actions.onOpen && (

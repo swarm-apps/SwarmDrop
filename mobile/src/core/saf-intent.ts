@@ -44,13 +44,19 @@ export function startViewIntent(
 /**
  * 平台是否有系统入口能打开该保存目录 —— UI 用它决定「打开文件夹」入口是否渲染,
  * 别让用户点一个注定失败的按钮:
- * - iOS:file:// 沙盒目录可经 shareddocuments:// 在「文件」App 打开 → true
- * - Android content://(SAF,用户自定义目录):DocumentsUI 可 ACTION_VIEW → true
- * - Android file://(app 私有目录,默认接收位置):系统没有文件管理器能浏览
- *   私有目录(除非自建 DocumentsProvider) → false
+ * - iOS `file://`:沙盒 `Documents` 经 `shareddocuments://` 在「文件」App 打开 → true
+ * - Android `content://`(SAF,用户选定的接收目录):DocumentsUI 可 ACTION_VIEW → true
+ *
+ * 落点治本之后这两条覆盖了全部情形——接收落点在两端都恒为用户可见位置。此前这里还有
+ * 第三条「Android `file://`(应用私有目录,默认接收位置)→ false」,那正是孤岛的症状:
+ * 默认落点系统根本浏览不了,于是「打开文件夹」入口在多数 Android 用户那儿从不渲染。
+ * 私有目录不再可能成为落点,那条分支也就没了存在的理由。
+ *
+ * 仍然保留形态判断而不是直接 `return true`:传进来的 URI 也可能来自历史记录,
+ * 而它的形态并不由当前配置担保。
  */
 export function canOpenSaveFolder(uri: string): boolean {
-  if (Platform.OS === "ios") return true;
+  if (Platform.OS === "ios") return uri.startsWith("file://");
   return uri.startsWith("content://");
 }
 
