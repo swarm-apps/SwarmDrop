@@ -136,6 +136,16 @@ impl ReceiverActor {
                     range.file_id
                 )));
             }
+            // 对齐在**协商阶段**拒，与发送侧 `resume::validation::validate_fetch_plan` 对称。
+            // 不拒的话这个计划会被接受、读循环起来，然后第一个 BlockData 撞
+            // `checkpoint::validate_block_range` → Abort → Interrupted → 对端拿同一个
+            // Hello 再连一次。一次计划校验一次，好过每块撞一次。
+            if file.size > 0 && !crate::is_chunk_aligned_range(range.offset, end, file.size) {
+                return Err(AppError::Transfer(format!(
+                    "fetch_plan range 未按 chunk 对齐: file_id={}, [{}, {})",
+                    range.file_id, range.offset, end
+                )));
+            }
         }
         Ok(())
     }

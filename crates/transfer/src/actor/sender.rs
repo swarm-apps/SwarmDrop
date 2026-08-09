@@ -21,7 +21,7 @@ use crate::events::{TransferEvent, TransferEventSink};
 use crate::host::FileAccess;
 use crate::manager::PreparedFile;
 use crate::progress::{FileDesc, ProgressTracker, RuntimeTransferDirection};
-use crate::protocol::{FileInfo, FileRange, TRANSFER_DATA_PROTOCOL};
+use crate::protocol::{FileInfo, FileRange};
 use crate::store::SessionStore;
 use crate::wire::data_frame::{
     TransferDataFrame, TransferDataRole, manifest_digest, read_frame, write_frame,
@@ -30,49 +30,23 @@ use crate::{AppError, AppResult, CHUNK_SIZE, WINDOW_CHUNKS};
 
 /// 流控窗口的簿记。
 ///
-/// 存在的理由有两条，都是「散着写会漏」：
+/// 游标要**跨 range 累计**：一个 `FileRange` 可能只够一块（多文件、续传的碎片计划），
+/// 按 range 归零等于没有窗口。
 ///
-/// 1. 游标要**跨 range 累计**。一个 `FileRange` 可能只够一块（多文件、续传的碎片计划），
-///    按 range 归零等于没有窗口。
-/// 2. 「发不发窗口帧」是**每条流一次的协商结果**，不是每块判一次的条件。把它和游标放进
-///    同一个值里，调用点就不可能只带上其中一个。
-///
-/// [`Unpaced`](Self::unpaced) 对应退回 `/swarmdrop/transfer-data/2` 的链路——对端不认识
-/// 窗口帧，发过去会被它判成未知 tag 并中止整个会话。
+/// 曾有一个 `limit: Option<u32>` 字段，按协商出的协议名决定要不要流控（退回 v2 的链路上
+/// 发窗口帧会被对端判成未知 tag 直接中止）。v2/v3 的注册随 chunk group 变更整体摘除后
+/// 只剩一个协议名，流控恒开——字段随之删掉而不是留一个恒等于 `WINDOW_CHUNKS` 的常量位，
+/// 免得下一个人以为「上限可按流配置」这件事还成立。
+#[derive(Default)]
 struct WindowPacer {
-    /// `None` = 本条流不做流控（对端是 v2）。
-    limit: Option<u32>,
     in_window: u32,
 }
 
 impl WindowPacer {
-    /// 按协商出来的协议名决定要不要流控。
-    fn for_protocol(protocol: &swarmdrop_net::ProtocolId) -> Self {
-        if *protocol == TRANSFER_DATA_PROTOCOL {
-            Self {
-                limit: Some(WINDOW_CHUNKS),
-                in_window: 0,
-            }
-        } else {
-            Self::unpaced()
-        }
-    }
-
-    /// 不做流控：一块也不停。
-    fn unpaced() -> Self {
-        Self {
-            limit: None,
-            in_window: 0,
-        }
-    }
-
     /// 记一块；返回 `true` 表示窗口写满、该同步了（同时归零）。
     fn count_block(&mut self) -> bool {
-        let Some(limit) = self.limit else {
-            return false;
-        };
         self.in_window += 1;
-        if self.in_window >= limit {
+        if self.in_window >= WINDOW_CHUNKS {
             self.in_window = 0;
             return true;
         }
@@ -230,10 +204,6 @@ impl SenderActor {
     /// 推送**受流控窗口节制**：每 [`WINDOW_CHUNKS`] 块停下等对端确认，见
     /// [`sync_window`](Self::sync_window)。尾窗不必单独同步——紧随其后的 Finish 往返
     /// 本身就是同步点（接收端要收齐全部块才会回 Finish）。
-    ///
-    /// 节制与否由**流自己带的协商结果**决定（[`WindowPacer::for_protocol`]），不由调用方
-    /// 传参：退回 v2 的链路上发窗口帧会被对端判成未知 tag 直接中止，这个判断只该有一个
-    /// 来源。
     pub async fn run_data_channel(
         &self,
         epoch: i64,
@@ -258,7 +228,7 @@ impl SenderActor {
             return Err(self.prefer_remote_abort(&mut channel, epoch, error).await);
         }
 
-        let mut pacer = WindowPacer::for_protocol(channel.protocol());
+        let mut pacer = WindowPacer::default();
         for range in plan {
             if self.cancel_token.is_cancelled() {
                 return Err(AppError::Transfer("传输已取消".into()));
@@ -662,7 +632,6 @@ mod tests {
     use super::*;
     use crate::WINDOW_CHUNKS;
     use crate::host::{FileSinkId, FileSourceId, FinalizedSink, HostFileMetadata};
-    use crate::protocol::TRANSFER_DATA_PROTOCOL_V2;
 
     /// 收下所有写入、**读侧永远 Pending** 的对端替身：模拟「不回窗口确认的接收方」。
     #[derive(Clone, Default)]
@@ -827,7 +796,7 @@ mod tests {
             ack: Arc::new(ack),
             pos: 0,
         };
-        let mut pacer = WindowPacer::for_protocol(&TRANSFER_DATA_PROTOCOL);
+        let mut pacer = WindowPacer::default();
         let range = FileRange {
             file_id: 0,
             offset: 0,
@@ -884,7 +853,7 @@ mod tests {
         );
 
         let mut peer = StalledPeer::default();
-        let mut pacer = WindowPacer::for_protocol(&TRANSFER_DATA_PROTOCOL);
+        let mut pacer = WindowPacer::default();
         let range = FileRange {
             file_id: 0,
             offset: 0,
@@ -912,81 +881,5 @@ mod tests {
         }
         assert_eq!(blocks, WINDOW_CHUNKS, "停下前恰好推满一窗");
         assert_eq!(windows, 1, "并且已经发出窗口同步帧");
-    }
-
-    /// 退回 v2 协议的链路上**一帧窗口都不许发**。
-    ///
-    /// v2 的接收端（v0.12.0 及更早）解码到未知 tag 是硬失败：它会中止整个会话。所以这里
-    /// 错一次的代价不是「没有流控」，而是**把本来能传的旧客户端全部打断**。
-    ///
-    /// 对端用 [`StalledPeer`]（读侧永远 Pending）：真发了窗口帧就会停在那里等确认、超时，
-    /// 于是「没卡住」本身就是断言的一半——另一半是数出来的零。
-    #[tokio::test]
-    async fn unpaced_stream_emits_no_window_frames() {
-        let total_chunks = WINDOW_CHUNKS * 2 + 3;
-        let data = vec![5u8; total_chunks as usize * CHUNK_SIZE];
-        let (root, outboard) = crate::bao::build_outboard(&data);
-
-        let host = Arc::new(MemorySource(data.clone()));
-        let actor = SenderActor::new(
-            Uuid::new_v4(),
-            SecretKey::generate().node_id(),
-            vec![PreparedFile {
-                file_id: 0,
-                name: "big.bin".into(),
-                relative_path: "big.bin".into(),
-                source_id: FileSourceId("mem".into()),
-                size: data.len() as u64,
-                checksum: root.to_hex().to_string(),
-                outboard,
-            }],
-            host.clone(),
-            host,
-        );
-
-        let mut peer = StalledPeer::default();
-        let mut pacer = WindowPacer::for_protocol(&TRANSFER_DATA_PROTOCOL_V2);
-        let range = FileRange {
-            file_id: 0,
-            offset: 0,
-            length: data.len() as u64,
-        };
-        n0_future::time::timeout(
-            Duration::from_secs(20),
-            actor.write_range(&mut peer, 1, range, &mut pacer),
-        )
-        .await
-        .expect("不发窗口帧就不会等确认，不该超时")
-        .expect("推送应当成功");
-
-        let written = peer.0.lock().unwrap().clone();
-        let mut cursor = IoCursor::new(written);
-        let (mut blocks, mut windows) = (0u32, 0u32);
-        while let Some(frame) = read_frame(&mut cursor).await.unwrap() {
-            match frame {
-                TransferDataFrame::BlockData { .. } => blocks += 1,
-                TransferDataFrame::Window { .. } => windows += 1,
-                other => panic!("不该出现 {other:?}"),
-            }
-        }
-        assert_eq!(blocks, total_chunks, "所有块都应推出去");
-        assert_eq!(windows, 0, "v2 链路上一帧窗口都不能发");
-    }
-
-    /// 协商结果只有「是不是新协议名」这一个判据，别的都当 v2。
-    #[test]
-    fn pacer_only_paces_on_the_negotiated_v3_protocol() {
-        assert!(
-            WindowPacer::for_protocol(&TRANSFER_DATA_PROTOCOL)
-                .limit
-                .is_some(),
-            "v3 必须开窗口"
-        );
-        assert!(
-            WindowPacer::for_protocol(&TRANSFER_DATA_PROTOCOL_V2)
-                .limit
-                .is_none(),
-            "v2 必须不开——发过去对端会判未知 tag 并中止"
-        );
     }
 }

@@ -1,5 +1,6 @@
 import { t } from "@lingui/core/macro";
 import type {
+  MobilePrepareProgress,
   MobileTransferFile,
   MobileTransferProgress,
   MobileTransferProjection,
@@ -25,6 +26,26 @@ interface TransferState {
   projections: Record<string, MobileTransferProjection>;
   progressBySession: Record<string, MobileTransferProgress>;
 
+  /**
+   * 当前活跃的发送准备批次（一遍流式读产出 checksum + 验签树），由**首条事件自我认领**。
+   *
+   * **不能挂进 `progressBySession`**：准备阶段还没有 `sessionId`，会话记录要等准备跑完、
+   * 发出 Offer 时才创建。`preparedId` 也拿不到「提前」——它在 `prepareSend` 的返回值里，
+   * 而事件先于返回值到达。
+   *
+   * **单个字段而不是一张按 id 索引的表**：那张表唯一的读者就是「活跃的那一条」，
+   * 非活跃条目没有任何代码看过（三端同此形状）。
+   */
+  activePrepare: MobilePrepareProgress | null;
+  /**
+   * 最近一次被 `clearPrepare` 收掉的批次 id。
+   *
+   * 事件经 uniffi 的 foreign callback 投递，与 `prepareSend` 的 promise resolve 是两条路，
+   * 顺序无保证：收尾那条 100% 事件可能在清理之后才到，于是活跃位被一个已结束的批次重新
+   * 占住。这一页的进度条会顶掉发送按钮，那样就再也点不动了。
+   */
+  clearedPreparedId: string | null;
+
   /** 最近一次错误，主要给 toast 用 */
   lastError: string | null;
 }
@@ -38,6 +59,12 @@ interface TransferActions {
   loadProjections(): Promise<void>;
 
   updateProgress(snapshot: MobileTransferProgress): void;
+  updatePrepare(snapshot: MobilePrepareProgress): void;
+  /**
+   * 收掉进度行。**无参**：调用点在失败路径上拿不到 `preparedId`（它在 `prepareSend` 的
+   * 返回值里，而抛错时那个返回值不存在）。
+   */
+  clearPrepare(): void;
   refreshAfterTransition(sessionId: string): Promise<void>;
 
   startSend(input: {
@@ -64,6 +91,8 @@ export const useTransferStore = create<TransferState & TransferActions>()(
     currentOffer: null,
     projections: {},
     progressBySession: {},
+    activePrepare: null,
+    clearedPreparedId: null,
     lastError: null,
 
     pushOffer(offer) {
@@ -170,21 +199,59 @@ export const useTransferStore = create<TransferState & TransferActions>()(
       }));
     },
 
+    updatePrepare(snapshot) {
+      set((state) => {
+        // 刚被清掉的批次的迟到事件：丢弃，别让它重新占住活跃位。
+        if (snapshot.preparedId === state.clearedPreparedId) return state;
+        const active = state.activePrepare;
+        // 让位给新批次的三种情形：没有活跃批次、就是同一批、或者上一批已经跑到 100% 却
+        // 没人清。
+        const canClaim =
+          active === null ||
+          active.preparedId === snapshot.preparedId ||
+          active.bytesHashed >= active.totalBytes;
+        // 「内容没变」要 return state 而不是 {}——后者是新对象，zustand 判不等照样广播。
+        return canClaim ? { activePrepare: snapshot } : state;
+      });
+    },
+
+    clearPrepare() {
+      set((state) =>
+        state.activePrepare === null
+          ? state
+          : {
+              activePrepare: null,
+              clearedPreparedId: state.activePrepare.preparedId,
+            },
+      );
+    },
+
     async refreshAfterTransition(sessionId) {
       await get().loadProjection(sessionId);
     },
 
     async startSend(input) {
-      const prepared = await getMobileCore().prepareSend(input.files);
-      const result = await getMobileCore().sendPrepared(
-        prepared.preparedId,
-        input.peerId,
-        input.peerName,
-        // sendPrepared 的 fileIds 是子集筛选；当前 UI 没有子集 UI，必须传全量。
-        prepared.files.map((f) => f.fileId),
-      );
-      await get().loadProjection(result.sessionId);
-      return result.sessionId;
+      // 开工先清：上一批可能是中途失败停在半路的，而认领规则只让「已跑到 100%」的让位。
+      get().clearPrepare();
+      try {
+        const prepared = await getMobileCore().prepareSend(input.files);
+        // 准备已完成：立刻收掉进度条。随后的 sendPrepared / loadProjection 不是准备，
+        // 让它停在 100% 却还说着「正在准备」是在撒谎。
+        get().clearPrepare();
+        const result = await getMobileCore().sendPrepared(
+          prepared.preparedId,
+          input.peerId,
+          input.peerName,
+          // sendPrepared 的 fileIds 是子集筛选；当前 UI 没有子集 UI，必须传全量。
+          prepared.files.map((f) => f.fileId),
+        );
+        await get().loadProjection(result.sessionId);
+        return result.sessionId;
+      } finally {
+        // 兜底：prepare 自己抛错时上面那次 clear 根本没跑到。**必须无条件调**——
+        // 早先这里写成 `if (preparedId)`，而 `preparedId` 恰恰只在 prepare 成功后才有值。
+        get().clearPrepare();
+      }
     },
 
     async clearAllHistory() {
@@ -239,11 +306,18 @@ export const useTransferStore = create<TransferState & TransferActions>()(
         currentOffer: null,
         projections: {},
         progressBySession: {},
+        activePrepare: null,
+        clearedPreparedId: null,
         lastError: null,
       });
     },
   }),
 );
+
+/** 当前活跃准备批次的进度快照（无则 null）。 */
+export function useActivePrepareProgress(): MobilePrepareProgress | null {
+  return useTransferStore((s) => s.activePrepare);
+}
 
 export function selectActiveProjectionIds(state: TransferState): string[] {
   return Object.values(state.projections)

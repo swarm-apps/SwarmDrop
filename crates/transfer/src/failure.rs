@@ -14,7 +14,7 @@ use crate::protocol::ResumeRejectReason;
 
 /// 会话失败原因。持久化进 `transfer_sessions.error_message` 列（类型不变，存 JSON）。
 ///
-/// 变体数量刻意贴着**实际构造点**（两处 `ActorReport::FatalError` + 一处过期回收），
+/// 变体数量刻意贴着**实际构造点**（三处 `ActorReport::FatalError` + 一处过期回收），
 /// 不预留「将来可能用到」的码 —— `failure-semantics-contract` 的 D3 已经吃过一次亏：
 /// 造出来到不了 UI 的判别码只是三端文案表里的死条目。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +41,16 @@ pub enum FailureCode {
     /// 两个调用点的技术细节（IO 错误、响应类型）对用户是同一件事：对方没收到你的请求。
     /// 细节进 `warn!`。
     OfferFailed,
+
+    /// 对端不认识本机的数据面协议名——**版本不兼容**。
+    ///
+    /// 这是唯一一个「重试一万次也不会好」的网络类失败，所以它必须是 fatal 而不是
+    /// Interrupted。此前它被压成 `AppError::Transfer(String)` 走可恢复中断，于是续传
+    /// 机器拿同一个协议名一次次重试，用户看到的是「传输老是断」——而真相是有一端需要
+    /// 升级。协议名换代（`transfer-data/3` → `/4`）时旧端全都撞这条路。
+    ///
+    /// 把不兼容前移到协商阶段是 bump 协议名的全部价值；那份信息在这里才算真正到达用户。
+    PeerProtocolUnsupported,
 
     /// **存量数据**：本判别码引入之前写入的自由文本。
     ///
@@ -89,6 +99,7 @@ mod tests {
                 reason: ResumeRejectReason::FatalError,
             },
             FailureCode::OfferFailed,
+            FailureCode::PeerProtocolUnsupported,
         ] {
             assert_eq!(FailureCode::from_column(&code.to_column()), code);
         }

@@ -101,10 +101,11 @@ pub(crate) fn validate_block_range(file: &FileInfo, range: &FileRange) -> AppRes
             range.length, CHUNK_SIZE
         )));
     }
-    if file.size > 0 && !range.offset.is_multiple_of(CHUNK_SIZE as u64) {
+    // 与发送侧的续传计划校验、`bao::encode_proof` 共用同一条判据——三处不许各写各的。
+    if file.size > 0 && !crate::is_chunk_aligned_range(range.offset, end, file.size) {
         return Err(AppError::Transfer(format!(
-            "BlockData offset 未按 chunk 对齐: {}",
-            range.offset
+            "BlockData range 未按 chunk 对齐: [{}, {})",
+            range.offset, end
         )));
     }
     if file.size > 0 && range.length == 0 {

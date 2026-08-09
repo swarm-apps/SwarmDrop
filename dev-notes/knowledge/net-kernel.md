@@ -1404,9 +1404,17 @@ API、在这里必须绕：
 - transfer 数据面 `BlockData.proof` = bao-tree 逐块验签切片（u8 标志 + 可选 len-prefixed
   bytes）。**已启用（2026-07-18）**，不再恒 None：接入未 bump 协议版本（proof 是 opaque
   bytes，wire 布局不变）。选型 Approach B——proof 携完整 bao 切片、`data` 置空（叶子只出现
-  一次、无 2x 冗余）；root == `FileInfo.checksum`（标准 blake3，`BlockSize::from_chunk_log(4)`
-  下 chunk group 不改 root）；proof 缺失/验签失败 = 协议违规 → 断流走 Interrupted 恢复。
-  发送端 outboard 与 checksum 同一遍流式构建、落 `transfer_files.outboard` 供 resume 免重算。
+  一次、无 2x 冗余）；root == `FileInfo.checksum`（标准 blake3，chunk group 不改 root）；
+  proof 缺失/验签失败 = 协议违规 → 断流走 Interrupted 恢复。
+  发送端 outboard 与 checksum 同一遍流式构建（**2026-08 起才真是一遍**，此前是两遍读加一条
+  `debug_assert_eq!`），落 `transfer_files.outboard` 供 resume 免重算——可用性判据是长度
+  （`bao::is_outboard_usable`）而非「是否为空」。
+  **chunk group 自 2026-08 起 == `CHUNK_SIZE`（256KiB），每个传输块恰好一个叶子**；曾是
+  16KiB，验签粒度比传输块细 16 倍而无消费方，代价是 outboard 大 16 倍、构建时对
+  `read_source_chunk` 的调用次数大 16 倍（三端宿主都是每次重开文件，调用次数才是主导成本）。
+  改它等于改 wire（proof 树形状变，旧端第一个块就验签失败），**必须同时 bump
+  `TRANSFER_DATA_PROTOCOL`**；同一次变更摘除了 `/2` `/3` 的注册，不兼容因此表现为协商失败
+  而非「传输老是断」。
   实现见 `crates/transfer/src/bao.rs`（sync encode/decode 纯算法 wasm 可编；outboard 构建走
   bao-tree tokio_fsm + iroh-io 的 AsyncSliceReader 适配 FileAccess，均实测 wasm 可编，无 cfg）。
 - RPC 帧：u32 BE 长度前缀 + CBOR，上限 1MiB，恶意长度在**分配前**被拒

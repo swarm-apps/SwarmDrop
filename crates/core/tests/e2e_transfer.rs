@@ -18,7 +18,9 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use swarmdrop_net::{Addr, DhtConfig, Endpoint, NodeAddr, NodeId, Router, SecretKey};
+use swarmdrop_net::{
+    Addr, DhtConfig, Endpoint, NodeAddr, NodeId, OpenError, ProtocolId, Router, SecretKey,
+};
 
 use entity::{SuspendedReason, TerminalReason, TransferDirection, TransferPhase};
 
@@ -32,7 +34,7 @@ use swarmdrop_core::network::NetManager;
 use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_manager};
 use swarmdrop_core::network::event_loop::run_event_loop;
 use swarmdrop_core::protocol::{
-    FileInfo, OfferRejectReason, TRANSFER_DATA_PROTOCOL, TRANSFER_DATA_PROTOCOL_V2, TransferOrigin,
+    FileInfo, OfferRejectReason, TRANSFER_DATA_PROTOCOL, TransferOrigin,
 };
 use swarmdrop_core::runtime::build_router;
 use swarmdrop_core::transfer::coordinator::{
@@ -357,26 +359,43 @@ async fn e2e_two_nodes_connect() {
     assert!(node_b.manager.devices().is_connected(&node_a.peer_id));
 }
 
-/// **旧版数据面协议必须继续被服务**。
+/// **当前数据面协议被服务，旧版一律不再被服务。**
 ///
-/// v0.12.0 及更早的客户端只会拨 `/swarmdrop/transfer-data/2`；`/3` 是这次为流控窗口帧新加
-/// 的名字（加 tag 必须换名，理由见 `TRANSFER_DATA_PROTOCOL` 的文档）。摘掉 v2 的注册等于
-/// 对所有存量客户端断供，而症状只会出现在跨版本的真机之间——CI 里两端永远同版本，别的测试
-/// 一条都不会红。
+/// 这条测试的语义在 2026-08 反转过一次。此前它守护「`/2` 必须继续被服务」——那时 `/3`
+/// 只是加了流控窗口帧，摘掉 `/2` 等于对 v0.12.0 及更早整体断供。
 ///
-/// 判据是 `open` 不返回 `UnsupportedProtocol`：能开出流就说明 Router 认这个名字。开完即丢，
-/// 不发 Hello——本条只管协商，传输本身由其余 e2e 覆盖。
+/// 现在 `/4` 把 bao chunk group 从 16KiB 提到 256KiB，**验签树形状变了**：旧名接进来的
+/// 连接会在第一个块就验签失败 → 断流 → Interrupted 无限重试。留着旧名的注册不是「兼容」，
+/// 是把「版本不匹配」伪装成「传输老是断」。所以判据反过来：旧名必须拿到
+/// `UnsupportedProtocol`，让不兼容在**协商阶段**就响亮地失败。
+///
+/// 症状只出现在跨版本的真机之间——CI 里两端永远同版本，别的测试一条都不会红。
 #[tokio::test(flavor = "multi_thread")]
-async fn e2e_legacy_data_protocol_is_still_served() {
+async fn e2e_only_current_data_protocol_is_served() {
     let (node_a, node_b) = connected_paired_pair(MemoryHost::new(), MemoryHost::new()).await;
 
-    for protocol in [TRANSFER_DATA_PROTOCOL, TRANSFER_DATA_PROTOCOL_V2] {
-        node_a
+    node_a
+        .manager
+        .endpoint()
+        .open(node_b.peer_id, TRANSFER_DATA_PROTOCOL)
+        .await
+        .unwrap_or_else(|e| panic!("{TRANSFER_DATA_PROTOCOL} 应当被服务，却拿到 {e}"));
+
+    for legacy in [
+        ProtocolId::from_static("/swarmdrop/transfer-data/3"),
+        ProtocolId::from_static("/swarmdrop/transfer-data/2"),
+    ] {
+        let err = node_a
             .manager
             .endpoint()
-            .open(node_b.peer_id, protocol.clone())
+            .open(node_b.peer_id, legacy.clone())
             .await
-            .unwrap_or_else(|e| panic!("{protocol} 应当被服务，却拿到 {e}"));
+            .err()
+            .unwrap_or_else(|| panic!("{legacy} 不该再被服务"));
+        assert!(
+            matches!(err, OpenError::UnsupportedProtocol(_)),
+            "{legacy} 应当在协商阶段被拒（UnsupportedProtocol），却拿到 {err}"
+        );
     }
 }
 

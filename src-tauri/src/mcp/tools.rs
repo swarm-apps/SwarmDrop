@@ -352,6 +352,9 @@ impl McpHandler {
                 size: e.size,
             })
             .collect();
+        // 这里 mint 的 `prepared_id` 无需向任何地方注册：prepare 进度走 typed event
+        // 广播，桌面 UI 与 MCP 发起的准备走同一条投递路径。此前它走 per-call Channel，
+        // 而 MCP 没有 invoke 生命周期可挂——那条路上的进度事件曾 100% 被静默丢弃。
         let prepared_id = uuid::Uuid::new_v4();
         let prepared = manager
             .transfer()

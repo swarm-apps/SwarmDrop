@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use crate::host::file_source::{CHUNK_SIZE, EnumeratedFile, FileSource, FileSourceMetadata};
+use crate::host::file_source::{EnumeratedFile, FileSource, FileSourceMetadata};
 use swarmdrop_core::AppResult;
 
 // ============ FileSource 分派方法 ============
@@ -13,21 +13,6 @@ use swarmdrop_core::AppResult;
 pub async fn read_at(path: &Path, offset: u64, length: usize) -> AppResult<Vec<u8>> {
     let path = path.to_path_buf();
     tokio::task::spawn_blocking(move || read_at_sync(&path, offset, length)).await?
-}
-
-/// 流式计算 BLAKE3 hash（hex 编码）
-pub async fn compute_hash(path: &Path) -> AppResult<String> {
-    let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || compute_hash_sync(&path)).await?
-}
-
-/// 流式计算 BLAKE3 hash，每读取一个 chunk 调用 `on_progress(已读字节数)`
-pub async fn compute_hash_with_progress(
-    path: &Path,
-    on_progress: impl Fn(u64) + Send + 'static,
-) -> AppResult<String> {
-    let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || compute_hash_sync_with_progress(&path, on_progress)).await?
 }
 
 /// 获取文件或目录的元数据
@@ -63,25 +48,15 @@ pub async fn write_chunk(path: &Path, offset: u64, data: Vec<u8>) -> AppResult<(
     tokio::task::spawn_blocking(move || write_chunk_sync(&path, offset, &data)).await?
 }
 
-/// 校验文件的 BLAKE3 checksum
-pub async fn verify_hash(path: &Path, expected_hex: &str) -> AppResult<bool> {
-    let path = path.to_path_buf();
-    let expected = expected_hex.to_owned();
-    tokio::task::spawn_blocking(move || {
-        let actual = compute_hash_sync(&path)?;
-        Ok(actual == expected)
-    })
-    .await?
-}
-
 // ============ 同步内部实现 ============
 
 /// 精确按 `[offset, offset+length)` 读，越过文件尾自动截断（EOF 读返回空）。
 ///
-/// 这是 `FileAccess::read_source_chunk` 的契约：调用方（bao outboard 构建按 16KiB
-/// leaf 粒度、sender 按 256KiB CHUNK_SIZE）依赖返回的字节数与请求一致。**不要**
-/// 退回「offset 取整到 chunk、忽略 length」的旧语义——那会让 blake3 subtree
-/// 断言在 >16KiB 文件的 prepare 阶段直接 panic（2026-07 图片传输事故）。
+/// 这是 `FileAccess::read_source_chunk` 的契约：调用方（bao outboard 构建与 sender 的
+/// 逐块推送，2026-08 起两者粒度都是 `CHUNK_SIZE`）依赖返回的字节数与请求一致。**不要**
+/// 退回「offset 取整到 chunk、忽略 length」的旧语义——那会让 blake3 subtree 断言在
+/// prepare 阶段直接 panic（2026-07 图片传输事故，当时 outboard 按 16KiB 粒度读，
+/// >16KiB 的文件必炸而 ≤16KiB 的恰好读对，于是症状是「小文本正常、图片必炸」）。
 fn read_at_sync(path: &Path, offset: u64, length: usize) -> AppResult<Vec<u8>> {
     use std::io::{Read, Seek, SeekFrom};
 
@@ -101,34 +76,6 @@ fn read_at_sync(path: &Path, offset: u64, length: usize) -> AppResult<Vec<u8>> {
     }
     buf.truncate(filled);
     Ok(buf)
-}
-
-fn compute_hash_sync(path: &Path) -> AppResult<String> {
-    let mut file = std::fs::File::open(path)?;
-    let mut hasher = blake3::Hasher::new();
-    hasher.update_reader(&mut file)?;
-    Ok(hasher.finalize().to_hex().to_string())
-}
-
-fn compute_hash_sync_with_progress(path: &Path, on_progress: impl Fn(u64)) -> AppResult<String> {
-    use std::io::Read;
-
-    let mut file = std::fs::File::open(path)?;
-    let mut hasher = blake3::Hasher::new();
-    let mut buf = vec![0u8; CHUNK_SIZE];
-    let mut total_read: u64 = 0;
-
-    loop {
-        let n = file.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-        total_read += n as u64;
-        on_progress(total_read);
-    }
-
-    Ok(hasher.finalize().to_hex().to_string())
 }
 
 fn enumerate_dir_sync(path: &Path, parent_relative_path: &str) -> AppResult<Vec<EnumeratedFile>> {
@@ -187,6 +134,7 @@ fn write_chunk_sync(path: &Path, offset: u64, data: &[u8]) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::host::file_source::CHUNK_SIZE;
 
     #[tokio::test]
     async fn test_read_at_exact_offset_and_length() {
@@ -198,7 +146,9 @@ mod tests {
         let data: Vec<u8> = (0..98061).map(|i| (i % 256) as u8).collect();
         std::fs::write(&file_path, &data).unwrap();
 
-        // bao outboard 构建的读法：16KiB leaf 粒度、非零 offset ——必须精确返回请求区间
+        // 任意非对齐 offset + 任意 length 都必须精确返回请求区间。16384 这个数取自
+        // 事故当时 bao 的 leaf 粒度；chunk group 改成 CHUNK_SIZE 之后它不再是真实调用
+        // 粒度，但**对齐从来不是契约的一部分**，所以这条断言照测不误。
         let leaf1 = read_at(&file_path, 16384, 16384).await.unwrap();
         assert_eq!(leaf1, &data[16384..32768], "非对齐 offset 必须精确定位");
 
@@ -227,24 +177,6 @@ mod tests {
 
         let chunk = read_at(&file_path, 0, 1024).await.unwrap();
         assert!(chunk.is_empty());
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[tokio::test]
-    async fn test_compute_and_verify_hash() {
-        let dir = std::env::temp_dir().join("swarmdrop_test_hash");
-        let _ = std::fs::create_dir_all(&dir);
-        let file_path = dir.join("hash_test.bin");
-        std::fs::write(&file_path, b"hello swarmdrop").unwrap();
-
-        let hash = compute_hash(&file_path).await.unwrap();
-        assert!(!hash.is_empty());
-
-        // verify_hash 应该匹配
-        assert!(verify_hash(&file_path, &hash).await.unwrap());
-        // 错误的 hash 不匹配
-        assert!(!verify_hash(&file_path, "0000000000000000").await.unwrap());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

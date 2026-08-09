@@ -879,6 +879,10 @@ msgstr "Paused by peer"
 msgid "对方暂时不可用，请稍后再试"
 msgstr "They’re unavailable right now. Please try again later."
 
+#: src/lib/errors.ts
+msgid "对方的 SwarmDrop 版本太旧，无法接收这次传输，请让对方升级后重试"
+msgstr "The other device is running an older SwarmDrop that can't receive this transfer. Ask them to update and try again."
+
 #: src/lib/transfer-projection.ts
 msgid "对方离线"
 msgstr "Peer offline"
@@ -1570,6 +1574,12 @@ msgstr "Transferring"
 msgid "正在保存..."
 msgstr "Saving..."
 
+#. placeholder {0}: progress.completedFiles
+#. placeholder {1}: progress.totalFiles
+#: src/routes/_app/send/-components/prepare-progress-bar.tsx
+msgid "正在准备 ({0}/{1})"
+msgstr "Preparing ({0}/{1})"
+
 #: packages/file-browser/src/item-actions.tsx
 msgid "正在准备下载"
 msgstr "Preparing download"
@@ -1586,8 +1596,13 @@ msgstr "Establishing session..."
 #. placeholder {0}: progress.completedFiles
 #. placeholder {1}: progress.totalFiles
 #: src/routes/_app/send/-components/prepare-progress-bar.tsx
-msgid "正在计算校验和 ({0}/{1})"
-msgstr "Computing checksums ({0}/{1})"
+#~ msgid "正在计算校验和 ({0}/{1})"
+#~ msgstr "Computing checksums ({0}/{1})"
+
+#: src/routes/_app/send/index.lazy.tsx
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "正在读取所选内容…"
+msgstr "Reading selection…"
 
 #: src/components/network/node-status-sheet.tsx
 #~ msgid "正在进行的 {activeTransferCount} 个传输会被中断。"

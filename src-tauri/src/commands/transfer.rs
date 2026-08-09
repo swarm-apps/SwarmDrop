@@ -8,14 +8,11 @@ use std::sync::Arc;
 use serde::Serialize;
 use swarmdrop_core::transfer::HostEnumeratedFile;
 use swarmdrop_core::transfer::manager::{StartSendResult, TransferManager};
-use swarmdrop_core::transfer::progress::PrepareProgressEvent;
 use swarmdrop_core::transfer::store::TransferProjection;
-use tauri::ipc::Channel;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use uuid::Uuid;
 
 use crate::database::TransferStoreState;
-use crate::host::event_bus::PrepareChannelGuard;
 use crate::host::file_source::{EnumeratedFile, FileSource, source_id};
 use crate::network::NetManagerState;
 
@@ -84,18 +81,20 @@ pub struct PreparedTransferResult {
 
 #[tauri::command]
 #[specta::specta]
+/// 准备发送：一遍流式读产出 checksum + 验签树。
+///
+/// 进度经 `PrepareProgress` typed event 广播（按返回值里的 `preparedId` 认领），
+/// **不再收 `Channel` 入参**——广播才能覆盖 MCP 这类没有 invoke 生命周期的发起方，
+/// 也才能让进度在前端离开发送页后继续可读。理由见 `crate::events::PrepareProgress`。
+///
+/// 注意事件先于本命令的返回值到达前端，所以 `preparedId` 拿不到「提前」：前端只能由
+/// 首条事件自我认领。
 pub async fn prepare_send(
-    app: tauri::AppHandle,
     net: State<'_, NetManagerState>,
     files: Vec<EnumeratedFile>,
-    on_progress: Channel<PrepareProgressEvent>,
 ) -> crate::AppResult<PreparedTransferResult> {
     let transfer = get_transfer(&net).await?;
     let prepared_id = Uuid::new_v4();
-
-    // RAII guard：无论 prepare 成功/失败/panic，drop 时自动 unregister channel
-    let event_bus = app.state::<crate::host::event_bus::TauriEventBus>();
-    let _channel_guard = PrepareChannelGuard::register(&event_bus, prepared_id, on_progress);
 
     let host_files: Vec<HostEnumeratedFile> = files
         .into_iter()

@@ -283,6 +283,8 @@ export function failureCodeLabel(
       return resumeRejectLabel(failure.inner.reason);
     case "OfferFailed":
       return <Trans>发送请求没能送达对方，请确认对方在线后重试</Trans>;
+    case "PeerProtocolUnsupported":
+      return <Trans>对方的 SwarmDrop 版本太旧，无法接收这次传输，请让对方升级后重试</Trans>;
     case "Legacy":
       return failure.inner.message;
   }

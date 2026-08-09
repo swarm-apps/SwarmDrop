@@ -163,6 +163,11 @@ let proof = crate::bao::encode_proof(&file.outboard, root, file.size, offset, &p
 
 ## 三、chunk group：验证粒度的旋钮，为什么拧在 16 KiB
 
+> ⚠️ **这一节的结论已于 2026-08 被推翻**：chunk group 现在等于 `CHUNK_SIZE`（256 KiB），
+> 不再是 16 KiB。**本节保持原样不改**——它是当时那次决策的完整推理，而推翻它的正是其中
+> 一条被当作优点的性质（「验证粒度与传输粒度彻底解耦」）。两篇对读才看得到那个转折：
+> [02 — 解耦成了负债](02-chunk-group-realignment.md)。
+
 上面一直说「chunk group」而不是「BLAKE3 的 1 KiB chunk」。这里是全篇唯一一个需要「拍参数」的地方。
 
 `BlockSize::from_chunk_log(4)` = 2⁴ = 16 个 BLAKE3 chunk = **16 KiB**（`crates/transfer/src/bao.rs:41`）。它的含义是：**树在 16 KiB 这一层就「封底」**——group 以下那 16 个 1 KiB chunk 由 BLAKE3 内部一口气算成一个叶子 CV，outboard 不再为它们单独存节点。所以 chunk group 就是「你愿意为多细的粒度保留可独立验证的证明节点」这个旋钮。
@@ -237,6 +242,8 @@ let data = crate::bao::decode_and_verify(&proof, root, file_info.size, range.off
 - **verified streaming 是 BLAKE3 的结构红利**：它内部是二叉 Merkle 树，任意子树凭一条到 root 的兄弟哈希路径独立可验；SHA256 的线性 Merkle–Damgård 链验不了半个文件。用同一个哈希函数，有没有那棵树是天壤之别。
 - **outboard 就是这棵树的内部节点**（64 字节的兄弟哈希对，与数据分离，≈0.39%）。验一块传的是「叶子数据 + 兄弟路径」，接收端 `decode_ranges` 自底向上重算核对，**必然验签、无 skip**。
 - **chunk group 是唯一要拍的参数**：太小 outboard 膨胀（1 KiB → 6.25%），太大验证粒度变粗；16 KiB 平衡，且让 256 KiB 传输块天然对齐，验证粒度与传输粒度解耦。root 不受它影响，于是 **root == checksum**，零新字段。
+  （**2026-08 更新**：最后这条「解耦」后来被判为负债并撤销，见 [02](02-chunk-group-realignment.md)；
+  「root == checksum」那条完全不受影响——它本就与 chunk group 无关，这正是它当初被称为「白拿」的原因。）
 - **它把「终点式整文件校验 + 信任对端」换成「逐块内容寻址验签 + 信任本地已验块」**，整文件 hash 降级为落盘 backstop。这正是上一篇删掉 XChaCha20 后腾出的那块地——只不过 bao 填得更强，还因为 checksum 保持明文 blake3 而解锁了内容寻址（加密会让 checksum 变成密文哈希，`root == 明文 blake3` 的不变量当场塌台，两者不能共存）。
 
 这也是当初「保留 libp2p、却照 iroh 重写一遍」那次调研认定的**唯一一处真实能力差**——不引 iroh 网络栈，只借它生态里的纯算法 crate `bao-tree` 补上。为什么不迁 iroh 却要学它，见系列起点：[network-kernel/00 — 保留 libp2p，却要学 iroh](../network-kernel/00-why-not-migrate-iroh.md)。

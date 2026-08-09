@@ -12,10 +12,11 @@ use swarmdrop_net::{AcceptError, Endpoint, NodeId, OpenError, P2pStream, Protoco
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::coordinator::{ActorReport, CoordinatorInput};
 use crate::epoch::EpochGuard;
 use crate::manager::TransferManager;
 use crate::progress::{RuntimeTransferDirection, TransferFailedEvent};
-use crate::protocol::{FileRange, TRANSFER_DATA_PROTOCOL, TRANSFER_DATA_PROTOCOL_V2};
+use crate::protocol::{FileRange, TRANSFER_DATA_PROTOCOL};
 use crate::wire::data_frame::{TransferDataFrame, TransferDataRole, read_frame, write_frame};
 use crate::{AppError, AppResult};
 
@@ -51,29 +52,35 @@ impl ProtocolHandler for TransferDataHandler {
     }
 }
 
-/// 打开数据面流：先拨 [`TRANSFER_DATA_PROTOCOL`]，对端不认识就退回
-/// [`TRANSFER_DATA_PROTOCOL_V2`]。
+/// 打开数据面流失败的两类结局。**分类必须在这里做**——再往上一层错误就被压成
+/// `AppError::Transfer(String)`，谁也分不出「重试有用」和「重试一万次也没用」。
+enum OpenFailure {
+    /// 对端不认识本机的数据面协议名：**版本不兼容**。
+    ProtocolUnsupported,
+    /// 拨号超时、连接被拒、对端下线——重试有意义。
+    Transient(AppError),
+}
+
+/// 打开数据面流，只拨 [`TRANSFER_DATA_PROTOCOL`]。
 ///
-/// 只有 `UnsupportedProtocol` 才退回——那是 multistream-select 明确答复的「我没有这个
-/// 协议」。**其余错误一律原样上抛**：拨号超时、连接被拒这些换个协议名重试一遍同样会失败，
-/// 退回只会把一次失败变成两次、并且把真正的错误换成第二次那条更没信息量的。
+/// **没有向旧协议名的回退**。曾经有过一条（`/3` 被拒退回 `/2`），随 chunk group 变更
+/// 一并摘除：留着旧名却跑新的验签树形状，等于把「版本不匹配」伪装成「传输老是断」。
 ///
-/// 返回的流带着协商结果（[`P2pStream::protocol`]），发送端据此决定发不发窗口帧——
-/// 见 [`SenderActor::run_data_channel`](crate::actor::sender::SenderActor::run_data_channel)。
-async fn open_data_stream(endpoint: &Endpoint, peer: NodeId) -> AppResult<P2pStream> {
-    match endpoint.open(peer, TRANSFER_DATA_PROTOCOL).await {
-        Ok(stream) => Ok(stream),
-        Err(OpenError::UnsupportedProtocol(_)) => {
-            info!(
-                "对端不支持 {TRANSFER_DATA_PROTOCOL}，退回 {TRANSFER_DATA_PROTOCOL_V2}（无流控窗口）: peer={peer}"
-            );
-            endpoint
-                .open(peer, TRANSFER_DATA_PROTOCOL_V2)
-                .await
-                .map_err(|e| AppError::Transfer(format!("打开 data channel 失败: {e}")))
-        }
-        Err(e) => Err(AppError::Transfer(format!("打开 data channel 失败: {e}"))),
-    }
+/// 摘除只完成了一半——`UnsupportedProtocol` 还得**被分类**。它一度和拨号超时一样压成
+/// 一句字符串，于是版本不兼容走 `Interrupted` → suspended/recoverable，续传机器拿同一个
+/// 协议名一次次重试：协商阶段确实响亮地失败了，但那份信息在函数里就没了，用户看到的
+/// 仍然是「传输老是断」。把不兼容前移到协商阶段是 bump 协议名的全部价值，而价值只有在
+/// 它到达用户时才兑现。
+async fn open_data_stream(endpoint: &Endpoint, peer: NodeId) -> Result<P2pStream, OpenFailure> {
+    endpoint
+        .open(peer, TRANSFER_DATA_PROTOCOL)
+        .await
+        .map_err(|e| match e {
+            OpenError::UnsupportedProtocol(_) => OpenFailure::ProtocolUnsupported,
+            other => OpenFailure::Transient(AppError::Transfer(format!(
+                "打开 data channel 失败: {other}"
+            ))),
+        })
 }
 
 impl TransferManager {
@@ -97,16 +104,58 @@ impl TransferManager {
         let peer_id = session.peer_id;
 
         n0_future::task::spawn(async move {
-            let result = async {
-                let stream = open_data_stream(&endpoint, peer_id).await?;
-                session.run_data_channel(epoch, stream, fetch_plan).await
-            }
-            .await;
+            let opened = open_data_stream(&endpoint, peer_id).await;
 
             // data_plane 只做路由 + 注册表簿记；终态副作用（dispatch / 落库 / 完成事件）
             // 下沉到 SenderActor::on_completed / on_interrupted（与接收方对称）。
             // 按 epoch 移除：旧 epoch 的收尾任务不得误删 resume 后注册的新 epoch sender
             // （与接收方 start_data_channel 的 remove_receive_if_epoch 对称）。
+            //
+            // 版本不兼容是**唯一**不走那两条收尾的分支：它不可恢复，续传只会拿同一个
+            // 协议名再撞一次，所以直接推终态并给出「有一端需要升级」这个判别码。
+            if let Err(OpenFailure::ProtocolUnsupported) = &opened {
+                warn!(
+                    "对端不支持 {TRANSFER_DATA_PROTOCOL}，判定版本不兼容: session={session_id}, peer={peer_id}"
+                );
+                actors.remove_send_if_epoch(&session_id, epoch);
+                // **必须通知对端**：控制面协议没变，对端已经在 Offer 那一步接受了这次
+                // 传输、正等着数据面连进来。本端推终态它是看不见的——而接收侧只有**启动时**
+                // 回收过期会话（`stale-receive-session-expiry`），没有运行期空闲超时，
+                // 所以不发这一帧，对端那条会话会一直挂到下次重启且超过保留期。
+                crate::flow::send::notify_cancel_on(
+                    &endpoint,
+                    peer_id,
+                    session_id,
+                    "对方的 SwarmDrop 版本不支持当前的传输协议",
+                )
+                .await;
+                if let Err(e) = coordinator
+                    .dispatch(
+                        session_id,
+                        CoordinatorInput::Actor {
+                            epoch,
+                            report: ActorReport::FatalError(
+                                crate::failure::FailureCode::PeerProtocolUnsupported,
+                            ),
+                        },
+                    )
+                    .await
+                {
+                    warn!("dispatch 协议不兼容 fatal 失败: session={session_id}, {e}");
+                }
+                return;
+            }
+
+            let result = match opened {
+                Ok(stream) => session.run_data_channel(epoch, stream, fetch_plan).await,
+                Err(OpenFailure::Transient(e)) => Err(e),
+                // 上面那条 `if let` 已经 return，这里不可达；写成 Transient 的同义分支
+                // 而不是 unreachable!()，免得将来加分支时把 panic 留在数据面上。
+                Err(OpenFailure::ProtocolUnsupported) => {
+                    Err(AppError::Transfer("对端不支持当前数据面协议".into()))
+                }
+            };
+
             actors.remove_send_if_epoch(&session_id, epoch);
             match result {
                 Ok(()) => {

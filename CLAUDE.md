@@ -142,6 +142,23 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 > `stream.remote() == session.peer`。完整推导见
 > [`blogs/transfer-architecture/05-removing-encryption-layer.md`](dev-notes/blogs/transfer-architecture/05-removing-encryption-layer.md)。
 >
+> **发送准备只读一遍源文件，且 bao chunk group == `CHUNK_SIZE`（2026-08-09）。**
+> `prepare` 一遍流式读同时产出 `checksum` 与验签树——`build_outboard_from_source` 返回的
+> root **就是** checksum，不是「另算一遍再断言相等」（此前是后者，靠 release 下不执行的
+> `debug_assert_eq!` 兜着，而四处文档已经宣称它是一遍了）。进度经 `bao::ReadProgress` 挂在
+> 那唯一一遍的 reader 上，因此**覆盖全部真实工作量**，不再有「进度条走完后再静默等一倍
+> 时间」。三条推论不能破：
+> ①**改 `bao::BLOCK_SIZE` 等于改 wire**（proof 树形状变，旧端第一个块就验签失败），必须
+> 同时 bump `TRANSFER_DATA_PROTOCOL`——数据面协议名同时承载「帧怎么编码」与「验签树什么
+> 形状」，判据写在 `openspec/specs/transfer-data-plane`；
+> ②持久化 outboard 的失效判据是**长度**（`bao::is_outboard_usable`）不是「是否为空」——
+> 格式作废的存量 BLOB 非空且看起来合法，用 `is_empty()` 判会让那条会话**永久**续不上传
+> 且不报错；
+> ③「bao 顺序读」是 bao-tree 的**实现事实而非契约**，进度单调性与读取等长判据都依赖它，
+> 由 `records_sequential_forward_reads` 那条护栏测试独家看守。
+> 推导见 [`blogs/transfer/02-chunk-group-realignment.md`](dev-notes/blogs/transfer/02-chunk-group-realignment.md)
+> 与 `openspec/changes/single-pass-prepare/`。
+>
 > **接收是「暂存 → 发布」两段，且 finalize 只发布不校验（2026-08-07）。** 数据块先随机写进
 > 一个**本进程完全拥有**的暂存位置（桌面 `<dst>/x.part`、移动 `<data_dir>/staging/`），
 > 单个文件**收齐即发布**到用户目标位置。两条不变量不能破：

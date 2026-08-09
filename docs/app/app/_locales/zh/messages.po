@@ -373,7 +373,7 @@ msgstr "其他网络的设备可以连到你"
 #~ msgid "准备中…"
 #~ msgstr "准备中…"
 
-#: app/app/_components/send-panel.tsx
+#: app/app/_components/prepare-progress.tsx
 msgid "准备文件的进度"
 msgstr "准备文件的进度"
 
@@ -749,6 +749,10 @@ msgstr "对方暂停"
 #: app/app/_lib/view-types.ts
 msgid "对方暂时不可用，请稍后再试"
 msgstr "对方暂时不可用，请稍后再试"
+
+#: app/app/_lib/view-types.ts
+msgid "对方的 SwarmDrop 版本太旧，无法接收这次传输，请让对方升级后重试"
+msgstr "对方的 SwarmDrop 版本太旧，无法接收这次传输，请让对方升级后重试"
 
 #: app/app/_lib/view-types.ts
 msgid "对方的接收策略拒绝了此次传输"
@@ -1340,12 +1344,12 @@ msgstr "根目录"
 msgid "正在停止节点…"
 msgstr "正在停止节点…"
 
-#. placeholder {0}: prepareProgress.currentFile
-#. placeholder {1}: prepareProgress.completedFiles
-#. placeholder {2}: prepareProgress.totalFiles
-#. placeholder {3}: formatFileSize(prepareProgress.bytesHashed)
-#. placeholder {4}: formatFileSize(prepareProgress.totalBytes)
-#: app/app/_components/send-panel.tsx
+#. placeholder {0}: progress.currentFile
+#. placeholder {1}: progress.completedFiles
+#. placeholder {2}: progress.totalFiles
+#. placeholder {3}: formatFileSize(progress.bytesHashed)
+#. placeholder {4}: formatFileSize(progress.totalBytes)
+#: app/app/_components/prepare-progress.tsx
 msgid "正在准备 {0}（{1}/{2} 文件 · {3}/{4}）"
 msgstr "正在准备 {0}（{1}/{2} 文件 · {3}/{4}）"
 

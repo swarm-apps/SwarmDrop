@@ -878,6 +878,10 @@ msgstr "对方暂停"
 msgid "对方暂时不可用，请稍后再试"
 msgstr "对方暂时不可用，请稍后再试"
 
+#: src/lib/errors.ts
+msgid "对方的 SwarmDrop 版本太旧，无法接收这次传输，请让对方升级后重试"
+msgstr "对方的 SwarmDrop 版本太旧，无法接收这次传输，请让对方升级后重试"
+
 #: src/lib/transfer-projection.ts
 msgid "对方离线"
 msgstr "对方离线"
@@ -1569,6 +1573,12 @@ msgstr "正在传输"
 msgid "正在保存..."
 msgstr "正在保存..."
 
+#. placeholder {0}: progress.completedFiles
+#. placeholder {1}: progress.totalFiles
+#: src/routes/_app/send/-components/prepare-progress-bar.tsx
+msgid "正在准备 ({0}/{1})"
+msgstr "正在准备 ({0}/{1})"
+
 #: packages/file-browser/src/item-actions.tsx
 msgid "正在准备下载"
 msgstr "正在准备下载"
@@ -1585,8 +1595,13 @@ msgstr "正在建立会话..."
 #. placeholder {0}: progress.completedFiles
 #. placeholder {1}: progress.totalFiles
 #: src/routes/_app/send/-components/prepare-progress-bar.tsx
-msgid "正在计算校验和 ({0}/{1})"
-msgstr "正在计算校验和 ({0}/{1})"
+#~ msgid "正在计算校验和 ({0}/{1})"
+#~ msgstr "正在计算校验和 ({0}/{1})"
+
+#: src/routes/_app/send/index.lazy.tsx
+#: src/routes/_app/send/share-target.lazy.tsx
+msgid "正在读取所选内容…"
+msgstr "正在读取所选内容…"
 
 #: src/components/network/node-status-sheet.tsx
 #~ msgid "正在进行的 {activeTransferCount} 个传输会被中断。"

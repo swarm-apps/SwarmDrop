@@ -234,12 +234,17 @@ iroh 在浏览器里 100% 走 relay（wasm 下 `mod ip` 整个不编译，没有
 - outboard **不进 checkpoint 表的 range 列**，而是 `transfer_files` 新增独立 BLOB 列；存取只经
   `SessionStore::{save,load}_file_outboard` 端口（transfer 零 sea_orm）。
 
-**已知后续**：prepare 目前 checksum 与 outboard 是**两遍**流式读（都内存有界）；可合并为一遍
-（从 outboard 构建的 reader 顺带喂 blake3 + emit 进度）——非必须，留作优化。
+**已落地（2026-08，`single-pass-prepare`）**：上面那条「与 checksum 同一遍构建」当初写的是
+设计意图，实现其实是**两遍**（先跑一遍扁平 blake3 得 checksum，再跑一遍建 outboard，靠
+`debug_assert_eq!` 互证；release 下不校验）。现已合并为一遍——`build_outboard_from_source`
+返回的 root 直接当 checksum，进度经 `bao::ReadProgress` 挂在那一遍的 reader 上。
+同一次变更把 bao chunk group 从 16KiB 提到 `CHUNK_SIZE`（256KiB），outboard 因此小 16 倍、
+构建读次数也少 16 倍。
 
 **相关文件**：`crates/transfer/src/bao.rs`、`crates/transfer/src/flow/prepare.rs`、
 `crates/transfer/src/actor/{sender,receiver}.rs`、`crates/transfer/src/store.rs`、
-`crates/entity/src/transfer_file.rs`、`crates/migration/src/m20260718_000001_transfer_file_outboard.rs`
+`crates/entity/src/transfer_file.rs`、`crates/migration/src/m20260805_000001_init/entity/transfer_file.rs`
+（原引的 `m20260718_000001_transfer_file_outboard.rs` 已不存在，列现住 init 快照里）
 
 ### XChaCha20-Poly1305 迁 iroh 后是净负债
 

@@ -605,8 +605,16 @@ bao 落地前的遗留，已删），所以它失败**只可能**是「数据是
 panic `the subtree starting at 16384 contains at most 16384 bytes`。根因是桌面
 `TauriFileAccess::read_source_chunk` 包旧 256KiB `read_chunk(chunk_index)` 接口时
 **忽略 length、把 offset 取整到 chunk**——旧传输路径恰好只按 CHUNK_SIZE 对齐调用，
-违约被掩盖多时；wire v2 的 bao outboard 构建按 **16KiB leaf 粒度、非对齐 offset**
+违约被掩盖多时；wire v2 的 bao outboard 构建当时按 **16KiB leaf 粒度、非对齐 offset**
 读，一读就炸。≤16KiB 的文件恰好读对，所以「小文本正常、图片必炸」。
+
+> **2026-08 更新**：bao chunk group 已提到 `CHUNK_SIZE`（256KiB），outboard 构建与
+> sender 推送的粒度现在相同，上面那个「16KiB」的具体数字不再成立。**但这条教训成立**
+> ——它讲的是「宿主取整 offset 而调用方不按你以为的粒度调用」，而对齐从来不是
+> `read_source_chunk` 契约的一部分。同一次变更还把内核侧的防御从「只拒超长」收紧成
+> **严格等长**（`bao::FileAccessReader`）：outboard 构建的请求被 bao 依 `size()` clamp 过，
+> `offset + len <= size` 恒成立，所以短读同样是违约，不该退化成一句
+> `unexpected end of file`。
 
 **正确做法**：
 - 宿主实现必须精确返回 `[offset, offset+length)`（EOF 截断，越界读返回空）——

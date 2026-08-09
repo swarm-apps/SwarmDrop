@@ -219,8 +219,9 @@ diff 变大却换不到任何语义收益。
 | `pickTransferDirectory`（`:101` `Directory.pickDirectoryAsync()`） | **`content://`**（SAF tree 的子项） | `file://` |
 
 所以下沉读侧必须写一个 scheme 分派器，并且要保证 `content://` 分支仍走 JS 且满足
-`read_source_chunk` 的严格契约（`crates/host/src/ports.rs:190-201`：不取整、不多读、不少读，
-且 bao 会按 16 KiB 非对齐 offset 调用）。这是独立的风险面，与「修接收崩溃」没有耦合，
+`read_source_chunk` 的严格契约（`crates/host/src/ports.rs`：不取整、不多读、不少读，
+且 bao 会按非对齐 offset 调用——写这段时它的粒度是 16 KiB，2026-08 起 chunk group 与
+`CHUNK_SIZE` 对齐，但**对齐从来不是契约的一部分**）。这是独立的风险面，与「修接收崩溃」没有耦合，
 **另开 change**。
 
 顺带：`file-access.ts:95` 那句注释是错的，本 change 顺手改正（它误导的正是「能不能假设

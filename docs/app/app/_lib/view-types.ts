@@ -107,6 +107,8 @@ export function failureCodeLabel(
       return RESUME_REJECT_LABEL[failure.reason.type];
     case "offerFailed":
       return msg`发送请求没能送达对方，请确认对方在线后重试`;
+    case "peerProtocolUnsupported":
+      return msg`对方的 SwarmDrop 版本太旧，无法接收这次传输，请让对方升级后重试`;
     case "legacy":
       // 判别码引入之前落库的自由文本，原样展示（多为简体中文）。
       return { id: failure.message, message: failure.message };

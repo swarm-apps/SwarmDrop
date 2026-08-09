@@ -24,9 +24,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 import type {
   MobileDevice as DeviceInfo,
-  MobilePrepareProgress,
 } from "react-native-swarmdrop-core";
-import { MobileCoreEvent_Tags } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import {
   FileBrowser,
@@ -35,14 +33,10 @@ import {
 } from "@/components/file-browser";
 import { AppScreen, BottomActionBar } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
-import {
-  calcPercent,
-  formatBytes,
-  ProgressBar,
-} from "@/components/transfer/shared";
+import { PrepareProgressBar } from "@/components/transfer/prepare-progress-bar";
+import { formatBytes } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
 import { canSendToDevice, resolveTrustLevel } from "@/core/device-trust";
-import { subscribeCoreEvents } from "@/core/event-bus";
 import {
   pickFromMediaLibrary,
   pickTransferDirectory,
@@ -59,7 +53,10 @@ import {
   useMobileCoreStore,
 } from "@/stores/mobile-core-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
-import { useTransferStore } from "@/stores/transfer-store";
+import {
+  useActivePrepareProgress,
+  useTransferStore,
+} from "@/stores/transfer-store";
 
 export default function SendPreparePage() {
   const { t } = useLingui();
@@ -113,18 +110,10 @@ export default function SendPreparePage() {
     ? organizedDeviceName(device, deviceOrganization)
     : "";
 
-  // ── 准备阶段进度（订阅 PrepareProgress 事件）─────────────────
+  // ── 准备阶段进度 ───────────────────────────────────────────
+  // 住在 store 而不是本页 useState：准备大目录可以是分钟级，用户切走再回来得看得到它。
   const [sending, setSending] = useState(false);
-  const [prepareProgress, setPrepareProgress] =
-    useState<MobilePrepareProgress | null>(null);
-
-  useEffect(() => {
-    return subscribeCoreEvents((event) => {
-      if (event.tag === MobileCoreEvent_Tags.PrepareProgress) {
-        setPrepareProgress(event.inner.event);
-      }
-    });
-  }, []);
+  const prepareProgress = useActivePrepareProgress();
 
   const browserItems = useMemo(
     () => fromSelectedFiles(selectedFiles),
@@ -166,7 +155,6 @@ export default function SendPreparePage() {
   const onSend = useCallback(async () => {
     if (!device || sending || selectedFiles.length === 0) return;
     setSending(true);
-    setPrepareProgress(null);
     try {
       const sessionId = await startSend({
         files: selectedFiles,
@@ -188,7 +176,6 @@ export default function SendPreparePage() {
       toast.error(t`发送失败`, panicDetail ?? getErrorMessage(err));
     } finally {
       setSending(false);
-      setPrepareProgress(null);
     }
   }, [
     device,
@@ -266,11 +253,15 @@ export default function SendPreparePage() {
         testID="send-file-browser"
       />
 
+      {/* 进度条**叠在按钮行之上**，不替换它（与桌面同形）。替换式的写法让准备期间这一屏
+          一个可交互元素都不剩：连取消都没了，而 `activePrepare` 万一没被收干净（迟到的
+          收尾事件、中途失败的批次）就再也点不动发送，只能重启应用。 */}
       <BottomActionBar testID="send-action-bar">
-        {prepareProgress ? (
-          <PrepareProgressBar progress={prepareProgress} />
-        ) : (
-          <View className="flex-1 flex-row items-center justify-between gap-3">
+        <View className="flex-1 gap-2">
+          {prepareProgress ? (
+            <PrepareProgressBar progress={prepareProgress} />
+          ) : null}
+          <View className="flex-row items-center justify-between gap-3">
             <Text
               className="flex-1 text-[13px] text-muted-foreground"
               numberOfLines={1}
@@ -318,7 +309,7 @@ export default function SendPreparePage() {
               </Pressable>
             </View>
           </View>
-        )}
+        </View>
       </BottomActionBar>
     </AppScreen>
   );
@@ -408,37 +399,6 @@ function AddSourceButtons({
           </Text>
         </Pressable>
       ))}
-    </View>
-  );
-}
-
-/* ─── 准备阶段进度条（订阅 PrepareProgress 事件） ─── */
-
-function PrepareProgressBar({ progress }: { progress: MobilePrepareProgress }) {
-  const total = Number(progress.totalBytes);
-  const hashed = Number(progress.bytesHashed);
-  return (
-    <View className="flex-1 gap-2">
-      <View className="flex-row items-center justify-between gap-3">
-        <Text
-          className="flex-1 text-[13px] text-muted-foreground"
-          numberOfLines={1}
-        >
-          <Trans>
-            正在计算校验和 ({progress.completedFiles.toString()}/
-            {progress.totalFiles.toString()})
-          </Trans>
-        </Text>
-        <Text className="text-[12px] text-muted-foreground">
-          {formatBytes(hashed)} / {formatBytes(total)}
-        </Text>
-      </View>
-      <ProgressBar percent={calcPercent(hashed, total)} heightClass="h-1.5" />
-      {progress.currentFile ? (
-        <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
-          {progress.currentFile}
-        </Text>
-      ) : null}
     </View>
   );
 }

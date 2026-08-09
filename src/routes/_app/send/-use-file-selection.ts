@@ -23,6 +23,13 @@ export interface FileSelection {
   totalSize: number;
   /** 是否有文件 */
   hasFiles: boolean;
+  /**
+   * 是否正在后端扫描来源（枚举目录、取 size）。
+   *
+   * 这一段此前**零反馈**：没有 spinner、没有骨架、按钮不变灰，选完一个大目录后界面
+   * 就是纯粹的无响应。它才是真正的「选完文件之后」——校验和计算要到点了发送才开始。
+   */
+  isScanning: boolean;
   /** 添加文件来源（文件或文件夹），后端扫描后加入列表 */
   addSources: (sources: FileSource[]) => Promise<void>;
   /** 移除文件或整个目录。直接接 `FileBrowser` 的 `onRemove`。 */
@@ -35,6 +42,8 @@ export interface FileSelection {
 
 export function useFileSelection(): FileSelection {
   const [files, setFiles] = useState<ScannedFile[]>([]);
+  // 计数而非布尔：并发 addSources（连续拖入两批）下，先返回的那批不能把标记清掉。
+  const [scanCount, setScanCount] = useState(0);
 
   const items = useMemo(() => itemsFromScannedFiles(files), [files]);
 
@@ -50,12 +59,17 @@ export function useFileSelection(): FileSelection {
   const addSources = useCallback(async (sources: FileSource[]) => {
     if (sources.length === 0) return;
 
-    const results = await commands.scanSources(sources);
+    setScanCount((n) => n + 1);
+    try {
+      const results = await commands.scanSources(sources);
 
-    const newFiles = results.flatMap((result) => result.files);
+      const newFiles = results.flatMap((result) => result.files);
 
-    if (newFiles.length > 0) {
-      setFiles((prev) => [...prev, ...newFiles]);
+      if (newFiles.length > 0) {
+        setFiles((prev) => [...prev, ...newFiles]);
+      }
+    } finally {
+      setScanCount((n) => n - 1);
     }
   }, []);
 
@@ -83,6 +97,7 @@ export function useFileSelection(): FileSelection {
     totalCount: stats.totalCount,
     totalSize: stats.totalSize,
     hasFiles: stats.totalCount > 0,
+    isScanning: scanCount > 0,
     addSources,
     removeTarget,
     clear,

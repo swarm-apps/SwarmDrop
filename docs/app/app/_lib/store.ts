@@ -121,13 +121,25 @@ export interface WebNodeState {
    * 成功态永久悬空。终态事件，不随其他域裁剪。
    */
   rejections: Record<string, TransferRejectedEvent>;
-  /** 发送侧 prepare（hash + bao outboard）进度，按 preparedId。 */
-  prepares: Record<string, PrepareProgressEvent>;
   /**
-   * 最近一条 prepare 进度事件（#78 发送面板用：`send_files()` 内部生成的 preparedId 不回传
-   * 给调用方，MVP 只支持单个活跃发送，故用「最近一条」代表当前发送的 prepare 阶段）。
+   * 当前活跃的发送准备批次（一遍流式读产出 checksum + 验签树），由**首条事件自我认领**。
+   *
+   * **不能挂进 `progress`**：准备阶段还没有 `sessionId`，会话记录要等准备跑完、发出
+   * Offer 时才创建。`send_files()` 内部生成的 `preparedId` 也不回传给调用方，而事件先于
+   * 它 resolve 到达，所以调用方无从「提前」认领。
+   *
+   * 此前这里是 `latestPrepareProgress`（旁路快照，永不清空）加一张 `prepares` 表（形状
+   * 正确却零读者）。收成一个字段：那张表唯一的读者本就是「活跃的那一条」。
    */
-  latestPrepareProgress: PrepareProgressEvent | null;
+  activePrepare: PrepareProgressEvent | null;
+  /**
+   * 最近一次被 `clearPrepare` 收掉的批次 id。
+   *
+   * 事件从 wasm 经事件泵进来，与 `send_files()` 的 promise resolve 是两条路，顺序无保证：
+   * 收尾那条 100% 事件可能在清理之后才到，于是活跃位被一个已结束的批次重新占住，进度行
+   * 永久停在满格。
+   */
+  clearedPreparedId: string | null;
   /**
    * 实时进度：speed / eta / 单文件粒度。**TransferProjection 从不携带这些字段**，故单独建域
    * （projection 只表达 phase + 累计字节，不会取代 progress）。供 #80 传输视图直接消费。
@@ -208,8 +220,8 @@ const initialState: WebNodeState = {
   projections: {},
   offers: {},
   rejections: {},
-  prepares: {},
-  latestPrepareProgress: null,
+  activePrepare: null,
+  clearedPreparedId: null,
   progress: {},
   eventLog: [],
   inboxItems: [],
@@ -378,6 +390,21 @@ export const webNodeActions = {
   refreshInbox() {
     webNodeStore.setState((s) => ({ inboxRevision: s.inboxRevision + 1 }));
   },
+  /**
+   * 收掉进度行。**无参**：`send_files()` 内部生成 `preparedId`、不回传给调用方，所以
+   * 调用点根本拿不到它。三端同此签名（另两端是「失败路径上拿不到」，同一个理由）。
+   *
+   * 必须挂在 settle 而不是 success 上——准备失败时不收，进度行会永久停在半路。
+   */
+  clearPrepare() {
+    webNodeStore.setState((s) =>
+      // 「内容没变」必须 return s，**不能返回 `{}`**——后者是新对象，`Object.is` 判不等，
+      // 照样广播一轮。
+      s.activePrepare === null
+        ? s
+        : { activePrepare: null, clearedPreparedId: s.activePrepare.preparedId },
+    );
+  },
   /** #79：offer 已被本机接受/拒绝，从「待处理」域移除（决策是一次性动作，同 removePendingPairing）。 */
   removeOffer(sessionId: string) {
     webNodeStore.setState((s) => {
@@ -482,12 +509,18 @@ function reduceEvent(s: WebNodeState, ev: WebTransferEvent): Partial<WebNodeStat
       };
     case "transferProgress":
       return { progress: { ...s.progress, [ev.event.sessionId]: ev.event }, eventLog };
-    case "prepareProgress":
-      return {
-        prepares: { ...s.prepares, [ev.event.preparedId]: ev.event },
-        latestPrepareProgress: ev.event,
-        eventLog,
-      };
+    case "prepareProgress": {
+      // 刚被清掉的批次的迟到事件：丢弃，别让它重新占住活跃位。
+      if (ev.event.preparedId === s.clearedPreparedId) return { eventLog };
+      const active = s.activePrepare;
+      // 让位给新批次的三种情形：没有活跃批次、就是同一批、或者上一批已经跑到 100% 却
+      // 没人清。
+      const canClaim =
+        active === null ||
+        active.preparedId === ev.event.preparedId ||
+        active.bytesHashed >= active.totalBytes;
+      return canClaim ? { activePrepare: ev.event, eventLog } : { eventLog };
+    }
     case "transferCompleted":
       // 只有**接收**方向会新增收件箱条目（发送完成不进这本账）。自增计数器让收件箱面板
       // 重拉一次真表——收件箱不再由 projections 派生，projection 事件不足以让它更新。

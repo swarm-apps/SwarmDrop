@@ -106,6 +106,8 @@ export function failureCodeMessage(
       return i18n._(resumeRejectMessage(failure.reason.type));
     case "offerFailed":
       return i18n._(msg`发送请求没能送达对方，请确认对方在线后重试`);
+    case "peerProtocolUnsupported":
+      return i18n._(msg`对方的 SwarmDrop 版本太旧，无法接收这次传输，请让对方升级后重试`);
     case "legacy":
       return failure.message;
   }

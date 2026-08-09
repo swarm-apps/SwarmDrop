@@ -227,9 +227,10 @@ pub trait FileAccess: Send + Sync {
     /// - `offset` 越过 EOF → 返回空 `Vec`（不报错）；尾部不足 `length` → 截断到 EOF；
     /// - 禁止返回超过 `length` 的数据（内核视为违约、响错拒收）。
     ///
-    /// 调用方包括按 16KiB 粒度、非对齐 offset 读的 bao outboard 构建——
-    /// 不要假设 offset/length 与任何 chunk 尺寸对齐。参考实现（含契约单测）：
-    /// 桌面 `src-tauri/src/host/file_source/path_ops.rs::read_at_sync`。
+    /// 调用方包括 bao outboard 构建（顺序读、粒度 ≤ 一个 chunk group）与 sender 的
+    /// 逐块推送。**不要假设 offset/length 与任何 chunk 尺寸对齐**——2026-08 之前那两条
+    /// 路的粒度差 16 倍（16KiB vs 256KiB），现在恰好相同，但对齐从来不是契约的一部分。
+    /// 参考实现（含契约单测）：桌面 `src-tauri/src/host/file_source/path_ops.rs::read_at_sync`。
     async fn read_source_chunk(
         &self,
         source: &FileSourceId,

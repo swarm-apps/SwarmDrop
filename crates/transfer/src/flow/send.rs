@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use swarmdrop_net::{CallOptions, NodeId};
+use swarmdrop_net::{CallOptions, Endpoint, NodeId};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -380,19 +380,7 @@ impl TransferManager {
 
     /// 向对端发 Cancel 控制帧（收发两侧共用；失败仅告警）。
     pub(crate) async fn notify_cancel(&self, peer_id: NodeId, session_id: Uuid) {
-        if let Err(e) = TRANSFER_CTRL
-            .call(
-                &self.endpoint,
-                peer_id,
-                &TransferRequest::Cancel {
-                    session_id,
-                    reason: "用户取消".into(),
-                },
-            )
-            .await
-        {
-            warn!("通知对方取消失败: session={}, {}", session_id, e);
-        }
+        notify_cancel_on(&self.endpoint, peer_id, session_id, "用户取消").await;
     }
 
     /// 向对端发 Pause 控制帧（收发两侧共用；失败仅告警）。
@@ -426,5 +414,30 @@ impl TransferManager {
         {
             warn!("dispatch Offer fatal 失败: session={}, {}", session_id, e);
         }
+    }
+}
+
+/// 向对端发 Cancel 控制帧，只要一个 [`Endpoint`]。
+///
+/// `reason` 会经对端的 `handle_cancel` 进 `TransferFailed` 事件、直达它的用户，所以它是
+/// 参数而不是常量——数据面协议版本不兼容也要发这一帧，而那时说「用户取消」是撒谎。
+pub(crate) async fn notify_cancel_on(
+    endpoint: &Endpoint,
+    peer_id: NodeId,
+    session_id: Uuid,
+    reason: &str,
+) {
+    if let Err(e) = TRANSFER_CTRL
+        .call(
+            endpoint,
+            peer_id,
+            &TransferRequest::Cancel {
+                session_id,
+                reason: reason.to_owned(),
+            },
+        )
+        .await
+    {
+        warn!("通知对方取消失败: session={}, {}", session_id, e);
     }
 }

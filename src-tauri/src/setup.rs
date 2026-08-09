@@ -120,6 +120,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             events::DeviceRenamed,
             events::TransferOffer,
             events::TransferProgress,
+            events::PrepareProgress,
             events::TransferAccepted,
             events::TransferRejected,
             events::TransferComplete,

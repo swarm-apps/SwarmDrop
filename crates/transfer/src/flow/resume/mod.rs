@@ -354,10 +354,15 @@ impl TransferManager {
         files: &[entity::transfer_file::Model],
     ) -> AppResult<Arc<SenderActor>> {
         let mut prepared_files = build_prepared_files_from_db(files);
-        // 回填缺失 outboard（旧会话无此列 / 被推翻的空值）：按源文件重算并回存，避免逐块重算。
-        // 0 字节文件 outboard 恒空且不参与逐块验签（见 bao::encode_proof），跳过。
+        // 回填不可用的 outboard（旧会话无此列 / 空值 / **chunk group 变更后格式作废的存量**）：
+        // 按源文件重算并回存，避免逐块重算。
+        //
+        // 判据是长度而非 `is_empty()`：一份 16KiB 时代写下的 BLOB 非空且看起来合法，
+        // 用 `is_empty()` 判会被原样载入、喂进新树后每块 ParentHashMismatch，而回填分支
+        // 永不触发——那条会话就**永久**续不上传，且不报错。长度判据同时让 ≤CHUNK_SIZE 的
+        // 文件（期望长度恒为 0）不再被误判成缺失而每次 resume 白读一遍整文件。
         for pf in &mut prepared_files {
-            if pf.outboard.is_empty() && pf.size > 0 {
+            if !crate::bao::is_outboard_usable(&pf.outboard, pf.size) {
                 let (_, outboard) = crate::bao::build_outboard_from_source(
                     &self.file_access,
                     &pf.source_id,

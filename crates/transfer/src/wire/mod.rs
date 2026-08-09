@@ -19,8 +19,10 @@
 //!   兼容需求，发送端恒带 proof）。
 //! - **接收端不建 outboard**：我们不做再分发（裁掉调研里的 PostOrderOutboard 场景）。逐块 proof
 //!   验证通过才 `mark_chunk_completed`，故 checkpoint bitmap 本身可信；**resume 时信任本地磁盘**
-//!   （本地篡改不在传输威胁模型内）。发送端 outboard 与 checksum 同一遍构建、随会话落库
-//!   （`transfer_files.outboard`），resume 免重算（缺失则按源文件重算回存）。
+//!   （本地篡改不在传输威胁模型内）。发送端 outboard 与 checksum **确实是同一遍构建**
+//!   （2026-08 之前不是——那时先跑一遍扁平 blake3、再跑一遍建树，靠 `debug_assert_eq!`
+//!   互证，而这份文档已经这么写了）。随会话落库（`transfer_files.outboard`），resume
+//!   免重算；可用性判据是**长度**（`bao::is_outboard_usable`）而非「是否为空」。
 
 pub mod data_frame;
 pub(crate) mod data_plane;

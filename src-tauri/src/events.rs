@@ -9,8 +9,9 @@ use swarmdrop_core::device::{Device, PairedDeviceInfo};
 use swarmdrop_core::network::NetworkStatus;
 use swarmdrop_core::transfer::incoming::TransferOfferEvent;
 use swarmdrop_core::transfer::progress::{
-    TransferAcceptedEvent, TransferCompleteEvent, TransferDbErrorEvent, TransferFailedEvent,
-    TransferPausedEvent, TransferProgressEvent, TransferRejectedEvent, TransferResumedEvent,
+    PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent, TransferDbErrorEvent,
+    TransferFailedEvent, TransferPausedEvent, TransferProgressEvent, TransferRejectedEvent,
+    TransferResumedEvent,
 };
 use swarmdrop_core::transfer::store::TransferProjection;
 
@@ -76,6 +77,25 @@ pub struct TransferOffer(pub TransferOfferEvent);
 #[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
 #[serde(transparent)]
 pub struct TransferProgress(pub TransferProgressEvent);
+
+/// 发送前置准备（一遍流式读产出 checksum + 验签树）的进度。事件名 `"prepare-progress"`。
+///
+/// **按 `preparedId` 广播，不走 per-call channel。** 此前它是全仓唯一的
+/// `tauri::ipc::Channel`（21 个 typed event : 1 个 channel），而那不是权衡的产物——
+/// 它出生于 2026-02（`ff47e1dd`），比 tauri-specta typed events 引入早三个月，当时那个
+/// 选项根本不存在；2026-05 的 typed events 迁移把它漏下了，commit body 里没有任何理由。
+///
+/// 换成广播修掉三条静默路径，它们是同一处修复：
+/// - **MCP `send_files`**（`mcp/tools.rs`）自己 mint `prepared_id`，没有 invoke 生命周期
+///   可挂 channel，进度事件此前 100% 被丢弃——对「Agent 发文件」这个定位尤其难受；
+/// - 前端离开发送页即卸载 channel 消费者，回来时进度无从恢复；
+/// - 并发 prepare 需要按 id 区分，channel 表能做但没人读。
+///
+/// 注意这条事件**没有 `sessionId`**：会话记录要等 prepare 跑完、发出 Offer 时才创建，
+/// 所以它不能挂进任何按会话索引的状态。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct PrepareProgress(pub PrepareProgressEvent);
 
 #[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
 #[serde(transparent)]

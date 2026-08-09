@@ -71,6 +71,31 @@ pub fn expired_receive_reason(retention_secs: u64) -> crate::failure::FailureCod
     }
 }
 
+/// `[offset, end)` 是否落在传输块边界上（尾块可以短）。
+///
+/// # 这条判据有四个消费者，必须只有一份
+///
+/// 两道协商阶段的关（**计划级**，一次计划校验一次）：
+///
+/// 1. 接收侧 `actor::receiver::ReceiverActor::validate_fetch_plan` —— 对端 Hello 里的计划；
+/// 2. 发送侧 `flow::resume::validation::validate_fetch_plan` —— 对端 `ResumeCommit` 的计划。
+///
+/// 两道数据面的防御（**块级**，兜住协商没拦住的）：
+///
+/// 3. 接收侧 `actor::checkpoint::validate_block_range` —— 入站 `BlockData` 的 range；
+/// 4. `bao::encode_proof` —— 生成证明前的前置条件。
+///
+/// 三者恒等，因为 [`bao::BLOCK_SIZE`](crate::bao::BLOCK_SIZE) 就是从 [`CHUNK_SIZE`]
+/// 推导的（每个传输块恰好一个验签叶子）。**chunk group 与传输块对齐之前它们不恒等**
+/// ——那时 group 是 16 KiB，非对齐输入有 16 倍冗余可以蒙混过去，于是 (2) 一直缺着都没
+/// 人发现：对端提交一个非对齐 offset 的续传计划，本端会接受、建 actor、开流、读盘，
+/// 一路走到 (3) 才抛一句泛型错误 → abort → Interrupted → 对端拿同一个计划再来一次。
+/// 冗余归零之后，那个洞必须在协商阶段就堵上。
+pub fn is_chunk_aligned_range(offset: u64, end: u64, file_size: u64) -> bool {
+    let chunk = CHUNK_SIZE as u64;
+    offset.is_multiple_of(chunk) && (end.is_multiple_of(chunk) || end == file_size)
+}
+
 /// 计算文件总分块数。
 pub fn calc_total_chunks(file_size: u64) -> u32 {
     if file_size == 0 {

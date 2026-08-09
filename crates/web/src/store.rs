@@ -39,7 +39,8 @@
 //!
 //! ## 不落库的一样东西
 //!
-//! - **bao outboard**（1 GiB 文件 ≈ 4 MiB）：只有发送侧用得上，而发送侧本就不跨刷新恢复。
+//! - **bao outboard**（1 GiB 文件 ≈ 256 KiB；chunk group 与 `CHUNK_SIZE` 对齐前是 4 MiB）：
+//!   只有发送侧用得上，而发送侧本就不跨刷新恢复。
 //!
 //! 收件箱**不在**上面这张表里：它是独立的 `inbox` object store（见 [`crate::inbox`]），
 //! 因而不参与下面的 [`HISTORY_CAP`] 淘汰——「清空传输历史不动收件箱」这条三端不变量
@@ -887,7 +888,7 @@ struct FileRowDef {
     source_path: Option<String>,
     local_path: Option<String>,
     local_dir: Option<String>,
-    /// 不落库（1 GiB 文件 ≈ 4 MiB），载入恒 `None`——见模块注释「不落库的两样东西」。
+    /// 不落库（1 GiB 文件 ≈ 256 KiB），载入恒 `None`——见模块注释「不落库的一样东西」。
     #[serde(skip)]
     outboard: Option<Vec<u8>>,
 }

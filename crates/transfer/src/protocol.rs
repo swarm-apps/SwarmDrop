@@ -16,25 +16,40 @@ pub const TRANSFER_CTRL_PROTOCOL: ProtocolId =
 
 /// 传输数据面协议名（裸流 + 自带帧协议，见 [`wire`](crate::wire)）。
 ///
-/// **v3 = v2 + 流控窗口帧**（[`TransferDataFrame::Window`](crate::wire::data_frame::TransferDataFrame::Window)）。
+/// # 这个名字承载两件事：帧怎么编码，以及验签树是什么形状
 ///
-/// 加一个帧 tag 就必须换协议名，因为解码器对未知 tag 是**硬失败**：v2 的
-/// `decode_frame` 遇到 tag 7 返回协议错误，接收端随即中止整个会话。若沿用 `/2`，
-/// v0.12.1 的发送端会在第一个窗口边界（4 MiB）静默打断每一个 v0.12.0 接收端——
-/// 而移动端的更新永远滞后于桌面端，那正是「桌面发照片到手机」这条最常走的路径。
+/// 任何让旧端**解码硬失败或验签硬失败**的改动都必须换名，因为两类破坏在旧端都表现为
+/// 「连上之后才炸」，而协议名不匹配是一次**响亮的协商失败**。把不兼容前移到协商阶段，
+/// 就是换名的全部价值。
+///
+/// 帧内的 [`TRANSFER_DATA_VERSION`](crate::wire::data_frame::TRANSFER_DATA_VERSION)
+/// **不是**这个的杠杆——它只校验「共有帧怎么编码」，能力差异一律由协议名承载。
+///
+/// # 版本沿革
+///
+/// - **v2 → v3**：新增流控窗口帧
+///   （[`TransferDataFrame::Window`](crate::wire::data_frame::TransferDataFrame::Window)）。
+///   解码器对未知 tag 是硬失败：v2 的 `decode_frame` 遇到 tag 7 返回协议错误，接收端
+///   随即中止整个会话。若当时沿用 `/2`，v0.12.1 的发送端会在第一个窗口边界（4 MiB）
+///   静默打断每一个 v0.12.0 接收端——而移动端的更新永远滞后于桌面端，那正是「桌面发
+///   照片到手机」这条最常走的路径。
+/// - **v3 → v4**：bao chunk group 从 16KiB 提到 256KiB（见
+///   [`bao::BLOCK_SIZE`](crate::bao::BLOCK_SIZE)）。帧布局一字未改，但 proof 的树形状
+///   整体作废：旧端产出的 proof 喂进新端的 `decode_ranges`，**第一个块**就验签失败 →
+///   协议违规 → 断流 → Interrupted 无限重试。比 v2→v3 更严重（那个至少要等到 4 MiB
+///   边界），所以更没有沿用旧名的余地。
+///   同一次变更里 `/3` 与 `/2` 的注册被整体摘除。**这是一次有意识地放弃向后兼容的决定**
+///   ——SwarmHive 上 v0.12.1 至 v0.14.0（含 mobile-v*）都已发布，摘除意味着那些客户端
+///   与新版之间**双向都传不了**，不是「反正没人用」。做这个决定是因为当时的用户基数小到
+///   不值得为兼容付代价，而不是因为不存在存量。
+///
+///   留着旧名却跑新树形状则更糟：那等于把「版本不匹配」伪装成「传输老是断」。摘除之后，
+///   新发送端拨旧端得到 `UnsupportedProtocol` → `FailureCode::PeerProtocolUnsupported`
+///   → 用户看到「对方版本太旧，请让对方升级」。**反方向补不了**：旧发送端只会拨 `/3` 和
+///   `/2`，两个都被拒之后它按自己那一版的逻辑走 Interrupted 无限重试——那一版的代码已经
+///   发出去了，改不了。这是摘除的真实代价，记在这里免得下次拍脑袋。
 pub const TRANSFER_DATA_PROTOCOL: ProtocolId =
-    ProtocolId::from_static("/swarmdrop/transfer-data/3");
-
-/// 上一版数据面协议，**仍在服务**（v0.12.0 及更早只认它）。
-///
-/// 两个方向各要它一次：旧发送端只会拨 `/2`，所以接收侧必须继续注册；新发送端拨 `/3`
-/// 被拒时退回这里（见 `wire::data_plane` 的 `open_data_stream`），退回后整条链路不发
-/// 窗口帧。
-///
-/// 删除它的条件：不再需要兼容 v0.12.0——即 SwarmHive 上桌面与移动的 stable 都已越过
-/// 那一版足够久。**不要凭桌面端单独判断**，移动端是滞后的那一端。
-pub const TRANSFER_DATA_PROTOCOL_V2: ProtocolId =
-    ProtocolId::from_static("/swarmdrop/transfer-data/2");
+    ProtocolId::from_static("/swarmdrop/transfer-data/4");
 
 /// 传输控制面 typed RPC：`TransferRequest → TransferResponse`。
 pub const TRANSFER_CTRL: Rpc<TransferRequest, TransferResponse> = Rpc::new(TRANSFER_CTRL_PROTOCOL);

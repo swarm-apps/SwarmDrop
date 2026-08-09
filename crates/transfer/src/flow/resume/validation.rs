@@ -137,6 +137,13 @@ fn validate_fetch_plan(
         if range.length == 0 || end > file.size {
             return Err(ResumeRejectReason::CheckpointInvalid);
         }
+        // 对齐必须在**协商阶段**拒，与接收侧 `checkpoint::validate_block_range` 对称。
+        // 不拒的话本端会接受这个计划、建 actor、开流、读盘，直到 `bao::encode_proof`
+        // 在第 N 块抛一句泛型错误 → abort → Interrupted → 对端拿同一个计划再提交一次。
+        // 一次计划校验一次，好过每块撞一次。
+        if !crate::is_chunk_aligned_range(range.offset, end, file.size) {
+            return Err(ResumeRejectReason::CheckpointInvalid);
+        }
     }
     Ok(())
 }
@@ -149,5 +156,74 @@ pub(crate) fn resume_reject_message(reason: &ResumeRejectReason) -> &'static str
         ResumeRejectReason::CheckpointInvalid => "断点续传进度无效，无法恢复",
         ResumeRejectReason::PeerUnavailable => "对端不可用，请稍后再试",
         ResumeRejectReason::SessionNotFound => "对端找不到对应会话",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::CHUNK_SIZE;
+
+    fn manifest(size: u64) -> Vec<FileInfo> {
+        vec![FileInfo {
+            file_id: 0,
+            name: "a.bin".into(),
+            relative_path: "a.bin".into(),
+            size,
+            checksum: String::new(),
+        }]
+    }
+
+    fn plan(offset: u64, length: u64) -> Vec<FileRange> {
+        vec![FileRange {
+            file_id: 0,
+            offset,
+            length,
+        }]
+    }
+
+    /// 对端提交的续传计划必须按传输块对齐——**在协商阶段就拒**。
+    ///
+    /// 回归：chunk group 与 `CHUNK_SIZE` 对齐之前，非对齐 offset 有 16 倍冗余可以蒙混
+    /// 过去，于是这条校验一直缺着都没人发现。冗余归零之后，不拒的后果是：本端接受计划、
+    /// 建 actor、开流、读盘，直到 `bao::encode_proof` 在第 N 块抛一句泛型错误 → abort →
+    /// Interrupted → 对端拿同一个计划再提交一次，无限循环。
+    #[test]
+    fn rejects_unaligned_fetch_plan_at_negotiation() {
+        let m = manifest(CHUNK_SIZE as u64 * 4);
+        assert_eq!(
+            validate_fetch_plan(&m, &plan(1, CHUNK_SIZE as u64)),
+            Err(ResumeRejectReason::CheckpointInvalid),
+            "非对齐 offset 必须在协商阶段被拒"
+        );
+        assert_eq!(
+            validate_fetch_plan(&m, &plan(0, CHUNK_SIZE as u64 + 1)),
+            Err(ResumeRejectReason::CheckpointInvalid),
+            "终点既不对齐也不到文件末尾，同样要拒"
+        );
+    }
+
+    #[test]
+    fn accepts_aligned_and_tail_ranges() {
+        let size = CHUNK_SIZE as u64 * 2 + 777;
+        let m = manifest(size);
+        // 整块
+        assert!(validate_fetch_plan(&m, &plan(0, CHUNK_SIZE as u64)).is_ok());
+        // 跨多个整块
+        assert!(validate_fetch_plan(&m, &plan(0, CHUNK_SIZE as u64 * 2)).is_ok());
+        // 尾块可以短
+        assert!(validate_fetch_plan(&m, &plan(CHUNK_SIZE as u64 * 2, 777)).is_ok());
+        // 从 0 一路到末尾（full_fetch_plan 的形状）
+        assert!(validate_fetch_plan(&m, &plan(0, size)).is_ok());
+    }
+
+    /// 0 字节文件的计划：`length == 0` 本就被拒，不该走到对齐判据。
+    #[test]
+    fn rejects_zero_length_range() {
+        let m = manifest(0);
+        assert_eq!(
+            validate_fetch_plan(&m, &plan(0, 0)),
+            Err(ResumeRejectReason::CheckpointInvalid)
+        );
     }
 }

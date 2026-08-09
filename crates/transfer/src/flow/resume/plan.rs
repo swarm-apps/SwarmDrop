@@ -185,7 +185,10 @@ pub(crate) fn build_prepared_files_from_db(
             source_id: FileSourceId(f.source_path.clone().unwrap_or_default()),
             size: f.size as u64,
             checksum: f.checksum.clone(),
-            // outboard 随会话落库；旧会话（无此列）为空，发送端在 resume 前重算并回存。
+            // outboard 随会话落库。这里只把 DB 的 Option 摊平，**不判可用性**——
+            // 唯一的调用者 `build_sender_actor_for_resume` 紧接着就用
+            // `bao::is_outboard_usable` 统一过一道关（空值、旧会话、格式作废的存量三
+            // 种情况在那里合并处理），判据放两处只会漂移。
             outboard: f.outboard.clone().unwrap_or_default(),
         })
         .collect()

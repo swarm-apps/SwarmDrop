@@ -53,7 +53,7 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/app
    再 **reserve** 拿到 circuit 地址（浏览器被动接收连接的唯一入口，供对端拨回）。
 2. **分享码**（可选）：需已连一个 DHT-capable helper（浏览器不可达 TCP bootstrap）；lookup 后
    自动回填对端 node id + 地址。
-3. **发送**：填对端 node id、选文件、send —— 走内核 prepare（blake3 checksum + bao outboard）
+3. **发送**：填对端 node id、选文件、send —— 走内核 prepare（**一遍**流式读同时产出 blake3 checksum 与 bao outboard）
    → Offer → 对端接受后推送（每块带 bao proof）。
 4. **接收**：对端 Offer 到达 → 「收到的 Offer」区出现条目 → 接受/拒绝。接受后逐块验证落 OPFS，
    完成后出现下载链接（读回 OPFS 建 blob URL）。
@@ -138,7 +138,7 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/app
   「续传」按钮，故干脆不落库。待决 offer 同理：`pending_offers()` 是 `TransferManager` 的内存态，
   刷新后对端的 offer 已无处应答。**接收方向不受此限**（OPFS 的 `.part` 与 checkpoint 都在，
   `resume(sid)` 可续）。
-- **bao outboard 不落库**（1 GiB 文件 ≈ 4 MiB）：唯一消费方是发送侧，而发送侧本就不跨刷新恢复；
+- **bao outboard 不落库**（1 GiB 文件 ≈ 256 KiB —— chunk group 与 `CHUNK_SIZE` 对齐前是 4 MiB）：唯一消费方是发送侧，而发送侧本就不跨刷新恢复；
   载入恒 `None`，发送端缺失时按源文件重算并回存（内核既有路径）。
 - **checkpoint 写放大随文件大小平方增长**（未优化）：接收侧每 10 个 chunk（2.5 MB）落一次盘，
   每次把整条会话序列化成 JSON 覆写，而 `completed_chunks` 位图以 JSON 数字数组编码有 2–4x 膨胀。

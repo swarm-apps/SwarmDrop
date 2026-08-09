@@ -16,9 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, View } from "react-native";
 import type {
   MobileDevice as DeviceInfo,
-  MobilePrepareProgress,
 } from "react-native-swarmdrop-core";
-import { MobileCoreEvent_Tags } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import { ConnectionBadge } from "@/components/connection-badge";
 import {
@@ -30,15 +28,11 @@ import {
   Surface,
 } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
-import {
-  calcPercent,
-  formatBytes,
-  ProgressBar,
-} from "@/components/transfer/shared";
+import { PrepareProgressBar } from "@/components/transfer/prepare-progress-bar";
+import { formatBytes } from "@/components/transfer/shared";
 import { TrustBadge } from "@/components/trust-badge";
 import { Text } from "@/components/ui/text";
 import { canSendToDevice, resolveTrustLevel } from "@/core/device-trust";
-import { subscribeCoreEvents } from "@/core/event-bus";
 import { getMobileCore } from "@/core/mobile-core";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { deviceDisplayName } from "@/lib/device-name";
@@ -51,7 +45,10 @@ import {
   useMobileCoreStore,
 } from "@/stores/mobile-core-store";
 import { useShareStore } from "@/stores/share-store";
-import { useTransferStore } from "@/stores/transfer-store";
+import {
+  useActivePrepareProgress,
+  useTransferStore,
+} from "@/stores/transfer-store";
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
 
@@ -77,23 +74,14 @@ export default function ShareTargetScreen() {
 
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [prepareProgress, setPrepareProgress] =
-    useState<MobilePrepareProgress | null>(null);
+  // 住在 store：广播事件，且要在用户切走再回来时仍然可读。
+  const prepareProgress = useActivePrepareProgress();
 
   // 当前 screen 真正从栈中移除时清理；push 到文件检查页不会触发 beforeRemove。
   useEffect(
     () => navigation.addListener("beforeRemove", clearSharedFiles),
     [clearSharedFiles, navigation],
   );
-
-  // 准备阶段进度(与发送准备页一致,订阅 PrepareProgress 事件)。
-  useEffect(() => {
-    return subscribeCoreEvents((event) => {
-      if (event.tag === MobileCoreEvent_Tags.PrepareProgress) {
-        setPrepareProgress(event.inner.event);
-      }
-    });
-  }, []);
 
   // 节点未启动时自动启动一次(分享进来常处于冷启动、节点还没起)。
   const startedRef = useRef(false);
@@ -133,7 +121,6 @@ export default function ShareTargetScreen() {
   const onSend = useCallback(async () => {
     if (!selectedDevice || sending || sharedFiles.length === 0) return;
     setSending(true);
-    setPrepareProgress(null);
     try {
       const sessionId = await startSend({
         files: sharedFiles,
@@ -153,7 +140,6 @@ export default function ShareTargetScreen() {
       toast.error(t`发送失败`, panicDetail ?? getErrorMessage(err));
     } finally {
       setSending(false);
-      setPrepareProgress(null);
     }
   }, [
     selectedDevice,
@@ -243,10 +229,13 @@ export default function ShareTargetScreen() {
       />
 
       {/* 底部发送栏 */}
+      {/* 进度条**叠在按钮之上**，不替换它（与 /send/select-device、桌面同形）——
+          替换式的写法让准备期间这一屏一个可交互元素都不剩。 */}
       <BottomActionBar testID="share-target-action-bar">
-        {sending && prepareProgress ? (
-          <SharePrepareProgress progress={prepareProgress} />
-        ) : (
+        <View className="flex-1 gap-2">
+          {prepareProgress ? (
+            <PrepareProgressBar progress={prepareProgress} />
+          ) : null}
           <Pressable
             onPress={onSend}
             disabled={!canSend}
@@ -280,7 +269,7 @@ export default function ShareTargetScreen() {
               )}
             </Text>
           </Pressable>
-        )}
+        </View>
       </BottomActionBar>
     </AppScreen>
   );
@@ -356,36 +345,6 @@ function TargetDeviceRow({
         {selected ? <Check size={14} color={colors.primaryForeground} /> : null}
       </View>
     </Pressable>
-  );
-}
-
-/* ─── 底部准备进度(与发送准备页一致) ─── */
-
-function SharePrepareProgress({
-  progress,
-}: {
-  progress: MobilePrepareProgress;
-}) {
-  const total = Number(progress.totalBytes);
-  const hashed = Number(progress.bytesHashed);
-  return (
-    <View className="flex-1 gap-2 py-1">
-      <View className="flex-row items-center justify-between gap-3">
-        <Text
-          className="flex-1 text-[13px] text-muted-foreground"
-          numberOfLines={1}
-        >
-          <Trans>
-            正在准备 ({progress.completedFiles.toString()}/
-            {progress.totalFiles.toString()})
-          </Trans>
-        </Text>
-        <Text className="text-[12px] text-muted-foreground">
-          {formatBytes(hashed)} / {formatBytes(total)}
-        </Text>
-      </View>
-      <ProgressBar percent={calcPercent(hashed, total)} heightClass="h-1.5" />
-    </View>
   );
 }
 

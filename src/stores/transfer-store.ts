@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   commands,
   events,
+  type PrepareProgressEvent,
   type TransferOfferEvent,
   type TransferProgressEvent,
   type TransferProjection,
@@ -11,6 +12,26 @@ import { setupTransferNotifications } from "@/lib/transfer-notifications";
 interface TransferState {
   projections: Record<string, TransferProjection>;
   progressBySession: Record<string, TransferProgressEvent>;
+  /**
+   * 当前活跃的发送准备批次（一遍流式读产出 checksum + 验签树），由**首条事件自我认领**。
+   *
+   * **不能挂进 `progressBySession`**：准备阶段还没有 `sessionId`，会话记录要等准备跑完、
+   * 发出 Offer 时才创建。`preparedId` 也拿不到「提前」——它在 `prepareSend` 的返回值里，
+   * 而事件先于返回值到达，所以认领只能由事件自己完成。
+   *
+   * **单个字段而不是一张 `preparedId → 快照` 表**：那张表唯一的读者就是「活跃的那一条」，
+   * 非活跃条目从写进去到被删没有任何代码看过，却要为它付无上界增长、三端各写一套删键
+   * 逻辑、以及每条非活跃事件白广播一轮订阅者的代价。
+   */
+  activePrepare: PrepareProgressEvent | null;
+  /**
+   * 最近一次被 [`clearPrepare`] 收掉的批次 id。
+   *
+   * 事件是**广播**的，投递路径与命令返回值不同，顺序无保证：收尾那条 100% 事件完全可能
+   * 在 `clearPrepare()` 之后才到，于是活跃位被一个已经结束的批次重新占住，界面永久停在
+   * 「正在准备 (n/n) 100%」。记住刚清掉的 id 就能把这类迟到事件挡回去。
+   */
+  clearedPreparedId: string | null;
   pendingOffers: TransferOfferEvent[];
   /**
    * 被用户关掉、但**没有被拒绝**的入站 offer。
@@ -26,6 +47,12 @@ interface TransferState {
 
   applyProjection: (projection: TransferProjection) => void;
   updateProgress: (event: TransferProgressEvent) => void;
+  updatePrepare: (event: PrepareProgressEvent) => void;
+  /**
+   * 收掉进度行。**无参**：调用点在失败路径上拿不到 `preparedId`（它在
+   * `prepareSend` 的返回值里，而抛错时那个返回值不存在），带参数只会让兜底清理恒为空转。
+   */
+  clearPrepare: () => void;
   pushOffer: (offer: TransferOfferEvent) => void;
   /** 关闭（≠拒绝）：移出弹窗视野，仍可从收件箱找回。 */
   dismissOffer: (sessionId: string) => void;
@@ -63,6 +90,12 @@ export async function setupTransferListeners() {
       events.transferProgress.listen((event) => {
         useTransferStore.getState().updateProgress(event.payload);
       }),
+
+      // 发送准备进度。它是广播事件而非 per-call channel，所以 MCP 工具发起的准备、
+      // 以及用户离开发送页之后的进度，在这里一样收得到。
+      events.prepareProgress.listen((event) => {
+        useTransferStore.getState().updatePrepare(event.payload);
+      }),
     ]),
     setupTransferNotifications(),
   ]);
@@ -87,12 +120,19 @@ export function useSessionProgress(
   return useTransferStore((s) => s.progressBySession[sessionId] ?? null);
 }
 
+/** 当前活跃准备批次的进度快照（无则 null）。 */
+export function useActivePrepareProgress(): PrepareProgressEvent | null {
+  return useTransferStore((s) => s.activePrepare);
+}
+
 // 并发 loadProjections 的单调序号：迟到的旧快照不得覆盖新结果。
 let loadSeq = 0;
 
 export const useTransferStore = create<TransferState>()((set) => ({
   projections: {},
   progressBySession: {},
+  activePrepare: null,
+  clearedPreparedId: null,
   pendingOffers: [],
   dismissedOfferIds: [],
 
@@ -150,6 +190,31 @@ export const useTransferStore = create<TransferState>()((set) => ({
         [event.sessionId]: event,
       },
     }));
+  },
+
+  updatePrepare(event) {
+    set((state) => {
+      // 刚被清掉的批次的迟到事件：丢弃，别让它重新占住活跃位。
+      if (event.preparedId === state.clearedPreparedId) return state;
+      const active = state.activePrepare;
+      // 让位给新批次的三种情形：没有活跃批次、就是同一批、或者上一批已经跑到 100% 却
+      // 没人清（MCP 工具发起的准备没有对应的前端调用点）。
+      const canClaim =
+        active === null ||
+        active.preparedId === event.preparedId ||
+        active.bytesHashed >= active.totalBytes;
+      // 「内容没变」必须 return state 而不是 {}：后者是新对象，`Object.is` 判不等，
+      // 照样广播一轮。
+      return canClaim ? { activePrepare: event } : state;
+    });
+  },
+
+  clearPrepare() {
+    set((state) =>
+      state.activePrepare === null
+        ? state
+        : { activePrepare: null, clearedPreparedId: state.activePrepare.preparedId },
+    );
   },
 
   pushOffer(offer) {

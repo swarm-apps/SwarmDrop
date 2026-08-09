@@ -30,12 +30,7 @@ import {
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import {
-  calcPercent,
-  canSendToDevice,
-  formatFileSize,
-  organizedDeviceName,
-} from "@swarmdrop/shared-view";
+import { canSendToDevice, organizedDeviceName } from "@swarmdrop/shared-view";
 import { FileBrowser, type FileBrowserTarget } from "@swarmdrop/file-browser";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,7 +56,7 @@ import { getNode } from "../_lib/node-runtime";
 import { preferencesActions, usePreferences } from "../_lib/preferences-store";
 import { createPendingFileThumbnailSource } from "../_lib/thumbnail-source";
 import { useAsyncAction } from "../_lib/use-async-action";
-import { useWebNode } from "../_lib/store";
+import { useWebNode, webNodeActions } from "../_lib/store";
 import {
   OFFER_REJECT_REASON_LABEL,
   failureCodeLabel,
@@ -70,6 +65,7 @@ import {
   type TransferProjection,
 } from "../_lib/view-types";
 import { PanelFallback } from "./panel-fallback";
+import { PrepareProgressRow } from "./prepare-progress";
 import { ProgressBar } from "./progress-bar";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
@@ -100,7 +96,6 @@ function SendPanelInner() {
   const devices = useWebNode((s) => s.pairedDevices);
   const organization = usePreferences((s) => s.deviceOrganization);
   const view = usePreferences((s) => s.fileBrowserViews.send);
-  const prepareProgress = useWebNode((s) => s.latestPrepareProgress);
   const ready = nodeStatus === "running";
 
   // 同一路由内 `?peerId=` 变化（如从设备页改点另一台设备的「发送」）不会重挂本组件，
@@ -167,12 +162,16 @@ function SendPanelInner() {
   const doSend = () => {
     const node = getNode();
     if (!node || !peerId || files.length === 0) return;
+    // 开工先清：上一批可能是中途失败停在半路的，而认领规则只让「已跑到 100%」的让位。
+    webNodeActions.clearPrepare();
     sendAction.run(
       () => node.send_files(peerId, files.map((f) => f.file)),
       (sessionId) => {
         setSentSessionId(sessionId);
         setFiles([]);
       },
+      // 收尾挂 settle 而不是 success：准备失败时也要收掉进度行，否则它永久停在半路。
+      webNodeActions.clearPrepare,
     );
   };
 
@@ -369,21 +368,9 @@ function SendPanelInner() {
         </Button>
       </div>
 
-      {sendAction.pending && prepareProgress && (
-        <div className="flex flex-col gap-1">
-          <p className="text-xs text-muted-foreground">
-            <Trans>
-              正在准备 {prepareProgress.currentFile}（{prepareProgress.completedFiles}/
-              {prepareProgress.totalFiles} 文件 · {formatFileSize(prepareProgress.bytesHashed)}/
-              {formatFileSize(prepareProgress.totalBytes)}）
-            </Trans>
-          </p>
-          <ProgressBar
-            percent={calcPercent(prepareProgress.bytesHashed, prepareProgress.totalBytes)}
-            label={t`准备文件的进度`}
-          />
-        </div>
-      )}
+      {/* 渲染门在组件内部看 store 的活跃批次，不再叠 `sendAction.pending`——后者是组件
+          内 state，路由一切走就没了，而准备本身还在跑。 */}
+      <PrepareProgressRow />
 
       {sendAction.error && <WebErrorCard error={sendAction.error} className="text-xs" />}
 

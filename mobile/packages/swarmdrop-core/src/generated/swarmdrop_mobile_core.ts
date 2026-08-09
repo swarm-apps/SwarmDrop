@@ -1352,6 +1352,7 @@ export enum MobileFailureCode_Tags {
     SessionExpired = "SessionExpired",
     ResumeRejected = "ResumeRejected",
     OfferFailed = "OfferFailed",
+    PeerProtocolUnsupported = "PeerProtocolUnsupported",
     Legacy = "Legacy"
 }
 /**
@@ -1449,6 +1450,33 @@ inner: {reason: MobileResumeRejectReason }): ResumeRejected_ {
 
     }
 
+    type PeerProtocolUnsupported__interface = {
+        tag: MobileFailureCode_Tags.PeerProtocolUnsupported
+    };
+    /**
+     * 对端不认识本机的数据面协议名——版本不兼容，重试无用。
+     */
+    class PeerProtocolUnsupported_ extends UniffiEnum implements PeerProtocolUnsupported__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileFailureCode";
+        readonly tag = MobileFailureCode_Tags.PeerProtocolUnsupported;
+        constructor() {
+            super("MobileFailureCode", "PeerProtocolUnsupported");
+        }
+
+        static new(): PeerProtocolUnsupported_ {
+            return new PeerProtocolUnsupported_();
+        }
+
+        static instanceOf(obj: any): obj is PeerProtocolUnsupported_ {
+            return obj.tag === MobileFailureCode_Tags.PeerProtocolUnsupported;
+        }
+
+    }
+
     type Legacy__interface = {
         tag: MobileFailureCode_Tags.Legacy;
         inner: 
@@ -1492,6 +1520,7 @@ inner: {message: string }): Legacy_ {
   SessionExpired: SessionExpired_, 
   ResumeRejected: ResumeRejected_, 
   OfferFailed: OfferFailed_, 
+  PeerProtocolUnsupported: PeerProtocolUnsupported_, 
   Legacy: Legacy_
     });
 
@@ -1504,7 +1533,7 @@ inner: {message: string }): Legacy_ {
  * 判别码把「是什么失败」和「怎么措辞」分开之后，那种猜测彻底没有存在的余地。
  */
 export type MobileFailureCode = InstanceType<
-    typeof MobileFailureCode['SessionExpired' | 'ResumeRejected' | 'OfferFailed' | 'Legacy']
+    typeof MobileFailureCode['SessionExpired' | 'ResumeRejected' | 'OfferFailed' | 'PeerProtocolUnsupported' | 'Legacy']
 >;
 
 // FfiConverter for enum MobileFailureCode
@@ -1517,7 +1546,8 @@ const FfiConverterTypeMobileFailureCode = (() => {
                 case 1: return new MobileFailureCode.SessionExpired({retentionDays: FfiConverterUInt32.read(from) });
                 case 2: return new MobileFailureCode.ResumeRejected({reason: FfiConverterTypeMobileResumeRejectReason.read(from) });
                 case 3: return new MobileFailureCode.OfferFailed();
-                case 4: return new MobileFailureCode.Legacy({message: FfiConverterString.read(from) });
+                case 4: return new MobileFailureCode.PeerProtocolUnsupported();
+                case 5: return new MobileFailureCode.Legacy({message: FfiConverterString.read(from) });
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
@@ -1539,8 +1569,12 @@ const FfiConverterTypeMobileFailureCode = (() => {
                     ordinalConverter.write(3, into);
                     return;
                 }
-                case MobileFailureCode_Tags.Legacy: {
+                case MobileFailureCode_Tags.PeerProtocolUnsupported: {
                     ordinalConverter.write(4, into);
+                    return;
+                }
+                case MobileFailureCode_Tags.Legacy: {
+                    ordinalConverter.write(5, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.message, into);
                     return;
@@ -1567,9 +1601,12 @@ const FfiConverterTypeMobileFailureCode = (() => {
                 case MobileFailureCode_Tags.OfferFailed: {
                     return ordinalConverter.allocationSize(3);
                 }
+                case MobileFailureCode_Tags.PeerProtocolUnsupported: {
+                    return ordinalConverter.allocationSize(4);
+                }
                 case MobileFailureCode_Tags.Legacy: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(4);
+                    let size = ordinalConverter.allocationSize(5);
                     size += FfiConverterString.allocationSize(inner.message);
                     return size;
                 }

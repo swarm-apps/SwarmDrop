@@ -9,7 +9,6 @@ import {
   useNavigate,
   useRouter,
 } from "@tanstack/react-router";
-import { Channel } from "@tauri-apps/api/core";
 import { Send, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Trans } from "@lingui/react/macro";
@@ -17,7 +16,10 @@ import type { Device } from "@/lib/bindings";
 import type { FileSource } from "@/lib/bindings";
 import type { PrepareProgress } from "@/lib/types";
 import { commands } from "@/lib/bindings";
-import { useTransferStore } from "@/stores/transfer-store";
+import {
+  useActivePrepareProgress,
+  useTransferStore,
+} from "@/stores/transfer-store";
 import { useNetworkStore } from "@/stores/network-store";
 import { useSecretStore } from "@/stores/secret-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
@@ -54,7 +56,9 @@ function SendPage() {
   const router = useRouter();
   const fileSelection = useFileSelection();
   const [sending, setSending] = useState(false);
-  const [prepareProgress, setPrepareProgress] = useState<PrepareProgress | null>(null);
+  // 准备进度住在 store 而不是这里：它是广播事件，且要在用户离开本页后继续可读。
+  const prepareProgress = useActivePrepareProgress();
+  const clearPrepare = useTransferStore((s) => s.clearPrepare);
   const loadProjections = useTransferStore((s) => s.loadProjections);
 
   // 从 network-store / secret-store 查找目标设备
@@ -100,13 +104,17 @@ function SendPage() {
     if (!device || !fileSelection.hasFiles) return;
 
     setSending(true);
-    setPrepareProgress(null);
+    // 开工先清：上一批可能是**中途失败**停在半路的（尤其 MCP 发起的准备没有前端调用点，
+    // 永远轮不到 finally），而认领规则只让「已跑到 100%」的批次让位。不清的话用户会看着
+    // 一条冻结的旧进度条、标着别人的文件名，直到自己这批结束。
+    clearPrepare();
     try {
-      // 将扫描到的文件列表传给后端计算 hash
+      // 将扫描到的文件列表传给后端读取源文件、算出校验和与验签树
       const scannedFiles = fileSelection.getScannedFiles();
-      const progressChannel = new Channel<PrepareProgress>();
-      progressChannel.onmessage = setPrepareProgress;
-      const prepared = await commands.prepareSend(scannedFiles, progressChannel);
+      const prepared = await commands.prepareSend(scannedFiles);
+      // 准备已完成：立刻收掉进度条。否则接下来的 startSend / loadProjections 期间
+      // 它会停在 100% 上，而文案还在说「正在准备」——那两步不是准备。
+      clearPrepare();
       const fileIds = prepared.files.map((f) => f.fileId);
       const displayName = organizedDeviceName(device, deviceOrganization);
       const result = await commands.startSend(
@@ -126,7 +134,10 @@ function SendPage() {
       toast.error(getErrorMessage(err));
     } finally {
       setSending(false);
-      setPrepareProgress(null);
+      // 兜底：prepare 自己抛错时上面那次 clear 根本没跑到。**必须无条件调**——
+      // 早先这里写成 `if (preparedId)`，而 `preparedId` 恰恰只在 prepare 成功后才有值，
+      // 于是它声称覆盖的失败路径一次都没覆盖到，进度行会永久停在半路。
+      clearPrepare();
     }
   };
 
@@ -244,13 +255,14 @@ function DesktopSendView({
         data-testid="send-content"
         className="flex min-h-0 flex-col gap-4"
         footer={
-          prepareProgress ? (
-            <CommandDock className="justify-stretch">
-              <div className="min-w-0 flex-1 px-2">
+          // 准备进度**叠在按钮之上**，不再整条把它们顶掉。此前替换式的写法让准备期间
+          // 界面上一个可交互元素都不剩，而准备大目录可以是分钟级的。
+          <div className="flex flex-col gap-2">
+            {prepareProgress && (
+              <div className="min-w-0 px-2">
                 <PrepareProgressBar progress={prepareProgress} />
               </div>
-            </CommandDock>
-          ) : (
+            )}
             <CommandDock>
               <TaskButton
                 variant="outline"
@@ -262,14 +274,22 @@ function DesktopSendView({
               </TaskButton>
               <TaskButton
                 onClick={onSend}
-                disabled={!fileSelection.hasFiles || sending}
+                disabled={
+                  !fileSelection.hasFiles || sending || fileSelection.isScanning
+                }
                 data-testid="send-confirm-action"
               >
                 <Send className="size-4" />
-                {sending ? <Trans>发送中...</Trans> : <Trans>发送</Trans>}
+                {fileSelection.isScanning ? (
+                  <Trans>正在读取所选内容…</Trans>
+                ) : sending ? (
+                  <Trans>发送中...</Trans>
+                ) : (
+                  <Trans>发送</Trans>
+                )}
               </TaskButton>
             </CommandDock>
-          )
+          </div>
         }
       >
         {/* 目标设备 mini 摘要条：设备只是信息，让位给文件选择这个主任务 */}

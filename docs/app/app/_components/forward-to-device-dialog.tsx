@@ -40,10 +40,11 @@ import { deviceIcon } from "../_lib/device-presentation";
 import { transferSessionHref } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
 import { usePreferences } from "../_lib/preferences-store";
-import { useWebNode } from "../_lib/store";
+import { useWebNode, webNodeActions } from "../_lib/store";
 import { useAsyncAction } from "../_lib/use-async-action";
 import type { InboxItemFileEntry } from "../_lib/view-types";
 import { CenteredEmptyState } from "./empty-state";
+import { PrepareProgressRow } from "./prepare-progress";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
 
@@ -92,6 +93,7 @@ export function ForwardToDeviceDialog({
     const node = getNode();
     if (!node || files.length === 0) return;
     setSendingTo(peerId);
+    webNodeActions.clearPrepare();
     action.run(
       () =>
         node.send_inbox_files(
@@ -110,6 +112,8 @@ export function ForwardToDeviceDialog({
         close();
         router.push(transferSessionHref(sessionId));
       },
+      // 收尾挂 settle 而不是 success：转发失败时也要收掉进度行。
+      webNodeActions.clearPrepare,
     );
   };
 
@@ -194,6 +198,10 @@ export function ForwardToDeviceDialog({
             })}
           </ul>
         )}
+
+        {/* 转发走的是与发送面板同一个 `send_files()`，准备阶段一样可能是分钟级。
+            此前这里只有设备行末尾一个转圈——用户完全不知道在等什么。 */}
+        <PrepareProgressRow />
 
         {action.error ? <WebErrorCard error={action.error} /> : null}
 

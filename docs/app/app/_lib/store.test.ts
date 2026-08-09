@@ -29,8 +29,28 @@ function projectionEvent(
   } as unknown as WebTransferEvent;
 }
 
+function prepareEvent(preparedId: string, bytesHashed = 0): WebTransferEvent {
+  return {
+    type: "prepareProgress",
+    event: {
+      preparedId,
+      currentFile: "a.bin",
+      completedFiles: 0,
+      totalFiles: 1,
+      bytesHashed,
+      totalBytes: 100,
+    },
+  } as unknown as WebTransferEvent;
+}
+
 beforeEach(() => {
-  webNodeStore.setState({ offers: {}, projections: {}, eventLog: [] });
+  webNodeStore.setState({
+    offers: {},
+    projections: {},
+    eventLog: [],
+    activePrepare: null,
+    clearedPreparedId: null,
+  });
 });
 
 describe("待决 offer 的生命周期", () => {
@@ -62,5 +82,64 @@ describe("待决 offer 的生命周期", () => {
     webNodeActions.applyEvent(projectionEvent("ghost", "terminal"));
 
     expect(webNodeStore.getState().offers).toBe(before);
+  });
+});
+
+describe("发送准备进度", () => {
+  it("首条事件自我认领活跃批次", () => {
+    webNodeActions.applyEvent(prepareEvent("p1"));
+
+    expect(webNodeStore.getState().activePrepare?.preparedId).toBe("p1");
+  });
+
+  // `send_files()` 内部生成 preparedId、不回传给调用方，所以认领只能靠事件自己。
+  // 未完成的批次不让位，否则并发发送会让进度条在两批之间来回跳。
+  it("未完成的批次不被后来者顶掉", () => {
+    webNodeActions.applyEvent(prepareEvent("p1", 10));
+    webNodeActions.applyEvent(prepareEvent("p2", 20));
+
+    expect(webNodeStore.getState().activePrepare?.preparedId).toBe("p1");
+    expect(webNodeStore.getState().activePrepare?.bytesHashed).toBe(10);
+  });
+
+  // 回归：MCP 工具（桌面）与任何异常退出的调用方都不会调 clearPrepare，于是一条跑到
+  // 100% 的批次会把活跃位**永久**占住，此后每次发送的进度都被挡在门外。
+  it("已跑到 100% 的批次会让位给新批次", () => {
+    webNodeActions.applyEvent(prepareEvent("p1", 100));
+    webNodeActions.applyEvent(prepareEvent("p2", 5));
+
+    expect(webNodeStore.getState().activePrepare?.preparedId).toBe("p2");
+  });
+
+  it("同一批次的后续事件正常更新", () => {
+    webNodeActions.applyEvent(prepareEvent("p1", 10));
+    webNodeActions.applyEvent(prepareEvent("p1", 60));
+
+    expect(webNodeStore.getState().activePrepare?.bytesHashed).toBe(60);
+  });
+
+  it("清理后下一批可以重新认领", () => {
+    webNodeActions.applyEvent(prepareEvent("p1", 10));
+    webNodeActions.clearPrepare();
+    expect(webNodeStore.getState().activePrepare).toBeNull();
+
+    webNodeActions.applyEvent(prepareEvent("p2", 5));
+    expect(webNodeStore.getState().activePrepare?.preparedId).toBe("p2");
+  });
+
+  // 同 offers 那条纪律：内容没变就不换引用，否则白广播一轮。
+  it("没有活跃批次时清理是无操作，state 保持同一引用", () => {
+    const before = webNodeStore.getState();
+    webNodeActions.clearPrepare();
+
+    expect(webNodeStore.getState()).toBe(before);
+  });
+
+  it("被挡下的事件不换 activePrepare 引用", () => {
+    webNodeActions.applyEvent(prepareEvent("p1", 10));
+    const before = webNodeStore.getState().activePrepare;
+    webNodeActions.applyEvent(prepareEvent("p2", 20));
+
+    expect(webNodeStore.getState().activePrepare).toBe(before);
   });
 });

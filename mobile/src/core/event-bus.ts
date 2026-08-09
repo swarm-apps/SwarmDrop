@@ -122,6 +122,13 @@ function routeEventToStores(event: MobileCoreEvent): void {
       break;
     }
 
+    case MobileCoreEvent_Tags.PrepareProgress: {
+      // 发送准备进度（一遍流式读产出 checksum + 验签树）。落 store 而非页面 useState：
+      // 准备大目录可以是分钟级，用户切走再回来得看得到它。
+      useTransferStore.getState().updatePrepare(event.inner.event);
+      break;
+    }
+
     case MobileCoreEvent_Tags.TransferProjectionUpdate: {
       useTransferStore.getState().applyProjection(event.inner.projection);
       break;
@@ -181,6 +188,16 @@ function routeEventToStores(event: MobileCoreEvent): void {
 
     case MobileCoreEvent_Tags.TransferDbError: {
       useTransferStore.getState().setError(event.inner.message);
+      break;
+    }
+
+    case MobileCoreEvent_Tags.PairingCompleted: {
+      // 显式不落：配对完成的状态由 PairedDeviceAdded（上面刷新已配对列表）与
+      // DevicesChanged 表达，这里再动一次是第二条写路径。
+      //
+      // 写成显式空 case 而不是让它掉进 default，是为了保住 `default` 分支「真的遇到了
+      // 未知事件」这个信号——它和 PrepareProgress 曾一起漏在那里，每次发送都刷成百上千
+      // 条 warn，于是这条日志再也不代表任何东西。
       break;
     }
 
