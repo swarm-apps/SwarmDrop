@@ -1,5 +1,5 @@
 diff --git a/android/src/main/java/expo/modules/filesystem/FileSystemFileHandle.kt b/android/src/main/java/expo/modules/filesystem/FileSystemFileHandle.kt
-index a39dfeb96731d8c75afa084742573ae0cebb0bc7..4a5d0d29b3f9029e1c5738e1a89041a48b5d4117 100644
+index a39dfeb96731d8c75afa084742573ae0cebb0bc7..f6fe576f8071802b27038a48cfe294ae6c936dc1 100644
 --- a/android/src/main/java/expo/modules/filesystem/FileSystemFileHandle.kt
 +++ b/android/src/main/java/expo/modules/filesystem/FileSystemFileHandle.kt
 @@ -2,6 +2,7 @@ package expo.modules.filesystem
@@ -50,7 +50,40 @@ index a39dfeb96731d8c75afa084742573ae0cebb0bc7..4a5d0d29b3f9029e1c5738e1a89041a4
    }
  
    fun read(length: Long): ByteArray {
-@@ -153,6 +164,14 @@ class FileSystemFileHandle private constructor(
+@@ -125,7 +136,8 @@ class FileSystemFileHandle private constructor(
+ 
+       return buffer.array()
+     } catch (e: Exception) {
+-      throw UnableToReadHandleException(e.message ?: "unknown error")
++      // SwarmDrop：同 write，带上异常类名。
++      throw UnableToReadHandleException(describe(e))
+     }
+   }
+ 
+@@ -139,10 +151,21 @@ class FileSystemFileHandle private constructor(
+         fileChannel.write(buffer)
+       }
+     } catch (e: Exception) {
+-      throw UnableToWriteHandleException(e.message ?: "unknown error")
++      // SwarmDrop：带上**异常类名**。上游只取 `e.message`，而写失败最要紧的那几种恰好
++      // message 为 null 或空——`IOException`（fd 被 provider 回收）、`ClosedChannelException`、
++      // 以及空间不足时的 `IOException: ENOSPC`。丢了类名就只剩一句 "unknown error"，
++      // 三次重试的日志长得一模一样，什么都推不出来（2026-08-09 实际踩到）。
++      throw UnableToWriteHandleException(describe(e))
+     }
+   }
+ 
++  /** `<类名>: <消息>`；消息为空时只留类名，绝不退化成 "unknown error"。 */
++  private fun describe(e: Exception): String {
++    val name = e::class.java.simpleName
++    val message = e.message
++    return if (message.isNullOrBlank()) name else "$name: $message"
++  }
++
+   var offset: Long?
+     get() {
+       return try {
+@@ -153,6 +176,14 @@ class FileSystemFileHandle private constructor(
      }
      set(value) {
        if (value == null) return

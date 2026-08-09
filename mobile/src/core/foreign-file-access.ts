@@ -52,14 +52,31 @@ async function wrapFfi<T>(
 }
 
 /**
- * 只取错误消息的**首行**。
+ * 去掉 Java 栈帧，**保留 expo 的 `→ Caused by:` 链**。
  *
- * expo 的原生异常把整段 Java stacktrace 塞在 `message` 里，而这串会一路冒到
- * Rust、进传输失败事件、最后原样显示在 UI 的 toast 上（2026-08-07 截图里就是
- * 二十行 `at expo.modules...`）。栈对用户没有意义，对诊断也已经有日志兜底。
+ * expo 的原生异常把整段 Java stacktrace 塞在 `message` 里，而这串会一路冒到 Rust、进传输
+ * 失败事件、最后原样显示在 UI 的 toast 上（2026-08-07 截图里就是二十行 `at expo.modules...`）。
+ *
+ * ⚠️ 此前这里是 `.split("\n")[0]`——只取首行。栈是砍掉了，但 **`→ Caused by:` 那几行一起
+ * 没了，而真实原因恰恰只在那里**。JSI 的首行永远是一句模板：
+ *
+ * ```
+ * Call to function 'FileSystemFileHandle.writeBytes' has been rejected.
+ * → Caused by: Unable to write to a file handle: '<真正的原因>'
+ * ```
+ *
+ * 2026-08-09 排查一次 SAF 发布失败时，日志里就只剩那句模板——三次重试、三条一模一样的
+ * 「has been rejected」，没有任何可据以判断的信息。按行过滤而不是按行数截断。
  */
 function errorDetail(err: unknown): string {
-  return rawMessage(err).split("\n")[0].trim();
+  return (
+    rawMessage(err)
+      .split("\n")
+      .map((line) => line.trim())
+      // 栈帧才是噪音：`at expo.modules...` / `at com.facebook...`。
+      .filter((line) => line.length > 0 && !line.startsWith("at "))
+      .join(" ")
+  );
 }
 
 function rawMessage(err: unknown): string {
@@ -198,7 +215,10 @@ export class ExpoFileAccess implements ForeignFileAccess {
 async function copyIntoTarget(stagingUri: string, target: File): Promise<void> {
   // `stagingUri` **带 `file://` scheme**——expo 的 `JavaFile` 走
   // `File(URI.create(uri))`，裸路径会抛 `URI is not absolute`。
-  const source = new File(stagingUri).open(FileMode.ReadOnly);
+  const sourceFile = new File(stagingUri);
+  const totalBytes = sourceFile.size ?? 0;
+  const source = sourceFile.open(FileMode.ReadOnly);
+  let written = 0;
   try {
     const sink = target.open(FileMode.Truncate);
     try {
@@ -206,8 +226,16 @@ async function copyIntoTarget(stagingUri: string, target: File): Promise<void> {
         const bytes = source.readBytes(PUBLISH_CHUNK_BYTES);
         if (bytes.byteLength === 0) break;
         sink.writeBytes(bytes);
+        written += bytes.byteLength;
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
+    } catch (err) {
+      // **写到哪一步失败，本身就是判据。** 0 字节 = 一开就写不进（权限 / provider 拒绝）；
+      // 写了一大半 = 空间不足或 fd 被 provider 回收。没有这个数字，几次重试的日志长得
+      // 一模一样，什么也推不出来（2026-08-09 就卡在这里）。
+      throw new Error(
+        `${errorDetail(err)}（已写 ${written}/${totalBytes} 字节，块 ${PUBLISH_CHUNK_BYTES}）`,
+      );
     } finally {
       sink.close();
     }
