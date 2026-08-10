@@ -205,7 +205,17 @@ stats.wait += t_wait.elapsed();           // ← 关键：被链路饿着的时�
 | **7** | `crates/migration/src/lib.rs:52-53` | 自建 `SqlitePoolOptions` + `journal_mode(Wal)` + `synchronous(Normal)` + `create_if_missing`，再 `SqlxSqliteConnector::from_sqlx_sqlite_pool`。**不能走连接串**（sqlx URL query 只认 `mode`/`cache`/`immutable`/`vfs`），**也不能连上后 `PRAGMA`**（那是每连接设置，后面是池子） | Android checkpoint **11.62 → 0.288 ms（40×）**，峰值吞吐 +19%（50→60 MB/s）。桌面/iOS 无感 | 无 | 必跑 `cargo test -p migration`（`m20260805_000001_init/mod.rs:191-193` 的 `PRAGMA foreign_keys == 1` 断言是头号回归点）；`lib.rs:80` 那句「副文件通常不存在」的注释要改；`remove_sqlite_files` 已经删三个后缀，自愈路径本来就对 |
 | **8** | `crates/transfer/Cargo.toml:44-45` | 在已有的 wasm target 段加 `blake3 = { version = "1.8.3", features = ["wasm32_simd"] }`。`crates/core/Cargo.toml:54` 同样照抄。**不需要 `-C target-feature=+simd128`**（blake3 走 cargo feature，`build.rs:24` 只认 `CARGO_FEATURE_WASM32_SIMD`） | wasm blake3 996→1941 MB/s（1.95×），但只占症状 A 预算的 2% ⇒ 端到端 **+0.85%** | 无（SIMD 与 portable 输出逐位相同） | ⚠️ 浏览器地板抬到 Chrome 91 / Safari 16.4（不支持则**整个模块 instantiate 失败**）；`pnpm build:wasm` 的 wasm-opt 可能要 `[package.metadata.wasm-pack.profile.release] wasm-opt = ["-O","--enable-simd"]`。必跑 `./scripts/test-wasm.sh` |
 | **9** | `src-tauri/src/host/file_sink.rs:76,85` + `file_source.rs:209` | `write_at(&self, offset, data: &[u8])` → `data: Vec<u8>`，删掉 `:85` 的 `let data = data.to_vec();`，调用点去 `&` | 4.4 µs/块，零设计代价 | 无 | `src-tauri/src/host/file_sink/path_ops.rs:207/235/236` 三处调用点要跟着改；:235/:236 是**并发 pwrite 正确性**测试，别顺手把 `tokio::join!` 拆成串行 |
-| **10** | `mobile-core/src/file_access.rs:225-237` | Android SAF 目标的 publish 是**整份复制**，6 GB 文件写盘 12 GB。可考虑：staging 直接建在 SAF 目标目录的隐藏子目录里（但会撞回 `file_staging.rs:8-16` 记录的 SAF fd `EBADF` 事故），或至少在 UI 上把这段停顿显式化 | 减半 Android 的闪存写入量（对 H1 是直接缓解） | 无 | 需重新评估 `file_staging.rs` 模块文档里那条「随机写只施加于本进程完全拥有的 fd」的不变量——**不要为了性能破它** |
+| **10** | `mobile-core/src/file_access.rs:225-237` | Android SAF 目标的 publish 是**整份复制**，6 GB 文件写盘 12 GB。可考虑：staging 直接建在 SAF 目标目录的隐藏子目录里，或至少在 UI 上把这段停顿显式化 | 减半 Android 的闪存写入量（对 H1 是直接缓解） | 无 | `file_staging.rs` 的四条 tokio 测试；**不要破**「随机写只施加于本进程完全拥有的 fd」这条不变量（理由见下方注） |
+
+> **#10 的前置认知已在 2026-08-10 更正。** 本表原先写「staging 建在 SAF 目录里会撞回
+> `file_staging.rs:8-16` 记录的 SAF fd `EBADF` 事故」——那次事故的归因**是错的**：真根因
+> 是 `expo-file-system` 不持有 `ParcelFileDescriptor`（本进程 GC 关掉 fd），且修它的 pnpm
+> patch 从未进过 Android 构建，不是「SAF 的 fd 不能用」。所以这条路**不是被那次事故堵死的**。
+> 但它仍然不该走，理由是另外三条、与 fd 生命周期无关：**部分 DocumentsProvider 返回不可
+> seek 的 fd**（随机写在那类 provider 上一律失败）、SAF/FUSE 上的随机写慢、以及用户目录里
+> 会长期躺着半成品。「随机写只施加于本进程完全拥有的 fd」这条不变量因此**照旧不要为了性能
+> 破它**。归因更正见 [`knowledge/rust-backend.md`](../knowledge/rust-backend.md) 与
+> [`knowledge/toolchain.md`](../knowledge/toolchain.md)。
 
 ### 明确不要做
 
