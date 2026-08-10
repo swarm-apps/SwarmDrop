@@ -63,6 +63,17 @@ pub trait SessionStore: Send + Sync {
     ) -> AppResult<()>;
 
     /// 批量保存发送方 per-file 进度（`(file_id, chunks_done, transferred_bytes)`）。
+    ///
+    /// **绝对覆盖语义：传进来的值就是新值，包括 0。** 实现不得过滤零值——续传基线是
+    /// 唯一一个真的需要把这一列**改小到 0** 的调用方（对端 checkpoint 表明某文件一块都
+    /// 没收到，而本端优雅暂停时留下的旧值非 0）。此前两处实现都写着 `if transferred > 0`，
+    /// 于是基线为 0 的文件永远写不下去：`dispatch(ResumeCommitted)` 先按旧值 emit 一份高报
+    /// 的 projection，紧接着 tracker 的第一条进度把它拽回真值，进度条当场倒退。
+    ///
+    /// 零值过滤看起来安全，其实挡的是唯一想写 0 的正确调用。其余四个调用点
+    /// （`SenderActor::on_completed` / `on_interrupted`、`pause_send`、`handle_pause_impl`）
+    /// 传的都是 `get_file_progress()` 全量快照，它们写 0 的场景只有「该文件一块没发」——
+    /// 那时 DB 里本来就是 0（首传）或 tracker 已被基线正确初始化（续传），写 0 是恒等操作。
     async fn save_sender_file_progress(
         &self,
         session_id: Uuid,

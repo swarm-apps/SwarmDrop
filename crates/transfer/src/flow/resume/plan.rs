@@ -91,30 +91,88 @@ pub(crate) fn next_resume_epoch(local_epoch: i64, peer_epoch: i64) -> i64 {
     local_epoch.max(peer_epoch) + 1
 }
 
-pub(crate) fn build_sender_resume_state(
+/// 发送侧续传的进度基线：`file_id → (chunks_done, bytes_done)`，喂给
+/// [`ProgressTracker::init_files_with_resume`](crate::progress::ProgressTracker::init_files_with_resume)。
+///
+/// # 基线来自 fetch_plan 的补集，不来自 `transferred_bytes`
+///
+/// `transfer_file.transferred_bytes` 只在**优雅**路径写（sender 的 `on_completed` /
+/// `on_interrupted`、`pause_send`、`handle_pause_impl` 四处）。进程被杀——Android 后台回收
+/// 是常态——那一列就恒为 0，于是续传的进度条从 0 爬到「已传部分 / 总量」处便宣告完成，
+/// 用户看到的是「又从头传了一遍」。对照组是接收侧：它从每 10 块落库的 bitmap 现算
+/// （`actor::receiver`），掉电也在。
+///
+/// fetch_plan 是「对端还缺哪些字节」的权威事实（发起侧由对端 report 推导、被动应答侧
+/// 直接来自对端），取补集即得本端已经送达的部分，不依赖任何优雅退出。
+///
+/// # 必须数块，不能拿字节除 `CHUNK_SIZE`
+///
+/// `bytes_done / CHUNK_SIZE` 在「短尾块已收到而中间有洞」时**少算一块**：4 块的文件缺中间
+/// 一块时 `bytes_done = 2·CHUNK + tail`，floor 得 2，真实是 3。少的那一块让
+/// [`update_file_chunk`](crate::progress::ProgressTracker::update_file_chunk) 永远到不了
+/// `chunks_done >= total_chunks`，该文件**永不转 Completed**、`completed_files` 卡在 n−1。
+/// 所以这里按**块索引**计数，与接收侧 `checkpoint::count_completed_in_bitmap` 同口径。
+///
+/// # 这里不能假设 plan 已对齐
+///
+/// 对齐是**对端**在 `validate_resume_commit` → `validate_fetch_plan` 里查的；发起侧
+/// （`initiate_resume` 里 commit 之前那一步）算基线时，plan 还没被任何人校验过——
+/// 被动应答侧则相反，那边 `validate_resume_commit` 已先行。故块数按
+/// `floor(offset)…ceil(end)` 取：非对齐输入只会把 missing **多算**、基线估低，绝不会
+/// 反过来把没送到的块认成已完成。（非对齐的计划本来也走不到完成——`bao::encode_proof`
+/// 在第一块就会拒，所以「估低」不会真的害到谁。）
+///
+/// # 全缺的文件也要进表，值为 `(0, 0)`
+///
+/// 对 `init_files_with_resume` 而言「缺项」与 `(0, 0)` 等价，所以这里曾用 `filter_map`
+/// 把它们滤掉。但基线现在还有两个消费者——[`apply_sender_resume_baseline`] 用它回写 DB
+/// 和回填内存快照——对**它们**不等价：滤掉就等于「不写」，那一列会保留优雅暂停时留下的
+/// 旧值。于是 `dispatch(ResumeCommitted)` 先按旧值 emit 一份高报的 projection，紧接着
+/// tracker 的第一条进度把它拽回真值，进度条当场倒退。
+///
+/// [`apply_sender_resume_baseline`]: super::TransferManager::apply_sender_resume_baseline
+pub(crate) fn build_sender_resume_state_from_plan(
     files: &[entity::transfer_file::Model],
+    fetch_plan: &[FileRange],
 ) -> HashMap<u32, (u32, u64)> {
     files
         .iter()
-        .filter_map(|f| {
-            let transferred = f.transferred_bytes as u64;
-            if transferred == 0 {
-                return None;
-            }
+        .map(|f| {
             let file_id = f.file_id as u32;
             let file_size = f.size as u64;
-            let total_chunks = calc_total_chunks(file_size);
-            let chunk_size = CHUNK_SIZE as u64;
+            let (missing_chunks, missing_bytes) =
+                count_missing_from_plan(file_id, file_size, fetch_plan);
 
-            let chunks_done = if transferred >= file_size {
-                total_chunks
-            } else {
-                (transferred.div_ceil(chunk_size)) as u32
-            };
-
-            Some((file_id, (chunks_done, transferred)))
+            let chunks_done = calc_total_chunks(file_size).saturating_sub(missing_chunks);
+            let bytes_done = file_size.saturating_sub(missing_bytes);
+            (file_id, (chunks_done, bytes_done))
         })
         .collect()
+}
+
+/// 单个文件在 fetch_plan 里的缺口：`(缺的块数, 缺的字节数)`。
+///
+/// 「为什么数块而不是拿字节除 `CHUNK_SIZE`」「为什么不能假设 plan 已对齐」两条判据写在
+/// 唯一调用方 [`build_sender_resume_state_from_plan`] 的文档里。
+fn count_missing_from_plan(file_id: u32, file_size: u64, fetch_plan: &[FileRange]) -> (u32, u64) {
+    let chunk_size = CHUNK_SIZE as u64;
+    let mut missing_chunks: u32 = 0;
+    let mut missing_bytes: u64 = 0;
+    for range in fetch_plan.iter().filter(|r| r.file_id == file_id) {
+        // 越界输入夹到文件边界内：越界的 plan 会在别处被拒，这里只保证算术不撒谎。
+        let start = range.offset.min(file_size);
+        let end = range.offset.saturating_add(range.length).min(file_size);
+        if end <= start {
+            continue;
+        }
+        missing_bytes = missing_bytes.saturating_add(end - start);
+        let first_chunk = (start / chunk_size) as u32;
+        // `end` 已夹进 `[0, file_size]`，故 `ceil(end)` 天然 ≤ `calc_total_chunks(file_size)`，
+        // 不必再夹一次上界。
+        let last_chunk = end.div_ceil(chunk_size) as u32;
+        missing_chunks = missing_chunks.saturating_add(last_chunk.saturating_sub(first_chunk));
+    }
+    (missing_chunks, missing_bytes)
 }
 
 pub(crate) fn build_resume_file_infos(
@@ -192,4 +250,116 @@ pub(crate) fn build_prepared_files_from_db(
             outboard: f.outboard.clone().unwrap_or_default(),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CHUNK: u64 = CHUNK_SIZE as u64;
+
+    /// `transferred_bytes` 一律置 0——被杀的进程留下的就是这个样子，正是本函数要绕开的那一列。
+    fn file_model(file_id: i32, size: u64) -> entity::transfer_file::Model {
+        entity::transfer_file::Model {
+            id: file_id,
+            session_id: uuid::Uuid::nil(),
+            file_id,
+            name: format!("f{file_id}.bin"),
+            relative_path: format!("f{file_id}.bin"),
+            size: size as i64,
+            checksum: "checksum".to_string(),
+            status: entity::FileStatus::Pending,
+            transferred_bytes: 0,
+            total_chunks: calc_total_chunks(size) as i32,
+            completed_chunks: vec![],
+            completed_ranges: String::new(),
+            source_path: Some(format!("/tmp/f{file_id}.bin")),
+            local_path: None,
+            local_dir: None,
+            outboard: None,
+        }
+    }
+
+    fn range(file_id: u32, offset: u64, length: u64) -> FileRange {
+        FileRange {
+            file_id,
+            offset,
+            length,
+        }
+    }
+
+    /// 中间有洞、短尾块已收到：块数必须按块索引数，字节数按 plan 的补集算。
+    ///
+    /// 这是「拿字节除 `CHUNK_SIZE`」会翻车的形状——floor 只给 2，真实是 3，
+    /// 差的那一块会让文件永不转 Completed。
+    #[test]
+    fn baseline_counts_chunks_not_bytes_when_plan_has_a_hole() {
+        let size = CHUNK * 3 + 777; // 4 块，末块 777 字节
+        let files = vec![file_model(1, size)];
+        // 只缺中间的第 1 块（索引从 0 起），块 0 / 2 / 3 都已送达。
+        let plan = vec![range(1, CHUNK, CHUNK)];
+
+        let state = build_sender_resume_state_from_plan(&files, &plan);
+
+        assert_eq!(
+            state.get(&1).copied(),
+            Some((3, size - CHUNK)),
+            "4 块缺 1 块 ⇒ 已完成 3 块；字节数取 plan 的补集"
+        );
+    }
+
+    /// 完全不在计划里的文件 = 对端已收齐 ⇒ 必须给出完整块数，否则它永远停在 Pending。
+    ///
+    /// 旧实现（读 `transferred_bytes`）在进程被杀后对这种文件返回 `None`，
+    /// `init_files_with_resume` 便按 `(0, 0)` 当作一块没传。
+    #[test]
+    fn baseline_marks_files_absent_from_plan_as_complete() {
+        let done_size = CHUNK * 2;
+        let pending_size = CHUNK * 3;
+        let files = vec![file_model(1, done_size), file_model(2, pending_size)];
+        // 计划里只有文件 2 的后两块。
+        let plan = vec![range(2, CHUNK, CHUNK * 2)];
+
+        let state = build_sender_resume_state_from_plan(&files, &plan);
+
+        assert_eq!(
+            state.get(&1).copied(),
+            Some((calc_total_chunks(done_size), done_size)),
+            "不在 plan 里 ⇒ 对端已收齐，基线必须是满的"
+        );
+        assert_eq!(
+            state.get(&2).copied(),
+            Some((1, CHUNK)),
+            "3 块缺后 2 块 ⇒ 已完成 1 块"
+        );
+    }
+
+    /// 全缺的文件必须以 `(0, 0)` **进表**，不能被滤掉。
+    ///
+    /// 对 tracker 而言缺项与 `(0, 0)` 等价，所以这里一度用 `filter_map` 滤掉它们。但
+    /// `apply_sender_resume_baseline` 拿同一张表回写 DB 与内存快照，滤掉就等于「不写」：
+    /// 优雅暂停留下的旧值原样留在 `transferred_bytes` 里，续传时 projection 先高报、
+    /// 再被 tracker 的第一条进度拽回真值，进度条当场倒退。
+    ///
+    /// 它红了就说明那个倒退回来了——而这条路径没有别的护栏。
+    #[test]
+    fn baseline_includes_fully_missing_files_as_zero() {
+        let size = CHUNK * 2;
+        let files = vec![file_model(1, size), file_model(2, size)];
+        // 文件 1 整个都缺（对端 checkpoint 还是空），文件 2 已收齐（不在 plan 里）。
+        let plan = vec![range(1, 0, size)];
+
+        let state = build_sender_resume_state_from_plan(&files, &plan);
+
+        assert_eq!(
+            state.get(&1).copied(),
+            Some((0, 0)),
+            "全缺的文件要以 (0,0) 进表——回写侧靠它把 DB 那列**改小到 0**"
+        );
+        assert_eq!(
+            state.len(),
+            files.len(),
+            "每个文件都该有条目，回写才能覆盖全部文件"
+        );
+    }
 }

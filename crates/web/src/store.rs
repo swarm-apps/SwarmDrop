@@ -476,17 +476,17 @@ impl SessionStore for WebTransferStore {
         self.persist(session_id).await
     }
 
+    /// **绝对覆盖，零值照写**——判据见端口 trait 文档。浏览器端只有接收方向能续传，
+    /// 所以这条路径今天走不到；保持与 native 实现同语义是为了别让端口的两个实现分叉。
     async fn save_sender_file_progress(
         &self,
         session_id: Uuid,
         progress: &[(u32, u32, u64)],
     ) -> AppResult<()> {
         for &(file_id, _chunks_done, transferred) in progress {
-            if transferred > 0 {
-                self.mutate_file(session_id, file_id as i32, |f| {
-                    f.transferred_bytes = transferred as i64;
-                });
-            }
+            self.mutate_file(session_id, file_id as i32, |f| {
+                f.transferred_bytes = transferred as i64;
+            });
         }
         self.persist(session_id).await
     }

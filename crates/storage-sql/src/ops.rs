@@ -207,16 +207,17 @@ where
 /// 批量保存发送方 per-file 进度到 DB（断点续传恢复时使用）
 ///
 /// `progress` 为 `(file_id, chunks_done, transferred_bytes)` 三元组列表。
+///
+/// **绝对覆盖，零值照写**——判据见端口 trait `SessionStore::save_sender_file_progress`
+/// 的文档：续传基线要能把这一列改小到 0，此前的 `if transferred > 0` 恰好挡住了它。
 pub async fn save_sender_file_progress(
     db: &DatabaseConnection,
     session_id: Uuid,
     progress: &[(u32, u32, u64)],
 ) -> AppResult<()> {
     for &(file_id, _chunks_done, transferred) in progress {
-        if transferred > 0
-            && let Err(e) =
-                update_sender_file_progress(db, session_id, file_id as i32, transferred as i64)
-                    .await
+        if let Err(e) =
+            update_sender_file_progress(db, session_id, file_id as i32, transferred as i64).await
         {
             tracing::warn!("保存发送方文件进度失败: file_id={}, {}", file_id, e);
         }
