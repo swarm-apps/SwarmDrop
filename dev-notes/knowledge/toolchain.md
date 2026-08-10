@@ -272,6 +272,24 @@ opt-level = 3
 
 **不要做**：删除这段配置或把 `*` 改成具体 crate 列表——会漏掉新加的 crypto/网络依赖。
 
+### `webrtc-p2p` 的建连测试在 CI 上会偶发超时（本地稳定通过）
+
+`crates/webrtc-p2p/tests/native_signaling.rs::established_connection_carries_data`
+在 2026-08-10 的 v0.15.2 发版跑里以「15s 内应完成开流: Elapsed(())」失败，**重跑即过**。
+
+判定它是 flaky 而非回归，用的是这三条（下次再遇到照同一套查，别急着改代码）：
+
+1. 那一轮的 commit **零改动** `crates/webrtc-p2p`（`git log --name-only` 一搜就知道）；
+2. 同一份代码本地 `cargo test --workspace` 该条通过；
+3. `gh run list --workflow=rust.yml` 近 15 次只有这一次红。
+
+成因是超时阈值对 CI 偏紧：这条测试要走完 SDP 交换 + ICE 收集 + DTLS 握手 + SCTP 建立，
+而 GitHub 共享 runner 的 CPU 是抢占式的，本机的 15s 余量在那里不一定够。
+
+**目前不改**——单次失败不足以判定为系统性 flaky，盲目放宽超时会掩盖真实的建连回归。
+但**它若再出现**，就该动阈值或加重试，而不是继续手动重跑：一条「每次都要重跑一下」的
+测试等于没有测试，因为没人分得清这次的红是 flaky 还是真的坏了。
+
 ### 门禁顺序：`cargo test` 要排在 `cargo clippy --all-targets` **前面**
 
 跑一轮 `cargo test --workspace` 的墙钟里，**真正执行测试的只占 7%**。2026-08-10 实测：
