@@ -77,6 +77,9 @@ impl MobileCore {
             event_bus: Arc::new(MobileEventBusAdapter::new(event_bus)),
             keychain,
             // 接收暂存区挂在 data_dir 下（与 SQLite 同级），故必须在 data_dir 解析之后建。
+            // 同一个 data_dir 还被用来反推**应用沙箱容器根**——发送侧读源的快路径以它
+            // 为归属白名单（判定见 `file_access::route_source`）。认不出形态时快路径
+            // 整个关掉，退回 JS，不影响正确性。
             file_access: Arc::new(MobileFileAccessAdapter::new(file_access, &data_dir)),
             device_config: Arc::new(JsonFileDeviceConfig::new(device_config_path(&data_dir))),
             data_dir,

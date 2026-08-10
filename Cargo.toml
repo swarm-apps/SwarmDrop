@@ -148,3 +148,14 @@ lto = "thin"
 codegen-units = 1
 opt-level = "z"
 strip = "symbols"
+
+# blake3 例外：整个 profile 的 `opt-level = "z"` 会一路传到它 build.rs 里的 cc 调用
+# —— aarch64 上 blake3 走的是 C NEON intrinsics（`c/blake3_neon.c`，build.rs:367-371
+# 对 little-endian aarch64 无条件启用），2026-08-10 实测 clang 拿到的是 `-Oz`。
+# 哈希是传输路径上按字节计费的热点（prepare 一遍读源 + 逐块 bao 验签都过它），
+# 用体积换速度在这里是纯亏：blake3 编出来只有几十 KB，`-Oz` 省不下可观包体，
+# 却把 NEON 内联/展开全按住了。
+#
+# 单包覆写同样只有 **workspace root** 的算数（见上面那段注释），member 里写会被静默忽略。
+[profile.mobile-release.package.blake3]
+opt-level = 3

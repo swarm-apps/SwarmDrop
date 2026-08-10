@@ -7,20 +7,28 @@
  * （`mobile-core/src/file_staging.rs`），一次都不跨语言边界。本文件保留的是三件
  * 平台独占的能力：
  *
- * 1. 读发送源 —— 源 URI 不受我们控制。Android 上「选目录发送」走
- *    `Directory.pickDirectoryAsync()` → SAF tree，子项是 `content://`，只有
- *    expo-file-system 读得了。
+ * 1. 读**平台独占的**发送源 —— Android 上「选目录发送」走
+ *    `Directory.pickDirectoryAsync()` → SAF tree，子项是 `content://`，读权限在
+ *    `ContentResolver` 手里，只有 expo-file-system 拿得到。
+ *    **落在应用沙箱容器内的 `file://` 源不再经过这里**（2026-08-10 起）：Rust 侧按
+ *    scheme + 归属直读，一次跨语言往返都不付。判据在
+ *    `MobileFileAccessAdapter::owned_source_path`。
  * 2. 发布到 SAF 目标 —— 只有 `ContentResolver` 能在用户选的公共目录里建 document。
  * 3. 删除 SAF 上已落地的文件。
  *
  * `file://` 目标的发布（建目录 + rename）同样在 Rust 侧，不经过这里。
  *
- * ## 为什么接收不再直接写 SAF
+ * ## 为什么接收不直接写 SAF
  *
- * `ContentResolver.openFileDescriptor` 拿到的 fd 不归本进程所有，它指向
- * `/storage/emulated/0` 的 FUSE 挂载。长时间大文件写入期间它会失效，而 `FileChannel`
- * 无从知晓：下一次 `lseek` 直接 `EBADF`，channel 自己却仍报告为 open。
- * 2026-08-07 实测 311 MB 接收稳定在 45 MB 处崩掉，换应用私有目录则完全正常。
+ * 四条独立成立的理由，完整版在 `mobile-core/src/file_staging.rs` 的模块文档：
+ * 部分 `DocumentsProvider` 返回**不可 seek** 的管道式 fd（`position()` 一律失败）、
+ * SAF/FUSE 上随机写慢、不让用户目录出现半成品、暂存要与 checkpoint 同寿命跨重启存活。
+ *
+ * ⚠️ **归因更正（2026-08-10）**：这里此前写的是「SAF 的 fd 会被 provider 悄悄回收，
+ * 下一次 `lseek` 得 `EBADF`」，佐证是 2026-08-07 那次「311 MB 稳定在 45 MB 处崩掉」。
+ * 那个佐证是误诊——真因是 `expo-file-system` 的 `forContentURI` 不持有
+ * `ParcelFileDescriptor`，GC 的 finalizer 关掉了 fd，而本仓修这条的 pnpm patch 从未
+ * 进过 Android 构建（SDK 56 默认吃预编译 AAR）。**结论没变、理由换了。**
  *
  * 所以外部位置只在发布时被**顺序**写一次（见 `copyIntoTarget`——它只用 read/write
  * 推进偏移，从不 `setOffset`）。
@@ -94,6 +102,27 @@ function isSafUri(uri: string): boolean {
   return uri.startsWith("content://");
 }
 
+/**
+ * expo-fs 读出来的 `Uint8Array` → 交给 Rust 的 `ArrayBuffer`（ubrn 只认后者）。
+ *
+ * 视图**已经独占整块 buffer** 时原样交出去，不再拷一遍：Android 侧交回来的正是刚 new
+ * 出来的独占 ArrayBuffer 的完整视图（`JNIToJSIConverter.cpp` 每次都 `new ArrayBuffer(size)`），
+ * 此时 `slice` 是纯白拷。
+ *
+ * **guard 不能删**：iOS 侧的 `readBytes` 实现未核实。若它哪天返回的是某个大 buffer 上的
+ * 子视图，直接交出 `bytes.buffer` 就等于把整块内存（含别的 chunk 的字节）交给 Rust
+ * ——那是静默的数据错乱，不是崩溃。
+ */
+function toOwnedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  if (bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength) {
+    return bytes.buffer as ArrayBuffer;
+  }
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
 export class ExpoFileAccess implements ForeignFileAccess {
   sourceMetadata(sourceId: string): Promise<MobileFileMetadata> {
     return wrapFfi("read source metadata", () => {
@@ -113,6 +142,13 @@ export class ExpoFileAccess implements ForeignFileAccess {
     });
   }
 
+  /**
+   * 读发送源的一段。
+   *
+   * **走到这里的只剩 Rust 读不了的源**：SAF `content://`、以及应用沙箱容器之外的
+   * `file://`（iOS 的安全作用域 URL）。容器内的 `file://` 由 Rust 侧直读，
+   * 分派判据在 `MobileFileAccessAdapter::owned_source_path`。
+   */
   readSourceChunk(
     sourceId: string,
     offset: bigint,
@@ -122,17 +158,25 @@ export class ExpoFileAccess implements ForeignFileAccess {
       `read source chunk at offset ${offset} (${length} bytes)`,
       () => {
         // 读路径 source 是 expo-fs File / SAF content uri，统一 ReadOnly 模式打开。
-        // source handle 不缓存——读取通常一次性 + RN core 端不会保持 sourceId 的
-        // 并发引用，频繁 open/close 性能可以接受。
+        // handle 不缓存，于是**每块一次 open + seek + read + close**。
+        //
+        // ⚠️ 此前这里写的是「读取通常一次性 + 频繁 open/close 性能可以接受」，
+        // **两句都被实测推翻**（2026-08-10）：一个文件按 256 KiB 分块要读几千次；
+        // 而这条桥每块 9.25 ms（同机 Rust 直读 0.118 ms，约 78 倍），在那次 2 GB 发送里
+        // 占发送侧 55% 的时间，且每块都硬阻塞单线程 tokio runtime，累计冻结网络事件
+        // 循环约 39 s——是当次断链的嫌疑诱因。数据见仓库根的
+        // `dev-notes/research/2026-08-10-mobile-bugs-diagnosis.md`。
+        //
+        // 同日起沙箱内的 `file://` 源已按 scheme 分派给 Rust 直读、整条桥都不走，
+        // 但 **SAF 源仍全额付这笔开销**：`content://` 的读权限只在 `ContentResolver`
+        // 手里，Rust 侧拿不到。所以「Android 选目录发送」慢是已知的、尚未消除的。
+        // 唯一的下一步是按 sourceId 缓存 handle，但那要先有一个「这次传输读完了」的
+        // 钩子据以 close——本层拿不到，故未做。
         const handle = new File(sourceId).open(FileMode.ReadOnly);
         try {
           handle.offset = Number(offset);
           // expo-fs readBytes 返回 Uint8Array；ubrn 期望 ArrayBuffer
-          const bytes = handle.readBytes(Number(length));
-          return bytes.buffer.slice(
-            bytes.byteOffset,
-            bytes.byteOffset + bytes.byteLength,
-          ) as ArrayBuffer;
+          return toOwnedArrayBuffer(handle.readBytes(Number(length)));
         } finally {
           handle.close();
         }
@@ -199,9 +243,23 @@ export class ExpoFileAccess implements ForeignFileAccess {
 /**
  * 把暂存文件顺序搬进目标。
  *
- * **只用 `readBytes` / `writeBytes` 推进偏移，绝不 `setOffset`。** 这是刻意的：
- * SAF 的 fd 由外部 provider 持有，`lseek` 正是它失效时炸掉的那个调用
- * （`FileChannelImpl.position0` → `EBADF`）。顺序写把风险面压到最小。
+ * **只用 `readBytes` / `writeBytes` 推进偏移，绝不 `setOffset`。** 这条规则不因
+ * 2026-08-10 的归因更正而作废，它有独立理由：`DocumentsProvider.openDocument` 允许
+ * 返回管道式的描述符（`ParcelFileDescriptor.createPipe`），那种 fd 上
+ * `FileChannel.position()` **一律**失败，而 provider 是哪种由用户选的目录决定，
+ * 我们无从预判。顺序写是唯一在所有 provider 上都成立的写法。
+ *
+ * ⚠️ **适用范围是「往外部位置写」，不是全文件。** 同文件的 `readSourceChunk` 每块都做
+ * `handle.offset = …`，那**不是**违例：读源没有顺序这个选项——续传要从任意 offset 起，
+ * 且 handle 不跨块缓存，每块都得先定位。写这边才有选择（publish 是一次整文件顺序拷贝），
+ * 于是我们挑那个在所有 provider 上都成立的写法。
+ * 推论一并记在这里：**源恰好来自管道式 provider 时，那条读路径会在定位上直接失败**——
+ * 这是被接受的已知限制，本规则覆盖不到它。
+ * （Rust 侧的同名读法 `read_at_sync` 一样是 `seek` + `read`，见 `mobile-core/src/file_access.rs`。）
+ *
+ * （此前这里把理由写成「`lseek` 正是 fd 被 provider 回收时炸掉的那个调用」——
+ * 那次 `EBADF` 的真因是 expo 的 `forContentURI` 不持有 `ParcelFileDescriptor`，
+ * 与 seek 无关；见本文件顶部的归因更正。）
  *
  * **不用 expo 的 `File.copy()`**，它的两条路径都不可用：
  * - copy 到具体文件（`isContainer=false`）会先 `deleteRecursively()` 再写，

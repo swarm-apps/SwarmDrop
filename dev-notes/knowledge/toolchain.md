@@ -272,6 +272,23 @@ opt-level = 3
 
 **不要做**：删除这段配置或把 `*` 改成具体 crate 列表——会漏掉新加的 crypto/网络依赖。
 
+### 门禁顺序：`cargo test` 要排在 `cargo clippy --all-targets` **前面**
+
+跑一轮 `cargo test --workspace` 的墙钟里，**真正执行测试的只占 7%**。2026-08-10 实测：
+540 个测试全部跑完累计 **209 秒**，而墙钟是 **47 分钟**——另外 93% 全在 codegen 与链接。
+
+原因是这仓的两条放大器叠在一起：`[profile.dev.package."*"]` 的 `opt-level = 3` 让整棵
+依赖树（libp2p / webrtc-rs / tauri）都走优化编译，而 `--workspace` 有 **28 个测试二进制**，
+每个都要单独链接一遍那棵树，链接还是单线程的。
+
+**关键是 `check` / `clippy` 的产物 `test` 一个都用不上**：前两者只产 `rmeta`，测试要真
+codegen 出 rlib 与可执行文件；clippy 还带 `RUSTC_WORKSPACE_WRAPPER`，fingerprint 又是
+另一套。所以把 `clippy --all-targets` 排在 `test` 前面，等于让机器把同一批代码**编两遍
+且不能复用**——那轮白搭了二十多分钟。反过来 `test` 先跑，clippy 能复用它的 codegen 产物。
+
+顺带：这也是为什么「跑门禁时别再起第二条 cargo」。第二条会阻塞在 target 目录的文件锁上，
+看起来像它自己卡住了，实际还把正在跑的那条一起拖慢。
+
 ### `target/` 是 10G 量级，跑全量测试要留够盘
 
 `opt-level = 3` + libp2p / webrtc-rs / tauri 三棵大依赖树的合并后果：`cargo clean` 之后
@@ -1034,6 +1051,10 @@ inherits = "release"
 opt-level = "z"   # 包体优先
 lto = "thin"
 strip = "symbols"
+
+# 单包例外（2026-08-10 加）
+[profile.mobile-release.package.blake3]
+opt-level = 3
 ```
 
 **Why**：Cargo 只认 workspace root 的 profile，**member 自己的 profile 会被静默忽略**
@@ -1041,6 +1062,28 @@ strip = "symbols"
 搬到根，移动端包体优化就无声消失。消费方是 `ubrn build <platform> --profile mobile-release`
 （ubrn 的 `-p` 覆盖 `-r`），产物落在 `target/mobile-release/` 而非 `target/release/`。
 ubrn 用 `cargo metadata` 的 `target_directory` 定位产物，会自动跟到仓库根，无需额外配置。
+
+**`opt-level = "z"` 不是一刀切——blake3 必须覆回 3**（2026-08-10 加）。这条不属于「包体
+优先」的例外美学，是因为 `"z"` 在这个包上**穿透了 Rust 边界**：blake3 的 `build.rs` 里
+`!is_no_neon() && !is_pure() && is_aarch64() && is_little_endian()` 这条分支会
+`build_neon_c_intrinsics()`——也就是说 **iOS/Android 的 arm64 一律走 C 实现**
+（`c/blake3_neon.c`），而 cc crate 把 profile 的 `opt-level` 原样翻译成给 clang 的 `-Oz`
+（2026-08-10 实测确认）。于是被按住的不是几 KB Rust 代码，是那份 intrinsics 的内联与展开。
+
+判断一个包该不该例外，用这两问，两个都为「是」才例外：
+
+1. **它在传输路径上按字节计费吗**（每 MB 都要过一遍）？blake3 是——`prepare` 一遍流式读
+   源文件产出 checksum + 验签树、接收侧逐块 bao 验签，两处都过它。
+2. **它编出来本来就小吗**？blake3 只有几十 KB，`"z"` 在它身上省不下可观包体，用体积换
+   速度是纯亏。反例是 libp2p / quinn / tauri 那几棵大依赖树——它们是包体的大头，
+   不能照抄这条。
+
+> 与 `[profile.dev.package."*"]` 的 `opt-level = 3` 是**两件事**：那条是「dev 下别让加密
+> 依赖慢 10–100 倍」，全局豁免；这条是 release 形态下的**单包**覆写，范围刻意窄。
+
+⚠️ **单包覆写同样只有 workspace root 的算数。** 与上面那条 member profile 被静默忽略的坑
+是同一个机制——写在 `mobile-core/Cargo.toml` 里的 `[profile.mobile-release.package.blake3]`
+不会报错，只是不生效，而「不生效」在这里没有任何可观测信号（包能编、能跑，只是慢）。
 
 **相关文件**：`Cargo.toml`、`mobile/packages/swarmdrop-core/rust/mobile-core/Cargo.toml`、
 `mobile/packages/swarmdrop-core/package.json`
@@ -1056,16 +1099,76 @@ channel 会随机变成 `Bad file descriptor`。传输层随后只看到 data st
 项目通过 `mobile/pnpm-workspace.yaml` 的 `patchedDependencies` 修复：
 
 - 持有 PFD 到 `FileHandle.close()`，并在 finally 中同时关闭；该部分来自 expo/expo#47176。
-- SAF 新传输用 `"wt"` 明确截断，续传用 `"rw"` 保留已有内容并做可定位写；同一进程恢复优先
-  复用现有 handle，不能用 `"w"` reopen，否则 checkpoint 还在而文件已被再次截断。
+- `read` / `write` 失败带上**异常类名**（`describe(e)`）。上游只取 `e.message`，而写失败最
+  要紧的那几种恰好 message 为 null（fd 失效的 `IOException`、`ClosedChannelException`），
+  丢了类名就只剩一句 `unknown error`。这条同时是「补丁到底有没有进构建」的**运行时探针**：
+  日志里的 reason 若是**裸** `'Bad file descriptor'`（无类名），说明吃的是未打补丁的版本。
+- `offset` setter 补 `ensureIsOpen()`，与 read/write 对齐。
+- **SAF 的 `"rw"` 保持上游的拒绝**——`FileOutputStream.getChannel()` 是 readable=false 的
+  channel，拿它冒充 "rw" 会得到一个「签名说能读、实际不能读」的句柄。接收侧也不再需要它：
+  staging 恒在应用私有目录（走 `forJavaFile` 的 `RandomAccessFile`），SAF 只在 publish 时被
+  **顺序**写一次。
+  > 本节此前写作「续传用 `"rw"` 保留已有内容并做可定位写」——**那与 patch 的实际内容相反**，
+  > 2026-08-10 更正。
 
 补丁配置必须留在 `pnpm-workspace.yaml`（pnpm 11 不读 package.json 的 `pnpm` 字段），更新后用
 `pnpm install --config.allowUnusedPatches=true` 并确认 `mobile/pnpm-lock.yaml` 出现对应
-`patch_hash`。升级 expo-file-system 时先核对上游是否同时覆盖 PFD 生命周期和 SAF `"rw"` 写通道，
-不能只看到 #47176 合入就直接删除整个补丁。
+`patch_hash`。升级 expo-file-system 时先核对上游是否覆盖 PFD 生命周期，不能只看到 #47176 合入
+就直接删除整个补丁。
+
+⚠️ **但这份补丁在 2026-08-10 之前从未真正进过 Android 构建**，原因见下一节——
+`pnpm install` 全绿、`node_modules` 里的 Kotlin 确实是打过补丁的，构建吃的却是预编译 AAR。
 
 **相关文件**：`mobile/patches/expo-file-system@56.0.8.patch`、
 `mobile/src/core/foreign-file-access.ts`、`mobile/pnpm-workspace.yaml`
+
+### pnpm patch 打在有预编译产物的原生依赖上会**静默失效**（2026-08-10 实证）
+
+上一节那份补丁写于 2026-08-07，改了三次、三次都以为修好了，**三次都是空的**：Android 构建
+拿的是 expo 发布的预编译 AAR，`node_modules` 里被 patch 过的 Kotlin 源码从来没参与编译。
+代价不只是 bug 没修——它还伪造出一条「架构事实」：因为「补丁都打了还是崩」，团队把它归因成
+「SAF 的 fd 天生不能用」，并把这条误诊写进了 `CLAUDE.md` 与三份知识库（已于同日更正，见
+[rust-backend.md](rust-backend.md) 的「接收是『暂存 → 发布』两段」）。
+
+**机制**：expo SDK 53+ 的 autolinking 对**发布了 maven / CocoaPods 产物**的模块默认走
+publication 而不是源码工程：
+
+```
+$ expo-modules-autolinking resolve -p android --json
+expo-file-system publication={groupId: host.exp.exponent, …, repository: local-maven-repo}
+                 shouldUsePublicationScriptPath: None
+```
+
+`shouldUsePublication` → `true` → `linkProject()` 被跳过 → gradle 只 `implementation` 那个
+AAR。同款坑在 Apple 侧一模一样（`platforms/apple/apple.js` 也吐 `buildFromSource`，
+预编译 XCFramework 会吃掉 `ios/` 下的 patch）。
+
+**修法**（`mobile/package.json` 顶层 `expo` 键，本仓已加）：
+
+```jsonc
+{ "expo": { "autolinking": { "android": { "buildFromSource": ["expo-file-system"] } } } }
+```
+
+**判据必须是编译产物里的符号，不是源码**。这是本条最值钱的一句：
+
+```bash
+# 源码打没打补丁（会骗人——它永远是打过的）
+grep parcelFileDescriptor node_modules/expo-file-system/android/src/main/java/**/FileSystemFileHandle.kt
+
+# 构建到底吃了什么（唯一可信）
+javap -p node_modules/expo-file-system/android/build/**/FileSystemFileHandle.class | grep -E 'parcelFileDescriptor|describe'
+```
+
+**通用判据：一个补丁的验收，必须落在「构建产物」这一侧。** 凡是依赖同时发布了预编译产物
+（AAR / XCFramework / prebuilt `.node` / wasm blob），「patch 应用成功」与「patch 参与构建」
+就是两件事，而包管理器只报前者。同族的坑：本文下面那节「本地 expo module 的 Kotlin 不在任何
+门禁里」、[net-kernel.md](net-kernel.md) 记的「自研替换掉一个曾打过补丁的上游实现时，补丁
+不会自己跟着走」——三条都是「改动看起来在、实际没进产物」。
+
+机器护栏：`mobile/scripts/check-expo-patches.mjs`（`javap` 符号断言必选、覆盖 Apple 侧的
+`buildFromSource`、只检查改动触及 `android/` 或 `ios/` 的 patch、`patchedDependencies` 从
+`mobile/pnpm-workspace.yaml` 读且 resolve 必须在 `mobile/` 下跑）。
+**这类事故只有机器守得住**——三个 commit、三次自评「已修复」，人工 review 一次都没拦下。
 
 ## 跨三个 workspace 共享 TS 包：`packages/shared-view`
 

@@ -262,7 +262,26 @@ await DocumentPicker.getDocumentAsync({
 
 **不要做**：把原始 `content://` URI 当 `sourceId` 塞给 core——读 chunk 时会 panic。
 
-**相关文件**：[src/core/file-access.ts](../../src/core/file-access.ts)
+> **2026-08-10 补充：读源现在按 scheme + 归属分派，但这条约束不变。**
+> `MobileFileAccessAdapter::read_source_chunk` 曾**无条件**委托 JS——而同一文件里 `publish`
+> 与 `delete_finalized_file` 都按 `SAF_SCHEME` 分派，读源是唯一漏掉这条原则的。
+> 探针实测每 256 KiB **9.25 ms**（≈27.6 MB/s），桌面同操作 0.118 ms，**慢 78 倍**；
+> 同机纯 Rust pwrite 到同分区是 1.44 ms/块，所以 ≥85% 的成本是桥不是磁盘。
+> 更要紧的是它用 `invokeBlocking` **硬阻塞单线程 tokio runtime**，一次 1.99 GB 传输
+> 累计冻结 **38.9 s** libp2p 事件循环——这是那两条 `connection lost` / `io: timed out` 的嫌疑诱因。
+>
+> 现在 `file://` 且落在**归属白名单根**内才走 Rust 直读，其余仍回 JS。
+> **白名单不能省**：`FileAccess` 收的是宿主给的 URI，不做根校验等于任意路径可读；
+> 且必须显式拒 `..`——`Path::starts_with` 按 component 比较但**不规范化**，
+> `<容器>/../../etc/passwd` 会大摇大摆通过前缀检查。认不出宿主目录形态时快路径**整个关闭**。
+>
+> ⚠️ **收益尚未证实**：本条（picker + `copyToCacheDirectory`）走的是 `file://`、会命中快路径，
+> 但**从收件箱转发**（`inbox-file-availability.ts` 的 `sourceId: file.localPath`）在 Android 上
+> 是 SAF ⇒ `content://` ⇒ 不命中。已加每 source 一次的分派日志（`读源分派`，含 `direct=` / `scheme=`），
+> 下一份真机日志若清一色 `direct=false`，说明要把 SAF 读也下沉到原生模块。
+
+**相关文件**：[src/core/file-access.ts](../../src/core/file-access.ts)、
+`mobile-core/src/file_access.rs`
 
 ### 接收的随机写不经过 JS —— 暂存恒在应用私有目录（2026-08-07 起）
 
@@ -270,12 +289,26 @@ await DocumentPicker.getDocumentAsync({
 （create 阶段拿 handle → `writeSinkChunk` 做 seek + write → finalize 再 close）在 SAF 目标下
 是错的，实测会在传输中途以 `java.io.IOException: Bad file descriptor` 崩掉。
 
-**根因**：`ContentResolver.openFileDescriptor` 拿到的 fd **不归本进程所有**——它指向
-`/storage/emulated/0` 的 FUSE 挂载，真正的持有者在 DocumentsProvider 那一侧。长时间大文件
-写入期间它会失效，而 `FileChannel` 无从知晓：下一次 `lseek` 直接 `EBADF`，channel 自己却
-仍报告为 open。崩溃栈落在 `FileSystemFileHandle.setOffset` → `FileChannelImpl.position0`。
-2026-08-07 实测接收 311 MB 稳定在 45 MB 处崩，Web 与桌面两个发送端都能复现；接收目录换成
-应用私有目录则完全正常。
+**根因（2026-08-10 更正，旧归因见下）**：`expo-file-system` 的 `forContentURI` 打开
+`ParcelFileDescriptor` 后**不持有它**，于是第一次 GC 的 finalizer 就把底层 fd 关掉了。
+本仓有一份 pnpm patch 修这条（`node_modules` 里的 Kotlin 源码确实是打过补丁的），
+但 **SDK 56 默认吃预编译 AAR**，`shouldUsePublication=true` 让 `linkProject()` 被跳过，
+**那份 patch 从未进过 Android 构建**——「改了三次都没修好」于是被反推成「SAF 的 fd 天生不能用」。
+
+判据链（都可复验）：`javap -p` 解 AAR 里的 `FileSystemFileHandle.class` **没有**
+`parcelFileDescriptor` 字段与 `describe()`；`expo-modules-autolinking resolve -p android --json`
+显示走 `local-maven-repo`；日志里 JS 侧的改动（`→ Caused by`、`（已写 N/M 字节）`）**都在**，
+Kotlin 侧的 reason 却是裸 `'Bad file descriptor'`（无异常类名，正是上游未打补丁的
+`e.message` 输出）。修法是 `mobile/package.json` 的
+`expo.autolinking.android.buildFromSource: ["expo-file-system"]`，护栏是
+`mobile/scripts/check-expo-patches.mjs`（含 `javap` 符号断言）。
+
+> **旧归因错在哪**：此前写作「fd 不归本进程所有，DocumentsProvider 那侧会主动让它失效」。
+> 它解释不了**失败点每次都不同**——2026-08-07 是 311 MB 稳定崩在 45 MB，2026-08-10 是
+> 2 GB 崩在 16 MB 与 54 MB。GC 时机不确定才解释得通。
+> ⚠️ 但**「发布只做顺序写、绝不 `setOffset`」这条规则不要跟着删**：它有独立成立的理由——
+> 部分 DocumentsProvider 返回**不可 seek** 的 fd（管道式 `openDocument`），`position()` 一律失败。
+> 同理，**「暂存 → 发布」两段也要留着**，理由换成与 fd bug 无关的那四条（见下）。
 
 **正确做法**：接收分「暂存 → 发布」两段。
 
