@@ -37,7 +37,7 @@ SwarmDrop is a decentralized, cross-network, end-to-end encrypted file transfer 
 **Current Status:** 桌面 / 移动 / Web 三端。桌面与移动已发布，Web 端（wasm）随文档站部署到
 GitHub Pages（Phase 5 仍在收敛，见下方 Development Phases）。当前重心已从「把 Web 端跑通」
 转到**三端传输链路的真机收敛**——吞吐、续传基线、接收落点。
-Current desktop release: **v0.15.2**（bootstrap 独立版本线，当前 `bootstrap-v0.7.2`；移动 `mobile-v0.15.2`）。
+Current desktop release: **v0.16.0**（bootstrap 独立版本线，当前 `bootstrap-v0.7.2`；移动 `mobile-v0.16.0`）。
 
 ## Build and Development Commands
 
