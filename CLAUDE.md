@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - [`dev-notes/knowledge/theme-and-styling.md`](dev-notes/knowledge/theme-and-styling.md) — shadcn/ui、Tailwind、macOS Overlay 标题栏、Zustand selector 派生数组陷阱、Lingui 源 locale
 - [`dev-notes/knowledge/rust-backend.md`](dev-notes/knowledge/rust-backend.md) — crates/core ↔ src-tauri 边界、specta + chrono、`#[expect]` 风格、IPC 时间类型选型
-- [`dev-notes/knowledge/toolchain.md`](dev-notes/knowledge/toolchain.md) — Cargo dev profile opt-level、Vite/Tauri 端口、Lingui 实际 locale、版本号三处同步
+- [`dev-notes/knowledge/toolchain.md`](dev-notes/knowledge/toolchain.md) — Cargo dev profile opt-level、`mobile-release` 的 blake3 单包例外、Vite/Tauri 端口、Lingui 实际 locale、版本号三处同步、**pnpm patch 打在有预编译产物的原生依赖上会静默失效**
 - [`dev-notes/knowledge/net-kernel.md`](dev-notes/knowledge/net-kernel.md) — 网络内核 swarmdrop-net（2026-07 重构产物）：架构速览与事件双轨制、libp2p git pin 校准坑、wasm 工程约定、wire v2 契约点、已知负债。**碰 crates/net、crates/net-base、协议注册、relay、DHT、升级 libp2p rev 时必读**
 - [`dev-notes/knowledge/libp2p-wasm.md`](dev-notes/knowledge/libp2p-wasm.md) — Web 端（wasm）可行性调研（2026-07）。**结论已落地**：`crates/web` + `docs/app/app` 是其产物
 - [`dev-notes/knowledge/web-app-frontend.md`](dev-notes/knowledge/web-app-frontend.md) — Web 应用区**表现层**（`docs/app/app`）：运行时单例只挂 layout、静态导出三限制（无 redirect / 无动态段 / useSearchParams 要 Suspense）、basePath 与 next/link、zustand store 的 selector 与 `setState` 约束。**碰 Web 端 React 代码时必读**
@@ -34,8 +34,10 @@ Always respond in Chinese (简体中文). All output, including thinking, planni
 
 SwarmDrop is a decentralized, cross-network, end-to-end encrypted file transfer tool built with Tauri v2. It aims to be a "cross-network version of LocalSend" — no accounts, no servers, supporting both LAN and cross-network peer-to-peer file transfers.
 
-**Current Status:** 桌面 / 移动 / Web 三端。桌面与移动已发布；Web 端（wasm）是当前主战场。
-Current desktop release: **v0.12.1**（bootstrap 独立版本线，当前 `bootstrap-v0.7.2`；移动 `mobile-v0.12.1`）。
+**Current Status:** 桌面 / 移动 / Web 三端。桌面与移动已发布，Web 端（wasm）随文档站部署到
+GitHub Pages（Phase 5 仍在收敛，见下方 Development Phases）。当前重心已从「把 Web 端跑通」
+转到**三端传输链路的真机收敛**——吞吐、续传基线、接收落点。
+Current desktop release: **v0.15.2**（bootstrap 独立版本线，当前 `bootstrap-v0.7.2`；移动 `mobile-v0.15.2`）。
 
 ## Build and Development Commands
 
@@ -166,8 +168,17 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 > 发布成功后的 `mark_file_completed` 写；②finalize 失败只意味着「数据是好的、只是搬不过去」，
 > **不得 reset checkpoint**（会让对端重传整个文件），直接上抛走可恢复的 Interrupted。
 > 移动端的接收写盘因此**整条在 Rust 侧**，`ForeignFileAccess` 只剩读发送源与 SAF 相关的三件事。
-> 根因（SAF 的 fd 不归本进程所有，`lseek` 会 `EBADF`）与完整推导见
-> [`knowledge/rust-backend.md`](dev-notes/knowledge/rust-backend.md) 与
+>
+> ⚠️ **两段式要留着，但它当初的归因是错的（2026-08-10 更正）。** 这里此前写作「根因是
+> SAF 的 fd 不归本进程所有、`lseek` 必 `EBADF`」——那是误诊。真根因是 `expo-file-system`
+> 的 `forContentURI` 不持有 `ParcelFileDescriptor`，GC finalizer 把 fd 关了；**而本仓修这条
+> 的 pnpm patch 从未进过 Android 构建**（SDK 56 默认吃预编译 AAR），于是「改了三次都没修好」
+> 被反推成「SAF 的 fd 天生不能用」。两段式的理由换成与 fd bug 无关的这四条：SAF/FUSE 上随机
+> 写慢、用户目录不该出现半成品、暂存要跨「中断 → 过几天再恢复」存活、**部分 DocumentsProvider
+> 返回不可 seek 的 fd**（管道式 `openDocument`，`position()` 一律失败）——最后一条也是
+> 「发布只做顺序写、绝不 `setOffset`」这条规则**独立成立**的理由。
+> 完整推导见 [`knowledge/rust-backend.md`](dev-notes/knowledge/rust-backend.md)、
+> [`knowledge/toolchain.md`](dev-notes/knowledge/toolchain.md)（patch 为什么没生效）与
 > `openspec/changes/receive-staging-publish/`。
 >
 > **接收落点恒为用户可见位置，且与应用私有数据区分离（2026-08-09）。** 移动端曾把两者放在
@@ -545,8 +556,13 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
   跨实现的证书兼容由 `certificate.rs` 的 `reads_official_pem_with_identical_certhash`
   钉死——**那条测试红了就说明存量地址会全部拨不通**。
 - **Dev profile optimization:** 所有依赖在 dev 下也用 `opt-level = 3`（加密依赖否则慢 10–100 倍）。
-  移动端 release 用单独的 `[profile.mobile-release]`（包体优先）——注意 **Cargo 会静默忽略
-  member 自己的 profile**，只有 workspace root 的算数。
+  移动端 release 用单独的 `[profile.mobile-release]`（包体优先，`opt-level = "z"`），
+  **但它不是一刀切——有单包例外**：`[profile.mobile-release.package.blake3]` 覆回 `opt-level = 3`
+  （`"z"` 会传到 blake3 build.rs 的 cc 调用，把 aarch64 的 C NEON 实现按住，而哈希是传输路径上
+  按字节计费的热点；理由与「还有哪些包该例外」的判据见
+  [`toolchain.md`](dev-notes/knowledge/toolchain.md)）。
+  注意 **Cargo 会静默忽略 member 自己的 profile**，只有 workspace root 的算数——
+  单包覆写（`profile.*.package.*`）同样只认 root。
 - **Vite port:** 固定 1420（Tauri 要求），HMR 1421。
 - **Path alias:** `@/` → `./src/`（tsconfig 与 vite 一致）。
 - **shadcn/ui:** `components.json` 用 `new-york` style、`rsc: false`、`neutral` base color、

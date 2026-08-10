@@ -2,7 +2,7 @@
   "expo": {
     "name": "SwarmDrop",
     "slug": "swarmdrop-mobile",
-    "version": "0.15.1",
+    "version": "0.15.2",
     "orientation": "portrait",
     "scheme": "swarmdrop",
     "userInterfaceStyle": "automatic",
@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.yexiyue.swarmdrop",
-      "versionCode": 49,
+      "versionCode": 50,
       "predictiveBackGestureEnabled": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
