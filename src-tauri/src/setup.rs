@@ -129,6 +129,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             events::TransferResumed,
             events::TransferDbError,
             events::TransferProjectionUpdate,
+            events::FilePublish,
             events::ReceivingPausedChanged,
             events::ExternalFileOpen,
             events::ExternalPairInvite,

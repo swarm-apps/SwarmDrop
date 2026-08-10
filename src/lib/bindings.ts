@@ -372,6 +372,7 @@ export const events = {
 	devicesChanged: makeEvent<DevicesChanged>("devices-changed"),
 	externalFileOpen: makeEvent<ExternalFileOpen>("external-file-open"),
 	externalPairInvite: makeEvent<ExternalPairInvite>("external-pair-invite"),
+	filePublish: makeEvent<FilePublish>("file-publish"),
 	networkStatusChanged: makeEvent<NetworkStatusChanged>("network-status-changed"),
 	pairedDeviceAdded: makeEvent<PairedDeviceAdded>("paired-device-added"),
 	pairedDeviceRemoved: makeEvent<PairedDeviceRemoved>("paired-device-removed"),
@@ -640,6 +641,47 @@ export type FileProgressInfo = {
 	transferred: number,
 	status: FileTransferStatus,
 };
+
+/**
+ *  单个文件正在从暂存位置发布到用户可见位置。事件名 `"file-publish"`。
+ * 
+ *  桌面的发布是同目录 `rename`（O(1)），这条事件通常一闪而过——它在这里是为了让三端对
+ *  「字节收完 ≠ 文件落地」有同一套表达，而不是因为桌面会卡在这一步。
+ */
+export type FilePublish = FilePublishEvent;
+
+/**
+ *  单个文件的发布事件。
+ * 
+ *  **是文件级而非会话级**：发布是「收齐即发布」，一个会话里会发生多次、散布在整条传输
+ *  过程中，不是末尾一次。挂到会话级的进度事件上就表达不了「现在正在保存哪一个」。
+ */
+export type FilePublishEvent = {
+	sessionId: string,
+	fileId: number,
+	/**  文件名（展示用）。 */
+	name: string,
+	/**
+	 *  相对路径。移动端 JS 侧靠它把自己的拷贝字节数认领到正确的条目上——
+	 *  它拿到的元数据里没有 session_id / file_id。
+	 */
+	relativePath: string,
+	totalBytes: number,
+	phase: FilePublishPhase,
+};
+
+/**
+ *  单个文件的发布阶段（暂存 → 用户可见位置）。
+ * 
+ *  只有两档且都是 unit 变体：三端 codegen 都稳（specta → 字符串联合、uniffi → 无字段
+ *  enum），各端用查表渲染，将来加档会在查表处编译期报缺项。
+ * 
+ *  **拷贝中的字节进度不在这里**：唯一会慢的发布路径是 Android 的 SAF 全量拷贝，那个循环
+ *  住在移动端 JS 侧的宿主适配器里，由它直接上报自己的进度。为它给三端共用的
+ *  [`FileAccess`](crate::host::FileAccess) 端口加回调参数是反向的——其余平台的发布是
+ *  常数时间的重命名，根本没有循环可上报。
+ */
+export type FilePublishPhase = "started" | "finished";
 
 /**  文件来源：标准文件系统路径 */
 export type FileSource = 

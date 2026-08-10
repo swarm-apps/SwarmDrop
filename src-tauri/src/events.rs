@@ -9,9 +9,9 @@ use swarmdrop_core::device::{Device, PairedDeviceInfo};
 use swarmdrop_core::network::NetworkStatus;
 use swarmdrop_core::transfer::incoming::TransferOfferEvent;
 use swarmdrop_core::transfer::progress::{
-    PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent, TransferDbErrorEvent,
-    TransferFailedEvent, TransferPausedEvent, TransferProgressEvent, TransferRejectedEvent,
-    TransferResumedEvent,
+    FilePublishEvent, PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent,
+    TransferDbErrorEvent, TransferFailedEvent, TransferPausedEvent, TransferProgressEvent,
+    TransferRejectedEvent, TransferResumedEvent,
 };
 use swarmdrop_core::transfer::store::TransferProjection;
 
@@ -129,6 +129,14 @@ pub struct TransferDbError(pub TransferDbErrorEvent);
 #[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
 #[serde(transparent)]
 pub struct TransferProjectionUpdate(pub TransferProjection);
+
+/// 单个文件正在从暂存位置发布到用户可见位置。事件名 `"file-publish"`。
+///
+/// 桌面的发布是同目录 `rename`（O(1)），这条事件通常一闪而过——它在这里是为了让三端对
+/// 「字节收完 ≠ 文件落地」有同一套表达，而不是因为桌面会卡在这一步。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct FilePublish(pub FilePublishEvent);
 
 // === 接收暂停 ===
 

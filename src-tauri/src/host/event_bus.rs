@@ -5,10 +5,10 @@ use tauri::AppHandle;
 use tauri_specta::Event as _;
 
 use crate::events::{
-    DeviceRenamed, DevicesChanged, NetworkStatusChanged, PairedDeviceAdded, PairedDeviceRemoved,
-    PairingRequestPayload, PairingRequestReceived, PrepareProgress, TransferAccepted,
-    TransferComplete, TransferDbError, TransferFailed, TransferOffer, TransferPaused,
-    TransferProgress, TransferProjectionUpdate, TransferRejected, TransferResumed,
+    DeviceRenamed, DevicesChanged, FilePublish, NetworkStatusChanged, PairedDeviceAdded,
+    PairedDeviceRemoved, PairingRequestPayload, PairingRequestReceived, PrepareProgress,
+    TransferAccepted, TransferComplete, TransferDbError, TransferFailed, TransferOffer,
+    TransferPaused, TransferProgress, TransferProjectionUpdate, TransferRejected, TransferResumed,
 };
 
 /// 把 core 的 [`CoreEvent`] 翻译成 tauri-specta 的 typed event 广播。
@@ -119,9 +119,15 @@ impl EventBus for TauriEventBus {
             CoreEvent::PrepareProgress { event } => {
                 PrepareProgress(event).emit(&self.app).map_err(map_err)?;
             }
+            CoreEvent::FilePublish { event } => {
+                FilePublish(event).emit(&self.app).map_err(map_err)?;
+            }
             CoreEvent::Error { .. } => {}
-            // #[non_exhaustive]：未知变体直接忽略
-            _ => {}
+            // `CoreEvent` 是 `#[non_exhaustive]`，所以漏接一个变体**不会**编译失败。
+            // **必须留日志**：否则症状是「事件发了、前端没反应」，而两边代码都看着正常。
+            other => {
+                tracing::warn!("桌面事件转发未覆盖的 CoreEvent，已丢弃: {other:?}");
+            }
         }
 
         Ok(())

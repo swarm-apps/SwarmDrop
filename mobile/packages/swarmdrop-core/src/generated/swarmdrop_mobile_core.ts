@@ -785,6 +785,114 @@ const FfiConverterTypeMobileFileProgress = (() => {
 })();
 
 /**
+ * 发布阶段。**fieldless `uniffi::Enum`，与同域的 [`MobileTransferDirection`] 等同体例**
+ * ——生成的 TS 是 `export enum MobileFilePublishPhase { Started, Finished }`，所以 JS 侧
+ * 加档时 switch 会缺项报错。
+ *
+ * 早先这里是 `String`，理由写作「uniffi enum 会生成 `{ tag: … }` 对象」——**那是带字段
+ * 枚举的形态**，无字段的不是。裸 `String` 让 `FilePublishEvent` 的文档断言（「三端 codegen
+ * 都稳，加档会在查表处编译期报缺项」）恰好在唯一有慢发布路径的那一端不成立。
+ */
+export enum MobileFilePublishPhase {
+    Started,
+    Finished
+}
+
+const FfiConverterTypeMobileFilePublishPhase = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileFilePublishPhase;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileFilePublishPhase.Started;
+                case 2: return MobileFilePublishPhase.Finished;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileFilePublishPhase.Started: return ordinalConverter.write(1, into);
+                case MobileFilePublishPhase.Finished: return ordinalConverter.write(2, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+/**
+ * 单个文件的发布阶段（暂存 → 用户可见位置）。
+ *
+ * **Android 上这一段是全量字节拷贝，几十秒起步**，而此时字节已收完、进度条已满——
+ * 没有这条事件，用户看到的就是「满了之后凭空多等一段」。
+ *
+ * 拷贝中的字节数**不在这里**——那个循环在 JS 侧的 `ForeignFileAccess` 里，由它直接上报。
+ */
+export type MobileFilePublish = {
+    sessionId: string,
+    fileId: number,
+    name: string,
+    /**
+     * JS 侧靠它把自己的拷贝字节数认领到正确的条目上——它拿到的元数据里没有会话与文件 id。
+     */
+    relativePath: string,
+    totalBytes: bigint,
+    phase: MobileFilePublishPhase
+}
+
+/**
+ * Generated factory for {@link MobileFilePublish} record objects.
+ */
+export const MobileFilePublish = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileFilePublish, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileFilePublish>,
+    });
+})();
+
+const FfiConverterTypeMobileFilePublish = (() => {
+    type TypeName = MobileFilePublish;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                sessionId: FfiConverterString.read(from), 
+                fileId: FfiConverterUInt32.read(from), 
+                name: FfiConverterString.read(from), 
+                relativePath: FfiConverterString.read(from), 
+                totalBytes: FfiConverterUInt64.read(from), 
+                phase: FfiConverterTypeMobileFilePublishPhase.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.sessionId, into);
+            FfiConverterUInt32.write(value.fileId, into);
+            FfiConverterString.write(value.name, into);
+            FfiConverterString.write(value.relativePath, into);
+            FfiConverterUInt64.write(value.totalBytes, into);
+            FfiConverterTypeMobileFilePublishPhase.write(value.phase, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.sessionId) +
+             FfiConverterUInt32.allocationSize(value.fileId) +
+             FfiConverterString.allocationSize(value.name) +
+             FfiConverterString.allocationSize(value.relativePath) +
+             FfiConverterUInt64.allocationSize(value.totalBytes) +
+             FfiConverterTypeMobileFilePublishPhase.allocationSize(value.phase);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+/**
  * finalize_sink 的返回（uniffi 镜像 [`FinalizedSink`]）：文件最终 URI + 其父目录 URI。
  * `dir` 供「打开文件夹」定位真实容器目录（file:// 目录 / SAF 目录 document URI）。
  */
@@ -4260,6 +4368,7 @@ export enum MobileCoreEvent_Tags {
     TransferProjectionUpdate = "TransferProjectionUpdate",
     TransferDbError = "TransferDbError",
     PrepareProgress = "PrepareProgress",
+    FilePublish = "FilePublish",
     Error = "Error"
 }
 export const MobileCoreEvent = (() => {
@@ -4819,6 +4928,37 @@ inner: {event: MobilePrepareProgress }): PrepareProgress_ {
 
     }
 
+    type FilePublish__interface = {
+        tag: MobileCoreEvent_Tags.FilePublish;
+        inner: 
+Readonly<{event: MobileFilePublish}>
+    };
+    class FilePublish_ extends UniffiEnum implements FilePublish__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileCoreEvent";
+        readonly tag = MobileCoreEvent_Tags.FilePublish;
+        readonly inner: 
+Readonly<{event: MobileFilePublish}>;
+        constructor(
+inner: {event: MobileFilePublish }) {
+            super("MobileCoreEvent", "FilePublish");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {event: MobileFilePublish }): FilePublish_ {
+            return new FilePublish_(inner);
+        }
+
+        static instanceOf(obj: any): obj is FilePublish_ {
+            return obj.tag === MobileCoreEvent_Tags.FilePublish;
+        }
+
+    }
+
     type Error__interface = {
         tag: MobileCoreEvent_Tags.Error;
         inner: 
@@ -4874,12 +5014,13 @@ inner: {message: string }): Error_ {
   TransferProjectionUpdate: TransferProjectionUpdate_, 
   TransferDbError: TransferDbError_, 
   PrepareProgress: PrepareProgress_, 
+  FilePublish: FilePublish_, 
   Error: Error_
     });
 
 })();
 export type MobileCoreEvent = InstanceType<
-    typeof MobileCoreEvent['NetworkStatusChanged' | 'DevicesChanged' | 'PairingRequestReceived' | 'PairingCompleted' | 'PairedDeviceAdded' | 'PairedDeviceRemoved' | 'DeviceRenamed' | 'TransferOfferReceived' | 'TransferProgress' | 'TransferAccepted' | 'TransferRejected' | 'TransferCompleted' | 'TransferFailed' | 'TransferPaused' | 'TransferResumed' | 'TransferProjectionUpdate' | 'TransferDbError' | 'PrepareProgress' | 'Error']
+    typeof MobileCoreEvent['NetworkStatusChanged' | 'DevicesChanged' | 'PairingRequestReceived' | 'PairingCompleted' | 'PairedDeviceAdded' | 'PairedDeviceRemoved' | 'DeviceRenamed' | 'TransferOfferReceived' | 'TransferProgress' | 'TransferAccepted' | 'TransferRejected' | 'TransferCompleted' | 'TransferFailed' | 'TransferPaused' | 'TransferResumed' | 'TransferProjectionUpdate' | 'TransferDbError' | 'PrepareProgress' | 'FilePublish' | 'Error']
 >;
 
 // FfiConverter for enum MobileCoreEvent
@@ -4907,7 +5048,8 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                 case 16: return new MobileCoreEvent.TransferProjectionUpdate({projection: FfiConverterTypeMobileTransferProjection.read(from) });
                 case 17: return new MobileCoreEvent.TransferDbError({sessionId: FfiConverterString.read(from), message: FfiConverterString.read(from) });
                 case 18: return new MobileCoreEvent.PrepareProgress({event: FfiConverterTypeMobilePrepareProgress.read(from) });
-                case 19: return new MobileCoreEvent.Error({message: FfiConverterString.read(from) });
+                case 19: return new MobileCoreEvent.FilePublish({event: FfiConverterTypeMobileFilePublish.read(from) });
+                case 20: return new MobileCoreEvent.Error({message: FfiConverterString.read(from) });
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
@@ -5025,8 +5167,14 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                     FfiConverterTypeMobilePrepareProgress.write(inner.event, into);
                     return;
                 }
-                case MobileCoreEvent_Tags.Error: {
+                case MobileCoreEvent_Tags.FilePublish: {
                     ordinalConverter.write(19, into);
+                    const inner = value.inner;
+                    FfiConverterTypeMobileFilePublish.write(inner.event, into);
+                    return;
+                }
+                case MobileCoreEvent_Tags.Error: {
+                    ordinalConverter.write(20, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.message, into);
                     return;
@@ -5149,9 +5297,15 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                     size += FfiConverterTypeMobilePrepareProgress.allocationSize(inner.event);
                     return size;
                 }
-                case MobileCoreEvent_Tags.Error: {
+                case MobileCoreEvent_Tags.FilePublish: {
                     const inner = value.inner;
                     let size = ordinalConverter.allocationSize(19);
+                    size += FfiConverterTypeMobileFilePublish.allocationSize(inner.event);
+                    return size;
+                }
+                case MobileCoreEvent_Tags.Error: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(20);
                     size += FfiConverterString.allocationSize(inner.message);
                     return size;
                 }
@@ -9294,6 +9448,8 @@ export default Object.freeze({
     FfiConverterTypeMobileFailureCode,
     FfiConverterTypeMobileFileMetadata,
     FfiConverterTypeMobileFileProgress,
+    FfiConverterTypeMobileFilePublish,
+    FfiConverterTypeMobileFilePublishPhase,
     FfiConverterTypeMobileFinalizedSink,
     FfiConverterTypeMobileIdentity,
     FfiConverterTypeMobileInboxContentKind,

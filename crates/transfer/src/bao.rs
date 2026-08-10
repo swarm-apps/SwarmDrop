@@ -7,7 +7,7 @@
 //!
 //! 每个 [`BlockData`](crate::wire::data_frame::TransferDataFrame) 的 `proof` 字段直接放
 //! [`encode_ranges_validated`] 产出的完整 bao 切片（交错的 Parent/Leaf），`data` 字段置空。
-//! 接收端把整段喂 [`decode_ranges`]（root = `FileInfo.checksum` 解析回 blake3::Hash）——
+//! 接收端把整段喂 [`decode_and_verify`]（root = `FileInfo.checksum` 解析回 blake3::Hash）——
 //! decode 必然验签、无 skip 选项，验过即得明文块写盘。
 //!
 //! 为何不拆 Parent 进 proof、Leaf 进 data：库没有稳定的「拆/组交错流」公开迭代顺序 API，
@@ -29,11 +29,12 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use bao_tree::io::fsm::CreateOutboard;
-use bao_tree::io::outboard::{PostOrderOutboard, PreOrderOutboard};
+use bao_tree::io::outboard::PostOrderOutboard;
 use bao_tree::io::round_up_to_chunks;
 use bao_tree::io::sync::{
-    ReadAt, WriteAt, decode_ranges, encode_ranges_validated, outboard_post_order,
+    DecodeResponseIter, ReadAt, encode_ranges_validated, outboard_post_order,
 };
+use bao_tree::io::{BaoContentItem, Leaf};
 use bao_tree::{BaoTree, BlockSize, ByteRanges};
 use bytes::Bytes;
 use iroh_io::AsyncSliceReader;
@@ -325,6 +326,34 @@ pub fn encode_proof(
 ///
 /// `root` 由 `FileInfo.checksum` 解析（[`root_from_checksum`]）。验证失败 / proof 损坏 →
 /// `Err`（调用方按协议违规断流走 Interrupted 恢复）。
+///
+/// # 为什么是 [`DecodeResponseIter`] 而不是 `decode_ranges`
+///
+/// **不要"简化"回 `decode_ranges`——那条路径是 O(已接收量)/块。**
+///
+/// `decode_ranges` 的契约是「解码，并把 outboard 与数据双双持久化」，服务的是「边收边建
+/// 一份可再分发的 outboard」。本仓不做再分发，于是只能塞给它两个一次性的写入目标，而其中
+/// 那个 outboard 会把成本变成 O(n)：
+///
+/// - `PreOrderOutboard::save` 把每个 parent 写到 `pre_order_offset(node) * 64`，偏移随节点
+///   在树中的位置增长；
+/// - `positioned_io` 的 `WriteAt for Vec<u8>` 在 `pos >= len` 时 `resize(pos, 0)`。
+///
+/// 两者相乘 = **每验一块都把一个空 `Vec` 零填充到该块祖先链的最深偏移**。2026-08-10 的三端
+/// 实测（`dev-notes/research/2026-08-10-v0.15.2-field-test.md`）里，7.49 GiB 的会话末段每块要
+/// 填 ~1.87 MiB，桌面接收侧 `verify` 因此从 13 ms/64 MiB 涨到 247 ms（**×19**），移动端
+/// 168 → 765 ms；同期真正写盘的那一段全程恒定。发送侧不受影响，因为 [`encode_proof`] 的
+/// `PostOrderOutboard` 拿的是只读 `&[u8]`，本来就是完整长度、永不扩展。
+///
+/// [`DecodeResponseIter`] 只要 `root` 与 `tree`，**根本不需要 outboard 对象**——它的契约恰好
+/// 就是「产出已验证的内容项」。抽象层级对上之后，O(n) 与那个每块 `vec![0u8; 256KiB]` 的目标
+/// 缓冲一并消失。
+///
+/// # 丢弃 parent 是安全的
+///
+/// 验签在迭代器内部对着 `root` 完成。`decode_ranges` 自己的循环体也只是 `outboard.save(..)`，
+/// **全程不调 `outboard.load(..)`**——写进去的 parent 从来没有被读回过，对不做再分发的接收端
+/// 纯属浪费。
 pub fn decode_and_verify(
     proof: &[u8],
     root: blake3::Hash,
@@ -337,22 +366,36 @@ pub fn decode_and_verify(
         return Ok(Vec::new());
     }
     let tree = BaoTree::new(file_size, BLOCK_SIZE);
-    let end = offset + expected_len;
-    let ranges = round_up_to_chunks(&ByteRanges::from(offset..end));
-    // 接收端不建 outboard（不做再分发）：throwaway outboard 只承载 root 供验签，decode 写进去的
-    // parents 用完即弃。data: Vec<u8> 同时是 WriteAt（承载 parents）。
-    let mut outboard = PreOrderOutboard {
-        root,
-        tree,
-        data: Vec::<u8>::new(),
-    };
-    let mut target = OffsetWriteAt {
-        base: offset,
-        data: vec![0u8; expected_len as usize],
-    };
-    decode_ranges(Cursor::new(proof), &ranges, &mut target, &mut outboard)
-        .map_err(|e| AppError::Transfer(format!("bao 逐块验证失败: {e}")))?;
-    Ok(target.data)
+    let ranges = round_up_to_chunks(&ByteRanges::from(offset..offset + expected_len));
+
+    let mut block = Vec::with_capacity(expected_len as usize);
+    for item in DecodeResponseIter::new(root, tree, Cursor::new(proof), &ranges) {
+        match item.map_err(|e| AppError::Transfer(format!("bao 逐块验证失败: {e}")))? {
+            // 只参与验签，不落地（见上方 doc）。
+            BaoContentItem::Parent(_) => {}
+            BaoContentItem::Leaf(Leaf { offset: at, data }) => {
+                // 叶子必须首尾相接地铺满请求区间。bao 的前序遍历天然如此，但那是它的
+                // **实现事实而非契约**（同 `records_sequential_forward_reads` 看守的那条），
+                // 所以这里写成显式判据：不成立就报错，而不是默默拼出一段错位的明文。
+                let want = offset + block.len() as u64;
+                if at != want {
+                    return Err(AppError::Transfer(format!(
+                        "bao 叶子不连续: 期望 offset {want}，实得 {at}"
+                    )));
+                }
+                block.extend_from_slice(&data);
+            }
+        }
+    }
+    // proof 提前结束与叶子缺失是同一种失败，统一由长度判据兜住——否则会把一段**短于**
+    // 声明长度的明文当成功返回，而调用方正是按 `range.length` 去记 bitmap 的。
+    if block.len() as u64 != expected_len {
+        return Err(AppError::Transfer(format!(
+            "bao 解码长度不符: 期望 {expected_len}B，实得 {}B",
+            block.len()
+        )));
+    }
+    Ok(block)
 }
 
 /// 把 `FileInfo.checksum`（blake3 hex）解析回验证 root。
@@ -376,30 +419,6 @@ impl ReadAt for OffsetReadAt<'_> {
         let n = available.min(buf.len());
         buf[..n].copy_from_slice(&self.data[rel..rel + n]);
         Ok(n)
-    }
-}
-
-/// 把绝对文件偏移 rebase 到块内偏移的 [`WriteAt`]，`data` 收 decode 出的验证过明文。
-struct OffsetWriteAt {
-    base: u64,
-    data: Vec<u8>,
-}
-
-impl WriteAt for OffsetWriteAt {
-    fn write_at(&mut self, pos: u64, buf: &[u8]) -> std::io::Result<usize> {
-        let rel = pos.checked_sub(self.base).ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::InvalidInput, "write_at 越过块起点")
-        })? as usize;
-        let end = rel + buf.len();
-        if self.data.len() < end {
-            self.data.resize(end, 0);
-        }
-        self.data[rel..end].copy_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
     }
 }
 

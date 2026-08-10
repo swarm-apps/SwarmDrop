@@ -611,8 +611,11 @@ impl SenderActor {
                 .lock()
                 .map_err(|_| AppError::Transfer("ProgressTracker 锁中毒".into()))?;
             p.add_bytes(plaintext_len);
-            p.update_file_chunk(file.file_id, plaintext_len);
-            p.progress_event()
+            // **会话**收齐那一帧强制穿过节流：末块与节流窗口相比太快，否则最后那帧 100%
+            // 会被丢掉，UI 停在 99.x% 直接跳完成。按**文件**判会退化成 O(N²)，理由见
+            // `ProgressTracker::update_file_chunk` 的文档。
+            let session_completed = p.update_file_chunk(file.file_id, plaintext_len);
+            p.progress_event(session_completed)
         };
         if let Some(event) = progress_event {
             self.emit_best_effort(TransferEvent::TransferProgress { event }, "上报发送块进度")

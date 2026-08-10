@@ -53,23 +53,55 @@ pub(crate) const SEND_WRITE: usize = 2;
 /// 满窗后等对端回 `Window`（停等流控的 RTT + 对端消化时间）。
 pub(crate) const SEND_ACK: usize = 3;
 
-/// 接收端的五个阶段。**顺序即热路径顺序**，与 [`RECV_WAIT`] 等下标常量绑定。
-pub(crate) const RECV_LABELS: [&str; 5] = ["wait", "verify", "write", "ckpt", "rest"];
-/// 等下一帧到达——**被链路饿着的时间**。它占大头即说明瓶颈不在接收端的工作量。
-pub(crate) const RECV_WAIT: usize = 0;
+/// 接收端**收帧循环**的两个阶段。
+///
+/// # 为什么接收端是两个探针而不是一个
+///
+/// 收帧与消化自 2026-08-10 起是**并发**的两条路径（有界队列相连，见
+/// `actor::receiver`）。用一个探针横跨它们会直接破掉这个模块的判读前提——
+/// [`StageProbe::lap`] 的各阶段之和恒等于壁钟，那只在**单条串行路径**上成立；
+/// 两条并发路径的耗时会重叠，加总必然超过壁钟，占比之和越过 100% 之后
+/// 「差值 = 未计入的开销」这条读法就彻底失效了。
+///
+/// 拆开之后两条线各自回答一个问题，比合在一起时更有判别力：
+///
+/// - 收帧线的 `enqueue` 占大头 → **消化跟不上**（队列常满，背压在起作用）
+/// - 消化线的 `queue` 占大头 → **链路喂不饱**（队列常空，瓶颈在对端或网络）
+///
+/// 两者同时很小才说明流水线是满的。
+pub(crate) const FRAME_LABELS: [&str; 2] = ["wait", "enqueue"];
+/// 等下一帧到达——**被链路饿着的时间**。
+pub(crate) const FRAME_WAIT: usize = 0;
+/// 入队阻塞——**被消化端顶住的时间**，即背压。
+pub(crate) const FRAME_ENQUEUE: usize = 1;
+
+/// 接收端**消化循环**的六个阶段。**顺序即热路径顺序**，与 [`DIGEST_QUEUE`] 等下标绑定。
+pub(crate) const DIGEST_LABELS: [&str; 6] = ["queue", "verify", "write", "ckpt", "rest", "publish"];
+/// 等队列里出现下一块——**被链路饿着的时间**，流水线化之前叫 `wait`。
+pub(crate) const DIGEST_QUEUE: usize = 0;
 /// bao 逐块验签（decode + blake3）。
-pub(crate) const RECV_VERIFY: usize = 1;
-/// 写 staging（pwrite）。症状 B 若是闪存侧，这一段会随进度增长。
-pub(crate) const RECV_WRITE: usize = 2;
+pub(crate) const DIGEST_VERIFY: usize = 1;
+/// 写 staging（pwrite）。
+pub(crate) const DIGEST_WRITE: usize = 2;
 /// checkpoint 落库（每 `CHECKPOINT_INTERVAL` 块一次，摊到每块）。
-pub(crate) const RECV_CKPT: usize = 3;
-/// 其余（bitmap 簿记、进度事件、发布）。
-pub(crate) const RECV_REST: usize = 4;
+pub(crate) const DIGEST_CKPT: usize = 3;
+/// 其余（bitmap 簿记、进度事件）。
+pub(crate) const DIGEST_REST: usize = 4;
+/// 发布：暂存 → 用户可见位置。**只在文件收齐的那一块上非零。**
+///
+/// 从 `rest` 里拆出来，是因为两者的量级差着好几个数量级：Android 的 SAF 目标是全量字节
+/// 拷贝（6 GB 文件要写 12 GB），其余端是常数时间的重命名。混在一个桶里，真机日志分不出
+/// 「发布慢」和「簿记慢」。
+///
+/// 排在 `rest` **之后**：热路径上是先 `lap(DIGEST_REST)` 把簿记与进度事件结掉，再发布。
+pub(crate) const DIGEST_PUBLISH: usize = 5;
 
 /// 发送端探针。
 pub(crate) type SendProbe = StageProbe<4>;
-/// 接收端探针。
-pub(crate) type RecvProbe = StageProbe<5>;
+/// 接收端收帧探针。
+pub(crate) type FrameProbe = StageProbe<2>;
+/// 接收端消化探针。
+pub(crate) type DigestProbe = StageProbe<6>;
 
 /// 把每块的壁钟时间摊到 `N` 个阶段上，按块数节流地报告。
 ///
@@ -241,6 +273,25 @@ mod tests {
     }
 
     #[test]
+    fn stage_indices_stay_aligned_with_their_labels() {
+        // 下标常量与标签数组是两份独立声明，插一个新阶段却忘了顺延下标，产出的报告会
+        // 把耗时记到**相邻那个阶段**名下——数字依旧自洽，只是归因全错，而这类错误在
+        // 真机日志里没有任何可辨识的形状。数组长度由类型保证，错位只能这样钉。
+        assert_eq!(FRAME_LABELS[FRAME_WAIT], "wait");
+        assert_eq!(FRAME_LABELS[FRAME_ENQUEUE], "enqueue");
+        assert_eq!(DIGEST_LABELS[DIGEST_QUEUE], "queue");
+        assert_eq!(DIGEST_LABELS[DIGEST_VERIFY], "verify");
+        assert_eq!(DIGEST_LABELS[DIGEST_WRITE], "write");
+        assert_eq!(DIGEST_LABELS[DIGEST_CKPT], "ckpt");
+        assert_eq!(DIGEST_LABELS[DIGEST_REST], "rest");
+        assert_eq!(DIGEST_LABELS[DIGEST_PUBLISH], "publish");
+        assert_eq!(SEND_LABELS[SEND_READ], "read");
+        assert_eq!(SEND_LABELS[SEND_PROOF], "proof");
+        assert_eq!(SEND_LABELS[SEND_WRITE], "write");
+        assert_eq!(SEND_LABELS[SEND_ACK], "ack");
+    }
+
+    #[test]
     fn render_lists_every_stage_in_declared_order() {
         let stages = [Duration::from_millis(10), Duration::from_millis(90)];
         let rendered = render_stages(&["a", "b"], &stages, Duration::from_millis(100));
@@ -260,7 +311,7 @@ mod tests {
     fn finish_is_silent_without_blocks() {
         // 没传成一块的会话不该产出汇总行——否则每次失败的握手（以及每个被 Drop 的
         // 空探针）都会在日志里留一条「0 blocks / 0.00 mb_s」的噪声。
-        let probe = RecvProbe::new("recv", Uuid::nil(), RECV_LABELS);
+        let probe = DigestProbe::new("recv", Uuid::nil(), DIGEST_LABELS);
         assert_eq!(probe.blocks, 0);
         drop(probe);
     }

@@ -556,11 +556,15 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
   跨实现的证书兼容由 `certificate.rs` 的 `reads_official_pem_with_identical_certhash`
   钉死——**那条测试红了就说明存量地址会全部拨不通**。
 - **Dev profile optimization:** 所有依赖在 dev 下也用 `opt-level = 3`（加密依赖否则慢 10–100 倍）。
-  移动端 release 用单独的 `[profile.mobile-release]`（包体优先，`opt-level = "z"`），
-  **但它不是一刀切——有单包例外**：`[profile.mobile-release.package.blake3]` 覆回 `opt-level = 3`
-  （`"z"` 会传到 blake3 build.rs 的 cc 调用，把 aarch64 的 C NEON 实现按住，而哈希是传输路径上
-  按字节计费的热点；理由与「还有哪些包该例外」的判据见
-  [`toolchain.md`](dev-notes/knowledge/toolchain.md)）。
+  移动端 release 用单独的 `[profile.mobile-release]`，**它也是 `opt-level = 3`，且没有任何
+  单包例外**（2026-08-10 从「包体优先 `opt-level = "z"` + blake3 单包覆写」改过来）。
+  改的理由是 `"z"` 在传输热路径上要付数量级的代价，而热点遍布整棵依赖树、逐包例外列不全：
+  blake3 的 `"z"` 会穿透进 build.rs 的 cc 调用按住 aarch64 NEON；WebRTC 的 DTLS 走 RustCrypto
+  的**纯 Rust** AES-GCM/GHASH（不是 ring 的 asm），被 `-Oz` 关掉内联后，**同一台 Android 手机
+  走 QUIC 有 12–23 MB/s、走 WebRTC 只剩 0.36–0.96 MB/s**。体积改由 `lto` + `codegen-units = 1`
+  + `strip` 承担（三者都不牺牲速度）。完整推导与**尚未分离的那个变量**见
+  [`toolchain.md`](dev-notes/knowledge/toolchain.md) 与
+  [`2026-08-10-v0.15.2-field-test.md`](dev-notes/research/2026-08-10-v0.15.2-field-test.md)。
   注意 **Cargo 会静默忽略 member 自己的 profile**，只有 workspace root 的算数——
   单包覆写（`profile.*.package.*`）同样只认 root。
 - **Vite port:** 固定 1420（Tauri 要求），HMR 1421。
@@ -607,6 +611,7 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | 重构系列博客 | `dev-notes/blogs/2026-07-net-refactor-series.md` |
 | 配对重构系列博客 | `dev-notes/blogs/pairing-invite/README.md` |
 | WebRTC 系列博客（零基础入门 + 上游补丁复盘） | `dev-notes/blogs/webrtc/README.md` |
+| 传输吞吐系列博客（2026-08-10 真机实测复盘） | `dev-notes/blogs/transfer-throughput/README.md`（探针 vs 排除法、bao 的 O(n²)、两套加密栈、停等流控、`try_join` 的取消语义） |
 | 产品需求 | `dev-notes/product-requirements.md` |
 | UI 设计文件 | `dev-notes/design/design.pen` |
 | 历史文档（重构前设计 / 已完成 roadmap / 早期调研） | `dev-notes/archive/` |

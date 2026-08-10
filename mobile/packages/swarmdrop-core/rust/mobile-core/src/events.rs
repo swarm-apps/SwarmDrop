@@ -12,7 +12,7 @@ use swarmdrop_core::AppResult;
 use swarmdrop_core::host::{CoreEvent, EventBus};
 use swarmdrop_core::network::SharedNetRefs;
 use swarmdrop_core::transfer::manager::TransferManager;
-use swarmdrop_core::transfer::progress::FileTransferStatus;
+use swarmdrop_core::transfer::progress::{FilePublishPhase, FileTransferStatus};
 use swarmdrop_net::{Events, Router};
 
 use crate::history::MobileTransferProjection;
@@ -68,6 +68,45 @@ pub struct MobileTransferProgress {
     pub speed: f64,
     pub eta: Option<f64>,
     pub files: Vec<MobileFileProgress>,
+}
+
+/// 发布阶段。**fieldless `uniffi::Enum`，与同域的 [`MobileTransferDirection`] 等同体例**
+/// ——生成的 TS 是 `export enum MobileFilePublishPhase { Started, Finished }`，所以 JS 侧
+/// 加档时 switch 会缺项报错。
+///
+/// 早先这里是 `String`，理由写作「uniffi enum 会生成 `{ tag: … }` 对象」——**那是带字段
+/// 枚举的形态**，无字段的不是。裸 `String` 让 `FilePublishEvent` 的文档断言（「三端 codegen
+/// 都稳，加档会在查表处编译期报缺项」）恰好在唯一有慢发布路径的那一端不成立。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum MobileFilePublishPhase {
+    Started,
+    Finished,
+}
+
+impl From<FilePublishPhase> for MobileFilePublishPhase {
+    fn from(phase: FilePublishPhase) -> Self {
+        match phase {
+            FilePublishPhase::Started => Self::Started,
+            FilePublishPhase::Finished => Self::Finished,
+        }
+    }
+}
+
+/// 单个文件的发布阶段（暂存 → 用户可见位置）。
+///
+/// **Android 上这一段是全量字节拷贝，几十秒起步**，而此时字节已收完、进度条已满——
+/// 没有这条事件，用户看到的就是「满了之后凭空多等一段」。
+///
+/// 拷贝中的字节数**不在这里**——那个循环在 JS 侧的 `ForeignFileAccess` 里，由它直接上报。
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MobileFilePublish {
+    pub session_id: String,
+    pub file_id: u32,
+    pub name: String,
+    /// JS 侧靠它把自己的拷贝字节数认领到正确的条目上——它拿到的元数据里没有会话与文件 id。
+    pub relative_path: String,
+    pub total_bytes: u64,
+    pub phase: MobileFilePublishPhase,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -168,6 +207,9 @@ pub enum MobileCoreEvent {
     },
     PrepareProgress {
         event: MobilePrepareProgress,
+    },
+    FilePublish {
+        event: MobileFilePublish,
     },
     Error {
         message: String,
@@ -314,11 +356,59 @@ fn map_event(event: CoreEvent) -> Option<MobileCoreEvent> {
                 total_bytes: event.total_bytes,
             },
         },
+        CoreEvent::FilePublish { event } => MobileCoreEvent::FilePublish {
+            event: MobileFilePublish {
+                session_id: event.session_id.to_string(),
+                file_id: event.file_id,
+                name: event.name,
+                relative_path: event.relative_path,
+                total_bytes: event.total_bytes,
+                phase: event.phase.into(),
+            },
+        },
         CoreEvent::Error { message } => MobileCoreEvent::Error { message },
-        // #[non_exhaustive]：未来新增变体先返回 None，等 mobile 镜像跟上
-        _ => return None,
+        // `CoreEvent` 是 `#[non_exhaustive]`，所以漏接一个变体**不会**编译失败——这条兜底
+        // 是移动端唯一会被静默吞掉的路径。**必须留日志**：否则症状是「功能在桌面好用、
+        // 在手机上什么都不发生」，而代码看起来完全正常。
+        other => {
+            tracing::warn!("mobile 事件镜像未覆盖的 CoreEvent，已丢弃: {other:?}");
+            return None;
+        }
     };
     Some(mapped)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 发布事件必须真的过得了镜像这一关。
+    ///
+    /// 它是本文件里唯一**不会编译期报错**的接线点：`map_event` 的兜底分支会把漏接的变体
+    /// 静默吞掉，而 UI 侧只会表现为「Android 保存时那段提示永远不出现」。
+    #[test]
+    fn file_publish_should_survive_the_mobile_mirror() {
+        let session_id = uuid::Uuid::new_v4();
+        let mapped = map_event(CoreEvent::FilePublish {
+            event: swarmdrop_core::transfer::progress::FilePublishEvent {
+                session_id,
+                file_id: 7,
+                name: "a.bin".to_string(),
+                relative_path: "sub/a.bin".to_string(),
+                total_bytes: 1024,
+                phase: FilePublishPhase::Started,
+            },
+        })
+        .expect("发布事件必须有镜像");
+
+        let MobileCoreEvent::FilePublish { event } = mapped else {
+            panic!("映射到了错误的变体");
+        };
+        assert_eq!(event.session_id, session_id.to_string());
+        assert_eq!(event.file_id, 7);
+        assert_eq!(event.relative_path, "sub/a.bin");
+        assert_eq!(event.phase, MobileFilePublishPhase::Started);
+    }
 }
 
 /// 事件循环：完整版（包含 Transfer 处理），需要 TransferManager 已就绪。

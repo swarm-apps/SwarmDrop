@@ -206,6 +206,39 @@ export type FileProgressInfo = {
     status: FileTransferStatus,
 };
 
+/**
+ *  单个文件的发布事件。
+ *
+ *  **是文件级而非会话级**：发布是「收齐即发布」，一个会话里会发生多次、散布在整条传输
+ *  过程中，不是末尾一次。挂到会话级的进度事件上就表达不了「现在正在保存哪一个」。
+ */
+export type FilePublishEvent = {
+    sessionId: string,
+    fileId: number,
+    /**  文件名（展示用）。 */
+    name: string,
+    /**
+     *  相对路径。移动端 JS 侧靠它把自己的拷贝字节数认领到正确的条目上——
+     *  它拿到的元数据里没有 session_id / file_id。
+     */
+    relativePath: string,
+    totalBytes: number,
+    phase: FilePublishPhase,
+};
+
+/**
+ *  单个文件的发布阶段（暂存 → 用户可见位置）。
+ *
+ *  只有两档且都是 unit 变体：三端 codegen 都稳（specta → 字符串联合、uniffi → 无字段
+ *  enum），各端用查表渲染，将来加档会在查表处编译期报缺项。
+ *
+ *  **拷贝中的字节进度不在这里**：唯一会慢的发布路径是 Android 的 SAF 全量拷贝，那个循环
+ *  住在移动端 JS 侧的宿主适配器里，由它直接上报自己的进度。为它给三端共用的
+ *  [`FileAccess`](crate::host::FileAccess) 端口加回调参数是反向的——其余平台的发布是
+ *  常数时间的重命名，根本没有循环可上报。
+ */
+export type FilePublishPhase = "started" | "finished";
+
 export type FileTransferStatus = "pending" | "transferring" | "completed";
 
 /**  收件箱内容类型。 */
@@ -763,7 +796,7 @@ export type WebError =
  *  `TransferEvent` 本身未 derive `Serialize`（transfer 不改）——与桌面把它映射进
  *  `CoreEvent` 的适配范式一致。`events()` 的 ReadableStream 逐条产出本类型的序列化对象。
  */
-export type WebTransferEvent = { type: "transferOfferReceived"; offer: TransferOfferEvent } | { type: "transferProgress"; event: TransferProgressEvent } | { type: "transferAccepted"; event: TransferAcceptedEvent } | { type: "transferRejected"; event: TransferRejectedEvent } | { type: "transferCompleted"; event: TransferCompleteEvent } | { type: "transferFailed"; event: TransferFailedEvent } | { type: "transferPaused"; event: TransferPausedEvent } | { type: "transferResumed"; event: TransferResumedEvent } | { type: "transferDbError"; event: TransferDbErrorEvent } | { type: "transferProjection"; projection: TransferProjection } | { type: "prepareProgress"; event: PrepareProgressEvent };
+export type WebTransferEvent = { type: "transferOfferReceived"; offer: TransferOfferEvent } | { type: "transferProgress"; event: TransferProgressEvent } | { type: "transferAccepted"; event: TransferAcceptedEvent } | { type: "transferRejected"; event: TransferRejectedEvent } | { type: "transferCompleted"; event: TransferCompleteEvent } | { type: "transferFailed"; event: TransferFailedEvent } | { type: "transferPaused"; event: TransferPausedEvent } | { type: "transferResumed"; event: TransferResumedEvent } | { type: "transferDbError"; event: TransferDbErrorEvent } | { type: "transferProjection"; projection: TransferProjection } | { type: "prepareProgress"; event: PrepareProgressEvent } | { type: "filePublish"; event: FilePublishEvent };
 
 
 
@@ -1379,10 +1412,10 @@ export interface InitOutput {
     readonly webnode_take_skipped_forward_paths: (a: number) => [number, number];
     readonly webnode_transfer_history: (a: number) => any;
     readonly webnode_update_paired_device_policy: (a: number, b: number, c: number, d: any, e: number) => any;
-    readonly start: () => void;
     readonly default_device_name: () => [number, number];
     readonly get_device_name: () => any;
     readonly set_device_name: (a: number, b: number) => any;
+    readonly start: () => void;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
     readonly intounderlyingbytesource_cancel: (a: number) => void;

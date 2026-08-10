@@ -19,9 +19,9 @@ pub use swarmdrop_host::*;
 use swarmdrop_host::device::{Device, DeviceName, PairedDeviceInfo};
 use swarmdrop_transfer::incoming::TransferOfferEvent;
 use swarmdrop_transfer::progress::{
-    PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent, TransferDbErrorEvent,
-    TransferFailedEvent, TransferPausedEvent, TransferProgressEvent, TransferRejectedEvent,
-    TransferResumedEvent,
+    FilePublishEvent, PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent,
+    TransferDbErrorEvent, TransferFailedEvent, TransferPausedEvent, TransferProgressEvent,
+    TransferRejectedEvent, TransferResumedEvent,
 };
 use swarmdrop_transfer::store::TransferProjection;
 
@@ -119,6 +119,14 @@ pub enum CoreEvent {
     },
     PrepareProgress {
         event: PrepareProgressEvent,
+    },
+    /// 单个文件正在从暂存位置发布到用户可见位置。
+    ///
+    /// 与 [`TransferProgress`](Self::TransferProgress) 刻意分开：那条是会话级、200ms 一帧，
+    /// 而发布是**逐文件**的（收齐即发布，散布在整条传输过程中），且发布期间没有新的字节
+    /// 样本——把它挂进进度事件会让同一帧里的 speed/eta 变成陈旧值却无从分辨。
+    FilePublish {
+        event: FilePublishEvent,
     },
     Error {
         message: String,

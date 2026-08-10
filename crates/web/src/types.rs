@@ -25,9 +25,9 @@ pub use swarmdrop_transfer::inbox::{
 };
 use swarmdrop_transfer::incoming::TransferOfferEvent;
 use swarmdrop_transfer::progress::{
-    PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent, TransferDbErrorEvent,
-    TransferFailedEvent, TransferPausedEvent, TransferProgressEvent, TransferRejectedEvent,
-    TransferResumedEvent,
+    FilePublishEvent, PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent,
+    TransferDbErrorEvent, TransferFailedEvent, TransferPausedEvent, TransferProgressEvent,
+    TransferRejectedEvent, TransferResumedEvent,
 };
 use swarmdrop_transfer::protocol::FileInfo;
 use swarmdrop_transfer::store::TransferProjection;
@@ -51,6 +51,7 @@ pub enum WebTransferEvent {
     TransferDbError { event: TransferDbErrorEvent },
     TransferProjection { projection: TransferProjection },
     PrepareProgress { event: PrepareProgressEvent },
+    FilePublish { event: FilePublishEvent },
 }
 
 impl WebTransferEvent {
@@ -68,6 +69,7 @@ impl WebTransferEvent {
             Self::TransferDbError { .. } => "transferDbError",
             Self::TransferProjection { .. } => "transferProjection",
             Self::PrepareProgress { .. } => "prepareProgress",
+            Self::FilePublish { .. } => "filePublish",
         }
     }
 }
@@ -88,6 +90,7 @@ impl From<TransferEvent> for WebTransferEvent {
                 Self::TransferProjection { projection }
             }
             TransferEvent::PrepareProgress { event } => Self::PrepareProgress { event },
+            TransferEvent::FilePublish { event } => Self::FilePublish { event },
         }
     }
 }
