@@ -721,7 +721,7 @@ native-only 的东西，wasm target 下直接编不过）。所以改 `crates/we
 | 产物 | 谁生成 | 什么时候生成 |
 |---|---|---|
 | `src/lib/bindings.ts` | tauri-specta | `pnpm tauri dev`（debug 启动时）或 `cargo test -p swarmdrop export_ts_bindings` |
-| `crates/web/bindings/bindings.ts` | specta | `cargo test -p swarmdrop-web --features specta --test specta_export` |
+| `crates/web/bindings/bindings.ts` | specta | `cargo test -p swarmdrop-web --features specta --test specta_export` |（**漏了 `--features specta` 会静默什么都不做**，见下）
 | `mobile/packages/swarmdrop-core/src/generated/` | uniffi (ubrn) | `ubrn build ios/android --and-generate`（要 Xcode / NDK） |
 
 2026-08-01 那次简化里，三份**同时**被发现落后于已提交的 Rust：桌面那份还带着已删的
@@ -732,6 +732,20 @@ native-only 的东西，wasm target 下直接编不过）。所以改 `crates/we
 
 **做法**：改了跨 IPC/FFI 边界的类型或命令签名，当场重生成对应那份并一起提交。不要指望
 「下次 `tauri dev` 会自动更新」——那只在有人恰好跑 dev 的时候才发生，而 CI 从不跑 dev。
+
+### Web 那条：`cargo test -p swarmdrop-web` 漏了 `--features specta` 会**装作成功**
+
+导出测试整个文件是 `#![cfg(all(not(target_family = "wasm"), feature = "specta"))]`，所以不带
+feature 时它不是失败、也不是报错，而是被编译掉后显示：
+
+```
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out
+```
+
+`ok.` + 退出码 0，唯一的线索是那个 **`1 filtered out`**。2026-08-10 就是这么白等了一轮：
+桌面那份已经生成好了，Web 这份的命令跑完也报 ok，直到 `grep FilePublish` 零命中才发现。
+**判据不是退出码，是产物里有没有你刚加的类型**——重生成之后 grep 一下再说它好了。
 
 ### 没有 Xcode / NDK 时怎么重生成 uniffi 绑定
 
@@ -1063,44 +1077,59 @@ iroh-ffi 有 `cargo make verify-swift-xcframework` / `verify-kotlin-android-cons
 **移动端 release profile 必须写在 workspace root**：
 
 ```toml
-# 根 Cargo.toml —— 不能写成 [profile.release]，那是桌面的（速度优先 opt-level=3）
+# 根 Cargo.toml —— 不能写成 [profile.release]，那是桌面壳的
 [profile.mobile-release]
 inherits = "release"
-opt-level = "z"   # 包体优先
 lto = "thin"
-strip = "symbols"
-
-# 单包例外（2026-08-10 加）
-[profile.mobile-release.package.blake3]
+codegen-units = 1
 opt-level = 3
+strip = "symbols"
 ```
 
-**Why**：Cargo 只认 workspace root 的 profile，**member 自己的 profile 会被静默忽略**
-（只有一行 warning）。mobile-core 并入前是隐式 workspace root、自带这套配置；并入后若不
-搬到根，移动端包体优化就无声消失。消费方是 `ubrn build <platform> --profile mobile-release`
-（ubrn 的 `-p` 覆盖 `-r`），产物落在 `target/mobile-release/` 而非 `target/release/`。
-ubrn 用 `cargo metadata` 的 `target_directory` 定位产物，会自动跟到仓库根，无需额外配置。
+**Why 必须在 root**：Cargo 只认 workspace root 的 profile，**member 自己的 profile 会被
+静默忽略**（只有一行 warning）。mobile-core 并入前是隐式 workspace root、自带这套配置；
+并入后若不搬到根，移动端的 profile 就无声消失。消费方是
+`ubrn build <platform> --profile mobile-release`（ubrn 的 `-p` 覆盖 `-r`），产物落在
+`target/mobile-release/` 而非 `target/release/`。ubrn 用 `cargo metadata` 的
+`target_directory` 定位产物，会自动跟到仓库根，无需额外配置。
 
-**`opt-level = "z"` 不是一刀切——blake3 必须覆回 3**（2026-08-10 加）。这条不属于「包体
-优先」的例外美学，是因为 `"z"` 在这个包上**穿透了 Rust 边界**：blake3 的 `build.rs` 里
-`!is_no_neon() && !is_pure() && is_aarch64() && is_little_endian()` 这条分支会
-`build_neon_c_intrinsics()`——也就是说 **iOS/Android 的 arm64 一律走 C 实现**
-（`c/blake3_neon.c`），而 cc crate 把 profile 的 `opt-level` 原样翻译成给 clang 的 `-Oz`
-（2026-08-10 实测确认）。于是被按住的不是几 KB Rust 代码，是那份 intrinsics 的内联与展开。
+### `opt-level` 从 `"z"` 改回 3，并放弃「逐包例外」这条路（2026-08-10）
 
-判断一个包该不该例外，用这两问，两个都为「是」才例外：
+这个 profile 直到 2026-08-10 都是 `opt-level = "z"`（包体优先）。**两次独立实测证明它在
+传输热路径上的代价是数量级的**，而第二次同时证明了「开单包例外」是打地鼠：
 
-1. **它在传输路径上按字节计费吗**（每 MB 都要过一遍）？blake3 是——`prepare` 一遍流式读
-   源文件产出 checksum + 验签树、接收侧逐块 bao 验签，两处都过它。
-2. **它编出来本来就小吗**？blake3 只有几十 KB，`"z"` 在它身上省不下可观包体，用体积换
-   速度是纯亏。反例是 libp2p / quinn / tauri 那几棵大依赖树——它们是包体的大头，
-   不能照抄这条。
+1. **blake3**——`"z"` 在这个包上**穿透了 Rust 边界**：它的 `build.rs` 里
+   `!is_no_neon() && !is_pure() && is_aarch64() && is_little_endian()` 会
+   `build_neon_c_intrinsics()`，即 **iOS/Android 的 arm64 一律走 C 实现**
+   （`c/blake3_neon.c`），而 cc crate 把 profile 的 `opt-level` 原样翻译成给 clang 的
+   `-Oz`（实测确认）。被按住的不是几 KB Rust 代码，是那份 intrinsics 的内联与展开。
+2. **WebRTC 数据面**——DTLS 记录层走 RustCrypto 的**纯 Rust** 实现
+   （`aes` / `aes-gcm` / `ghash` / `polyval`…），不是 ring / aws-lc 那样的 asm；SCTP 每个
+   包还要算 `crc`。纯 Rust 的 AES-GCM 与 GHASH 高度依赖内联与循环展开，而 `"z"` 恰好把
+   这两样都关掉。
 
-> 与 `[profile.dev.package."*"]` 的 `opt-level = 3` 是**两件事**：那条是「dev 下别让加密
-> 依赖慢 10–100 倍」，全局豁免；这条是 release 形态下的**单包**覆写，范围刻意窄。
+第 2 条解释了三端实测里一条否则说不通的分裂：**同一台 Android 手机**，走 QUIC/Noise 是
+12–23 MB/s，走 WebRTC 掉到 0.36–0.96 MB/s；而同一条 WebRTC 链路换成 `opt-level = 3` 的
+桌面端做对端就有 6–10+ MB/s。**差别正是「加密走 asm（quinn/rustls → ring）还是走被 `-Oz`
+阉割的纯 Rust（webrtc-rs → RustCrypto）」**——依赖树里混着两种加密实现，而 profile 只
+影响得了后者。
 
-⚠️ **单包覆写同样只有 workspace root 的算数。** 与上面那条 member profile 被静默忽略的坑
-是同一个机制——写在 `mobile-core/Cargo.toml` 里的 `[profile.mobile-release.package.blake3]`
+**为什么不继续开单包例外**：判据本身（「按字节计费的热点」）是对的，问题是这类热点遍布
+整棵依赖树——哈希、AEAD、GHASH、CRC、分片、编解码……逐个列既列不全（每次只在真机实测
+里冒头一个），也会让「为什么偏偏是这几个包」变成一笔谁也不敢动的糊涂账。传输吞吐是本
+App 的核心功能，不是可以拿来换几 MB 的东西。
+
+体积改由 `lto = "thin"` + `codegen-units = 1` + `strip = "symbols"` 承担——这三项都
+**不牺牲**运行速度（前两项还会提升）。
+
+> 与 `[profile.dev.package."*"]` 的 `opt-level = 3` 仍是**两件事**：那条管 dev 构建，
+> 这条管移动端 release 产物。两者现在恰好都是 3，理由不同，不要合并。
+
+⚠️ **`opt-level = 3` 目前仍是待验证的假设。** 慢的那条链路同时还差着「打洞 vs
+webrtc-direct」这个未分离的变量，只有重测同一条打洞链路才能定案。若实测证明与吞吐无关，
+回退前先把结论写回 `dev-notes/research/2026-08-10-v0.15.2-field-test.md`。
+
+⚠️ **profile 与单包覆写都只有 workspace root 的算数**——写在 `mobile-core/Cargo.toml` 里
 不会报错，只是不生效，而「不生效」在这里没有任何可观测信号（包能编、能跑，只是慢）。
 
 **相关文件**：`Cargo.toml`、`mobile/packages/swarmdrop-core/rust/mobile-core/Cargo.toml`、
@@ -1254,6 +1283,34 @@ root 放到仓库根意味着 turbopack 把**整个仓库**纳入文件系统边
 第二道是 `scripts/check-shared-view-imports.mjs`：非测试源文件只允许相对路径 import。
 两道合并在 `pnpm check:shared-view`，**要留在提交前清单里**——第一道只在对该包自身跑 tsc 时
 成立，三端各自 typecheck 用的是各自的 lib。
+
+### 定时器一类的平台能力：**参数化，且注入时要包一层箭头函数**（2026-08-10 实证）
+
+`packages/shared-view/src/transfer/session-timers.ts` 是本包第一个需要**平台能力**（而不只是
+纯计算）的原语——会话级定时器台账。上面那条 `lib: ["ES2022"]` 的门禁意味着 `setTimeout` 在
+这个包里**根本不存在**，所以调度器只能由调用点注入：
+`createSessionTimers<H>(setTimer, clearTimer)`。
+
+**注入时不能把 `setTimeout` 当值传。** 台账通常是模块级常量，
+`createSessionTimers(setTimeout, clearTimeout)` 等于在**模块求值那一刻**把全局函数快照下来：
+
+- `vi.useFakeTimers()` 替换的是 `globalThis.setTimeout`，而快照里握着的是真时钟 ⇒ 所有靠
+  `advanceTimersByTime` 推进的用例一起红，症状是「到点该发生的事成片不发生」，**看起来像
+  业务逻辑坏了**。桌面与 Web 在同一天各自独立踩了一次，两边都先怀疑共享原语有问题。
+- 浏览器里 `setTimeout` 是 WebIDL 方法，脱离 `window` 单独调用会 `Illegal invocation` ——
+  这条纯运行时，测试根本照不到。
+
+正确写法是让全局在**调用时**解析：
+
+```ts
+const timers = createSessionTimers(
+  (fire, delayMs) => setTimeout(fire, delayMs),
+  (handle) => clearTimeout(handle),
+);
+```
+
+推论：以后往这个包放任何「注入平台能力」的原语，签名文档里都要把这句写上——它不是调用风格
+问题，是两个不同的真实故障。
 
 ### `packages/` 统一在仓库根
 

@@ -43,6 +43,7 @@ import {
 import { cn } from "@/lib/cn";
 import { PANEL_SURFACE } from "./section";
 import { CenteredEmptyState } from "./empty-state";
+import { EtaText } from "./eta-text";
 import { NodeNotReadyState } from "./node-not-ready-state";
 import { deviceIcon } from "../_lib/device-presentation";
 import {
@@ -56,6 +57,7 @@ import { getNode } from "../_lib/node-runtime";
 import { preferencesActions, usePreferences } from "../_lib/preferences-store";
 import { createPendingFileThumbnailSource } from "../_lib/thumbnail-source";
 import { useAsyncAction } from "../_lib/use-async-action";
+import { useUsableRates } from "../_lib/use-usable-rates";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import {
   OFFER_REJECT_REASON_LABEL,
@@ -421,6 +423,9 @@ function SentSessionCard({
   const ended = phase === "terminal";
   // 「终态以 projection 为准」的取舍由 `transferSample` 统一承担（见 `_lib/format.ts`）。
   const sample = projection ? transferSample(projection, progress) : null;
+  // 剩余时间还要再过一遍**时效**：对端一安静就没有下一帧，最后那帧会永远躺在 store 里，
+  // 这张卡会把一个早已不成立的「剩余 45s」一直挂到会话超时（见 `useUsableRates`）。
+  const { eta } = useUsableRates(sessionId, sample?.live);
   const completed = ended && projection?.terminalReason === "completed";
   const failed = ended && projection?.terminalReason === "fatal_error";
   const failureLabel = failureCodeLabel(projection?.failure ?? null);
@@ -471,7 +476,22 @@ function SentSessionCard({
           <Trans>查看传输</Trans>
         </Link>
       </div>
-      {phase === "active" && sample && <ProgressBar percent={sample.percent} label={t`发送进度`} />}
+      {/* 一条裸进度条只说得出「有东西在动」。用户点完发送会在这一页停几秒，而他停留期间
+          真正想知道的是「还要多久」——百分比与剩余时间因此跟着条一起给（Transfer Progress
+          Contract：次要表面至少带百分比与剩余时间，两者只放得下一个时留剩余时间）。
+          速率不进这张卡：它要用户自己拿剩余字节去除，而完整四格在传输详情侧。
+          `sample.live` 而不是裸 `progress`——终态一律以 projection 为准，见 `transferSample`。 */}
+      {phase === "active" && sample && (
+        <div className="flex flex-col gap-1">
+          <ProgressBar percent={sample.percent} label={t`发送进度`} />
+          <p className="flex items-center gap-1 tabular-nums">
+            <span className="font-mono">{sample.percent}%</span>
+            <span aria-hidden>·</span>
+            {/* 算不出（或那一帧已经过期）就给占位、不让这一格消失，取舍收在 `EtaText` 里。 */}
+            <EtaText seconds={eta} />
+          </p>
+        </div>
+      )}
       {/* 失败原因就在投影上，不必让用户再跳一次页面才看得到。 */}
       {failed && failureLabel && <p className="break-words">{t(failureLabel)}</p>}
     </div>

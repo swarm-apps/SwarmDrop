@@ -21,7 +21,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
-import { calcPercent } from "@swarmdrop/shared-view";
+import { EtaText } from "./eta-text";
 import { INLINE_ACTION_CLASS } from "./confirm-action";
 import { ROW_SURFACE, SectionHeader, SectionShell } from "./section";
 import { ProgressBar } from "./progress-bar";
@@ -31,6 +31,8 @@ import { PHASE_META, phaseLabel } from "./transfer-labels";
 import { isActiveSession, sortByUpdatedDesc, transferSample } from "../_lib/format";
 import { NAV, transferSessionHref } from "../_lib/nav";
 import { useWebNode } from "../_lib/store";
+import { useSessionPublishing } from "../_lib/use-session-publishing";
+import { useUsableRates } from "../_lib/use-usable-rates";
 import type { TransferProjection } from "../_lib/view-types";
 
 /** 首页最多摆几行。再多就该去传输页——那里有筛选，这里没有。 */
@@ -126,9 +128,19 @@ export function ActiveTransfersSection() {
 function ActiveTransferRow({ projection }: { projection: TransferProjection }) {
   const { t } = useLingui();
   // 实时采样：projection 只在状态转换时重发，进度条要跟手就得读这一路。
-  const live = useWebNode((s) => s.progress[projection.sessionId]);
-  const { done, total } = transferSample(projection, live);
-  const percent = calcPercent(done, total);
+  //
+  // **必须经 `transferSample` 取 `live`，不能直读 `s.progress[id]`**：Web 的 progress 域
+  // 只增不清（删除路径一概不动它），直读会让已结束的会话顶着最后一帧陈旧采样，显示一句
+  // 「剩余 3m 20s」。同一个洞在 2026-07-28 表现为「已完成 · 23%」。
+  const progress = useWebNode((s) => s.progress[projection.sessionId]);
+  const { live, percent } = transferSample(projection, progress);
+  // 剩余时间**过一遍时效**：那一帧躺得太久就退回占位，而不是继续报一个早已不成立的数
+  // （判据与「陈旧那一刻怎么被重算」都在 `useUsableRates` 里）。
+  const { eta } = useUsableRates(projection.sessionId, live);
+  const active = projection.phase === "active";
+  // 此刻正在保存哪个文件（接收的「暂存 → 发布」第二段）；没有则 null。
+  // 「只有 active 会话才谈得上发布」这条收窄折在 hook 里（见那里的说明）。
+  const publishing = useSessionPublishing(projection);
   const receiving = projection.direction === "receive";
   const DirectionIcon = receiving ? ArrowDownToLine : ArrowUpFromLine;
 
@@ -149,10 +161,30 @@ function ActiveTransferRow({ projection }: { projection: TransferProjection }) {
         写在这里的 `aria-label` 会被读屏整个丢弃。进度信息由链接自己的可访问名承担
         （文件名与百分比本就是它的后代文本），见 progress-bar.tsx。
       */}
-      <ProgressBar percent={percent} label={null} />
-      <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <StatusDot colorClass={PHASE_META[projection.phase].dot} />
-        {t(phaseLabel(projection))}
+      <ProgressBar percent={percent} tone={publishing ? "local" : "transfer"} label={null} />
+      {/* 阶段行的右端此前是空的。设备页就是 Web 应用的首页，这一行是**全端成本最低、
+          可见性最高**的一个信息位——「还要多久」正是用户看一眼就想知道的那件事，
+          而速率（要用户自己拿剩余字节去除）留给详情侧。 */}
+      <p className="flex items-center justify-between gap-1.5 text-[11px] text-muted-foreground">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <StatusDot colorClass={PHASE_META[projection.phase].dot} />
+          {/* 发布期把阶段词换掉：那一刻字节已经收齐，仍说「传输中」就是在描述一件已经
+              结束了的事，而真正还在跑的是本机的落盘。 */}
+          <span className="truncate">
+            {publishing ? t`正在保存…` : t(phaseLabel(projection))}
+          </span>
+        </span>
+        {/* 只在 active 出现：暂停 / 等待接受的会话没有速率，摆一个剩余时间是在报告一段
+            并不存在的等待。
+
+            发布期同理**给占位而不是给数**：那一刻字节早已收齐、网上什么都没在跑，最后那帧
+            的「剩余 5s」描述的是一段已经结束了的等待——与这一行左端刚说完的「正在保存…」
+            正面打架。格子不能塌（契约：ETA 永不丢），所以传 null 让它退回「计算中」。 */}
+        {active && (
+          <span className="shrink-0 tabular-nums">
+            <EtaText seconds={publishing ? null : eta} />
+          </span>
+        )}
       </p>
     </Link>
   );

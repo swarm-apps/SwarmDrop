@@ -7,6 +7,11 @@
 //         `inboxItems` 域的注释；拉取时机由 InboxPanel 自己掌握）。
 // 四者都汇入本 store。actions 独立于 state（不塞进 state 对象），保证 selector 快照稳定。
 
+import {
+  createSessionTimers,
+  PROGRESS_STALE_MS,
+  PUBLISH_VISIBLE_AFTER_MS,
+} from "@swarmdrop/shared-view";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { isActiveSession } from "./format";
@@ -15,6 +20,7 @@ import type {
   InfraLink,
   ConnectionJson,
   Device,
+  FilePublishEvent,
   InboxItemDetail,
   OfferJson,
   PendingPairingJson,
@@ -145,7 +151,49 @@ export interface WebNodeState {
    * （projection 只表达 phase + 累计字节，不会取代 progress）。供 #80 传输视图直接消费。
    */
   progress: Record<string, TransferProgressEvent>;
-  /** 最近若干条原始事件，dev 可见；证明 11 种事件全部接住。 */
+  /**
+   * 每条会话**最后一帧进度的到达时刻**（`Date.now()`），没有则该 key 不存在。
+   *
+   * 它守的是一条时效不变量：**这里有值 ⟺ `progress` 里那一帧还在保鲜期内**
+   * （`PROGRESS_STALE_MS`，判据来自 shared-view，三端同一份）。速率与剩余时间只有在这
+   * 成立时才拿得出来给人看。
+   *
+   * ## 为什么必须由前端记时刻
+   *
+   * 内核的 `ProgressTracker::speed()` 确实会在样本老于滑窗时归零，于是**停滞之后的下一帧**
+   * 会诚实地带上 `speed: 0` / `eta: null`。问题是**可能根本没有下一帧**：进度事件从收块
+   * 路径上发出，传输域里没有任何自走的 tick，对端一安静，最后那帧就永远躺在 `progress` 里
+   * ——界面把一个早已不成立的「剩余 45s」一直显示到会话超时。ETA 不是在传输出问题时消失，
+   * 而是在传输出问题时**撒谎**。
+   *
+   * ⚠️ **光记时刻不够**：停滞时没有新事件就没有重渲染，界面会永远停在最后一帧画好的样子上。
+   * 所以每帧都重置一个 `PROGRESS_STALE_MS` 的定时器（见 `armStaleTimer`），到点把这个 key
+   * 抹掉——那次 setState 就是让订阅者重算的那一下。
+   */
+  progressAt: Record<string, number>;
+  /**
+   * 每条会话**此刻正在保存哪个文件**（暂存 → 用户可见位置），没有则该 key 不存在。
+   *
+   * 「收到的字节数」不等于「文件已保存」：接收是两段式，最后一帧进度把条打到 100% 之后
+   * 才开始发布。浏览器上这一段是 OPFS `close()`（O(1)），所以这个域大多数时候一闪而过——
+   * 但它存在的理由与 Android 那边一样：**满格的进度条后面跟着一段没有解释的静止**，
+   * 是用户读作「卡死」的形状。
+   *
+   * **一条会话最多一个条目**：发布是「收齐即发布」，接收 actor 串行地做，不会有两个文件
+   * 同时在发布。所以这里存的是「当前那一个」而不是一张表。
+   *
+   * ⚠️ **它必须被清干净**，不能学 `progress` 那样只增不清（那个域留下的陈旧采样已经
+   * 造成过「已完成 · 23%」）。清理有两条路：`finished` 事件，以及会话转入非 active 的
+   * projection —— 后者兜住失败 / 暂停 / 取消这些「发布还没说完就没了」的路径。
+   *
+   * ⚠️ **写入比 `started` 事件晚 `PUBLISH_VISIBLE_AFTER_MS`**（见 `schedulePublishReveal`）。
+   * 浏览器这一段是 OPFS `close()`，`started` 与 `finished` 背靠背到达却是两条独立事件、
+   * 两次渲染，立刻落域就会让进度条每收齐一个文件闪一下灰——收一个几百个小文件的目录时
+   * 是持续频闪。真正需要解释的发布（Android SAF 全量拷贝）都远长于这个阈值，延迟揭示
+   * 不会漏掉它们。
+   */
+  publishingBySession: Record<string, FilePublishEvent>;
+  /** 最近若干条原始事件，dev 可见；证明 12 种事件全部接住。 */
   eventLog: WebTransferEvent[];
 
   // —— inbox 域 ——
@@ -223,6 +271,8 @@ const initialState: WebNodeState = {
   activePrepare: null,
   clearedPreparedId: null,
   progress: {},
+  progressAt: {},
+  publishingBySession: {},
   eventLog: [],
   inboxItems: [],
   inboxRevision: 0,
@@ -318,9 +368,16 @@ export const webNodeActions = {
   setInboxSearchLimit(inboxSearchLimit: number) {
     webNodeStore.setState({ inboxSearchLimit });
   },
-  /** 事件源一：把一条 transfer 事件归约进对应域。 */
+  /**
+   * 事件源一：把一条 transfer 事件归约进对应域，并安排它的**时间副作用**。
+   *
+   * 两步是分开的：`reduceEvent` 保持纯函数（同一份 state + 同一条事件恒得同一个结果），
+   * 「几百毫秒后才揭示」「六秒后作废」这类只有钟表说了算的事全在 `scheduleTimers` 里。
+   * 把它们混进 reducer 就等于让归约结果依赖调用时刻，测试与回放都会失去可判定性。
+   */
   applyEvent(event: WebTransferEvent) {
     webNodeStore.setState((s) => reduceEvent(s, event));
+    scheduleTimers(event);
   },
   /**
    * 事件源三：`transfer_history()` 的一次性回补（#81 跨刷新持久化）。
@@ -345,11 +402,20 @@ export const webNodeActions = {
    * projection。所以这里是前端唯一的状态更新点，且只该在导出调用成功后调。
    */
   removeProjection(sessionId: string) {
+    // 记录都要没了，挂在它上面的两个定时器自然也不该再醒来（醒来只会去改一条不存在的会话）。
+    clearSessionTimers(sessionId);
     webNodeStore.setState((s) => {
       if (!(sessionId in s.projections)) return s;
       const projections = { ...s.projections };
       delete projections[sessionId];
-      return { projections };
+      // 三张按 sessionId 索引的表要一起删。`progressAt` 尤其不能留：它的不变量是
+      // 「这里有值 ⟺ 那一帧还在保鲜期内」，而保鲜期定时器刚被上面撤掉了 —— 再没有人会来
+      // 抹掉这个 key，它会带着一个过期时间戳永久留下，随删除次数线性增长。
+      // （桌面 `deleteHistoryItem` 与移动端一直是三张一起删，Web 此前少了这一刀。）
+      const { [sessionId]: _frame, ...progress } = s.progress;
+      const { [sessionId]: _at, ...progressAt } = s.progressAt;
+      const { [sessionId]: _publishing, ...publishingBySession } = s.publishingBySession;
+      return { projections, progress, progressAt, publishingBySession };
     });
   },
   /**
@@ -360,8 +426,30 @@ export const webNodeActions = {
     webNodeStore.setState((s) => {
       const kept = Object.entries(s.projections).filter(([, p]) => p.phase !== "terminal");
       if (kept.length === Object.keys(s.projections).length) return s;
-      return { projections: Object.fromEntries(kept) };
+      const projections = Object.fromEntries(kept);
+      // 同 `removeProjection`：三张按 sessionId 索引的表跟着记录一起走，否则 `progressAt`
+      // 会留下一批再也没人抹的过期时间戳（保鲜期定时器随即被下面的 retain 撤掉）。
+      const survives = (id: string) => id in projections;
+      return {
+        projections,
+        progress: pickByKey(s.progress, survives),
+        progressAt: pickByKey(s.progressAt, survives),
+        publishingBySession: pickByKey(s.publishingBySession, survives),
+      };
     });
+    // 定时器不是状态，收在 setState 之外（同 `removeProjection`）。这是它的**批量**版：
+    // 一次清掉几十条记录，逐条 `cancel` 要调用点自己记住删了哪些，`retain` 直接按「还在册
+    // 的会话」过一遍两张表。
+    //
+    // 它守的不变量是**每条在途定时器都对应一条在册的会话**。稳态下这里通常一条也撤不掉
+    // （会话转终态时 `scheduleTimers` 已经收过），所以这条更像 `removeProjection` 那道清理
+    // 的批量对偶——三端此前只有移动端有它，而这台机器的正确性完全靠「每个清理出口都记得」。
+    // 漏一处的症状是「一个早已结束的会话过几秒突然又长出一条横幅」，只在特定时序下复现。
+    //
+    // 反过来「不在册」的定时器一律撤掉也是对的：两个域的四处渲染点都以一条 projection 为
+    // 入口，没有 projection 就没有任何东西会读它们。
+    const live = webNodeStore.getState().projections;
+    retainSessionTimers((sessionId) => sessionId in live);
   },
   /**
    * 收件箱快照落域。**排序在这里做完**，selector 只返回这个稳定引用。
@@ -458,6 +546,9 @@ export const webNodeActions = {
    * mount 跑一次，抹成 `null` 就再也回不来，「只显示最近 N 条」那条提示会永久消失。
    */
   reset() {
+    // 节点停了就不会再有任何事件，两张定时器表里剩下的全是空转——留着它们只会在几百毫秒
+    // 后往一个已经清空的 store 里写回「正在保存」。
+    clearAllTimers();
     webNodeStore.setState((s) => ({
       ...initialState,
       secure: s.secure,
@@ -468,12 +559,134 @@ export const webNodeActions = {
   },
 };
 
+// ── 时间副作用（定时器）────────────────────────────────────────────────────────
+//
+// 这里只有两件事，共同点是**都不可能由事件驱动**：
+//
+// - 「这一帧进度过期了」——进度事件只从收块路径发出，对端一安静就再没有下一帧，
+//   于是也不会有下一次渲染。没有定时器，界面会永远停在最后一帧画好的样子上。
+// - 「这次发布值得说一句」——`started` 与 `finished` 可能背靠背到达（OPFS `close()`），
+//   急着渲染就是频闪。要等一等才知道这次发布是不是真的慢到需要解释。
+//
+// 两个阈值都来自 `@swarmdrop/shared-view`，**不在本端另写一个数**：三端各有一份渲染代码，
+// 判据分家就会变成一端 6 秒、一端 10 秒、一端忘了做。
+
+// 台账原语来自 `@swarmdrop/shared-view`（`createSessionTimers`），**本端不再手写两张 Map**：
+// 「一个会话至多一条在途定时器」「重排先撤旧的」「回调里先摘台账再执行」这几条，三端此前
+// 各写了一份并且已经漂——批量清理只有移动端有、桌面把它内联展开、Web 干脆没有。
+// 调度器是参数，因为那个包零平台依赖（`setTimeout` 在它的 tsconfig 里根本不存在）。
+//
+// ⚠️ **必须包一层箭头，不能直接把 `setTimeout` / `clearTimeout` 当值传进去。** 两个理由：
+// ①这两个台账是模块级常量，直接传等于**在模块求值那一刻**把当时的全局函数快照下来——
+//   `vi.useFakeTimers()` 之后换掉的是 `globalThis.setTimeout`，快照里的还是真钟，于是
+//   store.test.ts 里所有靠假时钟推进的用例会一起挂（本次改造当场踩到）；
+// ②浏览器里 `setTimeout` 是 WebIDL 方法，脱离 `window` 单独调用会 `Illegal invocation`。
+//   箭头包一层则是每次调用现从全局作用域取，两条都躲开了。
+
+/** 每条会话最多一个保鲜期定时器（到点抹掉 `progressAt[sessionId]`）。 */
+const staleTimers = createSessionTimers(
+  (fire, delayMs) => setTimeout(fire, delayMs),
+  (handle) => clearTimeout(handle),
+);
+/** 每条会话最多一个发布揭示定时器（到点才把 `started` 落进 `publishingBySession`）。 */
+const publishRevealTimers = createSessionTimers(
+  (fire, delayMs) => setTimeout(fire, delayMs),
+  (handle) => clearTimeout(handle),
+);
+
+function clearSessionTimers(sessionId: string) {
+  staleTimers.cancel(sessionId);
+  publishRevealTimers.cancel(sessionId);
+}
+
+/** 批量清理：只留 `isLive` 认可的会话，其余一律撤掉（记录被成批删除后用）。 */
+function retainSessionTimers(isLive: (sessionId: string) => boolean) {
+  staleTimers.retain(isLive);
+  publishRevealTimers.retain(isLive);
+}
+
+function clearAllTimers() {
+  staleTimers.clear();
+  publishRevealTimers.clear();
+}
+
+/**
+ * 重起这条会话的保鲜期定时器：到点把到达时刻抹掉。
+ *
+ * **那次 setState 就是「让订阅者重算」的那一下**——不是顺手清理。停滞时没有任何别的东西
+ * 会触发重渲染，少了它，`usableRates` 写得再对也永远没有机会被重新求值。
+ */
+function armStaleTimer(sessionId: string) {
+  staleTimers.schedule(sessionId, PROGRESS_STALE_MS, () => {
+    webNodeStore.setState((s) => {
+      // 「内容没变」一律 return s，不能返回 `{}`（新对象 → `Object.is` 判不等 → 白广播）。
+      if (!(sessionId in s.progressAt)) return s;
+      const { [sessionId]: _stale, ...progressAt } = s.progressAt;
+      return { progressAt };
+    });
+  });
+}
+
+/**
+ * 延迟揭示一次发布。撑过 `PUBLISH_VISIBLE_AFTER_MS` 才落域——常数时间的发布压根等不到
+ * 这一刻（`finished` 或会话状态转换会先把定时器取消掉），于是界面上不会有那一下灰闪。
+ */
+/** 按会话 id 过滤一张 `Record<sessionId, T>`，保持「内容没变就还回原引用」。 */
+function pickByKey<T>(
+  table: Record<string, T>,
+  keep: (sessionId: string) => boolean,
+): Record<string, T> {
+  const kept = Object.entries(table).filter(([id]) => keep(id));
+  return kept.length === Object.keys(table).length ? table : Object.fromEntries(kept);
+}
+
+function schedulePublishReveal(event: FilePublishEvent) {
+  publishRevealTimers.schedule(event.sessionId, PUBLISH_VISIBLE_AFTER_MS, () => {
+    webNodeStore.setState((s) => {
+      // **会话已经不活跃了就别写。** 这是「凭空长出一条永不消失的正在保存」的唯一入口：
+      // 若 `started` 因事件乱序落在会话终态之后，这个定时器仍会在 300ms 后把条目写回，
+      // 而该会话再也不会有新的 projection 来清它 —— 条目就永久驻留了。宁可不显示。
+      // （移动端一直有这道校验，桌面与 Web 在 2026-08-10 对齐。）
+      if (s.projections[event.sessionId]?.phase !== "active") return s;
+      return {
+        publishingBySession: { ...s.publishingBySession, [event.sessionId]: event },
+      };
+    });
+  });
+}
+
+/**
+ * 一条事件的时间副作用。**与 `reduceEvent` 的分工**：那边回答「域里现在是什么」，
+ * 这边回答「过一会儿还要发生什么」。
+ *
+ * ⚠️ 取消路径不能漏。发布揭示定时器一旦在会话已经转终态之后才醒来，就会凭空写回一条
+ * 永远没人来清的「正在保存」——`finished` 与「转入非 active」两条路都必须取消它，
+ * 与 `reduceEvent` 里那两处清理**一一对应**。
+ */
+function scheduleTimers(ev: WebTransferEvent) {
+  switch (ev.type) {
+    case "transferProgress":
+      armStaleTimer(ev.event.sessionId);
+      return;
+    case "transferProjection":
+      // 非 active 的会话不会再有进度帧，也不会再有发布——两个定时器一起收掉。
+      if (ev.projection.phase !== "active") clearSessionTimers(ev.projection.sessionId);
+      return;
+    case "filePublish":
+      if (ev.event.phase === "started") schedulePublishReveal(ev.event);
+      else publishRevealTimers.cancel(ev.event.sessionId);
+      return;
+    default:
+      return;
+  }
+}
+
 // ── event reducer ────────────────────────────────────────────────────────────
 
 /**
  * 把一条 `WebTransferEvent` 归约进对应域，绝不丢弃（未命中的也入 eventLog 留痕）。
- * 结构化落域的有 5 类：projection / offer / progress / prepare / rejection，另加
- * `transferCompleted` 只推一个收件箱重拉信号（不落数据，真表在内核侧）。
+ * 结构化落域的有 6 类：projection / offer / progress / prepare / rejection / filePublish，
+ * 另加 `transferCompleted` 只推一个收件箱重拉信号（不落数据，真表在内核侧）。
  * **新增需要落域的事件在此加 case。**
  */
 function reduceEvent(s: WebNodeState, ev: WebTransferEvent): Partial<WebNodeState> {
@@ -481,7 +694,10 @@ function reduceEvent(s: WebNodeState, ev: WebTransferEvent): Partial<WebNodeStat
   switch (ev.type) {
     case "transferProjection": {
       const { sessionId, phase } = ev.projection;
-      const projections = { ...s.projections, [sessionId]: ev.projection };
+      const patch: Partial<WebNodeState> = {
+        projections: { ...s.projections, [sessionId]: ev.projection },
+        eventLog,
+      };
       // **待决 offer 必须随会话转终态一起消失。**
       //
       // `offers` 此前只由 accept / reject 成功后的 `removeOffer` 清理，于是会话被**动**
@@ -498,9 +714,36 @@ function reduceEvent(s: WebNodeState, ev: WebTransferEvent): Partial<WebNodeStat
       // 而不是再去订阅 failed/cancelled 那几个冗余事件。
       if (phase === "terminal" && sessionId in s.offers) {
         const { [sessionId]: _resolved, ...offers } = s.offers;
-        return { projections, offers, eventLog };
+        patch.offers = offers;
       }
-      return { projections, eventLog };
+      // 「正在保存」的兜底清理，理由与上面那段同源：`FilePublish` 的 `finished` 只在发布
+      // **成功**时到达。发布失败会以可恢复的中断冒泡（`publish_file` 的 `?`），走的是
+      // 会话状态转换这条路而不是再发一条发布事件——所以只要会话不再是 active，那条
+      // 「正在保存 x.zip」就该收掉。少了这一条，一次失败的接收会永久顶着一句正在保存。
+      if (phase !== "active" && sessionId in s.publishingBySession) {
+        const { [sessionId]: _aborted, ...publishingBySession } = s.publishingBySession;
+        patch.publishingBySession = publishingBySession;
+      }
+      // 到达时刻同理：非 active 的会话不会再有进度帧，那一帧的速率与剩余时间即刻作废。
+      // （渲染侧本就不给非 active 摆这两格，这里是让「有值 ⟺ 还新鲜」这条不变量不留缺口。）
+      if (phase !== "active" && sessionId in s.progressAt) {
+        const { [sessionId]: _expired, ...progressAt } = s.progressAt;
+        patch.progressAt = progressAt;
+      }
+      return patch;
+    }
+    case "filePublish": {
+      const { sessionId, phase } = ev.event;
+      // `started` **在这里不落域**，交给 `schedulePublishReveal` 的延迟揭示（理由写在
+      // `publishingBySession` 的注释里：常数时间的发布会让进度条每收齐一个文件闪一下灰）。
+      // 它仍然进 eventLog——「12 种事件全部接住」那条不因延迟揭示打折。
+      if (phase === "started") return { eventLog };
+      // `finished` **按 sessionId 摘，不比 fileId**：发布是收齐即发布、由接收 actor 串行
+      // 地做，同一条会话不会有两个文件同时在发布，所以这里存的那一条必然就是刚发布完的
+      // 那一个。已经不在了就只留痕（会话可能先一步转了终态，上面那条兜底已经清过）。
+      if (!(sessionId in s.publishingBySession)) return { eventLog };
+      const { [sessionId]: _done, ...publishingBySession } = s.publishingBySession;
+      return { publishingBySession, eventLog };
     }
     case "transferOfferReceived":
       return {
@@ -508,7 +751,13 @@ function reduceEvent(s: WebNodeState, ev: WebTransferEvent): Partial<WebNodeStat
         eventLog,
       };
     case "transferProgress":
-      return { progress: { ...s.progress, [ev.event.sessionId]: ev.event }, eventLog };
+      // 到达时刻与帧本身一起写：`progress` 只增不清（终态由 `transferSample` 挡），
+      // 而 `progressAt` 是有保质期的那一份——保鲜期定时器到点会把它抹掉。
+      return {
+        progress: { ...s.progress, [ev.event.sessionId]: ev.event },
+        progressAt: { ...s.progressAt, [ev.event.sessionId]: Date.now() },
+        eventLog,
+      };
     case "prepareProgress": {
       // 刚被清掉的批次的迟到事件：丢弃，别让它重新占住活跃位。
       if (ev.event.preparedId === s.clearedPreparedId) return { eventLog };

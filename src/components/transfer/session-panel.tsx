@@ -22,17 +22,22 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { Trans } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useNetworkStore } from "@/stores/network-store";
 import { useSecretStore } from "@/stores/secret-store";
+import {
+  useSessionPublishing,
+  useSessionRates,
+} from "@/stores/transfer-store";
 import { useShareStore } from "@/stores/share-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import {
   calcPercent,
+  formatEta,
   formatFileSize,
   formatSpeed,
   formatDuration,
@@ -184,6 +189,33 @@ export const SessionSummaryHeader = memo(function SessionSummaryHeader({
   );
 });
 
+/* ─── 剩余时间位 ─── */
+
+/**
+ * 活跃进度的第 4 位「剩余时间」（DESIGN.md 的 `Transfer Progress Contract`）。
+ *
+ * **收 `eta` prop，不自取。** 它必须与同一行的速度位来自**同一次** [`useSessionRates`]：
+ * 两个数同源于后端一个滑窗，一起过期才不会出现「12.4 MB/s · 计算中」这种一半诚实一半
+ * 撒谎的行。自取会变成两次独立判据，也就重新给了调用点「只判一个」的机会——那正是这一格
+ * 此前的 bug 形态（见 `useSessionRates` 的说明）。
+ *
+ * **算不出时给占位，绝不让这一格消失。** 速度位早就有 `—` 兜底，而 ETA 此前是裸的
+ * `eta != null && (...)`：同一行里两个指标缺失表现不一致，右侧凭空留白读起来像布局
+ * bug——偏偏它只在传输出问题（停滞、刚起步）的时候消失。
+ *
+ * 三端共用的 `formatEta` 只做展示粒度粗化（5s / 10s）消抖，**不做有状态平滑**，
+ * 所以这里不要再包一层。
+ *
+ * ⚠️ 插值必须是**调用 / 成员表达式**，不能是裸标识符：Lingui 宏对标识符生成具名占位
+ * （`剩余 {text}`），只有前者才生成 `{0}`。既有 msgid 正是 `剩余 {0}`、三份 catalog 都已
+ * 译好——换成具名占位等于凭空造一条新串。`String(text)` 满足这条约束，同时避免把
+ * `formatEta` 算两遍（Web 的 `EtaText` 用的是同一个写法）。
+ */
+export function EtaSlot({ eta }: { eta: number | null }) {
+  const text = formatEta(eta);
+  return text === null ? <Trans>计算中</Trans> : <Trans>剩余 {String(text)}</Trans>;
+}
+
 /* ─── 进度块 ─── */
 
 export const SessionProgressBlock = memo(function SessionProgressBlock({
@@ -197,6 +229,17 @@ export const SessionProgressBlock = memo(function SessionProgressBlock({
     ? calcPercent(progress.transferredBytes, progress.totalBytes)
     : 0;
   const failureMessage = failureCodeMessage(projection.failure);
+  // 「正在保存的文件」自己订阅，不走 prop：两个调用点（活动中心详情 / 发送流）都不认识
+  // 这件事，而它与 progress 一样是高频回流，塞进 prop 只会让两处都跟着重渲染。
+  const publishing = useSessionPublishing(projection.sessionId);
+  // 速度与剩余时间同源同判：**不读 `progress.speed`**——那是最后一帧的原样值，停滞时后端的
+  // 归零只对下一帧生效，而停滞恰恰意味着没有下一帧。
+  const { eta, speed } = useSessionRates(projection.sessionId);
+  const { t } = useLingui();
+  // 进度条的可访问名带上百分比：`Progress` 没把 `value` 转发给 Radix Root（见
+  // `ui/progress.tsx` 的说明），读屏拿不到 `aria-valuenow`，这串名字是进度数字唯一的
+  // 到达途径。写成收参数的小函数是为了两个分支共用**同一条 msgid**。
+  const progressLabel = (percent: number) => t`传输进度 ${percent}%`;
 
   // 可恢复 / 中断的 suspended 会话
   if (projection.phase === "suspended") {
@@ -214,7 +257,11 @@ export const SessionProgressBlock = memo(function SessionProgressBlock({
             {projectionStatusLabel(projection)}
           </span>
         </div>
-        <Progress value={pausedPercent} className="h-1.5 md:h-2" />
+        <Progress
+          value={pausedPercent}
+          aria-label={progressLabel(pausedPercent)}
+          className="h-1.5 md:h-2"
+        />
         <div className="flex items-center justify-between font-mono text-[11px] tabular-nums text-muted-foreground md:text-xs">
           <span>
             {formatFileSize(projection.transferredBytes ?? 0)} /{" "}
@@ -226,27 +273,69 @@ export const SessionProgressBlock = memo(function SessionProgressBlock({
   }
 
   if (projection.phase === "active" && progress) {
+    // 发布（暂存 → 用户可见位置）发生在会话**仍是 active 的时候**，而且是逐文件的：
+    // 收齐即发布，一个 100 文件的会话会进出这个状态 100 次。所以它不是与 active 并列的
+    // 另一个分支，而是 active 内部换一档 tone + 多出一行解释——整块换分支会让那种会话的
+    // 结构抖 100 次。
+    //
+    // 桌面的发布是 O(1) 重命名，快到 `PUBLISH_VISIBLE_AFTER_MS` 都不到，所以这里通常
+    // **一次都不会**进发布态：延迟揭示在 store 侧（`schedulePublishReveal`），这里看到
+    // `publishing` 就说明这条发布已经久到值得解释了。
     return (
       <div className="flex flex-col gap-2 md:gap-2.5">
-        <div className="flex items-baseline justify-between">
+        <div className="flex items-baseline justify-between gap-2">
           <span className="font-mono text-2xl font-bold tabular-nums text-foreground md:text-3xl">
             {progressPercent}%
           </span>
+          {/* 发布期一个字节都不在网上，于是这一帧很快过保鲜期，速度落回 `—`、剩余时间
+              落回「计算中」——两个数由同一次 `useSessionRates` 判，不会一个退一个不退。
+              这段静止在等什么由下面那条 live region 说。 */}
           <span className="font-mono text-[11px] tabular-nums text-muted-foreground md:text-xs">
-            {formatSpeed(progress.speed)}
+            {formatSpeed(speed)}
           </span>
         </div>
-        <Progress value={progressPercent} className="h-1.5 md:h-2" />
-        <div className="flex items-center justify-between font-mono text-[11px] tabular-nums text-muted-foreground md:text-xs">
-          <span>
-            {formatFileSize(progress.transferredBytes)} /{" "}
-            {formatFileSize(progress.totalBytes)}
-          </span>
-          {progress.eta != null && (
-            <span>
-              <Trans>剩余 {formatDuration(progress.eta)}</Trans>
+        <Progress
+          value={progressPercent}
+          // muted grey = 本机在忙、还没有字节上路。发布逐字落在这个定义里。
+          tone={publishing ? "local" : "transfer"}
+          aria-label={progressLabel(progressPercent)}
+          className="h-1.5 md:h-2"
+        />
+        <div>
+          <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground md:text-xs">
+            {/* 字节是次级表面**第一个**该丢的槽，所以挤起来先让它：`min-w-0 truncate`
+                在这一格、`shrink-0` 在剩余时间那格。反过来写（此前如此）会让 lg 下
+                `320px` 的固定列先把 ETA 截掉，而契约的丢弃顺序是 bytes → speed，
+                **ETA 永不丢**。 */}
+            <span className="min-w-0 truncate font-mono tabular-nums">
+              {formatFileSize(progress.transferredBytes)} /{" "}
+              {formatFileSize(progress.totalBytes)}
             </span>
-          )}
+            {/* 「剩余 1m 30s」是散文 + 值的合串（msgid 由契约钉死，拆不开），所以整格
+                不套 `font-mono`——CJK 落进等宽栈会回退到非等宽 CJK 字体、字距还被撑开
+                （Mono Truth Rule 只管可复制、可核对的字面值）。`tabular-nums` 留着：
+                它不换字体族，只让倒数的数字不抖。 */}
+            <span className="shrink-0 tabular-nums">
+              <EtaSlot eta={eta} />
+            </span>
+          </div>
+          {/* 只承载发布态的低频 live region，**常驻挂载**（不在发布时是个零高度的空
+              `<p>`，所以它与上面那行之间的间距也只在有话说时才出现）：辅助技术只监听
+              「变化发生时就已经在无障碍树里」的 live region，随内容一起挂上去的那种
+              经常一声不响。
+              ⚠️ **不要把 `aria-live` 挂回上面那行指标**——那行由 200ms 一帧的进度事件
+              驱动，每秒 5 次变更会塞满读屏队列且永不追平，真正要说的这句反而被淹没。
+              百分比的可访问表述走进度条的 `aria-label`：那不是 live region，不会被
+              反复播报。 */}
+          <p
+            aria-live="polite"
+            className={cn(
+              "text-[11px] text-muted-foreground md:text-xs",
+              publishing && "mt-1",
+            )}
+          >
+            {publishing ? <Trans>正在保存 {publishing.name}</Trans> : null}
+          </p>
         </div>
       </div>
     );

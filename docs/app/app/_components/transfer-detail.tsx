@@ -32,6 +32,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import type { MessageDescriptor } from "@lingui/core";
 import {
   formatDuration,
+  formatEta,
   formatFileSize,
   formatTransferRate,
 } from "@swarmdrop/shared-view";
@@ -39,6 +40,7 @@ import { FileBrowser } from "@swarmdrop/file-browser";
 import { cn } from "@/lib/cn";
 import { PANEL_SURFACE, fileSectionHeightClass } from "./section";
 import { ConfirmAction, INLINE_ACTION_CLASS } from "./confirm-action";
+import { ETA_PENDING } from "./eta-text";
 import { OpenListButton } from "./master-detail";
 import { ProgressBar } from "./progress-bar";
 import { RelativeTime } from "./relative-time";
@@ -66,6 +68,8 @@ import { inboxItemHref } from "../_lib/nav";
 import { getNode } from "../_lib/node-runtime";
 import { preferencesActions, usePreferences } from "../_lib/preferences-store";
 import { useCopyToClipboard } from "../_lib/use-copy";
+import { useSessionPublishing } from "../_lib/use-session-publishing";
+import { useUsableRates } from "../_lib/use-usable-rates";
 import { failureCodeLabel } from "../_lib/view-types";
 import type {
   ItemAction,
@@ -107,6 +111,13 @@ export function TransferDetailPanel({
   // `transferSample` 仍然管**会话级**的字节数与百分比（它那条「终态一律以 projection 为准」
   // 的纪律对整条进度条依然成立）。逐文件那一路已经不走它了——见下面 `fileItems` 的说明。
   const { live, done, total, percent } = transferSample(projection, liveProgress);
+  /**
+   * 此刻正在保存的那个文件（接收方向的「暂存 → 发布」第二段），没有则 null。
+   *
+   * 直接订阅而不是让编排层再传一个 prop：这个域按 sessionId 索引、返回的是 store 内的
+   * 稳定引用，与旁边 `ActiveTransferRow` 读 `progress` 是同一种写法。阶段收窄折在 hook 里。
+   */
+  const publishing = useSessionPublishing(projection);
   const DirectionIcon = projection.direction === "send" ? ArrowUpFromLine : ArrowDownToLine;
   const peer = peerLabel(projection.peerName, projection.peerId);
   // 判据与列表行同源（`isCompletedSession` 的注释里写了为什么不能用 phase 或 percent 代替）。
@@ -181,7 +192,30 @@ export function TransferDetailPanel({
               </span>
               <span className="font-mono tabular-nums">{percent}%</span>
             </div>
-            <ProgressBar percent={percent} className="mt-1.5" label={t`传输进度`} />
+            {/* 发布期换 `local` 档（中性灰）而不是**再画一条**进度条：Transfer Progress
+                Contract 开篇那条「两条背靠背的进度条会被读成一次重新开始的传输」说的就是
+                这个失败样式。同一条子换颜色，表达的正是它要表达的那件事——字节已经不在
+                网上跑了，现在是本机在搬。 */}
+            <ProgressBar
+              percent={percent}
+              tone={publishing ? "local" : "transfer"}
+              className="mt-1.5"
+              label={t`传输进度`}
+            />
+            {/* 「收到的字节数」不等于「文件已保存」：最后一帧进度把条打到 100% 之后才开始
+                发布。浏览器上这一段是 OPFS `close()`、快到几乎看不见，但它与 Android 那条
+                动辄几十秒的 SAF 全量拷贝是同一件事的两端——满格的条后面跟着一段不作声的
+                静止，用户读作卡死。所以三端都点名正在保存哪一个文件。 */}
+            {/* 这块 live region **常驻**（空的时候是个零高度、零外边距的 `<p>`），不是
+                `{publishing && …}` 条件挂载：辅助技术只监听「变化发生时已经在无障碍树里」
+                的 live region，随内容一起挂上去的那种经常一声不响。而这条提示恰恰是给
+                看不见进度条的人准备的。 */}
+            <p
+              className={cn("text-xs text-muted-foreground", publishing && "mt-1.5")}
+              aria-live="polite"
+            >
+              {publishing ? t`正在保存 ${publishing.name}` : ""}
+            </p>
           </div>
         )}
 
@@ -242,8 +276,21 @@ export function TransferDetailPanel({
  * - `terminal`：用时 + 结束时刻——传完之后用户关心的是「花了多久」「什么时候的事」。
  * - 其余（等待接受 / 已中断）：整块不渲染，由阶段文案自己说话。
  *
- * 单条指标算不出来时同样整格省掉，而不是摆一个「未知」——一格「速率：未知」传达的信息
- * 与不摆这一格完全相同，却多占一份视觉重量。
+ * ## 「算不出就整格省掉」只对**整块**成立，对块内的格子不成立（2026-08-10 更正）
+ *
+ * 这里此前的规矩是「单条指标算不出来时同样整格省掉，而不是摆一个『未知』」，理由写作
+ * 「一格『速率：未知』传达的信息与不摆这一格完全相同」。**那句话对剩余时间是错的**：
+ *
+ * - 它恰好在**传输出问题时**消失（停滞 → 速率归零 → 算不出 ETA），也就是用户最需要它的
+ *   那一刻；而消失本身读起来像布局塌了，不像一句「暂时算不出来」。
+ * - 它与旁边的「速率」格同生同灭，于是这一行的宽度每隔几帧变一次。
+ *
+ * 所以正在传时**这两格恒在**：速率算不出给 `—`，剩余时间算不出给「计算中」。判据与三端
+ * 同一份契约（DESIGN.md 的 Transfer Progress Contract：主表面四个信息位齐全，占位由调用点
+ * 给——`formatEta` / `formatTransferRate` 都只返回 `null`，不把 UI 文案烤进返回值）。
+ *
+ * 「整块不渲染」那半仍然成立：等待接受与已中断这两个阶段根本没有在跑的传输，摆一格
+ * 「计算中」是在报告一个不存在的等待。
  */
 function TransferMetrics({
   projection,
@@ -253,17 +300,36 @@ function TransferMetrics({
   progress?: TransferProgressEvent;
 }) {
   const { t } = useLingui();
-  const metrics: Array<{ label: string; value: string }> = [];
+  /**
+   * 两个数都**过一遍时效**：进度事件只从收块路径发出，对端一安静就没有下一帧，最后那帧会
+   * 永远躺在 store 里——不判时效的话这两格不是消失，而是**撒谎**（见 `useUsableRates`）。
+   */
+  const { eta: etaSeconds, speed } = useUsableRates(projection.sessionId, progress);
+  /**
+   * 发布期两格一起退回占位：那一刻字节早已收齐、网上什么都没在跑，报速率与剩余时间描述的是
+   * 一段已经结束了的等待——与上方那句「正在保存 x.zip」正面打架。格子不塌（契约：正在传时
+   * 这两格恒在），只是不再断言数值。
+   */
+  const publishing = useSessionPublishing(projection);
+  // `mono` 标的是「这一格里放的是不是机器值」。占位不是——「计算中」是一句散文，套上
+  // `font-mono` 之后 CJK 会落回非等宽字体、字距还被撑开，跟旁边真正的机器值明显不是一套字
+  // （Mono Truth Rule 只管字面值，不管散文）。`—` 仍算机器值：它是数值缺席的占位符号，
+  // 等宽下与数字对齐得更好。
+  const metrics: Array<{ label: string; value: string; mono: boolean }> = [];
 
   if (projection.phase === "active") {
-    const rate = formatTransferRate(progress?.speed);
-    if (rate) metrics.push({ label: t`速率`, value: rate });
-    if (progress?.eta != null && Number.isFinite(progress.eta) && progress.eta >= 0) {
-      metrics.push({ label: t`剩余`, value: formatDuration(progress.eta) });
-    }
+    // `—` 不进 catalog：它在任何语言里都是同一个字符，翻译三份只会得到三条一模一样的条目。
+    const rate = publishing ? null : formatTransferRate(speed);
+    metrics.push({ label: t`速率`, value: rate ?? "—", mono: true });
+    // 占位串是 `EtaText` 导出的那一个描述符，不在这里重抄一份源串——两处措辞分叉的口子
+    // 就是这么开的（那个组件的文件头写着它存在的全部理由）。
+    const eta = publishing ? null : formatEta(etaSeconds);
+    metrics.push({ label: t`剩余`, value: eta ?? t(ETA_PENDING), mono: eta !== null });
   } else if (projection.phase === "terminal") {
     const elapsed = elapsedSeconds(projection);
-    if (elapsed !== null) metrics.push({ label: t`用时`, value: formatDuration(elapsed) });
+    if (elapsed !== null) {
+      metrics.push({ label: t`用时`, value: formatDuration(elapsed), mono: true });
+    }
   }
 
   const endedAt = projection.phase === "terminal" ? sessionEndedAt(projection) : null;
@@ -274,7 +340,9 @@ function TransferMetrics({
       {metrics.map((metric) => (
         <div key={metric.label} className="flex flex-col">
           <dt className="text-[11px] text-muted-foreground">{metric.label}</dt>
-          <dd className="font-mono text-xs tabular-nums text-foreground">{metric.value}</dd>
+          <dd className={cn("text-xs text-foreground", metric.mono && "font-mono tabular-nums")}>
+            {metric.value}
+          </dd>
         </div>
       ))}
       {endedAt !== null && (

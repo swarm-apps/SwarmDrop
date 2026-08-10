@@ -16,6 +16,8 @@ import {
 import { SearchHeader } from "@/components/search-header";
 import {
   compareProjectionsByUpdatedAtDesc,
+  isProjectionActive,
+  isProjectionRecoverable,
   projectionMatchesQuery,
 } from "@/core/transfer-types";
 import { useTransferStore } from "@/stores/transfer-store";
@@ -28,6 +30,8 @@ export default function TransferSearchScreen() {
   const router = useRouter();
   const { t } = useLingui();
   const projections = useTransferStore((s) => s.projections);
+  const progressBySession = useTransferStore((s) => s.progressBySession);
+  const publishingBySession = useTransferStore((s) => s.publishingBySession);
   const loadProjections = useTransferStore((s) => s.loadProjections);
   const [query, setQuery] = useState("");
 
@@ -46,6 +50,11 @@ export default function TransferSearchScreen() {
       .filter((p) => projectionMatchesQuery(p, trimmedQuery))
       .sort(compareProjectionsByUpdatedAtDesc);
   }, [projections, trimmedQuery]);
+
+  const listExtraData = useMemo(
+    () => [progressBySession, publishingBySession],
+    [progressBySession, publishingBySession],
+  );
 
   const goDetail = useCallback(
     (sessionId: string) => {
@@ -78,8 +87,21 @@ export default function TransferSearchScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={LIST_CONTENT_PADDING_UNDER_HEADER}
+        // 两张高频表都要进来：发布期没有新的进度事件（字节已收完），只挂
+        // progressBySession 的话「正在保存」这一态永远画不出来。
+        extraData={listExtraData}
         renderItem={({ item }) => (
-          <ActivityProjectionCard projection={item} onPress={goDetail} />
+          <ActivityProjectionCard
+            projection={item}
+            progress={progressBySession[item.sessionId]}
+            publishing={publishingBySession[item.sessionId]}
+            // 与活动页的分组判据一致：正在进行 / 可恢复才画进度条。此前这里一律不传，
+            // 于是搜到一条正在传的会话，连条都没有。
+            showProgress={
+              isProjectionActive(item) || isProjectionRecoverable(item)
+            }
+            onPress={goDetail}
+          />
         )}
         ItemSeparatorComponent={ListItemGap}
         ListEmptyComponent={

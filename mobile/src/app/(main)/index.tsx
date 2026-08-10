@@ -109,6 +109,7 @@ export default function DevicesScreen() {
 
   const projections = useTransferStore((s) => s.projections);
   const progressBySession = useTransferStore((s) => s.progressBySession);
+  const publishingBySession = useTransferStore((s) => s.publishingBySession);
   const loadProjections = useTransferStore((s) => s.loadProjections);
 
   // store 的 error 是瞬时 toast 通道(下面的 effect 里读到就立刻清空)，
@@ -360,6 +361,7 @@ export default function DevicesScreen() {
                 key={projection.sessionId}
                 projection={projection}
                 progress={progressBySession[projection.sessionId]}
+                publishing={publishingBySession[projection.sessionId]}
                 onPress={openTransfer}
               />
             ))}

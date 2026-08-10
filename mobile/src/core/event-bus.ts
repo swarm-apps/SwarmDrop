@@ -122,6 +122,16 @@ function routeEventToStores(event: MobileCoreEvent): void {
       break;
     }
 
+    case MobileCoreEvent_Tags.FilePublish: {
+      // 「字节收完」不等于「文件已保存」：数据先落进程私有的暂存区，收齐才发布到用户
+      // 可见位置。Android 的 SAF 目标那一段是全量字节拷贝、几十秒起步，而此时进度条
+      // 已经满了——没有这条事件，用户看到的就是「满了之后凭空多等一段」。
+      //
+      // 逐文件发生（收齐即发布），所以一个多文件会话会来很多次，不是末尾一次。
+      useTransferStore.getState().applyFilePublish(event.inner.event);
+      break;
+    }
+
     case MobileCoreEvent_Tags.PrepareProgress: {
       // 发送准备进度（一遍流式读产出 checksum + 验签树）。落 store 而非页面 useState：
       // 准备大目录可以是分钟级，用户切走再回来得看得到它。
@@ -159,7 +169,9 @@ function routeEventToStores(event: MobileCoreEvent): void {
     }
 
     case MobileCoreEvent_Tags.TransferFailed: {
-      const { error } = event.inner;
+      const { error, sessionId } = event.inner;
+      // 发布失败不会补发 `finished`，横幅只能靠这里（与 Paused / 非活跃投影）收掉。
+      useTransferStore.getState().clearPublishing(sessionId);
       if (error.startsWith("对方取消")) {
         const message = t`对方已取消传输`;
         toast.info(message);
@@ -175,6 +187,7 @@ function routeEventToStores(event: MobileCoreEvent): void {
 
     case MobileCoreEvent_Tags.TransferPaused: {
       // 对端暂停：状态由 TransferProjectionUpdate 接管，这里只提示。
+      useTransferStore.getState().clearPublishing(event.inner.sessionId);
       const message = t`对方已暂停传输`;
       toast.info(message);
       useTransferStore.getState().setError(message);

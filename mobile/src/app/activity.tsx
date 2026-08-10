@@ -56,6 +56,7 @@ export default function ActivityScreen() {
   const { t } = useLingui();
   const projections = useTransferStore((s) => s.projections);
   const progressBySession = useTransferStore((s) => s.progressBySession);
+  const publishingBySession = useTransferStore((s) => s.publishingBySession);
   const loadProjections = useTransferStore((s) => s.loadProjections);
   const clearAllHistory = useTransferStore((s) => s.clearAllHistory);
   const resumeHistoryItem = useTransferStore((s) => s.resumeHistoryItem);
@@ -105,6 +106,11 @@ export default function ActivityScreen() {
     }
     return map;
   }, [inboxItems]);
+
+  const listExtraData = useMemo(
+    () => [progressBySession, publishingBySession],
+    [progressBySession, publishingBySession],
+  );
 
   // 4 个分组 → SectionList sections;数据只依赖 grouped(不含每 tick 变化的 progress),
   // 进度经 extraData 注入、按会话 memo 的卡片只重渲染真正变化的那一条。
@@ -226,7 +232,9 @@ export default function ActivityScreen() {
       <SectionList
         sections={sections}
         keyExtractor={transferSessionKey}
-        extraData={progressBySession}
+        // 两张高频表都要进来：发布期没有新的进度事件（字节已收完），只挂
+        // progressBySession 的话「正在保存」这一态永远画不出来。
+        extraData={listExtraData}
         stickySectionHeadersEnabled={false}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={LIST_CONTENT_PADDING_UNDER_HEADER}
@@ -265,6 +273,7 @@ export default function ActivityScreen() {
           <ActivityProjectionCard
             projection={item}
             progress={progressBySession[item.sessionId]}
+            publishing={publishingBySession[item.sessionId]}
             showProgress={section.showProgress}
             showStatusBadge={section.showStatusBadge}
             onPress={goDetail}

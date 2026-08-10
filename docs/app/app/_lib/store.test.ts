@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { PROGRESS_STALE_MS, PUBLISH_VISIBLE_AFTER_MS } from "@swarmdrop/shared-view";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { webNodeStore, webNodeActions } from "./store";
 import type { TransferProjection, WebTransferEvent } from "./view-types";
 
@@ -43,14 +44,60 @@ function prepareEvent(preparedId: string, bytesHashed = 0): WebTransferEvent {
   } as unknown as WebTransferEvent;
 }
 
+function publishEvent(
+  sessionId: string,
+  phase: "started" | "finished",
+  name = "a.zip",
+): WebTransferEvent {
+  return {
+    type: "filePublish",
+    event: {
+      sessionId,
+      fileId: 1,
+      name,
+      relativePath: name,
+      totalBytes: 100,
+      phase,
+    },
+  } as unknown as WebTransferEvent;
+}
+
+function progressEvent(sessionId: string, eta = 45): WebTransferEvent {
+  return {
+    type: "transferProgress",
+    event: {
+      sessionId,
+      totalFiles: 1,
+      completedFiles: 0,
+      totalBytes: 100,
+      transferredBytes: 30,
+      speed: 10,
+      eta,
+      files: [],
+    },
+  } as unknown as WebTransferEvent;
+}
+
 beforeEach(() => {
+  // 每条用例都在假时钟上跑：本 store 的两条时效判据（进度保鲜期、发布延迟揭示）都由
+  // `setTimeout` 驱动，真时钟下要么等 6 秒要么根本测不到。
+  vi.useFakeTimers();
   webNodeStore.setState({
     offers: {},
     projections: {},
     eventLog: [],
     activePrepare: null,
     clearedPreparedId: null,
+    progress: {},
+    progressAt: {},
+    publishingBySession: {},
   });
+});
+
+afterEach(() => {
+  // 先把在途定时器收干净再还原时钟——否则上一条用例排的发布揭示会在下一条里醒来。
+  webNodeActions.reset();
+  vi.useRealTimers();
 });
 
 describe("待决 offer 的生命周期", () => {
@@ -82,6 +129,168 @@ describe("待决 offer 的生命周期", () => {
     webNodeActions.applyEvent(projectionEvent("ghost", "terminal"));
 
     expect(webNodeStore.getState().offers).toBe(before);
+  });
+});
+
+// 用例里凡是要看到条目落域的，都得先建一条 active 的 projection：发布只发生在传输过程中，
+// 而揭示回调拒绝给一条不活跃（或不在册）的会话写条目——那是「凭空长出一条永不消失的正在
+// 保存」的唯一入口（`started` 因事件乱序落在终态之后，阈值到点时定时器仍会把它写回，而该
+// 会话再也不会有新的 projection 来清它）。
+describe("正在保存（暂存 → 发布）", () => {
+  it("started 建条目、finished 摘掉", () => {
+    webNodeActions.applyEvent(projectionEvent("a", "active"));
+    webNodeActions.applyEvent(publishEvent("a", "started", "big.iso"));
+    vi.advanceTimersByTime(PUBLISH_VISIBLE_AFTER_MS);
+    expect(webNodeStore.getState().publishingBySession.a?.name).toBe("big.iso");
+
+    webNodeActions.applyEvent(publishEvent("a", "finished", "big.iso"));
+    expect(webNodeStore.getState().publishingBySession.a).toBeUndefined();
+  });
+
+  // 常数时间的发布（浏览器这边是 OPFS `close()`）里 started 与 finished 背靠背到达，却是
+  // 两条独立事件、两次渲染——立刻落域就会让进度条每收齐一个文件闪一下灰，收一个几百个
+  // 小文件的目录时是持续频闪。
+  it("撑不过延迟揭示阈值的发布从不落域", () => {
+    webNodeActions.applyEvent(publishEvent("a", "started"));
+    vi.advanceTimersByTime(PUBLISH_VISIBLE_AFTER_MS - 1);
+    expect(webNodeStore.getState().publishingBySession.a).toBeUndefined();
+
+    webNodeActions.applyEvent(publishEvent("a", "finished"));
+    // 揭示定时器必须一并取消：漏了它，这里会在阈值到点时凭空写回一条永远没人清的
+    // 「正在保存」。
+    vi.advanceTimersByTime(PUBLISH_VISIBLE_AFTER_MS);
+    expect(webNodeStore.getState().publishingBySession.a).toBeUndefined();
+  });
+
+  // 同一条取消路径的另一半：会话先一步转了终态（发布失败以可恢复的中断冒泡，走的是状态
+  // 转换那条路），在途的揭示定时器同样不能在之后醒来。
+  it("会话转入非 active 后，在途的揭示不再落域", () => {
+    webNodeActions.applyEvent(publishEvent("a", "started"));
+    webNodeActions.applyEvent(projectionEvent("a", "suspended"));
+    vi.advanceTimersByTime(PUBLISH_VISIBLE_AFTER_MS);
+
+    expect(webNodeStore.getState().publishingBySession.a).toBeUndefined();
+  });
+
+  // 这条是「正在保存」不会永久挂住的唯一保证：`finished` 只在发布**成功**时到达，
+  // 失败会以可恢复的中断冒泡，走的是会话状态转换那条路。少了这条清理，一次失败的接收
+  // 会永远顶着一句「正在保存 x.zip」。
+  it("会话转入非 active 时清掉已揭示的发布", () => {
+    webNodeActions.applyEvent(projectionEvent("a", "active"));
+    webNodeActions.applyEvent(publishEvent("a", "started"));
+    vi.advanceTimersByTime(PUBLISH_VISIBLE_AFTER_MS);
+    expect(webNodeStore.getState().publishingBySession.a).toBeDefined();
+
+    webNodeActions.applyEvent(projectionEvent("a", "suspended"));
+
+    expect(webNodeStore.getState().publishingBySession.a).toBeUndefined();
+  });
+
+  it("active 的 projection 不动它", () => {
+    webNodeActions.applyEvent(publishEvent("a", "started"));
+    vi.advanceTimersByTime(PUBLISH_VISIBLE_AFTER_MS);
+    const before = webNodeStore.getState().publishingBySession;
+    webNodeActions.applyEvent(projectionEvent("a", "active"));
+
+    expect(webNodeStore.getState().publishingBySession).toBe(before);
+  });
+
+  // 同 offers 那条纪律：内容没变就不换引用。会话先一步转了终态时，`finished` 会晚一步
+  // 到达一个已经清空的条目——那时不该凭空造一个新对象出来白广播一轮。
+  it("finished 对不存在的条目是无操作，不换引用", () => {
+    const before = webNodeStore.getState().publishingBySession;
+    webNodeActions.applyEvent(publishEvent("ghost", "finished"));
+
+    expect(webNodeStore.getState().publishingBySession).toBe(before);
+  });
+});
+
+// 定时器的清理出口共四个：会话转非 active、发布 `finished`、单条记录删除、store reset。
+// 第五个是**成批**删记录——本端此前缺它（桌面与移动都有对应出口）。台账的不变量是
+// 「每条在途定时器都对应一条在册的会话」，少一个出口就会留下一条醒来后往已经不存在的
+// 会话上写「正在保存」的孤儿。
+describe("记录被删时的定时器清理", () => {
+  it("删单条记录后，在途的揭示不再落域", () => {
+    webNodeActions.applyEvent(publishEvent("a", "started"));
+    webNodeActions.removeProjection("a");
+    vi.advanceTimersByTime(PUBLISH_VISIBLE_AFTER_MS);
+
+    expect(webNodeStore.getState().publishingBySession.a).toBeUndefined();
+  });
+
+  it("清空已结束的记录后，孤儿定时器不再落域", () => {
+    // 这条会话在册且是 terminal（`clearTerminalProjections` 的清理对象），但它的揭示
+    // 定时器**没有**走过状态转换那条清理——`applyEvent(projection)` 先于 publish 到达。
+    webNodeActions.applyEvent(projectionEvent("a", "terminal"));
+    webNodeActions.applyEvent(publishEvent("a", "started"));
+    expect(webNodeStore.getState().projections.a).toBeDefined();
+
+    webNodeActions.clearTerminalProjections();
+    vi.advanceTimersByTime(PUBLISH_VISIBLE_AFTER_MS);
+
+    expect(webNodeStore.getState().publishingBySession.a).toBeUndefined();
+  });
+
+  it("清空已结束的记录不动还在传的会话的定时器", () => {
+    webNodeActions.applyEvent(projectionEvent("live", "active"));
+    webNodeActions.applyEvent(progressEvent("live"));
+    webNodeActions.applyEvent(projectionEvent("done", "terminal"));
+
+    webNodeActions.clearTerminalProjections();
+
+    // 保鲜期定时器还在：到点了才作废，不是被批量清理顺手带走的。
+    expect(webNodeStore.getState().progressAt.live).toBeDefined();
+    vi.advanceTimersByTime(PROGRESS_STALE_MS);
+    expect(webNodeStore.getState().progressAt.live).toBeUndefined();
+  });
+});
+
+describe("进度帧的保鲜期", () => {
+  it("每帧都记下到达时刻", () => {
+    webNodeActions.applyEvent(progressEvent("a"));
+
+    expect(webNodeStore.getState().progressAt.a).toBe(Date.now());
+  });
+
+  // 这条是整件事的要害：停滞时**没有任何新事件**，也就没有重渲染——光记到达时刻、渲染前
+  // 判一下是不够的，界面会永远停在最后一帧画好的样子上，一个早已不成立的「剩余 45s」
+  // 挂到会话超时。定时器到点的这次 setState 就是让订阅者重算的那一下。
+  it("没有后续事件时，保鲜期到点自己作废", () => {
+    webNodeActions.applyEvent(progressEvent("a"));
+    expect(webNodeStore.getState().progressAt.a).toBeDefined();
+
+    vi.advanceTimersByTime(PROGRESS_STALE_MS - 1);
+    expect(webNodeStore.getState().progressAt.a).toBeDefined();
+
+    vi.advanceTimersByTime(1);
+    expect(webNodeStore.getState().progressAt.a).toBeUndefined();
+    // 帧本身留着：字节数与百分比没有保质期，作废整帧会让进度条倒退回 projection 上那个
+    // 只在状态转换时更新的值。
+    expect(webNodeStore.getState().progress.a).toBeDefined();
+  });
+
+  it("新帧重置保鲜期", () => {
+    webNodeActions.applyEvent(progressEvent("a"));
+    vi.advanceTimersByTime(PROGRESS_STALE_MS - 1);
+    webNodeActions.applyEvent(progressEvent("a", 20));
+
+    // 若定时器没被重置，这一刻旧的那个就会醒来把新帧的到达时刻一起抹掉。
+    vi.advanceTimersByTime(1);
+    expect(webNodeStore.getState().progressAt.a).toBeDefined();
+
+    vi.advanceTimersByTime(PROGRESS_STALE_MS);
+    expect(webNodeStore.getState().progressAt.a).toBeUndefined();
+  });
+
+  it("会话转入非 active 时立刻作废，且定时器不再回写", () => {
+    webNodeActions.applyEvent(progressEvent("a"));
+    webNodeActions.applyEvent(projectionEvent("a", "terminal"));
+    expect(webNodeStore.getState().progressAt.a).toBeUndefined();
+
+    // 同 offers/publishing 那条纪律：没有条目可清时不换引用，否则白广播一轮。
+    const before = webNodeStore.getState();
+    vi.advanceTimersByTime(PROGRESS_STALE_MS);
+    expect(webNodeStore.getState()).toBe(before);
   });
 });
 

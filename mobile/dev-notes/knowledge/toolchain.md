@@ -168,6 +168,35 @@ compiler 介入会破坏 ubrn 的 turbo-module 形状。
 
 **相关文件**：[lingui.config.ts](../../lingui.config.ts)
 
+### 跨端共享的 msgId 里，占位名由**表达式形状**决定，不是由你想叫什么决定
+
+Lingui 抽取占位时：**简单标识符** `{eta}` 会被当成占位名原样写进 msgId（`剩余 {eta}`），
+而**成员表达式 / 调用表达式**（`props.eta`、`publishing.name`、`formatEta(x)`）一律降级成
+位置占位 `{0}`。同一句话因此会长出两个互不相干的 msgId。
+
+平时无所谓，但根目录 `DESIGN.md` 的 `Transfer Progress Contract` 把四条文案的 msgId **钉死**
+（`剩余 {0}` / `计算中` / `正在保存 {0}` / `正在保存…`），要求桌面 · Web · 移动三份 Lingui
+catalog 逐字对齐——写成 `剩余 {eta}` 就等于凭空造了一条谁也对不上的新串，而且提取时不报错。
+
+**正确做法**：需要 `{0}` 时**不要解构 props**，或把纯函数直接写进模板：
+
+```tsx
+// ✅ msgId = 「剩余 {0}」
+function EtaValue(props: { eta: string }) {
+  return <Trans>剩余 {props.eta}</Trans>;
+}
+
+// ❌ msgId = 「剩余 {eta}」
+function EtaValue({ eta }: { eta: string }) {
+  return <Trans>剩余 {eta}</Trans>;
+}
+```
+
+跑完 `pnpm i18n:extract` 后**看一眼 .po 里生成的 msgid**，那是唯一的验证手段。
+
+**相关文件**：[src/components/transfer/shared.tsx](../../src/components/transfer/shared.tsx)
+（`EtaValue` / `remainingText` 两处都带着这条告诫）
+
 ### memo 组件里经全局 i18n._ 解析的字符串要靠 useLingui() 订阅才会随语言切换
 
 `@lingui/core` 的全局 `i18n` 就是 LinguiProvider 注入的同一个单例,非 React 层

@@ -34,6 +34,30 @@ export function formatDuration(seconds: number): string {
   return `${Math.floor(seconds / HOUR)}h ${Math.ceil((seconds % HOUR) / MINUTE)}m`;
 }
 
+const ETA_STEP_UNDER_MINUTE = 5;
+const ETA_STEP_OVER_MINUTE = 10;
+
+/**
+ * 传输剩余时间的展示形式。**三端展示 ETA 的唯一入口。**
+ *
+ * **算不出返回 `null`，占位文案不烤进返回值**——与 [`formatLatency`] 和
+ * `formatTransferRate` 同体例，「计算中」这类文案要翻译，归调用点。
+ * 这也是它不能直接用 [`formatDuration`] 的原因：后者对坏数据返回 `"0s"`，
+ * 而「还剩 0 秒」和「算不出来」在 UI 上是两件完全不同的事。
+ *
+ * **只做展示粒度粗化，不做有状态平滑。** 后端的 eta 是 3 秒滑窗速率的直接商，逐帧
+ * （200ms 一帧）会跳字。粗化到 5 秒 / 10 秒的整数倍后，秒级抖动看不见了，量级变化仍然
+ * 照实反映。不做指数平滑是因为那需要状态：放前端就是三端各写一份、各自漂移，放后端就要
+ * 给 `ProgressTracker` 加一份只服务于展示的可变字段。
+ *
+ * 沿用 [`formatDuration`] 的**向上取整**——理由同上：报少了会出现「说完了却还在跑」。
+ */
+export function formatEta(seconds: number | null | undefined): string | null {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return null;
+  const step = seconds < MINUTE ? ETA_STEP_UNDER_MINUTE : ETA_STEP_OVER_MINUTE;
+  return formatDuration(Math.ceil(seconds / step) * step);
+}
+
 /**
  * 连接延迟。
  *

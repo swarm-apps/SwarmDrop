@@ -469,6 +469,11 @@ msgstr "Clipboard"
 msgid "剩余"
 msgstr "Remaining"
 
+#. placeholder {0}: String(eta)
+#: app/app/_components/eta-text.tsx
+msgid "剩余 {0}"
+msgstr "{0} remaining"
+
 #: app/app/_components/device-card.tsx
 #: app/app/_components/trust-policy-dialog.tsx
 msgid "协作者"
@@ -1367,6 +1372,16 @@ msgstr "Tree view"
 msgid "根目录"
 msgstr "Root directory"
 
+#. placeholder {0}: publishing.name
+#: app/app/_components/transfer-detail.tsx
+msgid "正在保存 {0}"
+msgstr "Saving {0}"
+
+#: app/app/_components/active-transfers-section.tsx
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "正在保存…"
+msgstr "Saving…"
+
 #: app/app/_components/node-not-ready-state.tsx
 msgid "正在停止节点…"
 msgstr "Stopping the node…"
@@ -1782,6 +1797,11 @@ msgstr "The item you linked to is no longer in the inbox."
 #: app/app/_components/receive-panel.tsx
 msgid "要定位的条目已归档。"
 msgstr "The item you linked to is archived."
+
+#: app/app/_components/eta-text.tsx
+#: app/app/_components/transfer-detail.tsx
+msgid "计算中"
+msgstr "Calculating"
 
 #: app/app/_lib/nav.ts
 msgid "设备"

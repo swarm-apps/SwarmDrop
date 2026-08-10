@@ -269,6 +269,10 @@ msgstr "傳輸失敗"
 msgid "传输活动"
 msgstr "傳輸活動"
 
+#: src/components/transfer/session-panel.tsx
+msgid "传输进度 {percent}%"
+msgstr "傳輸進度 {percent}%"
+
 #: src/stores/pairing-store.ts
 msgid "但这条记录没能保存下来，重启后需要重新配对。"
 msgstr "但這筆記錄沒能儲存下來，重新啟動後需要重新配對。"
@@ -517,7 +521,7 @@ msgstr "刪除記錄和檔案"
 msgid "剪贴板"
 msgstr "剪貼簿"
 
-#. placeholder {0}: formatDuration(progress.eta)
+#. placeholder {0}: String(text)
 #: src/components/transfer/session-panel.tsx
 msgid "剩余 {0}"
 msgstr "剩餘 {0}"
@@ -1574,9 +1578,18 @@ msgstr "正在下載 v{0}"
 msgid "正在传输"
 msgstr "正在傳輸"
 
+#. placeholder {0}: publishing.name
+#: src/components/transfer/session-panel.tsx
+msgid "正在保存 {0}"
+msgstr "正在儲存 {0}"
+
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "正在保存..."
 msgstr "正在儲存..."
+
+#: src/routes/_app/transfer/-session-row.tsx
+msgid "正在保存…"
+msgstr "正在儲存…"
 
 #. placeholder {0}: progress.completedFiles
 #. placeholder {1}: progress.totalFiles
@@ -1985,6 +1998,10 @@ msgstr "補建缺失記錄"
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "解锁后自动启动 P2P 网络节点"
 msgstr "解鎖後自動啟動 P2P 網路節點"
+
+#: src/components/transfer/session-panel.tsx
+msgid "计算中"
+msgstr "計算中"
 
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "让对方扫码"

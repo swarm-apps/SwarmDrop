@@ -1,4 +1,5 @@
 import { Trans, useLingui } from "@lingui/react/macro";
+import { formatDuration } from "@swarmdrop/shared-view";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   CheckCircle2,
@@ -35,10 +36,11 @@ import {
   formatBytes,
   formatSpeed,
   LocalizedError,
-  ProgressBar,
   projectionReasonLabel,
+  SpeedLabel,
   StatusBadge,
   StatusLabel,
+  TransferProgressReadout,
 } from "@/components/transfer/shared";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -49,6 +51,7 @@ import { canOpenSaveFolder } from "@/core/saf-intent";
 import {
   isProjectionActive,
   isProjectionRecoverable,
+  type ProjectionStatus,
   projectionDirection,
   projectionPolicyNote,
   projectionStatus,
@@ -62,6 +65,7 @@ import { toast } from "@/lib/toast";
 import { lastPathSegment, truncateMiddle } from "@/lib/utils";
 import { useInboxStore } from "@/stores/inbox-store";
 import { useShareStore } from "@/stores/share-store";
+import type { ProgressFrame, PublishingFile } from "@/stores/transfer-store";
 import { useTransferStore } from "@/stores/transfer-store";
 
 export default function TransferDetailScreen() {
@@ -73,6 +77,9 @@ export default function TransferDetailScreen() {
   );
   const progress = useTransferStore((s) =>
     sessionId ? s.progressBySession[sessionId] : undefined,
+  );
+  const publishing = useTransferStore((s) =>
+    sessionId ? s.publishingBySession[sessionId] : undefined,
   );
   const loadProjection = useTransferStore((s) => s.loadProjection);
   const deleteHistoryItem = useTransferStore((s) => s.deleteHistoryItem);
@@ -284,7 +291,11 @@ export default function TransferDetailScreen() {
           testID="transfer-detail-file-browser"
           title={<Trans>文件</Trans>}
           contentHeader={
-            <TransferDetailHeader projection={projection} progress={progress} />
+            <TransferDetailHeader
+              projection={projection}
+              progress={progress}
+              publishing={publishing}
+            />
           }
         />
       )}
@@ -391,9 +402,11 @@ function TransferDetailSkeleton({ label }: { label: string }) {
 function TransferDetailHeader({
   projection,
   progress,
+  publishing,
 }: {
   projection: MobileTransferProjection;
-  progress: Parameters<typeof projectionTransferredBytes>[1];
+  progress?: ProgressFrame;
+  publishing?: PublishingFile;
 }) {
   const status = projectionStatus(projection);
   const direction = projectionDirection(projection);
@@ -420,7 +433,11 @@ function TransferDetailHeader({
         <StatusBadge status={status} />
       </View>
 
-      <TransferProgressBlock projection={projection} progress={progress} />
+      <TransferProgressBlock
+        projection={projection}
+        progress={progress}
+        publishing={publishing}
+      />
 
       <DetailCard projection={projection} />
     </View>
@@ -481,9 +498,11 @@ const DetailCard = memo(function DetailCard({
 function TransferProgressBlock({
   projection,
   progress,
+  publishing,
 }: {
   projection: MobileTransferProjection;
-  progress: Parameters<typeof projectionTransferredBytes>[1];
+  progress?: ProgressFrame;
+  publishing?: PublishingFile;
 }) {
   const status = projectionStatus(projection);
   const colors = useThemeColors();
@@ -492,24 +511,34 @@ function TransferProgressBlock({
   const percent = calcPercent(transferred, total);
 
   if (status === "transferring" || status === "paused") {
+    // 发布是**这套版式内部的一次替换，不是另一套版式**（DESIGN.md 的
+    // Transfer Progress Contract）。发布逐文件发生，一个 100 文件的会话会进出这个状态
+    // 100 次；整块换分支等于让结构抖 100 次，而且 3xl 大数字的含义会被悄悄换掉
+    // （会话进度 → 本文件保存进度），版式字号一模一样，用户看到的是进度从 87% 掉到 4%
+    // 再跳回去。所以：会话百分比与它的条留着，只换 tone 和那格本会声称网络速率的信息。
+    //
+    // 这是移动端唯一展示实时速度的界面，四个信息位在此齐全：百分比 / 速度 / 已传字节 /
+    // 剩余时间。条与其下那一行由 `TransferProgressReadout` 与另外两个表面共用。
     return (
       <View className="gap-2">
         <View className="flex-row items-baseline justify-between">
           <Text className="text-3xl font-bold tabular-nums text-foreground">
             {percent}%
           </Text>
-          <Text className="text-[12px] text-muted-foreground">
-            {status === "transferring" && progress ? (
-              formatSpeed(Number(progress.speed))
-            ) : (
-              <StatusLabel status={status} />
-            )}
-          </Text>
+          <ActiveRateSlot
+            status={status}
+            progress={progress}
+            publishing={publishing}
+          />
         </View>
-        <ProgressBar percent={percent} />
-        <Text className="text-[12px] text-muted-foreground">
-          {formatBytes(transferred)} / {formatBytes(total)}
-        </Text>
+        <TransferProgressReadout
+          surface="detail"
+          transferred={transferred}
+          total={total}
+          status={status}
+          progress={progress}
+          publishing={publishing}
+        />
       </View>
     );
   }
@@ -600,6 +629,37 @@ function TransferProgressBlock({
         ) : null
       }
     />
+  );
+}
+
+/**
+ * 3xl 百分比右侧那一格 ——「这条会话此刻以什么速度前进」。
+ *
+ * **发布期整格留空**：那一段没有任何字节在网上跑，报速度是在编一个不存在的网络速率
+ * （契约要求换掉的正是这一格）。发布在说什么由下面那行的发布槽承担。
+ *
+ * 速度本身经 [`SpeedLabel`] 渲染 —— **时效判据必须与 ETA 同源**：此前这里直接
+ * `formatSpeed(Number(progress.speed))`，于是停滞时这一屏显示「12.4 MB/s」而下面那格
+ * 已经退成「计算中」，同一行一个诚实一个撒谎。
+ */
+function ActiveRateSlot({
+  status,
+  progress,
+  publishing,
+}: {
+  status: ProjectionStatus;
+  progress?: ProgressFrame;
+  publishing?: PublishingFile;
+}) {
+  if (publishing) return null;
+  return (
+    <Text className="text-[12px] text-muted-foreground">
+      {status === "transferring" && progress ? (
+        <SpeedLabel progress={progress} />
+      ) : (
+        <StatusLabel status={status} />
+      )}
+    </Text>
   );
 }
 
@@ -851,19 +911,6 @@ function resendFilesOf(
   return files.every((file) => fileExists(file.sourceId) !== false)
     ? files
     : [];
-}
-
-function formatDuration(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) return "-";
-  if (seconds < 60) return `${Math.ceil(seconds)}s`;
-  if (seconds < 3600) {
-    const m = Math.floor(seconds / 60);
-    const s = Math.ceil(seconds % 60);
-    return `${m}m ${s}s`;
-  }
-  const h = Math.floor(seconds / 3600);
-  const m = Math.ceil((seconds % 3600) / 60);
-  return `${h}h ${m}m`;
 }
 
 // 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)

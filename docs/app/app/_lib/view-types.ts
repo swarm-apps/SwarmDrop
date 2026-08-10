@@ -14,6 +14,10 @@ export type {
   TransferRejectedEvent,
   TransferProgressEvent,
   PrepareProgressEvent,
+  // 文件级发布事件（暂存 → 用户可见位置）。**不是会话级**：一个会话收齐一个文件就发布一次，
+  // 所以一条 100 文件的会话会发 100 次，散布在整条传输里。
+  FilePublishEvent,
+  FilePublishPhase,
   PendingPairingJson,
   PairInvitePreviewJson,
   ConnectionJson,

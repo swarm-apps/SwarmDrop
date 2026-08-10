@@ -652,6 +652,75 @@ panic `the subtree starting at 16384 contains at most 16384 bytes`。根因是�
 **相关文件**：`src-tauri/src/host/file_source/path_ops.rs`、
 `crates/transfer/src/bao.rs`（`FileAccessReader` + `roundtrip_from_16kib_offset`）
 
+### 接收端是「收帧 ‖ 消化」两条并发路径，不是一个循环（2026-08-10）
+
+数据面接收由 `run_frame_loop`（独占流）与 `run_digest_loop`（独占持久化状态）经一条容量
+= `WINDOW_CHUNKS` 的有界队列相连，`futures::future::try_join` 并发驱动。
+
+**为什么不是一个循环**：拆之前「读一帧 → 验签落盘 → 再读下一帧」严格串行，于是对端在等
+我们消化、我们在等对端开发，两条路径**永远不重叠**。真机实测的指纹是发送侧 `ack` 88% 与
+接收侧 `wait` 67% **同时成立**——真要重叠，不可能双方等待都占大头。把三段拆开：发送处理
+2.9% / 接收处理 32.8% / 网络 64.3%，串行时是求和，流水线后是取 max。
+
+**三条不能破的不变量**：
+
+1. **`Window` 就地回，不等消化**。旧注释写着「不能提前回，否则在途量失控」——那条约束
+   现在由队列容量承担，改回去等于把流水线焊死。
+2. **背压闭环必须留在应用层**：队列满 → `send` 挂起 → 读不到下一帧 `Window` → 不回确认
+   → 对端停在窗口边界。**不要改成依赖传输层背压**：浏览器 `RTCDataChannel` 没有接收侧
+   背压（`onmessage` 一触发就释放 SCTP 接收缓冲，接收窗口永不收缩），那条路在 Web 端
+   静默失效。
+3. **收齐判定与 `Finish` 确认必须在两条路径都收敛之后**。收帧循环读到 `Finish` 只说明对端
+   不再发了，队列里可能还压着块；在收帧循环里断言会误报未收齐。
+4. **必须是 `join`，不能是 `try_join`**（2026-08-10 code review 抓到的回归）。`try_join` 在
+   第一个 `Err` 上短路并**就地 drop 另一条 future**——那会在 `publish_file` 的 await 点中间
+   取消消化循环。Android 的 SAF 发布是一次几十秒的全量字节拷贝，宿主侧的拷贝 promise
+   取消不掉：文件照样落到用户目录，`mark_file_completed` 却再也不会执行，DB bitmap 停在
+   不完整状态，恢复时整个文件重传并再发布一次 → 用户目录里多出 `foo (1).ext`。这正是
+   `publish_file` 文档里声明「只有强杀进程才能到达」的那个状态，被一个组合子的选择重新
+   打开了。`join` 等两条都收敛，多花的时间以队列深度为上限（≤ 一个窗口）。
+   **两个结果的解包顺序也有讲究**：先 `digest_result?` 再 `frame_result?`——消化端携带真实
+   失败原因，收帧端此时多半只会报一句次生的「消化端已退出」，反过来会把归因盖掉。
+
+**它没有 split 任何流**——`stream` 整条归收帧循环，消化循环只认队列与存储。那条
+「`futures` split 的 BiLock reader half 在 wasm 下不唤醒读端」的坑与本结构无关，也不会被
+它勾出来；这正是选「一条流 + 一条队列」而非「split 成读写两半」的理由。同理它**不 spawn**，
+`try_join` 在同一任务里交错驱动，不要求 `Send`，wasm 单线程一样成立。
+
+**探针也随之拆成两个**（`FrameProbe` / `DigestProbe`）。这不是美观问题：`StageProbe` 的
+「各阶段之和 = 壁钟」只在单条串行路径上成立，横跨两条并发路径会让占比之和越过 100%，
+「差值 = 未计入开销」这条读法直接失效。拆开后两条线各答一问——收帧线 `enqueue` 占大头 =
+消化跟不上；消化线 `queue` 占大头 = 链路喂不饱；两者都小才是流水线满了。
+
+**相关文件**：`crates/transfer/src/actor/receiver.rs`、`crates/transfer/src/probe.rs`
+
+### 把 `Vec<u8>` 当稀疏写入目标 = O(最大偏移) 零填充（2026-08-10）
+
+`positioned_io` 的 `WriteAt for Vec<u8>` 在 `pos >= len` 时先 `resize(pos, 0)` 再写。成本因此是
+**O(最大写入偏移)，不是 O(写入字节数)**——一次 64 字节的写可以触发几 MB 的零填充 + realloc 拷贝。
+
+本仓踩到的形态：`decode_and_verify` 每块新建一个 `Vec` 当 bao outboard 的写入目标，而
+`PreOrderOutboard::save` 把 parent 写到 `pre_order_offset(node) * 64`（随文件位置增长）。7.49 GiB
+的会话末段每块零填充 ~1.87 MiB，接收侧 `verify` 桌面涨 ×19、移动端 ×4.6，表现为「大文件越传越慢」。
+
+**判据**：任何「按偏移写 + 偏移可能很大 + 容器是 `Vec`」的组合都要先问一句成本。这类缺陷
+**不会**表现为峰值内存异常（末态大小就是合理的 outboard 长度），只表现为吞吐随进度衰减——
+所以查内存查不出来。
+
+**不要做**：为了迎合某个库函数的签名去造一个假的写入目标。这次的正解不是「给它一个更快的
+sink」，而是发现 `decode_ranges` 的抽象层级本来就不对——它的契约含「持久化 outboard」，而
+`DecodeResponseIter` 只要 `root` + `tree`，压根不需要 outboard 对象。**选对层级之后 O(n) 是自己
+消失的，不是被绕过的。**
+
+**怎么找到的**（值得复用的方法）：2026-08-10 之前有过一轮纯代码侦察，结论是「Rust 里不存在
+量级足够的 O(已完成)/块 机制」，把归因推给了接收设备的物理侧（闪存 pSLC 耗尽 / 热节流）——
+**是错的**。真正定案靠的是 `crates/transfer/src/probe.rs` 的逐阶段探针：它显示散热无忧的桌面
+接收侧劣化得更厉害，且真正写盘的那一段全程恒定。**排除法永远弱于正向证据**；这类「随进度
+衰减」的问题，先上探针再谈假说。
+
+**相关文件**：`crates/transfer/src/bao.rs`、`crates/transfer/src/probe.rs`、
+`dev-notes/research/2026-08-10-v0.15.2-field-test.md`
+
 ### OsInfo 有 native/display_name helper，别手写设备名回退
 
 `OsInfo`（`crates/host/src/device.rs`）现有两个 helper，新代码优先用它们、别再手写：
@@ -1808,3 +1877,40 @@ Web 端是 `crates/web/src/lib.rs` 的 `Targets`）。
 
 **相关文件**：`crates/transfer/src/probe.rs`、`crates/transfer/src/actor/sender.rs`、
 `crates/transfer/src/actor/receiver.rs`
+
+## 进度事件是**纯事件驱动**的，传输域里没有任何自走的 tick（2026-08-10）
+
+`TransferProgressEvent` 只在收/发一块数据时从 `emit_chunk_progress` 那条路径上发出
+（`grep -nE 'interval|tick' crates/transfer/src/actor/*.rs` 零命中）。三条推论，前端每一条都会撞上：
+
+1. **字节一停，事件就停。** `ProgressTracker::speed()` 会在最新样本老于 `SPEED_WINDOW` 时归零，
+   于是「停滞之后的**下一帧**」是诚实的——但可能根本没有下一帧。对端安静时，最后那帧原地躺在
+   前端 store 里，界面把一个早已不成立的「剩余 45s」一直显示到会话超时翻挂起。
+   **所以时效判据必须由前端补**：记下帧的到达时刻，超过 `PROGRESS_STALE_MS` 就当 ETA 不可用
+   （`@swarmdrop/shared-view` 的 `usableEta`）。只做「后端归零」是**修不好**这件事的，
+   这一点在 2026-08-10 的审查里被抓到时，DESIGN.md 已经把它写成「已解决」了。
+2. **节流会吃掉最后那一帧，但「强制」的判据必须是「会话收齐」而不是「文件收齐」。**
+   `THROTTLE_INTERVAL` 是 200ms 而块间隔远小于它，所以最后那帧 100% 本来几乎必然被丢弃，
+   UI 停在 99.x% 直接跳完成。现在 `update_file_chunk` 返回「这一块让**整个会话**收齐了」，
+   收发两侧据此给 `progress_event(force)` 传 true。
+
+   **按文件判会退化成 O(N²)，而且是最容易写出来的那个版本。** `CHUNK_SIZE` 是 256 KiB ⇒
+   **任何 ≤256 KiB 的文件都只有一块** ⇒ 那一块必然「让该文件收齐」⇒ 每个小文件强制一帧，
+   而 `progress_event` 每帧都克隆整个 `files` 向量并跨 IPC 序列化。收一个几万文件的目录时，
+   条目数从 `5 × 秒数 × N` 变成 `N²`，光是自家事件流就能把接收吞吐吃光——
+   `emit_best_effort` 就 await 在收块热路径上。中间文件根本不需要强制：会话里还有别的文件
+   在传，帧仍以常规节奏发着，逐文件行至多晚一帧被修正。
+   护栏是 `mid_session_file_completion_should_not_force_a_frame`。
+
+   同源的一条：`FilePublishEvent` 也按尺寸过滤（`PUBLISH_ANNOUNCE_MIN_BYTES = 1 MiB`）——
+   三端都只在发布超过 300ms 后才揭示「正在保存」，小文件的发布必然被丢弃，发了只是白推
+   几万条 IPC 消息。**判据取自 tracker / 文件尺寸自己，而不是调用点各自的 bitmap 计数**
+   ——强制发帧与帧里的数字要同源。
+3. **发布（staging → 用户可见位置）期间一帧都不会有。** 这段在 Android SAF 上是全量字节拷贝、
+   几十秒起步，而它发生在最后一帧把进度打到 100% **之后**。这就是 `FilePublishEvent` 存在的
+   理由：它是**文件级**事件（收齐即发布，一个会话里发生多次），不是给会话级进度事件加字段——
+   后者粒度不对，且发布期没有新样本，同一帧里的 speed/eta 会是陈旧值而 UI 无从分辨。
+   完整取舍见 `openspec/changes/transfer-eta-and-publish-feedback/design.md` 的 D2。
+
+**相关文件**：`crates/transfer/src/progress.rs`、`crates/transfer/src/actor/receiver.rs`、
+`packages/shared-view/src/transfer/progress.ts`、`DESIGN.md` 的 Transfer Progress Contract

@@ -469,6 +469,11 @@ msgstr "剪贴板"
 msgid "剩余"
 msgstr "剩余"
 
+#. placeholder {0}: String(eta)
+#: app/app/_components/eta-text.tsx
+msgid "剩余 {0}"
+msgstr "剩余 {0}"
+
 #: app/app/_components/device-card.tsx
 #: app/app/_components/trust-policy-dialog.tsx
 msgid "协作者"
@@ -1367,6 +1372,16 @@ msgstr "树形视图"
 msgid "根目录"
 msgstr "根目录"
 
+#. placeholder {0}: publishing.name
+#: app/app/_components/transfer-detail.tsx
+msgid "正在保存 {0}"
+msgstr "正在保存 {0}"
+
+#: app/app/_components/active-transfers-section.tsx
+#: app/app/_components/transfer-activity-panel.tsx
+msgid "正在保存…"
+msgstr "正在保存…"
+
 #: app/app/_components/node-not-ready-state.tsx
 msgid "正在停止节点…"
 msgstr "正在停止节点…"
@@ -1782,6 +1797,11 @@ msgstr "要定位的条目已不在收件箱。"
 #: app/app/_components/receive-panel.tsx
 msgid "要定位的条目已归档。"
 msgstr "要定位的条目已归档。"
+
+#: app/app/_components/eta-text.tsx
+#: app/app/_components/transfer-detail.tsx
+msgid "计算中"
+msgstr "计算中"
 
 #: app/app/_lib/nav.ts
 msgid "设备"

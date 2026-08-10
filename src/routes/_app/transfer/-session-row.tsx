@@ -18,7 +18,12 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { toast } from "sonner";
 import type { TransferProjection } from "@/lib/bindings";
 import { commands } from "@/lib/bindings";
-import { useSessionProgress, useTransferStore } from "@/stores/transfer-store";
+import {
+  useSessionProgress,
+  useSessionPublishing,
+  useSessionRates,
+  useTransferStore,
+} from "@/stores/transfer-store";
 import {
   calcPercent,
   formatFileSize,
@@ -31,7 +36,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { PolicyReasonBadge } from "@/components/transfer/policy-reason-badge";
-import { DirectionIcon } from "@/components/transfer/session-panel";
+import { DirectionIcon, EtaSlot } from "@/components/transfer/session-panel";
 import {
   doCancelTransfer,
   doPauseTransfer,
@@ -69,6 +74,12 @@ export const SessionRow = memo(function SessionRow({
   const { t } = useLingui();
   const sessionId = projection.sessionId;
   const progress = useSessionProgress(sessionId);
+  // 速度与剩余时间同源同判：**不读 `progress.speed`**——那是最后一帧的原样值，停滞时后端的
+  // 归零只对下一帧生效，而停滞恰恰意味着没有下一帧，这一格会一直挂着一个早已不成立的速率。
+  const { eta, speed } = useSessionRates(sessionId);
+  // 正在保存的文件。**不做成 prop**：本组件是 memo 且进度 200ms 一帧，父列表每帧新建的
+  // 对象会直接打穿 memo；自己订阅拿到的是 store 里那份原引用。
+  const publishing = useSessionPublishing(sessionId);
   const loadProjections = useTransferStore((s) => s.loadProjections);
   const [isCancelling, setIsCancelling] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -174,20 +185,65 @@ export const SessionRow = memo(function SessionRow({
           </span>
         </div>
 
-        {/* 状态区 */}
-        <div className="mt-0.5">
+        {/* 状态区。
+            `@container`：速度那一格挂的是**容器**查询而不是视口断点——同一个 SessionRow
+            既长在设备页的主栏里（宽 ~330–590px），也长在活动中心那条 300–360px 的会话列表
+            里，而后者恰恰在「视口 ≥920」时才出现。按视口判会得到反的结果：宽窗口下最挤的
+            那一栏反而把速度显示出来，把正在传输的文件名挤成一个省略号。
+            这与设备卡片网格用 `auto-fill + minmax(300px,1fr)` 而不是 `xl:grid-cols-3`
+            是同一条判据——列宽由这一栏能有多宽决定，不由窗口多宽决定。 */}
+        <div className="@container mt-0.5">
           {projection.phase === "active" && progress && (
             <div className="mt-0.5 flex flex-col gap-1.5">
-              <Progress value={progressPercent} className="h-1.5" />
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="flex min-w-0 items-center gap-1 text-brand">
+              {/* 这里**刻意不给 `aria-label`**（详情面板那两条给了）：整行是
+                  `role="button"`，而 ARIA 对 button 规定 Children Presentational: True
+                  ——后代角色被辅助技术整个丢弃，写在这儿的可访问名不会「弱一点」，是
+                  根本不生效，只会让维护者以为做过了。进度信息由行本身的可访问名承担
+                  （名字从后代文本算出，百分比就在右边那格里）。 */}
+              <Progress
+                value={progressPercent}
+                // 发布是纯本机拷贝 / 重命名，一个字节都不在网上——muted grey 的定义。
+                tone={publishing ? "local" : "transfer"}
+                className="h-1.5"
+              />
+              <div className="flex items-center justify-between gap-1.5 text-[11px]">
+                <span
+                  className={cn(
+                    "flex min-w-0 items-center gap-1",
+                    publishing ? "text-muted-foreground" : "text-brand",
+                  )}
+                >
                   <Loader2 className="size-3 shrink-0 animate-spin" />
                   <span className="truncate">
-                    {activeFileName || t`传输中`}
+                    {publishing ? t`正在保存…` : activeFileName || t`传输中`}
                   </span>
                 </span>
-                <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
-                  {formatSpeed(progress.speed)} · {progressPercent}%
+                {/* 等宽只包**机器值**（速度、百分比），不包整行：「剩余 1m 30s」
+                    「计算中」是散文，CJK 落进等宽栈会回退到非等宽 CJK 字体、字距被撑开
+                    （DESIGN.md 的 Mono Truth Rule 限定等宽用于可复制、可核对的字面值）。
+                    `tabular-nums` 留在外层：它只管数字等宽，不换字体族。 */}
+                <span className="shrink-0 tabular-nums text-muted-foreground">
+                  {/* 发布期没有任何字节上路，速度与剩余时间都不成立——这一格只留百分比，
+                      「在等什么」由左边那句话回答。 */}
+                  {!publishing && (
+                    <>
+                      {/* 速度是四位里最不重要的一位：一行只放得下一个时 ETA 优先
+                          （DESIGN.md 的 Transfer Progress Contract），所以放不下时藏掉的
+                          是速度而不是剩余时间。
+                          300 是量出来的，不是挑好看的：这一行满配是
+                          「12.4 MB/s · 剩余 1m 30s · 47%」≈187px（11px 等宽 + 两个中文字），
+                          再给文件名留 ~90px 才不至于只剩省略号 → 277，取 300 留余量。
+                          **改这行的内容前先重新量**——多一个词就会把它顶过去，症状是
+                          活动中心的文件名整列变成「…」。 */}
+                      <span className="hidden @min-[300px]:inline">
+                        <span className="font-mono">{formatSpeed(speed)}</span>
+                        {" · "}
+                      </span>
+                      <EtaSlot eta={eta} />
+                      {" · "}
+                    </>
+                  )}
+                  <span className="font-mono">{progressPercent}%</span>
                 </span>
               </div>
             </div>

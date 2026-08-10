@@ -42,6 +42,8 @@ import {
   type MobileFinalizedSink,
   type MobileSaveLocation,
 } from "react-native-swarmdrop-core";
+import { updatePublishProgress } from "@/core/foreground-service";
+import { useTransferStore } from "@/stores/transfer-store";
 
 /**
  * 任意 JS error → `FfiError.Io` —— 必须包成 uniffi enum 形状，否则 uniffi 在
@@ -97,6 +99,57 @@ function rawMessage(err: unknown): string {
 
 /** 发布到 SAF 时的搬运块大小。大块少往返，同时留出让 UI 喘气的间隙。 */
 const PUBLISH_CHUNK_BYTES = 4 * 1024 * 1024;
+
+/**
+ * 发布进度的上报间隔。
+ *
+ * **沿用传输进度事件那条 200 ms 基线，不另发明节奏**——两者进的是同一批界面，
+ * 节奏不一致只会让「传输条平滑、保存条一跳一跳」。
+ * 每块都写 store 也不行：一块 4 MiB，一个几 GB 的文件会写出几千次 setState。
+ */
+const PUBLISH_REPORT_INTERVAL_MS = 200;
+
+/**
+ * 造一个按 [`PUBLISH_REPORT_INTERVAL_MS`] 节流的字节上报器。
+ *
+ * 上报只带 `(relativePath, written)`：本层拿到的 [`MobileFileMetadata`] 里没有
+ * session_id / file_id，归属由先到的 `FilePublish{ phase: Started }` 事件在 store 里
+ * 建好，这里只认领。
+ *
+ * **「这次发布值不值得播报」由 store 独家回答**，本层不复刻判据：`reportPublishBytes`
+ * 返回「该 relativePath 此刻有没有条目」，有条目才更新通知。它一次覆盖两条曾在这里各存
+ * 一份的规则 ——
+ *
+ * - **延迟揭示**：条目在 `PUBLISH_VISIBLE_AFTER_MS` 之后才出现，所以常数时间的发布
+ *   （其余三端）不会把常驻通知刷成「正在保存 ⇄ 接收中」的频闪；
+ * - **空文件**：Rust 的 `emit_publish_phase` 对 `size == 0` 根本不发 `started`，
+ *   于是永远没有条目 —— 通知也就不会被一个含大量 `__init__.py` 的会话刷花。
+ *
+ * 此前这两条在本层各判一次，注释自认「两处判据必须一起改」；现在应用内与通知**同一个
+ * 判据、同一处实现**，不可能再各说各的。
+ */
+function createPublishReporter(
+  metadata: MobileFileMetadata,
+): (written: number) => void {
+  const total = Number(metadata.size);
+  let lastReportAt = 0;
+  return (written) => {
+    const now = Date.now();
+    // 终点那一次无条件发出去，否则最后一屏永远停在「差一块」的旧数字上。
+    if (written < total && now - lastReportAt < PUBLISH_REPORT_INTERVAL_MS) {
+      return;
+    }
+    lastReportAt = now;
+    const visible = useTransferStore
+      .getState()
+      .reportPublishBytes(metadata.relativePath, written);
+    // 通知是切走之后唯一能看到进度的面，所以它直连而不跟着 store 走一圈；但要不要出现
+    // 这件事仍由 store 说了算。
+    if (visible) {
+      void updatePublishProgress(metadata.name, written, total);
+    }
+  };
+}
 
 function isSafUri(uri: string): boolean {
   return uri.startsWith("content://");
@@ -202,9 +255,14 @@ export class ExpoFileAccess implements ForeignFileAccess {
         // Rust 侧只在 SAF 目标时才委托过来；走到这里说明分派逻辑漂了。
         throw new Error(`publish target is not a SAF tree: ${baseUri}`);
       }
+      // **上报从这里起算，不是从拷贝循环起算**：下面的 `ensureSafTargetFile` 会逐层
+      // `parent.list()` 全量枚举，用户选 Downloads 这类大目录时，拷贝**开始前**还有一段
+      // 同样没有反馈的静止时间。先打一帧 0，界面与通知立刻进入「正在保存」。
+      const report = createPublishReporter(metadata);
+      report(0);
       const { file, dir } = ensureSafTargetFile(baseUri, metadata.relativePath);
       try {
-        await copyIntoTarget(stagingUri, file);
+        await copyIntoTarget(stagingUri, file, report);
       } catch (err) {
         // 半成品必须删掉：暂存还在、上层会重试，留一个长度不足的文件在用户目录里
         // 只会误导（文件管理器里看着像收到了）。
@@ -269,8 +327,15 @@ export class ExpoFileAccess implements ForeignFileAccess {
  *
  * 每块之间让出一次事件循环：4 MiB 的同步 JSI 读写会阻塞 JS 线程几十毫秒，
  * 一个 300 MB 的文件连续搬完足以让界面卡死数秒。
+ *
+ * `report` 收每块之后的累计字节数（自带节流，见 [`createPublishReporter`]）——
+ * 这个数本来就在循环里，此前只在抛错时被拼进错误串。
  */
-async function copyIntoTarget(stagingUri: string, target: File): Promise<void> {
+async function copyIntoTarget(
+  stagingUri: string,
+  target: File,
+  report: (written: number) => void,
+): Promise<void> {
   // `stagingUri` **带 `file://` scheme**——expo 的 `JavaFile` 走
   // `File(URI.create(uri))`，裸路径会抛 `URI is not absolute`。
   const sourceFile = new File(stagingUri);
@@ -285,6 +350,8 @@ async function copyIntoTarget(stagingUri: string, target: File): Promise<void> {
         if (bytes.byteLength === 0) break;
         sink.writeBytes(bytes);
         written += bytes.byteLength;
+        report(written);
+        // 这句 `setTimeout(0)` 是**故意的让出点**（见上面的说明），别删。
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
     } catch (err) {

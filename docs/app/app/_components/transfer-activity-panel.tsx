@@ -27,6 +27,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useConfirmAction } from "./confirm-action";
 import { CenteredEmptyState, PanelSkeleton, RailEmptyHint } from "./empty-state";
+import { EtaText } from "./eta-text";
 import { NodeNotReadyState } from "./node-not-ready-state";
 import { PanelFallback } from "./panel-fallback";
 import { ProgressBar } from "./progress-bar";
@@ -52,10 +53,7 @@ import {
   type SessionFilter,
 } from "./transfer-labels";
 import { Trans, useLingui } from "@lingui/react/macro";
-import {
-  formatFileSize,
-  formatTransferRate,
-} from "@swarmdrop/shared-view";
+import { formatFileSize } from "@swarmdrop/shared-view";
 import { cn } from "@/lib/cn";
 import { PANEL_SURFACE, selectedRowClass } from "./section";
 import { MasterDetail, OpenListButton } from "./master-detail";
@@ -68,6 +66,8 @@ import { getNode } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
+import { useSessionPublishing } from "../_lib/use-session-publishing";
+import { useUsableRates } from "../_lib/use-usable-rates";
 import { type TransferProgressEvent, type TransferProjection } from "../_lib/view-types";
 
 export function TransferActivityPanel() {
@@ -411,9 +411,16 @@ const TransferActivityItem = memo(function TransferActivityItem({
   // 「终态以 projection 为准」的取舍收在 `transferSample` 里（见那里的说明）。
   const { live, done, total, percent } = transferSample(projection, liveProgress);
   const DirectionIcon = projection.direction === "send" ? ArrowUpFromLine : ArrowDownToLine;
-  // 速率只在真的在传时才有意义。其余阶段（等待接受 / 已中断 / 已结束）给时间——
-  // 「什么时候的事」在那些阶段正是用户要问的（同桌面 `-session-row.tsx` 的右列）。
-  const rate = projection.phase === "active" ? formatTransferRate(live?.speed) : null;
+  /**
+   * 剩余时间**只在真的在传时才有意义**——其余阶段（等待接受 / 已中断 / 已结束）没有速率，
+   * 给一个剩余时间等于报告一段并不存在的等待，那里问的是「什么时候的事」。
+   */
+  const active = projection.phase === "active";
+  // 剩余时间过一遍时效：那一帧躺得太久就退回占位（见 `useUsableRates`）。
+  const { eta } = useUsableRates(projection.sessionId, live);
+  // 此刻正在保存哪个文件（接收的「暂存 → 发布」第二段）；没有则 null。
+  // 「只有 active 会话才谈得上发布」这条收窄折在 hook 里（见那里的说明）。
+  const publishing = useSessionPublishing(projection);
   const peer = peerLabel(projection.peerName, projection.peerId);
   /**
    * 传完了的那一条，「进度」这件事整套退场：满格进度条、`9.3 KB / 9.3 KB` 的两边同数、
@@ -442,7 +449,11 @@ const TransferActivityItem = memo(function TransferActivityItem({
             pulse={projection.phase === "active"}
           />
           <SessionTitle files={projection.files} fallback={peer} />
-          <span className="shrink-0 text-[11px] text-muted-foreground">{t(phaseLabel(projection))}</span>
+          {/* 发布期换掉阶段词：那一刻字节已经收齐，仍说「传输中」是在描述一件已经结束的事，
+              真正还在跑的是本机的落盘。 */}
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {publishing ? t`正在保存…` : t(phaseLabel(projection))}
+          </span>
         </div>
 
         <div className="mt-1 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
@@ -478,9 +489,16 @@ const TransferActivityItem = memo(function TransferActivityItem({
 
             它与下面那行**同进同退**（判据同为 `completed`），所以「装饰模式靠可访问名兜底」
             这条不会落空：进度条在的时候，那个数字一定也在。 */}
-        {!completed && <ProgressBar percent={percent} className="mt-1.5" label={null} />}
+        {!completed && (
+          <ProgressBar
+            percent={percent}
+            tone={publishing ? "local" : "transfer"}
+            className="mt-1.5"
+            label={null}
+          />
+        )}
 
-        {/* 第三行只服务「还没传完」的会话：连接方式、速率、百分比在传完之后要么恒为未知、
+        {/* 第三行只服务「还没传完」的会话：连接方式、剩余时间、百分比在传完之后要么恒为未知、
             要么恒为 100%。连接方式查不到时（`connectionLabel` 返回 null）这一行只剩右端，
             所以对齐方式跟着换——留一个空 `<span>` 占位会在 `justify-between` 下把内容
             推到中间。 */}
@@ -492,11 +510,22 @@ const TransferActivityItem = memo(function TransferActivityItem({
             )}
           >
             {connection && <span className="truncate">{t(connection)}</span>}
-            {/* 同一个位置轮流放两样东西，而不是各占一行：正在传时问「多快」，其余阶段问
-                「什么时候的事」——两个问题不会同时成立，所以也不该同时占版面。 */}
+            {/* 同一个位置轮流放两样东西，而不是各占一行：正在传时问「还要多久」，其余阶段问
+                「什么时候的事」——两个问题不会同时成立，所以也不该同时占版面。
+
+                轮流的那两样此前是**速率**与相对时间。换成剩余时间是因为速率并不回答问题：
+                「12.4 MB/s」要用户拿剩余字节自己除一遍才变成他想知道的数，而这一行只放得下
+                一个。速率没有消失，它下放到了详情侧（那里两格并排，读的人是在排查）。
+                算不出剩余时间时给「计算中」而不是让这一格塌掉——它恰好在传输停滞时算不出来，
+                也就是最需要说点什么的时候。
+
+                发布期同样给占位：那一刻字节已经收齐、网上什么都没在跑，报一个「剩余 5s」
+                与这一行上方刚说完的「正在保存…」正面打架。 */}
             <span className="flex shrink-0 items-center gap-1">
-              {rate ? (
-                <span className="font-mono tabular-nums">{rate}</span>
+              {active ? (
+                <span className="tabular-nums">
+                  <EtaText seconds={publishing ? null : eta} />
+                </span>
               ) : (
                 <RelativeTime timestamp={sessionEndedAt(projection)} />
               )}

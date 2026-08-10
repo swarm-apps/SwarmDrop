@@ -662,6 +662,81 @@ one indistinguishable symptom, which is what a shared visual primitive buys you.
   indistinguishable from a hang, and the user's answer to a hang is to force-quit the app — which is
   precisely what produces the zeroed `transferred_bytes` in the second bullet.
 
+**An active transfer has four slots, and speed is the least useful of them.** "12.4 MB/s" makes the
+user do the division — *bytes left ÷ that number* — to reach the only question they actually have.
+Every mainstream transfer UI shows the answer instead. The data has always been there: `eta` has
+been on `TransferProgressEvent` since it was written, and all three builds carry it into their
+stores; what was missing was rendering.
+
+| # | Slot | Source | Notes |
+|---|---|---|---|
+| 1 | Percent | `calcPercent(transferred, total)` | clamped to 100; the resume baseline rule above governs where it starts |
+| 2 | Bytes done / total | `formatFileSize` ×2 | the first slot to drop on a secondary surface |
+| 3 | Speed | `formatTransferRate` → `—` when null | rate, not a promise; see below |
+| 4 | **Time remaining** | `formatEta(progress.eta)` | `null` means *cannot compute*, which is **not** the same as `0s` |
+
+- **Slot 4 appears only while a transfer is `active`.** Completed, failed, paused and
+  waiting-for-acceptance builds MUST NOT show it — a paused transfer has no speed, so a remaining
+  time there reports a wait that isn't happening.
+- **The primary surface carries all four. A secondary surface (list row, card, notification) carries
+  at least 1 and 4, and where only one of speed/ETA fits, ETA wins.** Speed is the slot to drop on a
+  narrow row, not the answer.
+- **When ETA cannot be computed, show a placeholder — never let the slot vanish.** Speed already
+  degrades to `—`; a slot that disappears instead reads as a layout bug, and it disappears exactly
+  when the transfer is in trouble. `formatEta` returns `null` rather than baking the copy in, so the
+  placeholder is the call site's translated string.
+- **ETA is quantised for display, never smoothed with state.** `formatEta` rounds up to 5 s / 10 s
+  steps. Stateful smoothing would have to live either in three renderers (which drift apart) or in
+  `ProgressTracker` as a field that exists only for display.
+- **A stalled transfer must not keep showing its last good number — and that takes work on both
+  sides.** `ProgressTracker::speed()` returns `0.0` once the newest sample is older than the sliding
+  window, so the *next* frame after a stall carries `speed: 0` and `eta: null`. But there may be no
+  next frame: progress events are emitted from the block-receive path, and nothing ticks on its own,
+  so a peer that goes quiet leaves the last frame sitting in the store forever. **Each build
+  therefore ages its own copy**: record when the last progress frame arrived, and treat `eta` as
+  unavailable once it is older than `PROGRESS_STALE_MS` (`@swarmdrop/shared-view`, 6 s = 2× the
+  sliding window). Slot 4 falls back to its placeholder. Without this the ETA does not disappear
+  when the transfer is in trouble — it *lies*, which is worse.
+
+The four strings this contract adds, fixed here because they must match across the four catalogs
+(desktop · web · mobile Lingui; rust-i18n does not render transfer progress):
+
+| msgId (source locale `zh`) | 简体中文 | 繁體中文 | English |
+|---|---|---|---|
+| `剩余 {0}` | 剩余 {0} | 剩餘 {0} | {0} remaining |
+| `计算中` | 计算中 | 計算中 | Calculating |
+| `正在保存 {0}` | 正在保存 {0} | 正在儲存 {0} | Saving {0} |
+| `正在保存…` | 正在保存… | 正在儲存… | Saving… |
+
+**"Bytes received" is not "file saved", and on Android the gap is minutes.** Receiving is staging →
+publish; the last progress frame fires at 100% *before* publish starts. Desktop, web and iOS publish
+in O(1) (same-volume rename, OPFS close), but an Android SAF target is a full byte copy. A satisfied
+progress bar followed by a silent wait is the exact shape users read as a hang — and force-quitting
+is what produces the zeroed `transferred_bytes` in bullet 2. All three builds therefore render a
+publish state in `tone="local"`. **The primary surface names the file (`正在保存 {0}`); secondary
+surfaces may use the bare `正在保存…`** — the row is already showing which file it is, and the name
+is what gets truncated first on a narrow row anyway. Android carries a percentage in it, taken from
+the `written` counter its copy loop was already keeping; a constant-time rename has no loop and
+needs none. The state begins when publish is entered, not when the first byte is written — building
+the target directory tree is part of the wait.
+
+The event carrying this is **file-level, not session-level**: publish happens per file, the moment
+that file completes, so a hundred-file session publishes a hundred times mid-transfer. It is also
+purely local — it never crosses the wire.
+
+Two consequences of it being file-level, both binding:
+
+- **The publish state is a swap inside the active layout, not a layout of its own.** A build that
+  swings to a different block for it makes a hundred-file session restructure a hundred times, and
+  on mobile it also silently changes what the big number means (session percent → this file's copy
+  percent), so the reader watches progress drop from 87% to 4% and back. Keep the session's percent
+  and its bar; change the tone and the one slot that would otherwise be claiming a network rate.
+- **Publish under `PUBLISH_VISIBLE_AFTER_MS` (`@swarmdrop/shared-view`, 300 ms) is not shown at
+  all.** On the three O(1) builds `started` and `finished` arrive back-to-back but as two separate
+  events, so rendering them eagerly strobes the bar grey once per file — exactly the "visual jolt
+  reads as a restart" failure this contract opens with, at a hundred times the rate. Delay the
+  reveal; the phases that actually need explaining are all far longer than the threshold.
+
 **Progress must cover the real work, not the part that was easy to instrument.** Prepare reads the
 source exactly once and the progress events ride that same pass; a bar that completes and then
 leaves the user waiting the same duration again is worse than no bar.
@@ -672,10 +747,11 @@ when it was really a wish list, so: bullet 1 landed on all three builds that day
 percentage in the prepare copy), and bullet 2 landed in the shared resume planner
 (`crates/transfer/src/flow/resume/plan.rs`) — which is to say on the two builds that can resume a
 send at all. Bullet 3 has **no implementation anywhere** — nothing renders a baseline tick or a
-"resumed · continuing from X" label yet. Bullet 4 holds for prepare only; outboard rebuild, the
-Android SAF publish copy, and the web build's zip retrieval (a bare `LoaderCircle` plus "下载中…",
-`docs/app/app/_components/inbox-views.tsx`) all still show a spinner with no progress. These are
-open bugs, not permitted divergence — delete these sentences in the PR that closes them.
+"resumed · continuing from X" label yet. Bullet 4 holds for prepare and, since 2026-08-10, for the
+Android SAF publish copy; **outboard rebuild** and the **web build's zip retrieval** (a bare
+`LoaderCircle` plus "下载中…", `docs/app/app/_components/inbox-views.tsx`) still show a spinner with
+no progress. These are open bugs, not permitted divergence — delete these sentences in the PR that
+closes them.
 
 **Permitted divergence: none — but no single diff covers all three.** The prepare bar exists three
 times (`mobile/src/components/transfer/prepare-progress-bar.tsx`,
@@ -939,6 +1015,11 @@ review, not after.
 - [ ] Node status: `lastError` shown verbatim, copyable, untranslated; per-link failures do not
       color the persistent slot
 - [ ] Latency rendered whenever the device is online and `connection` is known
+- [ ] Active transfer surfaces carry all four progress slots — or drop one against the slot table's
+      rules (bytes first, speed second; **ETA is never the one that goes**), and ETA renders a
+      placeholder rather than vanishing when it cannot be computed
+- [ ] Any local phase that can exceed ~3 s (prepare, publish) names itself, and shows a percentage
+      wherever the phase has a measurable loop — a constant-time rename/close only names itself
 - [ ] Send reachable from the device card, target pre-selected
 - [ ] Offline devices: send disabled, whole-card click disabled, visual degradation applied
 - [ ] Destructive actions (unpair) require one explicit confirmation, and can report failure

@@ -14,6 +14,12 @@ const allowlist = [
     reason: "native core event bridge",
   },
   {
+    file: "src/core/foreign-file-access.ts",
+    pattern: /useTransferStore\s*\.\s*getState\s*\(/,
+    reason:
+      "native file-access callback: publish byte reporting, called from Rust not React",
+  },
+  {
     file: "src/core/paths.ts",
     pattern: /usePreferencesStore\s*\.\s*getState\s*\(/,
     reason: "synchronous receive-path utility",

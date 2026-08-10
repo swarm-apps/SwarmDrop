@@ -2,14 +2,10 @@ import { Trans } from "@lingui/react/macro";
 import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react-native";
 import { memo } from "react";
 import { Pressable, View } from "react-native";
-import type {
-  MobileTransferProgress,
-  MobileTransferProjection,
-} from "react-native-swarmdrop-core";
+import type { MobileTransferProjection } from "react-native-swarmdrop-core";
 import {
-  calcPercent,
-  formatBytes,
   StatusBadge,
+  TransferProgressReadout,
 } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
 import {
@@ -20,10 +16,13 @@ import {
 } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { cn } from "@/lib/utils";
+import type { ProgressFrame, PublishingFile } from "@/stores/transfer-store";
 
 interface RecentTransferRowProps {
   projection: MobileTransferProjection;
-  progress?: MobileTransferProgress;
+  progress?: ProgressFrame;
+  /** 该会话此刻正在保存的文件；在场时这一行改说「正在保存 {文件名}」。 */
+  publishing?: PublishingFile;
   onPress?: (sessionId: string) => void;
 }
 
@@ -33,13 +32,13 @@ interface RecentTransferRowProps {
 function RecentTransferRowComponent({
   projection,
   progress,
+  publishing,
   onPress,
 }: RecentTransferRowProps) {
   const direction = projectionDirection(projection);
   const isOutgoing = direction === "send";
   const total = projectionTotalBytes(projection, progress);
   const transferred = projectionTransferredBytes(projection, progress);
-  const percent = calcPercent(transferred, total);
   const status = projectionStatus(projection);
   const colors = useThemeColors();
 
@@ -74,15 +73,16 @@ function RecentTransferRowComponent({
           </Text>
           <StatusBadge status={status} />
         </View>
-        <View className="h-1 overflow-hidden rounded-full bg-muted">
-          <View
-            className="h-full bg-primary"
-            style={{ width: `${percent}%` }}
-          />
-        </View>
-        <Text className="text-[12px] text-muted-foreground">
-          {formatBytes(transferred)} / {formatBytes(total)}
-        </Text>
+        {/* 共享原语而不是手绘的 h-1 View —— 后者绕过了 tone 查表，是「阶段收口为具名
+            tone」那一轮的漏网点：发布期该变灰的地方它永远是品牌青绿。 */}
+        <TransferProgressReadout
+          surface="row"
+          transferred={transferred}
+          total={total}
+          status={status}
+          progress={progress}
+          publishing={publishing}
+        />
       </View>
     </Pressable>
   );
