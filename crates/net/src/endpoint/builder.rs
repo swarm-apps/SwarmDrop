@@ -202,7 +202,11 @@ impl Builder {
                 .listen_on(addr.as_multiaddr().clone())
                 .map_err(|e| BindError::Listen {
                     addr: addr.clone(),
-                    reason: e.to_string(),
+                    // `{e:?}` 而非 `to_string()`：`TransportError` 的 Display 在 `Other`
+                    // 分支上写的是**空串**（libp2p `core/src/transport.rs`），而传输层的
+                    // 真实失败（端口占用、地址不可绑）全落在那个分支——用 Display 的话
+                    // bind 会以一句「listen on … failed: 」结束，什么都没说。
+                    reason: format!("{e:?}"),
                 })?;
         }
 

@@ -15,12 +15,18 @@ mod queries;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::StreamExt;
 use libp2p::core::transport::ListenerId;
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::{ConnectionId, SwarmEvent};
 use libp2p::{PeerId, Swarm, identify, kad, ping};
+// 双 target 的 Instant：native 是 `tokio::time::Instant`（std 的薄封装），
+// wasm 是 `web_time::Instant`（performance.now()）。
+// **native 那半边不等于 std `Instant`**——kad 的 `Record::expires` 要的正是 std 那个，
+// 所以 `handle_dht_command` 里那处仍得按 target 分叉，不能顺手换成这里的别名。
+use n0_future::time::Instant;
 #[cfg(not(wasm_browser))]
 use swarmdrop_net_base::DiscoverySource;
 use swarmdrop_net_base::{Addr, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId, TransportKind};
@@ -54,6 +60,32 @@ const SUBSCRIBER_QUEUE: usize = 256;
 /// 分组取仍然挡得住原来要挡的东西：对端报一长串地址时，一次升级不会变成对内网的
 /// 批量探测。
 const LAN_UPGRADE_MAX_PER_TRANSPORT: usize = 2;
+
+/// reservation **同步失败**后的重试闸门间隔：2s → 5s → 10s → 30s，上限 75s。
+///
+/// 档位与 core `InfraSupervisor::rebuild_backoff` 刻意取同一套。两者治的是同一件事的
+/// 两层——那边管「还要不要维持这条链路的意图」，这边管「同一个同步失败要不要立刻重放」
+/// ——档位分叉只会让两份日志的节奏对不上，排障时被当成两个独立问题追。
+fn reservation_retry_backoff(attempts: u32) -> Duration {
+    match attempts {
+        0 | 1 => Duration::from_secs(2),
+        2 => Duration::from_secs(5),
+        3 => Duration::from_secs(10),
+        4 => Duration::from_secs(30),
+        _ => Duration::from_secs(75),
+    }
+}
+
+/// 一个 relay 的 reservation 同步失败记账（[`Actor::relay_retry`] 的值）。
+struct RelayRetry {
+    /// 连续同步失败次数，只用来查 [`reservation_retry_backoff`] 的档位。
+    attempts: u32,
+    /// 早于此刻的尝试一律短路。
+    retry_after: Instant,
+    /// 上次失败原因。闸门短路时用它把 [`Actor::ensure_relay`] 刚翻上去的
+    /// `Connecting` 压回 `Failed`——否则退避期内 UI 会停在「正在连接…」却说不出原因。
+    last_error: String,
+}
 
 pub(crate) enum ActorMessage {
     Connect {
@@ -181,6 +213,19 @@ pub(crate) struct Actor {
     upgrading_direct: HashSet<PeerId>,
     /// 承担 relay 角色的基础设施节点——identify 到达时幂等重建 reservation。
     infra_relay_peers: HashSet<PeerId>,
+    /// reservation **同步失败**后的重试闸门：peer → 记账（见 [`RelayRetry`]）。
+    ///
+    /// **这不是重试策略**——重试策略仍是 core `InfraSupervisor` 的内账（它决定还要不要
+    /// 维持这条链路的意图），本表挡的是另一件事：`listen_on` 的同步失败与「地址簿里没有
+    /// 可用 circuit 基址」都是**当前输入的确定性结果**，上层再催一遍必然得到同一个答案。
+    ///
+    /// 没有它时，mDNS 每刷新一次候选就把 supervisor 的退避清零
+    ///（`candidate_seen` 重置），同一条注定失败的地址被以秒级频率重放几十次、每次刷一条
+    /// warn（2026-08-10 真机实测）。轮数不外露、不进 `RelayState`，只用来算下次允许的时刻；
+    /// 地址簿一有**能当 circuit 基址**的新条目就整条清掉（见 [`Actor::record_addr`]），
+    /// 新事实到达不必等退避走完——而新进簿的 circuit 地址不算新事实，它对这两个失败原因
+    /// 的答案与上一轮完全相同。
+    relay_retry: HashMap<PeerId, RelayRetry>,
     /// pull 型地址解析源（bind 尾声注入）。
     lookups: Arc<Vec<Box<dyn AddressLookup>>>,
     /// 自发端（lookup 任务解析完回注用）。
@@ -214,6 +259,7 @@ impl Actor {
             upgrading_lan: HashSet::new(),
             upgrading_direct: HashSet::new(),
             infra_relay_peers: HashSet::new(),
+            relay_retry: HashMap::new(),
             lookups: Arc::new(Vec::new()),
             self_tx,
             config,
@@ -513,6 +559,8 @@ impl Actor {
     fn handle_remove_infra_peer(&mut self, node: NodeId) {
         let peer = *node.as_peer_id();
         self.infra_relay_peers.remove(&peer);
+        // 意图已撤销，闸门记账一并清掉——留着会让日后重新登记这个节点白等一轮退避
+        self.relay_retry.remove(&peer);
         self.swarm
             .behaviour_mut()
             .keep_alive
@@ -590,18 +638,42 @@ impl Actor {
         );
     }
 
+    /// 该 relay 在地址簿里第一条**能当 circuit 基址**的地址（已拼好 `/p2p-circuit`）。
+    ///
+    /// 三个调用点（reservation listen / `/webrtc` 打洞 listen / 本机 circuit 可达地址）
+    /// 共用它，而不是各自 `addrs.first()`：地址簿里混着 circuit 地址是常态（对端经第三方
+    /// 中转可达时就会进来一条），`first()` 撞上那条就会拼出双层 circuit——判据与后果见
+    /// [`circuit_base`]。
+    fn circuit_base_for(&self, relay: PeerId) -> Option<libp2p::Multiaddr> {
+        first_circuit_base(self.address_book.get(&relay)?, relay)
+    }
+
     /// 本机经某 relay 的完整 circuit 可达地址（`<relay>/p2p-circuit/p2p/<本机>`）。
     /// 单一事实源：调用方（web/桌面）不再自行拼接。
     fn circuit_addr_for(&self, relay: PeerId) -> Addr {
-        let first = self
-            .address_book
-            .get(&relay)
-            .and_then(|addrs| addrs.first())
-            .cloned()
-            .unwrap_or_else(libp2p::Multiaddr::empty);
+        // 地址簿为空、或簿里只剩 circuit 地址时，退化成不带传输段的
+        // `/p2p/<relay>/p2p-circuit/p2p/<本机>`。
+        //
+        // ⚠️ **这是展示值，不是可拨地址，不可当作可达地址分发给对端。** 此处此前写作
+        // 「对端用自己认识的 relay 地址补前半段即可」——**libp2p 不做这件事**：缺前半段的
+        // 地址进对端的 `relay::client::Transport::dial` 会以 `MissingRelayAddr` 当场被拒，
+        // 而那个判别码同样落在 `TransportError::Other` 上、Display 是空串，对端日志里只会
+        // 留下一条 `error=` 的空字段。它是一条死地址。
+        //
+        // 留着它是因为消费者只有状态展示（`RelayState::Active` → 节点状态弹窗的
+        // 「circuit 可达地址」诊断与 `publicReachable` 布尔），而「有 reservation 却还没有
+        // relay 的传输地址」是暂态：identify / mDNS 把地址报上来就补齐。真正要拨的那条走
+        // `circuit_base_for`，那条路径没有这个退化分支。
+        //
+        // 不复用 `circuit_base(Multiaddr::empty(), …)`：空地址没有传输段，按判据它就该给
+        // `None`（见 [`circuit_base`] 的第 2 条）。退化值只在这里显式拼一次。
+        let base = self.circuit_base_for(relay).unwrap_or_else(|| {
+            libp2p::Multiaddr::empty()
+                .with(libp2p::multiaddr::Protocol::P2p(relay))
+                .with(libp2p::multiaddr::Protocol::P2pCircuit)
+        });
         Addr::from_multiaddr(
-            circuit_base(first, relay)
-                .with(libp2p::multiaddr::Protocol::P2p(*self.node_id.as_peer_id())),
+            base.with(libp2p::multiaddr::Protocol::P2p(*self.node_id.as_peer_id())),
         )
     }
 
@@ -623,26 +695,21 @@ impl Actor {
         if self.config.webrtc_p2p.is_none() || self.webrtc_listeners.contains_key(&relay) {
             return;
         }
-        let Some(addr) = self
-            .address_book
-            .get(&relay)
-            .and_then(|addrs| addrs.first())
-            .cloned()
-        else {
+        let Some(base) = self.circuit_base_for(relay) else {
             return;
         };
         // 与 circuit_addr_for 同一套拼装规则，只多一个 /webrtc 段——格式由
         // webrtc-p2p 自己的构造函数保证，与它的 split 天然对称。
-        let listen_addr = webrtc_p2p::protocol::addr::from_circuit(
-            &circuit_base(addr, relay),
-            *self.node_id.as_peer_id(),
-        );
+        let listen_addr =
+            webrtc_p2p::protocol::addr::from_circuit(&base, *self.node_id.as_peer_id());
         match self.swarm.listen_on(listen_addr.clone()) {
             Ok(id) => {
                 self.webrtc_listeners.insert(relay, id);
                 info!(%listen_addr, "webrtc hole-punching listener registered");
             }
-            Err(e) => warn!(%listen_addr, error = %e, "webrtc circuit listen failed"),
+            // `?e` 而非 `%e`：理由同 request_relay_reservation——TransportError 的
+            // Display 在 `Other` 分支上是空串，`%` 会渲染出一条没有错误内容的日志。
+            Err(e) => warn!(%listen_addr, error = ?e, "webrtc circuit listen failed"),
         }
     }
 
@@ -774,6 +841,20 @@ impl Actor {
             debug!(%peer_id, "relay reservation already active, skip");
             return;
         }
+        // 同步失败后的重试闸门（见 `relay_retry`）。地址簿没变的前提下，重放必然
+        // 得到同一个失败，唯一的产出是一条 warn——真机上被上层以秒级频率催了几十次。
+        let backing_off = self
+            .relay_retry
+            .get(&peer_id)
+            .filter(|retry| Instant::now() < retry.retry_after)
+            .map(|retry| (retry.attempts, retry.last_error.clone()));
+        if let Some((attempts, last_error)) = backing_off {
+            debug!(%peer_id, attempts, "relay reservation backing off, skip");
+            // `ensure_relay` 在调本函数前刚把状态翻成 Connecting；不压回去，退避期内
+            // UI 会一直显示「正在连接…」，而真相是它压根没在试。
+            self.set_relay_failed(peer_id, last_error);
+            return;
+        }
         // **每个 relay 只申请一份 reservation**，哪怕地址簿里有它十几个地址。
         //
         // 曾对每个地址各 listen 一次，后果是把 relay 的配额吃光——它是 per-peer 的
@@ -786,20 +867,19 @@ impl Actor {
         // 分支，我们传的地址只用来拼那条要通告的 external 地址，**不参与建连**。
         // 它的 `reservation_addresses` 又以 ConnectionId 为键——多份本就互相覆盖，
         // 最终生效的只有一份。
-        let Some(addr) = self
-            .address_book
-            .get(&peer_id)
-            .and_then(|addrs| addrs.first())
-            .cloned()
-        else {
-            warn!(%peer_id, "no addresses for relay, cannot request reservation");
-            self.set_relay_failed(peer_id, "no addresses for relay");
+        //
+        // 取的是第一条**能当基址**的地址，不是第一条地址：地址簿里混着 circuit 地址时，
+        // 拿它当基址会拼出双层 circuit（见 `circuit_base`）。
+        let Some(relay_addr) = self.circuit_base_for(peer_id) else {
+            warn!(%peer_id, "no usable circuit base address for relay, cannot request reservation");
+            self.fail_relay_reservation(peer_id, "no usable relay address");
             return;
         };
-        let relay_addr = circuit_base(addr, peer_id);
         match self.swarm.listen_on(relay_addr.clone()) {
             Ok(listener_id) => {
                 self.relay_listeners.insert(listener_id, peer_id);
+                // 走到这一步说明地址是能用的，闸门记账作废
+                self.relay_retry.remove(&peer_id);
                 info!(%relay_addr, "requesting relay reservation");
                 // 覆盖写：identify 幂等重建路径要把 Failed 翻回 Connecting；
                 // 此处必无活跃 listener（函数开头已 skip），不会覆盖 Active
@@ -807,10 +887,32 @@ impl Actor {
                 self.ensure_webrtc_listener(peer_id);
             }
             Err(e) => {
-                warn!(%relay_addr, error = %e, "relay circuit listen failed");
-                self.set_relay_failed(peer_id, "circuit listen failed");
+                // `?e` 而非 `%e`：`TransportError` 的 Display 在 `Other` 分支上写的是
+                // **空串**（libp2p `core/src/transport.rs`），而 relay client 拒地址正落在
+                // 那个分支——真机日志里几十条全是 `error=`，判别码只有 Debug 带得出来。
+                warn!(%relay_addr, error = ?e, "relay circuit listen failed");
+                self.fail_relay_reservation(peer_id, "circuit listen failed");
             }
         }
+    }
+
+    /// 记一次 reservation 的**同步**失败：翻 `Failed` + 抬高重试闸门。
+    ///
+    /// 只给同步失败用。异步失败（reservation 被 relay 拒、listener 事后关闭）走
+    /// `RelayReservationLost` + core `InfraSupervisor` 的退避，不经此处——那类失败
+    /// 换个时机重试确实可能成功，而同步失败在输入不变时永远是同一个答案。
+    fn fail_relay_reservation(&mut self, peer: PeerId, error: impl Into<String>) {
+        let error = error.into();
+        let now = Instant::now();
+        let entry = self.relay_retry.entry(peer).or_insert(RelayRetry {
+            attempts: 0,
+            retry_after: now,
+            last_error: String::new(),
+        });
+        entry.attempts = entry.attempts.saturating_add(1);
+        entry.retry_after = now + reservation_retry_backoff(entry.attempts);
+        entry.last_error = error.clone();
+        self.set_relay_failed(peer, error);
     }
 
     /// 清除超时 connect 对应的等待者。libp2p 的
@@ -841,6 +943,8 @@ impl Actor {
     fn cancel_relay_reservation(&mut self, relay: NodeId) {
         let peer = *relay.as_peer_id();
         self.infra_relay_peers.remove(&peer);
+        // 同 handle_remove_infra_peer：意图撤销后闸门记账不该留到下一次登记
+        self.relay_retry.remove(&peer);
 
         let listeners: Vec<_> = self
             .relay_listeners
@@ -1356,6 +1460,21 @@ impl Actor {
         let entry = self.address_book.entry(peer).or_default();
         if !entry.contains(&addr) {
             entry.push(addr.clone());
+            // 新的**可用基址** = 新事实：reservation 的同步失败闸门立刻解除，不必等退避
+            // 走完（与 `InfraSupervisor` 在候选 `last_seen` 刷新时重置退避同构）。
+            //
+            // 判据是「这条能当 circuit 基址」而不是「这条进簿了」：闸门挡的两个失败
+            //（`no usable relay address` / `circuit listen failed`）都由基址决定，而新进簿
+            // 的若本身是 circuit 地址，`circuit_base` 对它必然仍是 `None`——它**证明不了
+            // 任何新事实**，清闸只是立刻重放一次注定相同的失败：同一条 warn + 一次
+            // Connecting→Failed 的 watch 抖动（三端跟着重渲染）。真机形态是 R 既被配对
+            // 又当 relay、簿里只剩到它的 circuit 地址，于是 R 的中转路径每变一次抖一次。
+            //
+            // 仍放在去重的 `if` 内部——mDNS 秒级重报同一条地址靠上面那层挡掉，
+            // 挪到 if 外面就等于没有闸门。
+            if circuit_base(addr.clone(), peer).is_some() {
+                self.relay_retry.remove(&peer);
+            }
         }
         self.swarm.add_peer_address(peer, addr);
     }
@@ -1436,16 +1555,55 @@ pub(crate) fn subscriber_channel() -> (mpsc::Sender<NetEvent>, mpsc::Receiver<Ne
 
 /// circuit 基址归一化：确保携带 `/p2p/<relay>` 段后接 `/p2p-circuit`。
 /// reservation listen 与 `Active` 状态下发共用（单一拼装规则，两处不漂移）。
-fn circuit_base(addr: libp2p::Multiaddr, relay: PeerId) -> libp2p::Multiaddr {
-    let base = if addr
-        .iter()
-        .any(|p| matches!(p, libp2p::multiaddr::Protocol::P2p(_)))
-    {
+///
+/// **`None` = 这条地址当不了 circuit 基址**，两种情形，libp2p 的 relay client transport
+/// 都是在 `dial` / `listen_on` 里当场拒收：
+///
+/// 1. **它自己就含 `/p2p-circuit` 段**——再追加一层会拼出
+///    `…/p2p/<A>/p2p-circuit/p2p/<B>/p2p-circuit` 这种双层地址，判别码
+///    `MultipleCircuitRelayProtocolsUnsupported`。2026-08-10 真机实测刷屏几十条。
+/// 2. **circuit 段之前没有任何传输段**（一条裸 `/p2p/<relay>`）——relay client 没有
+///    前半段可拨，判别码 `MissingRelayAddr`。四条进簿路径里暂时还没见过这种形状
+///    （`AddAddrs` / `Connect` 的显式候选不做形状校验，是个理论缺口），故属防御性拦截。
+///
+/// 两个判别码都落在 [`TransportError::Other`](libp2p::TransportError) 分支上、
+/// **Display 写的是空串**（`core/src/transport.rs`），于是日志里只剩一条 `error=` 的空
+/// 字段，谁也看不出发生了什么。所以判在这里，不留给 `listen_on` 去拒。
+///
+/// 与 `record_addr` 那条「以本机为中转的 circuit 地址一律丢弃」（2026-08-06，见
+/// [`is_relayed_by`]）是同一族问题的两面：那条治「中转跳是自己」，本条治「拿一条中转地址
+/// 当新中转的基址」。中转跳是第三方时前者按设计放行——本次的双层地址正是从那儿漏过来的。
+fn circuit_base(addr: libp2p::Multiaddr, relay: PeerId) -> Option<libp2p::Multiaddr> {
+    let mut has_p2p = false;
+    let mut has_transport = false;
+    for p in addr.iter() {
+        match p {
+            libp2p::multiaddr::Protocol::P2pCircuit => return None,
+            libp2p::multiaddr::Protocol::P2p(_) => has_p2p = true,
+            // 传输段 = 身份段与 circuit 段之外的任何一段（`/ip4`、`/dns4`、`/tcp`、
+            // `/quic-v1`、`/webrtc-direct`…）。这里不逐个白名单：新传输随时会加，
+            // 漏一个就是把一条本来能用的基址判死。
+            _ => has_transport = true,
+        }
+    }
+    if !has_transport {
+        return None;
+    }
+    let base = if has_p2p {
         addr
     } else {
         addr.with(libp2p::multiaddr::Protocol::P2p(relay))
     };
-    base.with(libp2p::multiaddr::Protocol::P2pCircuit)
+    Some(base.with(libp2p::multiaddr::Protocol::P2pCircuit))
+}
+
+/// 一组候选里第一条能当 circuit 基址的地址——[`Actor::circuit_base_for`] 的挑选规则本体。
+///
+/// 拆成自由函数是为了让护栏测试打在**真正被调用的那份挑选逻辑**上：它只需要一组地址，
+/// 而 `circuit_base_for` 要一整个 `Actor`（进而要一个 Swarm），测试够不到，于是原先在
+/// 测试里另抄了一份 `find_map`——那样一来「改回 `first()`」这类回归它一条都拦不住。
+fn first_circuit_base(addrs: &[libp2p::Multiaddr], relay: PeerId) -> Option<libp2p::Multiaddr> {
+    addrs.iter().find_map(|a| circuit_base(a.clone(), relay))
 }
 
 /// 这条地址的中转跳是不是 `node`。
@@ -1635,6 +1793,107 @@ mod tests {
         assert!(
             !by_me("/ip4/192.168.1.9/tcp/4001"),
             "无 /p2p/ 段的裸地址同上"
+        );
+    }
+
+    /// circuit 基址不得从一条 circuit 地址上再长一层。
+    ///
+    /// 它红了意味着 `listen_on` 会收到 `…/p2p/<A>/p2p-circuit/p2p/<B>/p2p-circuit`，
+    /// libp2p 的 relay client 以 `MultipleCircuitRelayProtocolsUnsupported` 当场拒收——
+    /// 而那个判别码落在 `TransportError::Other` 上、Display 是空串，日志里只剩
+    /// `error=`。2026-08-10 真机上它以秒级频率刷了几十条，谁也看不出发生了什么。
+    #[test]
+    fn circuit_base_never_nests() {
+        let relay = RELAY.parse::<PeerId>().expect("valid peer id");
+        let base = |s: &str| circuit_base(s.parse().expect("valid multiaddr"), relay);
+
+        // 真机日志里那条地址的形状：经 A 中转到 B，B 又被当成新的 relay
+        assert_eq!(
+            base(&format!(
+                "/ip4/192.168.50.105/udp/4001/quic-v1/p2p/{PEER}/p2p-circuit/p2p/{RELAY}"
+            )),
+            None,
+            "已含 circuit 段的地址当不了基址"
+        );
+        assert_eq!(
+            base(&format!("/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit")),
+            None,
+            "以 /p2p-circuit 结尾的同理——再追加就是两段"
+        );
+
+        // circuit 段之前没有传输段：relay client 无从拨起，`MissingRelayAddr`。
+        // 这两格是防御性的（暂无进簿路径产出这种形状），但拒的判据与上面同源。
+        assert_eq!(
+            base(&format!("/p2p/{RELAY}")),
+            None,
+            "裸 /p2p/<relay> 没有传输段，当不了基址"
+        );
+        assert_eq!(
+            circuit_base(libp2p::Multiaddr::empty(), relay),
+            None,
+            "空地址同理——`circuit_addr_for` 的退化展示值因此自己拼，不走这里"
+        );
+
+        // 正常地址仍要正常拼
+        let direct = base(&format!("/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}"))
+            .expect("直连地址必须能当基址")
+            .to_string();
+        assert_eq!(
+            direct,
+            format!("/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit")
+        );
+
+        // 不带 /p2p/ 的地址补上 relay 身份后再接 circuit
+        let bare = base("/ip4/1.2.3.4/tcp/4001")
+            .expect("裸地址必须能当基址")
+            .to_string();
+        assert_eq!(
+            bare,
+            format!("/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit")
+        );
+
+        // 结果永远只有一段 circuit——这是本测试要钉的不变量
+        for out in [direct, bare] {
+            assert_eq!(out.matches("/p2p-circuit").count(), 1, "{out}");
+        }
+    }
+
+    /// 地址簿里混着 circuit 地址时，基址要跳过它而不是撞上它。
+    ///
+    /// `first()` 版本的失败模式极隐蔽：地址簿的顺序取决于哪条先被 identify / mDNS /
+    /// DHT 报上来，于是同一份代码在某些网络下正常、在另一些下 reservation 永远建不起来。
+    #[test]
+    fn circuit_base_skips_circuit_entries_in_address_book() {
+        let relay = RELAY.parse::<PeerId>().expect("valid peer id");
+        let book: Vec<libp2p::Multiaddr> = [
+            // 排第一的是经第三方中转到该 relay 的地址（`record_addr` 按设计放行：
+            // 中转跳不是本机）
+            format!("/ip4/192.168.50.105/udp/4001/quic-v1/p2p/{PEER}/p2p-circuit/p2p/{RELAY}"),
+            format!("/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}"),
+        ]
+        .iter()
+        .map(|s| s.parse().expect("valid multiaddr"))
+        .collect();
+
+        let picked = first_circuit_base(&book, relay).expect("应挑出第二条");
+        assert_eq!(
+            picked.to_string(),
+            format!("/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit")
+        );
+    }
+
+    /// 闸门档位随连续失败递增并封顶，且与 core `InfraSupervisor::rebuild_backoff` 同一套。
+    ///
+    /// 它退化成常数（或漏了封顶）就回到本次要修的那个形态：注定失败的地址被秒级重放。
+    #[test]
+    fn reservation_backoff_escalates_and_caps() {
+        let steps: Vec<u64> = (0..7)
+            .map(|n| reservation_retry_backoff(n).as_secs())
+            .collect();
+        assert_eq!(steps, vec![2, 2, 5, 10, 30, 75, 75]);
+        assert!(
+            steps.windows(2).all(|w| w[1] >= w[0]),
+            "退避不得回落，否则失败越久重试越密"
         );
     }
 

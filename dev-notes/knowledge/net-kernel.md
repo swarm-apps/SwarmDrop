@@ -842,6 +842,41 @@ relay server 的）。于是浏览器的可达地址里多出
 触发点是「ping 连续失败 → 主动断连重探」。要查它请开 `swarmdrop_net=trace` 并从
 `record_addr` 的四个调用方入手。
 
+### 双层 circuit 地址：`listen_on` 当场拒，而错误在日志里是**空的**（2026-08-10）
+
+上一条的同族问题，中转跳换成第三方就漏过来了。真机日志几十条刷屏、`error` 字段全是空：
+
+```
+relay circuit listen failed relay_addr=/ip4/192.168.50.105/udp/4001/quic-v1/p2p/12D3KooWCkaj…/p2p-circuit/p2p/12D3KooWMSUf…/p2p-circuit error=
+```
+
+**三件事叠在一起，任何一件单独发生都不难查：**
+
+1. **地址来源**：`request_relay_reservation` 取 `address_book` 的 `first()` 当 circuit 基址，
+   而簿里可以合法地混着「经第三方中转到该 relay」的地址——上一条的 `record_addr` 过滤只丢
+   **中转跳是本机**的，中转跳是别人时按设计放行。撞上那条，`circuit_base` 见到已有 `P2p`
+   就直接追加 `/p2p-circuit`，拼出双层。
+2. **错误看不见**：libp2p relay client 以 `MultipleCircuitRelayProtocolsUnsupported` 拒收，
+   这个判别码落在 `TransportError::Other` 上，而
+   **`TransportError` 的 Display 对 `Other` 分支写的是空串**（`core/src/transport.rs`）。
+   `%e` 因此渲染出一条没有错误内容的 warn。⚠️ **凡是 `listen_on` 的错误一律用 `?e` /
+   `{e:?}`**——同一个坑当时在 `crates/net` 里有三处（reservation listen、`/webrtc` listen、
+   `builder.rs` 的 `BindError::Listen { reason }`，最后那处会让 bind 失败**整句话没有原因**）。
+3. **无退避**：`listen_on` 是**同步**失败，上层 `InfraSupervisor` 的 2s→75s 退避又被 mDNS
+   刷新候选（`candidate_seen` 重置）反复清零，于是同一条注定失败的地址被秒级重放。
+
+**修法（各管一层，缺一不可）：**
+
+- `circuit_base` 改成返回 `Option`，输入已含 `/p2p-circuit` 时给 `None`——**判在拼装处，
+  不留给 `listen_on` 去拒**。三个调用点（reservation listen / `/webrtc` listen / `circuit_addr_for`）
+  统一走 `circuit_base_for`：取地址簿里第一条**能当基址**的，不是第一条。
+  护栏测试 `circuit_base_never_nests` / `circuit_base_skips_circuit_entries_in_address_book`。
+- `Actor::relay_retry` 是**同步失败**的重试闸门（档位与 `InfraSupervisor::rebuild_backoff`
+  同一套）。它不是重试策略——策略仍在 core；它挡的是「输入没变、答案必然相同」的重放。
+  地址簿真有新条目时整条清掉（新事实到达不必等退避），意图撤销时也清掉。
+  ⚠️ 闸门短路时**必须把状态压回 `Failed`**：`ensure_relay` 在调它之前刚翻成 `Connecting`，
+  不压回去，退避期内 UI 会一直显示「正在连接…」却给不出原因。
+
 ### DataChannel 的 `Connecting` 不是错误（wasm 侧）
 
 `PeerConnection` 的 `connected`（DTLS 完成）**早于** DataChannel 的 `open`（SCTP 完成）。
@@ -890,6 +925,13 @@ accepted），所以极容易被当成网络问题查半天。真正发生的事
 2026-07-28 自研 `crates/webrtc-p2p` 重写 wasm 后端时只带过来第 1 条。
 **以后凡是「自研替换掉一个曾打过补丁的上游实现」，先把那些补丁逐条对照过来**——
 补丁在 fork 里躺着，不会自己跟着走。
+
+> **同族的第三种失效方式：补丁还在原地，产物里却没有它。** 移动端 2026-08-10 实证：
+> 一份 `pnpm patch` 打在 `expo-file-system` 上，`pnpm install` 全绿、`node_modules` 里的
+> Kotlin 确实是打过补丁的，Android 构建吃的却是预编译 AAR ⇒ **补丁三次都没参与编译**，
+> 还被反推出一条错误的「架构事实」。判据是**编译产物里的符号**（`javap`），不是源码。
+> 见 [toolchain.md](toolchain.md) 的「pnpm patch 打在有预编译产物的原生依赖上会静默失效」。
+> 三条放在一起是同一句话：**改动看起来在，不等于它进了产物。**
 
 同批漏抄的还有**累计读缓冲上限**（#6560 的 receive buffer 部分）：`onmessage` 在 Rust task
 再次 poll 之前能攒下多条各自合法的消息，没有上限就是浏览器 OOM，且它**不能拿单条消息
