@@ -626,6 +626,157 @@ which is how the same screen ends up describing two things that are one thing:
 Transport names (`TCP` / `QUIC` / `WebRTC` / `WebRTC Direct`) stay proper nouns and are not
 translated — same rule as the Device Card Contract's slot 6.
 
+### Transfer Progress Contract (cross-platform)
+
+**A progress bar answers "how much of my transfer is done." Anything else wearing its shape is
+lying.** Preparing a 1.99 GB file is about a minute of local hashing; on 2026-08-10 that minute
+rendered as the same teal bar as the transfer itself, and was followed immediately by a second teal
+bar starting at 0 on the detail screen. Users read the pair as one transfer that restarted. On a
+*resumed* send it actually did start at 0, for an unrelated reason (second bullet) — two defects,
+one indistinguishable symptom, which is what a shared visual primitive buys you.
+
+- **Prepare and transfer MUST be visually distinguishable, with fixed semantics.** **Muted grey =
+  this machine is preparing, nothing is on the wire yet. Brand teal = bytes are actually moving.**
+  Recoloring the fill alone is not enough where the track is also branded (the shared `Progress`
+  primitive tints its track `bg-primary/20`, so a grey fill lands in a teal trough) — the whole
+  primitive changes tone, or it has not changed.
+- **The resume baseline comes from the fetch plan, never from `transferred_bytes`.** That column is
+  written only on graceful paths, so an Android process kill leaves it at 0 — and a resume that
+  correctly re-sends only the missing 4206 of 8136 chunks still draws from 0% and "finishes" at
+  51.7%. The receive side has always been right and is the model to copy: it recounts from the
+  bitmap it checkpoints every ten blocks, so it survives a kill. The fix lives in shared code, so
+  it lands on **desktop and mobile** together — those are the two builds that can resume a send at
+  all. **The web build is out of scope by construction, not by omission**: a browser cannot re-read
+  the same `File` unless the user re-picks it, so non-terminal send sessions and pending offers are
+  never persisted there and no send is ever resumed. Web resumes receives only, and that path was
+  already bitmap-derived.
+- **A resumed transfer MUST state its baseline in place** — a tick on the bar plus "resumed ·
+  continuing from X". Silently starting at 63% confuses as much as starting at 0, and the baseline
+  is the only thing that lets a user tell correct resume behavior from the two failures above.
+  Expect the honest number to sometimes step *backward* from a graceful pause (the local column can
+  be a few blocks ahead of the peer's checkpoint); show the truth.
+- **Any local phase over ~3 s carries a percentage or an ETA.** Prepare, outboard rebuild after an
+  invalidated cache, the Android SAF publish copy (a full copy — a 6 GB file writes 12 GB), and the
+  web build's directory retrieval (`docs/app/app/_lib/zip-download.ts` reads every entry out of OPFS
+  and materializes one Blob) all cross that line. A phase that shows only a spinner for a minute is
+  indistinguishable from a hang, and the user's answer to a hang is to force-quit the app — which is
+  precisely what produces the zeroed `transferred_bytes` in the second bullet.
+
+**Progress must cover the real work, not the part that was easy to instrument.** Prepare reads the
+source exactly once and the progress events ride that same pass; a bar that completes and then
+leaves the user waiting the same duration again is worse than no bar.
+
+**Open gaps as of 2026-08-10 — this contract is not yet fully met, and saying so is part of the
+contract.** The Node Status Contract already cost us once by reading as a description of the code
+when it was really a wish list, so: bullet 1 landed on all three builds that day (tone split plus a
+percentage in the prepare copy), and bullet 2 landed in the shared resume planner
+(`crates/transfer/src/flow/resume/plan.rs`) — which is to say on the two builds that can resume a
+send at all. Bullet 3 has **no implementation anywhere** — nothing renders a baseline tick or a
+"resumed · continuing from X" label yet. Bullet 4 holds for prepare only; outboard rebuild, the
+Android SAF publish copy, and the web build's zip retrieval (a bare `LoaderCircle` plus "下载中…",
+`docs/app/app/_components/inbox-views.tsx`) all still show a spinner with no progress. These are
+open bugs, not permitted divergence — delete these sentences in the PR that closes them.
+
+**Permitted divergence: none — but no single diff covers all three.** The prepare bar exists three
+times (`mobile/src/components/transfer/prepare-progress-bar.tsx`,
+`src/routes/_app/send/-components/prepare-progress-bar.tsx`,
+`docs/app/app/_components/prepare-progress.tsx`) over three different progress primitives, and the
+primitives need different work to express the same tone split: mobile's track is already neutral so
+only the fill moves, desktop's track is branded so fill *and* track move, web's is a single shared
+component. That is a difference in **what each patch touches**, not in what any of them may expose.
+
+**The one criterion, binding on all three builds:** where a progress primitive draws more than one
+phase — and all three do — **the phase is a named prop resolved by a lookup table inside the
+primitive**; call sites pass the phase, never raw color classes. The established prop name is
+`tone`, with a `Record<ProgressTone, …>` beside it. Adding a fourth phase is then a compile error
+at one place instead of a color someone forgot at one of N call sites, and the "is grey allowed
+here?" question stops being re-litigated per screen. **Copy the rule, not the patch.**
+
+There is a **fourth** primitive the paragraph above misses: `packages/file-browser/src/progress.tsx`,
+shared by desktop and web for per-file rows. It carries a different pair — `transfer` vs `paused` —
+which is *orthogonal* to `transfer` vs `local`: one splits "preparing locally" from "actually on the
+wire", the other splits "moving" from "stopped". A primitive takes only the axis it draws. The rule
+above still binds: the lookup table converted two call sites that had been passing raw
+`bg-warning`/`bg-primary` ternaries, and it did so by failing to compile.
+
+**Paused is amber, and amber means the `-ink` variant.** A paused transfer is a *user-recoverable*
+interruption — it has to be scannable in a list of files, so it does not get the neutral grey that
+"waiting" gets. But the raw `--warning` is a light amber that only clears **2.14:1** against a light
+card and **1.83:1** against its own 20% track: below the 3:1 that WCAG 2.2 SC 1.4.11 requires of
+non-text. Fill and icon therefore use `--warning-ink` (4.33–5.05:1 light, 5.45–8.90:1 dark). This is
+the same rule `src/index.css` already states for status colors as text — measured 2026-08-10 after
+mobile shipped raw amber on both the fill and the icon. **Dark mode passes either way**, so checking
+only the dark theme will tell you nothing.
+
+### Bottom Action Contract (mobile)
+
+**A pinned bottom action is not trim; when it fails, a feature disappears.** The device detail screen
+shipped with no scroll container and the wrong bottom-bar primitive, which pushed its policy entry —
+the only route in the entire mobile build to unpair, block a device, or change its receive policy —
+permanently past the screen edge once "connection details" was expanded. It survived review because
+the collapsed state happens to fit.
+
+1. **Stack and detail screens use `BottomActionBar`, always** (`mobile/src/components/mobile/screen.tsx`),
+   placed in `AppScreen`'s **children** — never in the `footer` slot. It is what guarantees the three
+   things a pinned bar needs: the top hairline, an **opaque** `bg-background` (content MUST NOT show
+   through; a transparent bar over a scrolling list reads as a rendering bug), and bottom padding
+   that clears the system inset. The `footer` slot belongs to tab screens, where the opaque native
+   tab bar underneath already supplies background and inset.
+2. **Bottom distance is inset *plus* breathing room — added, not `Math.max`.** The inset is space the
+   *system* occupies; breathing room is visual whitespace. Every current device's inset already
+   exceeds any sane breathing value (Android gesture bar 24dp, three-button 48dp, iOS home indicator
+   34dp), so `Math.max(inset, 12)` collapses to `inset` on all of them and the primary button sits
+   flush against the system bar everywhere.
+3. **A screen with a pinned bottom bar MUST make its content a scroll container** (`AppScreen scroll`,
+   or an explicit `ScrollView` / `FlatList` / `FlashList`). The bar is an in-flow sibling and is
+   **never absolutely positioned**, so the content side does NOT add padding equal to the bar's
+   height — only a breathing gap at the end. Doing both is the other way this goes wrong: a dead band
+   the user can scroll into for nothing.
+4. **`flex-1` is judged by the *parent's* `flexDirection`, never by whether the node itself is a row
+   or a column.** `BottomActionBar` is `flex-row`, so every **direct** child of it — column wrappers
+   included — needs `flex-1` to fill the bar's width; a direct child without it shrinks to its text
+   width and the whole bar reads as a stray label. The failure mode is `flex-1` appearing where the
+   **parent is a column**: an inner vertical stack inside the bar, or a control inside such a stack.
+   There `flexBasis: 0%` resolves against **height** with an auto-height parent, the node collapses,
+   and content overflows the bar symmetrically (a progress bar riding above the hairline, a button
+   clipped by the screen edge) because the row centers on its cross axis.
+
+   The two send screens are the worked example, and the shape is deliberate — do not "simplify" the
+   wrapper away (`mobile/src/app/send/select-device.tsx`, `share-target.tsx`):
+
+   ```jsx
+   <BottomActionBar>                 {/* flex-row */}
+     <View className="flex-1 gap-2"> {/* column, but its parent is the row ⇒ flex-1 = width. Required. */}
+       {prepareProgress ? <PrepareProgressBar /> : null}
+       <Pressable … />               {/* parent is the column ⇒ no flex-1 here */}
+     </View>
+   </BottomActionBar>
+   ```
+
+   Where the bar's single direct child simply *is* the primary button, that button is the one
+   carrying `flex-1` — same rule, shorter tree. Being a column is not what makes a node wide; being
+   a child of a row with `flex-1` is.
+
+**Verify across three Android navigation modes and two iOS shapes.** Gesture bar (24dp),
+three-button (48dp) and fullscreen (0dp) differ exactly where rule 2 bites — the first two show it,
+the third cannot. iPhone X+ (34dp) versus iPad/SE (0dp) likewise. A bottom bar that looks right on
+one simulator proves nothing. Where the bar rides a keyboard (`KeyboardStickyView`), check both
+keyboard states: the system inset is redundant while the keyboard is up.
+
+**Three-button is not "the same bug, 24dp worse" — it is a different bug.** The gesture bar only
+consumes swipes, so a control sitting under it stays tappable and the defect degrades to a mistap
+risk. The three-button bar consumes **taps**, and they are Back / Home / Recents: an overlapped
+control loses that height outright, and the user aiming at it gets ejected from the app instead.
+Any bottom-inset shortfall must therefore be scored at 48dp, not 24dp — a 44dp control with a 16dp
+gap keeps 36dp under the gesture bar but only 12dp under three-button, well under the 48dp minimum
+touch target. Scoring one archived audit at 24dp alone is how a reachability defect got filed as
+polish (`dev-notes/research/2026-08-10-mobile-bottom-action-audit.md`, S1-b).
+
+**One primitive, not two.** A second, nearly identical bottom-bar component with no background and
+no inset is how the device detail bug happened — the author picked the wrong one from an
+autocomplete list. Where a variant has a single legitimate call site, inline it there rather than
+exporting it beside the real one.
+
 ### Layout Density Contract
 
 Written from the web build's 2026-08 rework, but the failure it names is not web-specific — check

@@ -28,6 +28,9 @@ export function useThemeColors() {
   const success = useUnstableNativeVariable("--success");
   const info = useUnstableNativeVariable("--info");
   const warning = useUnstableNativeVariable("--warning");
+  // 图标与小字要用 ink 变体：琥珀原色在亮底上只有 2.14:1，够不上 WCAG 的 3:1
+  // （ink 是 5.04:1）。判据同 `src/global.css` 里状态色那段注释。
+  const warningInk = useUnstableNativeVariable("--warning-ink");
   const border = useUnstableNativeVariable("--border");
   const muted = useUnstableNativeVariable("--muted");
   const mutedForeground = useUnstableNativeVariable("--muted-foreground");
@@ -46,6 +49,7 @@ export function useThemeColors() {
       success: hsl(success),
       info: hsl(info),
       warning: hsl(warning),
+      warningInk: hsl(warningInk),
       border: hsl(border),
       muted: hsl(muted),
       mutedForeground: hsl(mutedForeground),
@@ -63,6 +67,7 @@ export function useThemeColors() {
       success,
       info,
       warning,
+      warningInk,
       border,
       muted,
       mutedForeground,

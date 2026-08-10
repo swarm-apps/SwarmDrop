@@ -446,6 +446,10 @@ msgstr "Minimize to tray"
 msgid "准备中…"
 msgstr "Preparing…"
 
+#: src/routes/_app/send/-components/prepare-progress-bar.tsx
+msgid "准备文件的进度"
+msgstr "File preparation progress"
+
 #: src/lib/errors.ts
 msgid "出错了，请重试"
 msgstr "Something went wrong, please try again"
@@ -1577,8 +1581,14 @@ msgstr "Saving..."
 #. placeholder {0}: progress.completedFiles
 #. placeholder {1}: progress.totalFiles
 #: src/routes/_app/send/-components/prepare-progress-bar.tsx
-msgid "正在准备 ({0}/{1})"
-msgstr "Preparing ({0}/{1})"
+#~ msgid "正在准备 ({0}/{1})"
+#~ msgstr "Preparing ({0}/{1})"
+
+#. placeholder {0}: progress.completedFiles
+#. placeholder {1}: progress.totalFiles
+#: src/routes/_app/send/-components/prepare-progress-bar.tsx
+msgid "正在准备 {percent}%（{0}/{1}）"
+msgstr "Preparing {percent}% ({0}/{1})"
 
 #: packages/file-browser/src/item-actions.tsx
 msgid "正在准备下载"

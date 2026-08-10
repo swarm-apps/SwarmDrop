@@ -101,8 +101,34 @@ Web 写 `sky-500/12`、移动索性改用 `primary`——于是「打洞」在�
 写法。改一个值必须三份一起动。
 
 **正确做法**：
-- 填充 / 圆点 / 图标 → `bg-success` `bg-warning` `bg-destructive` `bg-info`（常配 `/12`~`/15`）
+- **大色块**填充 / 圆点 → `bg-success` `bg-warning` `bg-destructive` `bg-info`（常配 `/12`~`/15`）
 - 任何**文字** → `text-success-ink` / `text-warning-ink` / `text-destructive-ink` / `text-info-ink`
+- **图标、以及要跟浅底分清的细填充（进度条填充等）→ 也用 `-ink`**，见下条
+
+#### `-ink` 的适用面比「文字」大：图标和细填充也要用（2026-08-10 实测修正）
+
+上面那条原先把**图标**归在「填充」一侧，写作 `bg-warning`/`color={colors.warning}`。
+实测下来那是错的——琥珀原色在亮色下根本够不上 WCAG 2.2 SC 1.4.11 对非文本内容的 3:1：
+
+| 组合（亮 / 暗） | `--warning` 原色 | `--warning-ink` |
+|---|---|---|
+| 图标 vs 卡片底 | **2.14** ❌ / 9.85 | 5.05 ✓ / 8.90 |
+| 进度条填充 vs 自身 20% 轨道 | **1.83** ❌ / 6.03 | 4.33 ✓ / 5.45 |
+| 进度条填充 vs `bg-muted` 轨道 | **1.96** ❌ / 8.29 | 4.63 ✓ / 7.50 |
+
+`src/index.css` 顶部那条注释其实早就说了「状态色本身当小字过不了 AA——白底上 warning
+只有 2.13:1」，只是当时只把结论用在了「文字」上。**图标是靠形状识别的小图形，和小字
+一样吃不住 2:1 的对比**；细填充同理。
+
+⚠️ **暗色两边都过（6~10:1），只看暗色主题会以为没事。** 本仓的琥珀档在移动端就这么错了
+一整个版本（暂停态的进度条填充 + `CirclePause` 图标都用原色），2026-08-10 才被算出来。
+
+**例外**：装饰性图标不受此约束——`folder-row.tsx` 那个黄色文件夹图标用的就是原色，
+它靠**形状**表意（"这是个文件夹"），颜色只是惯例，不承载「必须看清」的信息。
+判据是「这个颜色一旦看不清，用户会漏掉什么信息吗」。
+
+**相关文件**：`packages/file-browser/src/progress.tsx`、
+`mobile/src/components/transfer/shared.tsx`、`mobile/src/hooks/useThemeColors.ts`
 - token 自己随主题切换，**不要再写 `dark:` 分支**——原先那种 `bg-green-100 dark:bg-green-500/15`
   的双份写法是硬编码时代的产物，token 化后是纯噪音
 

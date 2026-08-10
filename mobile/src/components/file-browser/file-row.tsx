@@ -128,7 +128,7 @@ function FileRowComponent({ item, depth = 0, actions, testID }: FileRowProps) {
           ) : item.status === "waiting" ? (
             <Timer size={15} color={colors.mutedForeground} />
           ) : item.status === "paused" ? (
-            <CirclePause size={15} color={colors.warning} />
+            <CirclePause size={15} color={colors.warningInk} />
           ) : null}
         </Pressable>
 
@@ -182,7 +182,7 @@ function FileRowComponent({ item, depth = 0, actions, testID }: FileRowProps) {
           <ProgressBar
             percent={progress}
             heightClass="h-1"
-            fillClass={item.status === "paused" ? "bg-warning" : "bg-primary"}
+            tone={item.status === "paused" ? "paused" : "transfer"}
           />
         </View>
       ) : null}
@@ -200,7 +200,8 @@ function statusIconColor(status: FileBrowserStatus, colors: ThemeColors) {
     case "missing":
       return colors.destructive;
     case "paused":
-      return colors.warning;
+      // ink 变体：这个颜色喂给状态文字与图标，琥珀原色在亮底上只有 2.14:1。
+      return colors.warningInk;
     case "transferring":
     case "idle":
       return colors.primary;

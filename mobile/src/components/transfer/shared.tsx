@@ -185,23 +185,65 @@ export function StatusLabel({ status }: { status: AnyStatus }) {
 
 /* ─── 进度条（共享给详情页 / 发送准备页 / file-tree-item） ─── */
 
+/**
+ * 进度所处的阶段。**颜色是它们之间唯一的视觉差别，别再共用一种**：
+ *
+ * - `transfer` —— 数据真的在网上跑，品牌青绿；
+ * - `local` —— 纯本机阶段（准备 / 校验 / 打包），中性灰，还没上网；
+ * - `paused` —— 传输已开始但停住了，琥珀警示色。
+ *
+ * 事实源是根目录 `DESIGN.md` 的 `Transfer Progress Contract`——三端共用那一份判据，
+ * 只有机制各不相同（桌面 `src/components/ui/progress.tsx` 因轨道带品牌底纹而查表存
+ * 轨道+填充成对，这里与 Web 的轨道本就中性，只需存填充）。
+ *
+ * `transfer`/`local` 与 `paused` 是**正交**的两组：前者分「本机准备 vs 真在传」，
+ * 后者分「在传 vs 停住了」。本原语两组都画，故三项并列。
+ *
+ * `paused` 三端已统一（2026-08-10）：此前桌面 `packages/file-browser` 不换填充色、
+ * 只用一个中性灰的 `<Pause />`，而这边是琥珀——同一状态一个「不显眼的灰」一个
+ * 「需要注意的黄」。现在两边都是琥珀填充 + `CirclePause`。
+ */
+type ProgressTone = "transfer" | "local" | "paused";
+
+/**
+ * 填充色查表。
+ *
+ * **查表而不是让调用点传类名**：加一种阶段会在这里编译期报缺项，而不是变成某个页面
+ * 忘了改的颜色——这条是 `Transfer Progress Contract` 明写的要求。上一版是
+ * `fillClass?: string`，于是「哪些阶段存在」散在各调用点无从检查；换成查表时才发现
+ * 除了 prepare 还有 file-row / file-card 两个调用点在传第三种颜色。
+ *
+ * 灰档用满不透明度而不是 `/60`：后者与轨道 `bg-muted` 在亮色下只有 2.19:1，
+ * 够不上 WCAG 2.2 SC 1.4.11 对非文本组件的 3:1（满不透明度是 4.28:1 / 暗色 5.64:1）。
+ */
+const TONE_FILL: Record<ProgressTone, string> = {
+  transfer: "bg-primary",
+  local: "bg-muted-foreground",
+  // `warning-ink` 不是 `warning`：琥珀原色填充与 `bg-muted` 轨道在**亮色**下只有
+  // 1.95:1（暗色 6.83:1 没问题，只看暗色会以为没事）。ink 变体是 4.60:1 / 8.64:1。
+  paused: "bg-warning-ink",
+};
+
 interface ProgressBarProps {
   percent: number;
   /** Tailwind height token，默认 h-2 */
   heightClass?: string;
-  /** 填充色 className，默认 bg-primary */
-  fillClass?: string;
+  /** 进度所处阶段，决定填充色。默认 `transfer`。 */
+  tone?: ProgressTone;
 }
 
 export function ProgressBar({
   percent,
   heightClass = "h-2",
-  fillClass = "bg-primary",
+  tone = "transfer",
 }: ProgressBarProps) {
   const w = Math.min(100, Math.max(0, percent));
   return (
     <View className={cn("overflow-hidden rounded-full bg-muted", heightClass)}>
-      <View className={cn("h-full", fillClass)} style={{ width: `${w}%` }} />
+      <View
+        className={cn("h-full", TONE_FILL[tone])}
+        style={{ width: `${w}%` }}
+      />
     </View>
   );
 }
@@ -284,7 +326,11 @@ export function failureCodeLabel(
     case "OfferFailed":
       return <Trans>发送请求没能送达对方，请确认对方在线后重试</Trans>;
     case "PeerProtocolUnsupported":
-      return <Trans>对方的 SwarmDrop 版本太旧，无法接收这次传输，请让对方升级后重试</Trans>;
+      return (
+        <Trans>
+          对方的 SwarmDrop 版本太旧，无法接收这次传输，请让对方升级后重试
+        </Trans>
+      );
     case "Legacy":
       return failure.inner.message;
   }

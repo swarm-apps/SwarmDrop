@@ -445,6 +445,10 @@ msgstr "最小化到托盘"
 msgid "准备中…"
 msgstr "准备中…"
 
+#: src/routes/_app/send/-components/prepare-progress-bar.tsx
+msgid "准备文件的进度"
+msgstr "准备文件的进度"
+
 #: src/lib/errors.ts
 msgid "出错了，请重试"
 msgstr "出错了，请重试"
@@ -1576,8 +1580,14 @@ msgstr "正在保存..."
 #. placeholder {0}: progress.completedFiles
 #. placeholder {1}: progress.totalFiles
 #: src/routes/_app/send/-components/prepare-progress-bar.tsx
-msgid "正在准备 ({0}/{1})"
-msgstr "正在准备 ({0}/{1})"
+#~ msgid "正在准备 ({0}/{1})"
+#~ msgstr "正在准备 ({0}/{1})"
+
+#. placeholder {0}: progress.completedFiles
+#. placeholder {1}: progress.totalFiles
+#: src/routes/_app/send/-components/prepare-progress-bar.tsx
+msgid "正在准备 {percent}%（{0}/{1}）"
+msgstr "正在准备 {percent}%（{0}/{1}）"
 
 #: packages/file-browser/src/item-actions.tsx
 msgid "正在准备下载"

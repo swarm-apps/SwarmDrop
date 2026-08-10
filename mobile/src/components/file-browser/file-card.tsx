@@ -112,7 +112,7 @@ function FileCardComponent({ item, actions, testID }: FileCardProps) {
             <ProgressBar
               percent={progress}
               heightClass="h-1"
-              fillClass={item.status === "paused" ? "bg-warning" : "bg-primary"}
+              tone={item.status === "paused" ? "paused" : "transfer"}
             />
           ) : null}
         </View>

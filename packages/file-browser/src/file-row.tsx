@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Check, CircleAlert, Pause, Timer, XCircle } from "lucide-react";
+import { Check, CircleAlert, CirclePause, Timer, XCircle } from "lucide-react";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Progress } from "./progress";
 import { cn } from "./cn";
@@ -55,7 +55,12 @@ function FileRowComponent({
             {showProgress ? `${progress}%` : formatFileSize(item.size)}
           </span>
           {item.status === "waiting" && <Timer className="size-3.5 text-muted-foreground" />}
-          {item.status === "paused" && <Pause className="size-3.5 text-muted-foreground" />}
+          {/* 琥珀而非中性灰：暂停是**用户可恢复**的中断，得在一列文件里扫得见。
+              形状与配色都对齐移动端的 `CirclePause`（三端同一状态同一视觉）。
+              用 `-ink` 变体：琥珀原色在亮底上只有 2.14:1，ink 是 5.05:1。 */}
+          {item.status === "paused" && (
+            <CirclePause className="size-3.5 text-warning-ink" />
+          )}
           {item.status === "completed" && <Check className="size-3.5 text-emerald-500" />}
           {item.status === "cancelled" && <XCircle className="size-3.5 text-muted-foreground" />}
           {item.status === "error" && <CircleAlert className="size-3.5 text-destructive" />}
@@ -70,6 +75,7 @@ function FileRowComponent({
             value={progress}
             className="mt-1 h-1"
             label={t`${item.name} 的进度`}
+            tone={item.status === "paused" ? "paused" : "transfer"}
           />
         )}
       </div>

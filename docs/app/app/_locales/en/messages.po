@@ -1377,8 +1377,16 @@ msgstr "Stopping the node…"
 #. placeholder {3}: formatFileSize(progress.bytesHashed)
 #. placeholder {4}: formatFileSize(progress.totalBytes)
 #: app/app/_components/prepare-progress.tsx
-msgid "正在准备 {0}（{1}/{2} 文件 · {3}/{4}）"
-msgstr "Preparing {0} ({1}/{2} files · {3}/{4})"
+#~ msgid "正在准备 {0}（{1}/{2} 文件 · {3}/{4}）"
+#~ msgstr "Preparing {0} ({1}/{2} files · {3}/{4})"
+
+#. placeholder {0}: progress.completedFiles
+#. placeholder {1}: progress.totalFiles
+#. placeholder {2}: formatFileSize(progress.bytesHashed)
+#. placeholder {3}: formatFileSize(progress.totalBytes)
+#: app/app/_components/prepare-progress.tsx
+msgid "正在准备 {percent}%（{0}/{1} 文件 · {2}/{3}）"
+msgstr "Preparing {percent}% ({0}/{1} files · {2}/{3})"
 
 #: ../packages/file-browser/src/item-actions.tsx
 msgid "正在准备下载"

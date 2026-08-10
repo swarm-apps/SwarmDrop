@@ -29,8 +29,14 @@ use crate::{AppError, AppResult};
 
 /// PrepareProgress 的节流间隔，避免大文件刷屏。
 ///
-/// 与 [`crate::progress`] 里传输进度用的那个同值——两者在 UI 上是同一条进度条的前后两段，
-/// 节奏漂移用户直接看得见。
+/// 与 [`crate::progress`] 里传输进度用的那个同值：两段**背靠背**出现（prepare 一完就进传输），
+/// 刷新节奏漂移用户直接看得见。
+///
+/// ⚠️ **但两者不是同一条进度条。** 这里此前写作「两者在 UI 上是同一条进度条的前后两段」——
+/// 那是**错的设计意图**（2026-08-10 更正）：prepare 是本机在算、还没上网，传输是字节真的在动，
+/// 三端必须让两者**视觉可区分**（灰 = 准备中，teal = 传输中）。共用同一个视觉原语正是那次
+/// 「用户把 1.99 GB 的 prepare 读成传输、进而把新会话读成『续传从 0% 重来』」的直接原因。
+/// 判据写在 `DESIGN.md` 的 **Transfer Progress Contract (cross-platform)**。
 const PROGRESS_THROTTLE: std::time::Duration = std::time::Duration::from_millis(200);
 
 /// 把 bao 构建的读取进度翻译成 [`TransferEvent::PrepareProgress`]。
