@@ -20,6 +20,7 @@ use crate::epoch::EpochGuard;
 use crate::events::{TransferEvent, TransferEventSink};
 use crate::host::FileAccess;
 use crate::manager::PreparedFile;
+use crate::probe::{SEND_ACK, SEND_LABELS, SEND_PROOF, SEND_READ, SEND_WRITE, SendProbe};
 use crate::progress::{FileDesc, ProgressTracker, RuntimeTransferDirection};
 use crate::protocol::{FileInfo, FileRange};
 use crate::store::SessionStore;
@@ -229,12 +230,14 @@ impl SenderActor {
         }
 
         let mut pacer = WindowPacer::default();
+        // 逐阶段耗时探针。汇总由 Drop 打，所以下面每条 early return 都会带出数据。
+        let mut probe = SendProbe::new("send", self.session_id, SEND_LABELS);
         for range in plan {
             if self.cancel_token.is_cancelled() {
                 return Err(AppError::Transfer("传输已取消".into()));
             }
             if let Err(error) = self
-                .write_range(&mut channel, epoch, range, &mut pacer)
+                .write_range(&mut channel, epoch, range, &mut pacer, &mut probe)
                 .await
             {
                 return Err(self.prefer_remote_abort(&mut channel, epoch, error).await);
@@ -462,6 +465,11 @@ impl SenderActor {
     ///
     /// 存在的理由只有一个：`write_range` 有两条写块路径（空文件的单空块 / 常规循环），
     /// 窗口簿记漏在任何一条上，都会让在途量悄悄越过上限。
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "写一块需要流 / epoch / 文件 / 偏移 / 长度，外加窗口与探针两个跨块累加器；\
+                  打包成 struct 只会把「哪些是每块变的、哪些是整条会话不变的」这层区分抹掉"
+    )]
     async fn write_block_paced<S>(
         &self,
         stream: &mut S,
@@ -470,15 +478,22 @@ impl SenderActor {
         offset: u64,
         length: usize,
         pacer: &mut WindowPacer,
+        probe: &mut SendProbe,
     ) -> AppResult<()>
     where
         S: futures::io::AsyncRead + futures::io::AsyncWrite + Unpin,
     {
-        self.write_block(stream, epoch, file, offset, length)
+        self.write_block(stream, epoch, file, offset, length, probe)
             .await?;
+        // 停等窗口的等待计在自己的阶段里：它与 `write` 混在一起就分不出「传输层背压」
+        // 和「对端消化不过来」——两者的修法完全不同。
         if pacer.count_block() {
-            self.sync_window(stream, epoch).await?;
+            probe.mark();
+            let synced = self.sync_window(stream, epoch).await;
+            probe.lap(SEND_ACK);
+            synced?;
         }
+        probe.block_done(length as u64);
         Ok(())
     }
 
@@ -488,6 +503,7 @@ impl SenderActor {
         epoch: i64,
         range: FileRange,
         pacer: &mut WindowPacer,
+        probe: &mut SendProbe,
     ) -> AppResult<()>
     where
         S: futures::io::AsyncRead + futures::io::AsyncWrite + Unpin,
@@ -510,7 +526,7 @@ impl SenderActor {
         }
 
         if file.size == 0 && range.offset == 0 && range.length == 0 {
-            self.write_block_paced(stream, epoch, file, 0, 0, pacer)
+            self.write_block_paced(stream, epoch, file, 0, 0, pacer, probe)
                 .await?;
             return Ok(());
         }
@@ -521,7 +537,7 @@ impl SenderActor {
                 return Err(AppError::Transfer("传输已取消".into()));
             }
             let len = ((end - offset) as usize).min(CHUNK_SIZE);
-            self.write_block_paced(stream, epoch, file, offset, len, pacer)
+            self.write_block_paced(stream, epoch, file, offset, len, pacer, probe)
                 .await?;
             offset += len as u64;
         }
@@ -536,14 +552,17 @@ impl SenderActor {
         file: &PreparedFile,
         offset: u64,
         length: usize,
+        probe: &mut SendProbe,
     ) -> AppResult<()>
     where
         W: futures::io::AsyncWrite + Unpin,
     {
+        probe.mark();
         let plaintext = self
             .file_access
             .read_source_chunk(&file.source_id, offset, length)
             .await?;
+        probe.lap(SEND_READ);
         // range 已按 file.size clamp，EOF 短读在此不可能——长度不符只能是宿主违约
         // 或文件在传输中被外部改动。静默发出缩短的块会让外层循环仍按请求 len 推进
         // offset，留下永不补发的 gap（接收端 checkpoint 永远收不齐），必须响错。
@@ -560,6 +579,7 @@ impl SenderActor {
         // 叶子只在 proof 出现一次，无 2x 冗余。接收端 decode 必然验签，验过即写盘。
         let root = crate::bao::root_from_checksum(&file.checksum)?;
         let proof = crate::bao::encode_proof(&file.outboard, root, file.size, offset, &plaintext)?;
+        probe.lap(SEND_PROOF);
 
         write_frame(
             stream,
@@ -576,6 +596,9 @@ impl SenderActor {
             },
         )
         .await?;
+        // 这一段吃掉传输层的全部背压（浏览器的 `bufferedAmount` 等待、SCTP 拥塞窗口、
+        // QUIC 流控）。诊断报告的预算分解指向它，但那是**推算**——这里是实测。
+        probe.lap(SEND_WRITE);
 
         self.last_activity_ms.store(
             self.created_at.elapsed().as_millis() as u64,
@@ -802,9 +825,10 @@ mod tests {
             offset: 0,
             length: data.len() as u64,
         };
+        let mut probe = SendProbe::new("send", actor.session_id, SEND_LABELS);
         n0_future::time::timeout(
             Duration::from_secs(20),
-            actor.write_range(&mut peer, epoch, range, &mut pacer),
+            actor.write_range(&mut peer, epoch, range, &mut pacer, &mut probe),
         )
         .await
         .expect("对端持续确认时不该卡住")
@@ -859,9 +883,10 @@ mod tests {
             offset: 0,
             length: data.len() as u64,
         };
+        let mut probe = SendProbe::new("send", actor.session_id, SEND_LABELS);
         let outcome = n0_future::time::timeout(
             Duration::from_millis(500),
-            actor.write_range(&mut peer, 1, range, &mut pacer),
+            actor.write_range(&mut peer, 1, range, &mut pacer, &mut probe),
         )
         .await;
         assert!(

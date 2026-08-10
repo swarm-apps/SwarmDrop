@@ -23,6 +23,9 @@ use crate::coordinator::{ActorReport, CoordinatorInput, TransferCoordinator};
 use crate::epoch::EpochGuard;
 use crate::events::{TransferEvent, TransferEventSink};
 use crate::host::{CoreSaveLocation, FileAccess, FileSinkId, HostFileMetadata};
+use crate::probe::{
+    RECV_CKPT, RECV_LABELS, RECV_REST, RECV_VERIFY, RECV_WAIT, RECV_WRITE, RecvProbe,
+};
 use crate::progress::{
     FileDesc, ProgressTracker, RuntimeTransferDirection, TransferDbErrorEvent, TransferFailedEvent,
 };
@@ -315,16 +318,23 @@ impl ReceiverActor {
         // **整流顺序读写，不 split**（wasm 修复，与发送端对称）：读循环天然顺序、仅末尾写一帧
         // Finish 确认，两者不重叠，`split` 本就多余；而 `futures` split 的 BiLock reader half 在
         // wasm 下、数据到达 muxer 后不唤醒读端（native 多线程掩盖）——直接用整条流即修。
+        // 逐阶段耗时探针。汇总由 Drop 打，所以下面每条 early return 都会带出数据。
+        let mut probe = RecvProbe::new("recv", self.session_id, RECV_LABELS);
         loop {
             if self.cancel_token.is_cancelled() {
                 return Ok(false);
             }
 
             // 空闲等待下一帧时也响应取消，避免 cancel 后干等到下一帧或超时。
+            //
+            // 这一段是「被链路饿着」的时间。它占大头即说明瓶颈在链路或发送端，
+            // **不在接收端的工作量**——这正是把症状 B 的归因从排除法变成正向证据的判据。
+            probe.mark();
             let frame = tokio::select! {
                 _ = self.cancel_token.cancelled() => return Ok(false),
                 frame = read_frame(&mut *stream) => frame?,
             };
+            probe.lap(RECV_WAIT);
             match frame {
                 Some(TransferDataFrame::BlockData {
                     session_id,
@@ -334,6 +344,7 @@ impl ReceiverActor {
                     data: _,
                     proof,
                 }) if session_id == self.session_id && EpochGuard::matches(frame_epoch, epoch) => {
+                    let length = range.length;
                     self.handle_block_data(
                         &progress,
                         &mut sinks,
@@ -342,8 +353,10 @@ impl ReceiverActor {
                         is_resume,
                         range,
                         proof,
+                        &mut probe,
                     )
                     .await?;
+                    probe.block_done(length);
                 }
                 Some(TransferDataFrame::Finish {
                     session_id,
@@ -416,8 +429,10 @@ impl ReceiverActor {
         is_resume: bool,
         range: FileRange,
         proof: Option<Vec<u8>>,
+        probe: &mut RecvProbe,
     ) -> AppResult<()> {
         let (file_info, data) = self.verify_block(&range, proof)?;
+        probe.lap(RECV_VERIFY);
         // **已发布的文件不接受任何后续块。** 放行会让 `ensure_sink` 为它新建一条空暂存、
         // 只写进这一块、再发布一次——把用户目录里那个完整文件覆盖成残片。会话末尾统一
         // finalize 的旧实现没有这个窗口（重复块只是重复写同一个 sink），是「收齐即发布」
@@ -437,12 +452,15 @@ impl ReceiverActor {
             .ensure_sink(&file_info, sinks, started_files, progress, is_resume)
             .await?;
         let completed_bitmap = self
-            .persist_chunk(&file_info, &sink_id, &range, data, bitmaps)
+            .persist_chunk(&file_info, &sink_id, &range, data, bitmaps, probe)
             .await?;
         self.emit_chunk_progress(progress, &range).await;
         if let Some(bitmap) = completed_bitmap {
             self.publish_file(&file_info, sinks, bitmap).await?;
         }
+        // 剩下的都归 `rest`：ensure_sink、bitmap 簿记、进度事件、发布。单独拆它们只会
+        // 让阶段表变长而不增加判别力——真要拆等这一段先冒头再说。
+        probe.lap(RECV_REST);
         Ok(())
     }
 
@@ -597,10 +615,14 @@ impl ReceiverActor {
         range: &FileRange,
         data: Vec<u8>,
         bitmaps: &mut HashMap<u32, Vec<u8>>,
+        probe: &mut RecvProbe,
     ) -> AppResult<Option<Vec<u8>>> {
         self.file_access
             .write_sink_chunk(sink_id, range.offset, data)
             .await?;
+        // 写盘单列：症状 B 若真出在接收设备的闪存侧（pSLC 耗尽 / GC），
+        // 增长会**只**出现在这一段。
+        probe.lap(RECV_WRITE);
 
         let chunk_index = (range.offset / CHUNK_SIZE as u64) as u32;
         let total_chunks = calc_total_chunks(file_info.size);
@@ -633,6 +655,10 @@ impl ReceiverActor {
                 )
                 .await?;
         }
+        // 落库单列：诊断报告实测 Android 上一次 checkpoint 要 11.6 ms（SQLite 未开 WAL，
+        // rollback journal + FULL synchronous）。摊到每块约 1.16 ms，是恒定项而非增长项，
+        // 但它压低的是稳态吞吐——先看见才好决定要不要动。
+        probe.lap(RECV_CKPT);
         Ok(completed_bitmap)
     }
 

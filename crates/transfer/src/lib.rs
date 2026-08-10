@@ -18,6 +18,7 @@ pub mod incoming;
 pub mod manager;
 pub mod peer;
 pub mod policy;
+pub(crate) mod probe;
 pub mod progress;
 pub mod protocol;
 pub mod runtime;

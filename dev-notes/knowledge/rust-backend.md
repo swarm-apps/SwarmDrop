@@ -1733,3 +1733,57 @@ hash 一致，纯显示问题）。
 
 **相关文件**：`crates/transfer/src/manager.rs`、`crates/transfer/src/coordinator.rs`、
 `crates/entity/src/lib.rs`
+
+## tracing 的 target 是**前缀匹配**——非 `swarmdrop*` 的 crate 必须单列（2026-08-10）
+
+三端的默认 filter 都是 `swarmdrop=debug,swarmdrop_net=debug`
+（`src-tauri/src/logging.rs` 与 `mobile-core/src/logging/mod.rs` 的 `DEFAULT_FILTER`，
+Web 端是 `crates/web/src/lib.rs` 的 `Targets`）。
+
+`EnvFilter` 的 target 判据是 `meta.target().starts_with(directive_target)`，**不按 `::` 分段**。
+两个推论方向相反，都得记住：
+
+- **好的那面**：`swarmdrop=debug` 一条就覆盖了全部 `swarmdrop_*` crate——`swarmdrop_transfer`、
+  `swarmdrop_core`、`swarmdrop_web` 都不必单列。移动端 `logging/mod.rs` 那条
+  `for target in ["swarmdrop_core", "swarmdrop_net", "swarmdrop_transfer"]` 的测试守的就是它。
+- **坏的那面**：**`webrtc_p2p` 不以 `swarmdrop` 开头，前缀匹配够不着**。于是桌面与移动端
+  在很长一段时间里**一条 webrtc-direct 的日志都收不到**——包括 `udp_mux` 的支路丢包。
+
+这不是理论问题。2026-08-10 诊断「浏览器→桌面恒定 3.3 MB/s」时，头号嫌疑正是那条
+被日志级别整个屏蔽掉的丢包路径：`deliver()` 里 `try_send` 满了就丢包，只留一句
+`tracing::debug!`，而那个 target 根本进不了 filter。**查不到不是因为没丢，是因为看不见。**
+
+**正确做法**：给非 `swarmdrop*` 的关键 crate 单列一条 directive，且三端一起改。
+现在是 `swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info`——取 `info` 而非 `debug`，
+是为了只要告警与连接生命周期、不要每包的 trace（Web 端刻意保留 `TRACE`，因为打洞信令
+没有别的可观测手段）。
+
+**相关文件**：`src-tauri/src/logging.rs`、
+`mobile/packages/swarmdrop-core/rust/mobile-core/src/logging/mod.rs`、`crates/web/src/lib.rs`
+
+## 传输吞吐探针：常开、`info!`、汇总由 `Drop` 打（2026-08-10）
+
+`crates/transfer/src/probe.rs` 把每块的壁钟时间摊到若干阶段上，按块数节流地报告
+（发送 `read`/`proof`/`write`/`ack`，接收 `wait`/`verify`/`write`/`ckpt`/`rest`）。
+读法与四个实测案例写在
+[`dev-notes/research/2026-08-10-transfer-throughput-diagnosis.md`](../research/2026-08-10-transfer-throughput-diagnosis.md) §7。
+
+三条设计判据，改它之前先读：
+
+- **常开，不做 feature / `debug_assertions` 门控。** 吞吐问题只在用户机器上出现，
+  关着的探针等于没有。开销是每块 4–6 次 `Instant::now()`，相对 256 KiB 的真实工作量可忽略。
+- **级别必须是 `info!`。** 两端文件层的 `FILE_LEVEL` 就是 `INFO`，`info!` 正好够着——
+  于是探针**自动落进用户日志文件**，排障时让用户导出日志即可（移动端已有
+  设置→关于→导出日志），不必要求他们改 `RUST_LOG` 重跑一次。降成 `debug!` 就丢了这条路径。
+- **汇总由 `Drop` 打，不是调用方显式收尾。** 传输的失败路径有十几个 `?` 与 early return，
+  而**失败的会话恰恰最需要这份数据**（「传到 60% 断了」的现场只存在于那一次）。
+  靠调用方在每条路径上记得收尾不现实。
+
+时间源必须走 `n0_future::time::Instant`（native = tokio，wasm = web_time）——
+`std::time::Instant` 在 wasm 上是 panic（`time not implemented`），与 `progress.rs` 同源。
+
+`lap()` 就地推进打点，所以相邻阶段之间没有间隙，各阶段占比**之和 < 100% 是有意义的信号**：
+差值就是没被任何阶段覆盖的开销。改接线时别破坏这条，否则整个读法就错了。
+
+**相关文件**：`crates/transfer/src/probe.rs`、`crates/transfer/src/actor/sender.rs`、
+`crates/transfer/src/actor/receiver.rs`

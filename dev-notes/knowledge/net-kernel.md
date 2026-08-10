@@ -690,6 +690,10 @@ Web 端曾是全局 `DEBUG`，libp2p 各层的日志（multistream 协商、每�
 「对端毫无响应」。现按 target 分层（`crates/web/src/lib.rs` 的 `Targets`），日志量降两个
 数量级。**碰 Web 端排障先确认 filter，别对着被冲掉的日志下结论。**
 
+> 反过来，**桌面与移动端的 filter 是太窄而不是太宽**：`swarmdrop=debug` 按前缀匹配
+> 够不着 `webrtc_p2p`，两端曾经一条 webrtc-direct 日志都收不到。2026-08-10 已单列
+> `webrtc_p2p=info`，见 [`rust-backend.md`](rust-backend.md) 的「tracing 的 target 是前缀匹配」。
+
 ### ⚠️ 浏览器接收侧**没有背压**——大文件的流控只能由应用层做（2026-08-06 修）
 
 **症状**：桌面向浏览器发 20 MB，传到 12–22% 断，发送侧会话消失。小文件（3 MB 以下）
@@ -1223,6 +1227,30 @@ Windows 上才是 `ConnectionReset`。只认后者等于在 Linux 上留了个�
 > 那两个 `pub(crate)` 提为 `pub`，`udp_mux.rs` 改为直接
 > `use webrtc::runtime::{gro_recv_buf_len, is_retryable_socket_recv_error}`。
 > **不要再在本仓重新实现它们**——留这两条记录只为解释「为什么它们值得一条 pin」。
+
+### ⚠️ udp_mux 的支路丢包在生产里曾经**完全隐形**（2026-08-10 修）
+
+`deliver()` 里支路满就丢包（`BRANCH_CAPACITY = 256`，见那个常量的注释：一条慢支路
+卡住整个端口不可接受）。这个设计本身没问题——UDP 允许丢包，DTLS 与 SCTP 各有重传。
+
+**问题在于它只留了一句 `tracing::debug!`，而桌面与移动的默认 filter 够不着
+`webrtc_p2p` 这个 target**（`EnvFilter` 按前缀匹配，`swarmdrop=debug` 覆盖不到它，
+详见 [`rust-backend.md`](rust-backend.md) 的同名条目）。于是这条路径在生产日志里
+一条都不出现。
+
+**为什么它要紧**：持续丢包会把 SCTP 的拥塞窗口压塌，表现为「吞吐从第一秒起就恒定在
+一个远低于链路能力的值上、但传输仍能完成」。2026-08-10 观测到的浏览器→桌面恒定
+3.3 MB/s 正是这个形状——3.3 MB/s ÷ 1 ms LAN RTT ⇒ 等效 cwnd ≈ 3 个 MTU。
+它既不是 CPU 瓶颈的形状（那会随负载波动），也不是带宽瓶颈的形状。
+
+现在按 **2 的幂次**限频打 `warn!`（第 1、2、4、8… 次）并带累计数。选 2 的幂次而不是
+定频（每 N 次一条）：真丢包时日志行数只有 log₂ 级、不刷屏，而**第一次丢包一定被记下来**
+——定频报告会把「只丢了几个」这种更值得警惕的情形整个吞掉。
+
+⚠️ **别急着调大 `BRANCH_CAPACITY` 或补 `SO_RCVBUF`**。诊断报告
+（[`../research/2026-08-10-transfer-throughput-diagnosis.md`](../research/2026-08-10-transfer-throughput-diagnosis.md)
+§1.3 / §4）把它们列为修复 #3/#4，但明确要求**先看丢包计数再改**：假设不成立的话，
+改了不仅白改，还平白加 2.4 MB/连接的内存。
 
 ### 坑：mDNS socket 也走 `wrap_udp_socket`
 

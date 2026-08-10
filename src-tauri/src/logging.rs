@@ -35,8 +35,18 @@ const FILE_SUFFIX: &str = "log";
 /// 保留天数。与移动端取同一个值，便于两端对照日志。
 const MAX_LOG_FILES: usize = 7;
 
-/// 未设 `RUST_LOG` 时控制台层的默认过滤。**与重构前完全一致**——开发期行为不受本模块影响。
-const DEFAULT_FILTER: &str = "swarmdrop=debug,swarmdrop_net=debug";
+/// 未设 `RUST_LOG` 时控制台层的默认过滤。
+///
+/// `swarmdrop=debug` 靠 `EnvFilter` 的 target **前缀匹配**覆盖全部 `swarmdrop_*` crate
+/// （`swarmdrop_transfer` / `swarmdrop_core` / `swarmdrop_web` …），所以传输探针
+/// （[`swarmdrop_transfer::probe`]）天然放行，不必单列。
+///
+/// **`webrtc_p2p=info` 必须单列**：它不以 `swarmdrop` 开头，前缀匹配够不着，于是
+/// webrtc-direct 数据面的告警（尤其 `udp_mux` 的支路丢包）在生产日志里**一条都不会出现**。
+/// 2026-08-10 诊断「浏览器→桌面恒定 3.3 MB/s」时，头号嫌疑正是那条被日志级别屏蔽掉的
+/// 丢包路径——查不到不是因为没丢，是因为看不见。取 `info` 而非 `debug`：只要告警与
+/// 连接生命周期，不要每包的 trace。
+const DEFAULT_FILTER: &str = "swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info";
 
 /// 文件层的级别，**刻意比控制台保守**。
 ///

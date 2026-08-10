@@ -125,6 +125,17 @@ pub(crate) struct UdpMux {
     /// 一次 `poll_recv` 可能带回多个数据报（见 [`UdpMux::poll`] 里的 GRO 拆分），
     /// 而 `poll` 一次只产出一个事件，故先切分入队、再逐个 dispatch。
     pending: VecDeque<Datagram>,
+    /// 支路满导致的累计丢包数（见 [`BRANCH_CAPACITY`] 与 [`UdpMux::deliver`]）。
+    ///
+    /// **持续丢包会把 SCTP 的拥塞窗口压塌**，表现为「吞吐从第一秒起就恒定在一个远低于
+    /// 链路能力的值上、但传输仍能完成」——2026-08-10 观测到的浏览器→桌面恒定 3.3 MB/s
+    /// 正是这个形状（等效 cwnd ≈ 3 个 MTU）。
+    ///
+    /// 这里原先只有一句 `debug!`，而桌面与移动的默认 filter 是
+    /// `swarmdrop=debug,swarmdrop_net=debug`（`EnvFilter` 按 target **前缀**匹配），
+    /// **`webrtc_p2p` 一条都进不去**——这条路径在生产日志里完全隐形，诊断时只能靠推理。
+    /// 现在计数并按 2 的幂次打 `warn!`。
+    dropped_full: u64,
 }
 
 /// 一个数据报：内容 + 来源。
@@ -168,6 +179,7 @@ impl UdpMux {
             announced: HashSet::new(),
             recv_buf,
             pending: VecDeque::new(),
+            dropped_full: 0,
         })
     }
 
@@ -316,7 +328,19 @@ impl UdpMux {
         match tx.try_send((packet, from)) {
             Ok(()) => {}
             Err(e) if e.is_full() => {
-                tracing::debug!(%ufrag, "支路缓冲已满，丢弃数据报");
+                self.dropped_full += 1;
+                // 按 2 的幂次报告（第 1、2、4、8… 次）：真丢包时日志行数只有 log₂ 级，
+                // 既不刷屏，又保证**第一次丢包一定被记下来**——定频报告（每 N 次一条）
+                // 会把「只丢了几个」这种更值得警惕的情形整个吞掉。
+                if self.dropped_full.is_power_of_two() {
+                    tracing::warn!(
+                        %ufrag,
+                        %from,
+                        dropped = self.dropped_full,
+                        capacity = BRANCH_CAPACITY,
+                        "udp mux 支路缓冲已满，丢弃数据报（累计数按 2 的幂次报告）"
+                    );
+                }
             }
             Err(_) => {
                 // 对端已 drop：连接没了，清掉映射免得一直占着 ufrag。

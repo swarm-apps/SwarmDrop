@@ -41,7 +41,12 @@ const FILE_SUFFIX: &str = "log";
 const MAX_LOG_FILES: usize = 7;
 
 /// 未设 `RUST_LOG` 时的默认过滤。与桌面壳 `init_tracing()` 保持同一组默认值。
-const DEFAULT_FILTER: &str = "swarmdrop=debug,swarmdrop_net=debug";
+///
+/// `swarmdrop=debug` 靠 `EnvFilter` 的 target **前缀匹配**覆盖全部 `swarmdrop_*` crate，
+/// 所以传输探针（`swarmdrop_transfer::probe`）天然放行。而 `webrtc_p2p` 不以 `swarmdrop`
+/// 开头、前缀匹配够不着，**必须单列**，否则 webrtc-direct 数据面的告警一条都进不来
+/// （理由与桌面 `logging.rs` 的同名常量一致，两端要一起改）。
+const DEFAULT_FILTER: &str = "swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info";
 
 /// 文件层的级别。**刻意比平台层保守**：`swarmdrop_net` 在 P2P 场景下事件很密，
 /// 文件层若也吃 `debug`，用户存储会被快速消耗。
