@@ -24,6 +24,7 @@ import {
   type UpdateLocale,
   type UpdateTexts,
 } from "@/lib/update-texts";
+import { cn } from "@/lib/utils";
 
 export interface ForceUpdateDialogProps {
   locale?: UpdateLocale;
@@ -106,7 +107,7 @@ export function ForceUpdateDialog({
           {/* AlertDialogAction(RNR canonical)不像 Button 那样在 disabled 时自动加 opacity-50,
               故禁用时在调用处补 opacity-50,保持禁用态的视觉反馈(不改 vendored 原语)。 */}
           <AlertDialogAction
-            className={isDownloading ? "opacity-50" : undefined}
+            className={cn("flex-1", isDownloading && "opacity-50")}
             onPress={() => void onAction()}
             disabled={isDownloading}
           >

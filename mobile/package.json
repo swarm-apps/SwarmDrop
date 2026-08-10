@@ -17,7 +17,17 @@
     "i18n:extract": "lingui extract --clean",
     "e2e:ios": "wdio run ./e2e/webdriver/wdio.ios.conf.ts",
     "e2e:ios:driver": "appium driver list --installed",
-    "e2e:ios:doctor": "appium driver doctor xcuitest"
+    "e2e:ios:doctor": "appium driver doctor xcuitest",
+    "check:expo-patches": "node scripts/check-expo-patches.mjs"
+  },
+  "expo": {
+    "autolinking": {
+      "android": {
+        "buildFromSource": [
+          "expo-file-system"
+        ]
+      }
+    }
   },
   "dependencies": {
     "@expo/dom-webview": "^56.0.5",

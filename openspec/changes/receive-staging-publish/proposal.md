@@ -1,3 +1,65 @@
+## ⚠️ 更正（2026-08-10）：下面「事故链」一节的根因归结**是误诊**
+
+**先读这一节再读下面。** `CLAUDE.md` 与三份知识库都把本文指为「完整推导」的落点，而本文
+2026-08-07 那版给出的根因已被推翻。**原文一字未删**——openspec 是变更提案的历史记录，
+要能看出认知是怎么变的，删掉就看不见了。下面只说改了什么、为什么改。
+
+**旧归因（错）**：SAF 的 `ParcelFileDescriptor` 不归本进程所有，fd 在内核层被 provider
+侧回收，于是 `lseek` 必 `EBADF`——即「SAF 的 fd 天生不能用来做长时间随机写」。
+
+**真根因（对）**：`expo-file-system` 的 `FileSystemFileHandle.forContentURI` 只从
+`ParcelFileDescriptor.fileDescriptor` 建 `FileChannel`，**不持有那个 PFD**，于是 PFD 被 GC
+回收时 finalizer 顺手关掉了 fd。fd 是**被自己这一侧的 GC 关掉的**，不是被 provider 收走的。
+本仓 `mobile/patches/expo-file-system@56.0.8.patch` 修的正是这条，**但那份补丁从未进过
+Android 构建**——expo SDK 53+ 的 autolinking 对已发布 maven 产物的模块默认吃预编译 AAR，
+`node_modules` 里被 patch 过的 Kotlin 源码根本没参与编译（机制、判据与机器护栏见
+[`toolchain.md`](../../../dev-notes/knowledge/toolchain.md) 的「pnpm patch 打在有预编译产物的
+原生依赖上会静默失效」）。
+
+**误诊是怎么发生的**：补丁改了三次、三次自评「已修复」、三次照崩，于是「补丁都打了还是崩」
+被反推成「SAF 的 fd 天生不能用」，写进本文并扩散到 `CLAUDE.md` 与三份知识库。
+一个从未生效的修复，伪造出了一条架构事实。
+
+**判决性证据**：旧归因解释不了**失败点每次都不同**——311 MB 崩在 45 MB，2 GB 分别崩在
+16 MB 和 54 MB。provider 侧回收 fd 没有理由与写入量呈这种随机关系，而 GC 时机有。
+
+### 两处留手：以下两条**继续成立**，只是理由换了
+
+误诊被推翻不等于结论跟着作废。这两条是本 change 的产物，**不要连坐删掉**：
+
+1. **「publish 只做顺序写、绝不 `setOffset`」这条规则要留着。** 它现在的理由与 fd bug 完全
+   无关：**部分 DocumentsProvider 返回不可 seek 的管道式 fd**（`openDocument` 给的是 pipe，
+   `position()` 一律失败）。这条规则本来就该独立于 fd 生命周期成立。
+2. **「暂存 → 发布」两段式要留着。** 理由换成与 fd bug 无关的四条：
+   - SAF / FUSE 上随机写慢；
+   - 用户可见目录不该出现半成品文件；
+   - 暂存要跨「中断 → 过几天再恢复」存活，而目标位置的授权可能已经变了；
+   - 部分 DocumentsProvider 返回不可 seek 的 fd（同上），随机写在那里根本不可能。
+
+   反过来说：**如果当初就知道真根因，本 change 依然应该做**——只是「Why」会从
+   「修一个崩溃」变成上面这四条。它顺带修好崩溃，是因为两段式让 staging 落回私有目录的
+   `RandomAccessFile`，绕开了那个没被打上补丁的 SAF handle。
+
+### 随之失效的具体段落（原文保留，此处标注）
+
+- 「事故链」的对照表里，SAF 那行的「fd 所有者：真正的所有者在 provider 侧 / fd 可被外部
+  回收」——**换成**「PFD 无人持有，GC finalizer 关掉了 fd」。
+- 「Android 11+ 的 `/storage/emulated/0` 对 app 而言是 FUSE 挂载，SAF 的 PFD 在长时间大文件
+  写入期间被回收后……」——FUSE 挂载是事实，但它不是这次崩溃的成因。
+- 「**这不是补丁引入的**」这句**仍然对**，而且比原文以为的更强：补丁根本没参与编译，
+  它既不可能引入 bug，也不可能修好 bug。
+- 「五、补丁修正与错误呈现」要拆开看：第三条（`errorDetail` 截断）在 TS 侧，一直生效；
+  前两条在 Kotlin 侧，**当时全是空转**，真正让它们进构建的是后来给 `mobile/package.json`
+  加的 `expo.autolinking.android.buildFromSource`。其中「`FileMode.READ_WRITE` 的
+  write-only channel bug」最终**没有按原文的方式修**——补丁改为**保持上游对 SAF `"rw"`
+  的拒绝**（`FileOutputStream.getChannel()` 本就 readable=false，冒充 "rw" 只会得到一个
+  「签名说能读、实际不能读」的句柄）。两段式落地后接收侧也不再需要它：staging 恒在应用
+  私有目录走 `RandomAccessFile`，SAF 只在 publish 时被顺序写一次。补丁的当前内容以
+  [`toolchain.md`](../../../dev-notes/knowledge/toolchain.md) 的
+  「expo-file-system 56.0.8 的 SAF FileHandle 必须保活 PFD」一节为准。
+
+---
+
 ## Why
 
 移动端接收大文件时会在传输中途以 `java.io.IOException: Bad file descriptor` 崩掉，
@@ -202,6 +264,10 @@ chunk 尺寸、窗口流控、续传协商都没动，变的只是「收齐之�
   bao-tree / quinn / snow / chacha20poly1305 全被压在 `"z"` 下——正是 CLAUDE.md 里
   「加密依赖否则慢 10–100 倍」所指的坑在另一个 profile 上复发。那是几行配置的独立修复，
   与本 change 无耦合。详见 design D9。
+  > **2026-08-10 部分落地**：Cargo.toml 加了 `[profile.mobile-release.package.blake3]
+  > opt-level = 3`（`"z"` 会穿透到 blake3 build.rs 的 cc 调用，把 aarch64 的 C NEON 实现
+  > 按住）。**只做了 blake3 一个包**，不是本段设想的 `package."*"` 全局豁免——判据与
+  > 「还有哪些包该例外」见 [`toolchain.md`](../../../dev-notes/knowledge/toolchain.md)。
 - **收件箱 per-file 化** → per-file publish 后文件已在用户目录（文件管理器可见），
   但 `ensure_inbox_item_for_completed_receive_session` 是**会话级**的，app 内收件箱仍要等
   会话完成才出现条目。这是已知缺口，属于产品语义变更（「部分完成的会话在收件箱长什么样」

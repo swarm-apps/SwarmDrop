@@ -89,6 +89,18 @@ jobs:
         working-directory: mobile
         run: pnpm install --frozen-lockfile
 
+      # pnpm patch 打在带预编译产物的原生依赖上会**静默失效**：patch 应用成功、
+      # node_modules 里的源码确实被改了、APK 里却是旧行为，全程零报错。2026-08 我们为此
+      # 连续三个 commit 以为修好了 expo-file-system 的 SAF fd 泄漏，全是空的。
+      # 放在 install 之后、gradle 之前：编一个注定不带补丁的 APK 毫无意义。
+      #
+      # 拦回归的主力是 PR 触发的 mobile-checks.yml——这条 workflow 只有
+      # workflow_dispatch，等它红的时候人已经在手动出包了。这里保留同一步是因为它顺带
+      # 覆盖了 PR 之后、构建之前的漂移（比如 lockfile 换了 expo 版本）。
+      - name: Assert expo patches actually enter the build
+        working-directory: mobile
+        run: pnpm check:expo-patches
+
       - name: Build Rust bridge (ubrn android)
         working-directory: mobile
         env:

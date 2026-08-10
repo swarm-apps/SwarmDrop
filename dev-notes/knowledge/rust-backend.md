@@ -506,15 +506,35 @@ Android 11 起 `Android/data/` 连系统文件管理器都不可达，所以「�
 `FileAccess` 的三段式（`create_sink → write_sink_chunk(offset) → finalize_sink`）语义上
 一直是「开一个**可随机写的暂存** → 写 → 发布到目标并回报它最终在哪」。桌面早就这么实现
 （`<dst>/x.part` + rename），移动端与 Web 却把 staging 退化成了目标本身——移动端那次退化
-是致命的，因为它同时占了两个坏条件：写的是最终位置 + 需要 `lseek`。
+是致命的，因为它同时占了两个坏条件：写的是最终位置 + 需要 `lseek`，而那个最终位置的
+fd 来自一个当时**没修好**的上游 bug（见下）。
 
 **事故**：接收目录设为系统公共目录（SAF `content://`）时，311 MB 的接收稳定在 45 MB 处
 以 `java.io.IOException: Bad file descriptor` 崩掉，Web 与桌面两个发送端都能复现。
 栈落在 `FileSystemFileHandle.setOffset` → `FileChannelImpl.position0`。
-关键判据：`position(long)` 会**先** `ensureOpen()`，抛出的却是 `EBADF` 而不是
-`ClosedChannelException` ⟹ **channel 自己还开着，是底层 fd 在内核层失效了**。
-`ContentResolver.openFileDescriptor` 的 fd 指向 `/storage/emulated/0` 的 FUSE 挂载，
-真正的持有者在 DocumentsProvider 那侧。
+
+> ⚠️ **归因更正（2026-08-10）：不是「SAF 的 fd 天生不能用」。**
+> 本条原先写的是「`ContentResolver.openFileDescriptor` 的 fd 不归本进程所有，
+> 真正的持有者在 DocumentsProvider 那侧，长时间写入期间它会失效」。**那是误诊。**
+> 真根因是上游 `expo-file-system` 的 `FileSystemFileHandle.forContentURI` 只从
+> `ParcelFileDescriptor.fileDescriptor` 建 `FileChannel`、**不持有那个 PFD**，
+> 第一次 GC 的 finalizer 就把 fd 关了——是**本进程自己的 GC** 关的，与 provider 无关。
+> 本仓早有一份修它的 pnpm patch，但**那份 patch 从未进过 Android 构建**
+> （SDK 56 默认吃预编译 AAR，见 [toolchain.md](toolchain.md) 的「pnpm patch 打在有预编译
+> 产物的原生依赖上会静默失效」）。于是「补丁改了三次、三次都还崩」被反推成一条架构事实。
+> 判别当时就在手边、没人看：`position(long)` 会**先** `ensureOpen()` 却抛 `EBADF` 而非
+> `ClosedChannelException` ⟹ channel 还开着、fd 已失效——这同时符合「provider 回收」与
+> 「本进程 GC 关掉」，**它区分不了两者**，不该被当成前者的证据。真正能区分的是
+> logcat 里 CloseGuard 的 `A ParcelFileDescriptor was not closed`（本进程泄漏），
+> 以及 reason 里有没有异常类名（patch 加的 `describe()` 若没生效就是裸 message）。
+>
+> **下面两条规则不受这次更正影响，都有独立成立的理由，不要顺手删：**
+> ① **「暂存 → 发布」两段**——理由改为：SAF/FUSE 上随机写慢、用户目录不该出现半成品、
+> 暂存要跨「中断 → 过几天再恢复」存活（cache 会被系统清理）、以及下面这条；
+> ② **「发布只做顺序写、绝不 `setOffset`」**——**部分 DocumentsProvider 返回的是不可 seek
+> 的 fd**（管道式 `openDocument`），`position()` 在那类 provider 上一律失败，与 fd 生命周期
+> 无关。SAF 的 `"rw"` 也仍然不开（`FileOutputStream.getChannel()` 是 readable=false 的
+> channel，冒充 "rw" 会让 `readBytes` 抛 `NonReadableChannelException`）。
 
 **正确做法**：
 
@@ -528,7 +548,8 @@ Android 11 起 `Android/data/` 连系统文件管理器都不可达，所以「�
 
 **不要做**：
 - 不要为了「少一层拷贝」把 staging 直接指向用户选的外部目录。省下的那次 rename
-  换来的是一个不属于你的 fd。
+  换来的是「在一个可能不可 seek、且要长时间持有的外部句柄上做随机写」——
+  上面那四条理由一条都不会因为 fd bug 修好而消失。
 - 发布路径不要漏掉**实地**逃逸校验：词法检查（`is_safe_relative_path`）看不见文件系统，
   保存目录下一个指向外部的符号链接能让完全合法的 `sub/x.txt` 写到目录外。
   `create_dir_all` 之后 `canonicalize` 断言仍在 save_dir 内（桌面 `path_ops::ensure_within`

@@ -8,11 +8,9 @@ import {
   View,
 } from "react-native";
 import Animated from "react-native-reanimated";
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
+import { useBottomSafePadding } from "@/hooks/useBottomSafePadding";
 import { usePulseOpacity } from "@/hooks/usePulseOpacity";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { cn } from "@/lib/utils";
@@ -79,8 +77,9 @@ interface AppScreenProps {
    * 常驻底部停靠区,渲染在滚动内容之外。
    *
    * **只给 tab 屏的 HomeDock 这类「要避开 iOS 26 浮动 tab 胶囊」的东西用。**
-   * `BottomActionBar` 与 `device/groups` 的新建栏都已自己 `useSafeAreaInsets()` 吃掉
-   * bottom inset —— 它们进这个槽会让下面的 SafeAreaView 再垫一次,底部空两遍。
+   * `BottomActionBar`(以及包着它的 `device/groups` 新建栏)已自己经
+   * `useBottomSafePadding()` 吃掉 bottom inset —— 它们进这个槽会让下面的
+   * SafeAreaView 再垫一次,底部空两遍。
    * 那类底栏直接放 `children` 里(见 `inbox/[itemId].tsx`)。
    */
   footer?: ReactNode;
@@ -353,23 +352,18 @@ function IconChipPulse({
   return <Animated.View style={style}>{children}</Animated.View>;
 }
 
-export function BottomActionArea({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <View className={cn("gap-2 border-t border-border px-5 py-4", className)}>
-      {children}
-    </View>
-  );
-}
-
 /**
- * 详情页固定底部动作栏容器:横排动作 + 安全区 padding,渲染在滚动内容之外。
- * 收件箱详情与传输详情共用这层 chrome;按钮形态与状态逻辑保持页内私有。
+ * **本文件里唯一的底栏组件** —— stack / 详情屏的固定底部动作栏:
+ * 横排动作 + `border-t` + 不透明 `bg-background` + 安全区 padding,渲染在滚动内容之外。
+ *
+ * 这里曾经还有一个 `BottomActionArea`(无背景、不吃安全区)。它只有一个合法调用点
+ * (tab 屏的 HomeDock,下面压着不透明 NativeTabs),却被设备详情页误用,
+ * 直接造成「取消配对 / 阻止设备 / 改接收策略」整块功能够不到。**已删除并内联进 HomeDock**,
+ * 于是「选错底栏组件」这件事在类型层面就不再可能发生。判据见 DESIGN.md 的
+ * `Bottom Action Contract (mobile)`。
+ *
+ * ⚠️ 放 `AppScreen` 的 **children** 里,不要进 `footer` 槽 —— 那个槽下面的 SafeAreaView
+ * 在 iOS 会再垫一次 bottom inset。
  */
 export function BottomActionBar({
   children,
@@ -378,11 +372,12 @@ export function BottomActionBar({
   children: ReactNode;
   testID?: string;
 }) {
-  const insets = useSafeAreaInsets();
+  // 底距 = 系统占用 + 呼吸位(相加,不是取大),与 pt-3 对称。理由见 useBottomSafePadding。
+  const paddingBottom = useBottomSafePadding();
   return (
     <View
       className="flex-row items-center gap-3 border-t border-border bg-background px-5 pt-3"
-      style={{ paddingBottom: Math.max(insets.bottom, 12) }}
+      style={{ paddingBottom }}
       testID={testID}
     >
       {children}

@@ -22,9 +22,7 @@ import {
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
-import type {
-  MobileDevice as DeviceInfo,
-} from "react-native-swarmdrop-core";
+import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import {
   FileBrowser,

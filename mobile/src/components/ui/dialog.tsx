@@ -137,9 +137,20 @@ function DialogHeader({ className, ...props }: ViewProps) {
   );
 }
 
+/**
+ * 双键横排（取消左、确认右）。上游 web 那套响应式在手机上永远竖排，这里改成移动端惯例。
+ *
+ * ⚠️ **每个按钮都必须自带 `className="flex-1"`**，本组件不替你分配宽度。
+ * 漏掉的表现不是报错而是「按钮缩到文字宽、挤在左边留一大片白」——三个更新弹窗
+ * （prompt / force / update-progress）就这么错了整整一个版本，直到真机截图才发现。
+ * 单键同样要加：那样它才占满整行，而不是缩在左角。正确示范见 `ui/confirm-dialog.tsx`。
+ *
+ * **不要改成由本组件用 `Children.map` 自动包一层 `flex-1` 的 View。** 那会把已经写对的
+ * 调用点弄坏：包裹层默认是**纵向**容器，按钮自己那个 `flex-1` 到了里面就变成
+ * `flexBasis:0%` 作用于**高度**，当场塌高（与 `DESIGN.md` `Bottom Action Contract`
+ * 规则 4 记的是同一个坑）。
+ */
 function DialogFooter({ className, ...props }: ViewProps) {
-  // 同 AlertDialogFooter:上游 web 响应式在手机上永远竖排,
-  // 改为移动端惯例的横排(取消左、确认右,调用方按钮加 flex-1)。
   return <View className={cn("flex flex-row gap-2.5", className)} {...props} />;
 }
 

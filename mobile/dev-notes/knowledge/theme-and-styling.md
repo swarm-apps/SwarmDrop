@@ -120,8 +120,18 @@ green ~3.3:1，red ~3.5:1，teal ~4.0:1）。所以 `global.css` 另有一套高
 `--success-ink` / `--warning-ink` / `--destructive-ink` / `--primary-ink`（亮=深一档、暗=亮一档，
 均 ≥4.5:1）。
 
-**规则**：状态色作**圆点 / 填充 / 图标** → 用基础 token（`bg-success`、`color={colors.success}`）；
-作**文字** → 用 ink 变体（`text-success-ink`、`text-destructive-ink`…）。集中映射处
+**规则（2026-08-10 修正了「图标」那半条）**：状态色作**大色块填充 / 圆点** → 用基础 token
+（`bg-success`）；作**文字、图标、以及要跟浅底分清的细填充（进度条填充等）** → 用 ink 变体
+（`text-success-ink`、`color={colors.warningInk}`…）。
+
+> **图标原先被归在「填充」一侧，那是错的。** 实测：琥珀原色图标在亮色卡片上只有 **2.14:1**、
+> 进度条填充对 `bg-muted` 轨道只有 **1.95:1**，都够不上 WCAG 2.2 SC 1.4.11 对非文本内容的
+> 3:1；换 ink 后是 5.04:1 / 4.60:1。图标是靠形状识别的小图形，和小字一样吃不住 2:1。
+> **暗色两边都过（6.8~10.6:1），只切暗色主题看会以为没事**——本仓的暂停态（进度条填充 +
+> `CirclePause` 图标）就这么错了一整个版本。`useThemeColors()` 为此补了 `warningInk`。
+> 装饰性图标不受此约束（`folder-row` 那个黄文件夹靠形状表意，颜色只是惯例）。
+
+集中映射处
 （`status-pill` TEXT_CLASS、`trust-badge` TRUST_META、`connection-badge` CONNECTION_META、
 `transfer/shared` STATUS_META、`file-tree-item` variantStyles）都已遵循；新写状态文案时别再用
 `text-destructive` 这类基础色（会渲染成低对比）。完整说明见 DESIGN.md 的「State Ink Rule」。
@@ -383,9 +393,24 @@ iOS 原生 large title 在滚动时 collapse 成小标题栏并**保留** bar bu
 - **`bare` 而不是 `contentClassName="px-0 pb-0"`**。后者是纯为抵消默认值而写的魔法串,
   **漏掉 `pb-0` 会静默多出 32+32=64px 底部死区**,没有任何门禁会拦。
 - **自带安全区的底部栏留在 `children`,不要进 `footer` 槽**。`BottomActionBar` 与
-  `device/groups` 的新建栏都已用 `useSafeAreaInsets()` 吃掉 bottom inset;进了槽会让
+  `device/groups` 的新建栏都已吃掉 bottom inset;进了槽会让
   `AppScreen` 给 SafeAreaView 再加一次 bottom edge,底部垫两遍。`footer` 槽是给
   **tab 屏的 HomeDock** 设计的(要避开 iOS 26 的浮动 tab 胶囊),不是通用底栏插槽。
+- **底距走 `useBottomSafePadding()`,不要手写 `Math.max(insets.bottom, N)`**(2026-08-10 修)。
+  取大在**所有现代设备上恒等于 `insets.bottom`**(Android 手势条 24dp / 三键 48dp、
+  iOS home indicator 34dp 全都 ≥ 呼吸位),于是主按钮与系统条之间**永远零间距**——
+  用户报的「按钮贴着屏幕底缘」就是它。系统占用与视觉呼吸位是**相加**关系。
+  仓内早就有两处相加的正确写法(`onboarding-scaffold.tsx`、三个配对页),这个 hook 只是把它收口。
+- **带固定底栏的页面,内容区必须是滚动容器**。底栏是流内兄弟节点、**从不 absolute**,
+  所以内容侧不需要补等高 `paddingBottom`,只留一段呼吸位。
+  `device/[peerId]` 曾经既没有滚动容器、又用错了组件(`BottomActionArea` 无背景不吃安全区),
+  展开「链路详情」后**「策略设置」按钮被顶出屏幕永久够不到**——而它是策略 sheet 的唯一入口,
+  里面装着取消配对。`BottomActionArea` 已于 2026-08-10 删除,`screen.tsx` 现在只剩
+  `BottomActionBar` 一个底栏组件,选错的可能性归零。
+- **`flex-1` 不得出现在底栏内部的纵向容器里**。底栏本身是 `flex-row`,其**直接**子节点加
+  `flex-1` 是横向撑满、正确;但再往里的纵向容器里 `flex-1` = `flexBasis:0%` 作用于**高度**,
+  基准尺寸 0 且无空间可长 ⇒ 塌高,内容对称溢出 content box(表现为进度条压在分割线上、
+  按钮被屏幕底缘切断)。两个发送页的 `PrepareProgressBar` 踩过。
 - **列表内边距看有没有 header 选常量**:`LIST_CONTENT_PADDING`(顶 4)/
   `LIST_CONTENT_PADDING_UNDER_HEADER`(顶 16)。内容仍能滚到导航条下沿,不留固定空白带。
 
@@ -505,6 +530,37 @@ RN 连 `flexShrink` 都是 0)——子元素不写 `flex-1` 就按内容宽度�
 
 **相关文件**:[src/app/send/select-device.tsx](../../src/app/send/select-device.tsx)、
 [src/components/mobile/screen.tsx](../../src/components/mobile/screen.tsx)
+
+### 同一条规则也管弹窗 footer：`DialogFooter` / `AlertDialogFooter` 的**每个按钮**都要 `flex-1`
+
+与上一条同源（RN 的 View 默认 `flexGrow: 0`），但栽的是另一批文件。两个 footer 原语都是
+`flex-row` 且**不替调用方分配宽度**，按钮不写 `flex-1` 就缩到文字宽、挤在左边留一大片白。
+**单键也要写**——那样它才占满整行，而不是缩在左角。
+
+三个更新弹窗（`prompt-update-dialog` / `force-update-dialog` / `update-progress-dialog`）
+全都漏了，整整一个版本，直到 2026-08-10 真机截图才发现。同期 `ui/confirm-dialog.tsx`
+一直是对的——所以这不是「不知道规则」，是**靠调用方记得的约定迟早有人忘**。
+
+**不要试图让 footer 自动包一层 `flex-1` 的 View 来免掉这个约定。** 那会把已经写对的调用点
+弄坏：包裹层默认是**纵向**容器，按钮自己那个 `flex-1` 到了里面就变成 `flexBasis: 0%` 作用
+于**高度**，当场塌高——与根 `DESIGN.md` `Bottom Action Contract` 规则 4 记的是同一个坑。
+
+**相关文件**：[src/components/ui/dialog.tsx](../../src/components/ui/dialog.tsx)、
+[src/components/ui/alert-dialog.tsx](../../src/components/ui/alert-dialog.tsx)、
+[src/components/ui/confirm-dialog.tsx](../../src/components/ui/confirm-dialog.tsx)（正确示范）
+
+### `ui/progress.tsx` 的 native 与 web 分支默认色曾经分叉（native 画的是黑条）
+
+`Progress` 的 Indicator 按平台分成两份实现，模板自带的默认色**不一样**：
+`WebIndicator` 是 `bg-primary`，而 `NativeIndicator` 写的是 **`bg-foreground`**。
+移动端跑的当然是 native 那半边，于是轨道是 `bg-primary/20`（品牌色底纹）、填充却是一条
+纯黑——既不是主题色，也和同屏其他进度条对不上。更新弹窗因此画了很久的黑条
+（2026-08-10 真机截图发现）。已把 native 那半边对回 `bg-primary`。
+
+**教训**：从 shadcn / rn-primitives 抄来的组件，凡是**按平台分叉**的实现都要逐分支比对默认值——
+两个分支在同一个文件里，看起来像一份代码，实际只有一半会在真机上执行。
+
+**相关文件**：[src/components/ui/progress.tsx](../../src/components/ui/progress.tsx)
 
 ### Toast 走 burnt(各平台原生机制),门面在 lib/toast.ts
 

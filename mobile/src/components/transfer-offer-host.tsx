@@ -9,7 +9,6 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   type MobileDevice,
   MobileTransferOrigin_Tags,
@@ -43,6 +42,10 @@ import {
   policyNoteOf,
   type TransferOfferQueueItem,
 } from "@/core/transfer-types";
+import {
+  BOTTOM_BREATHING,
+  useBottomSafePadding,
+} from "@/hooks/useBottomSafePadding";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { getErrorMessage } from "@/lib/errors";
 import { toast } from "@/lib/toast";
@@ -555,12 +558,14 @@ function OfferActions({
 }) {
   const { t } = useLingui();
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
+  // 手机走 bottom sheet、直接坐在屏幕底缘 → 底距 = 系统占用 + 呼吸位(相加,见 hook 的注释);
+  // 平板走居中浮层,底缘不碰系统条 → 只要呼吸位。两者同一个呼吸位、都与 pt-3 对称。
+  const safeAreaPadding = useBottomSafePadding();
 
   return (
     <View
       className="flex-row gap-2.5 border-t border-border bg-card px-5 pt-3"
-      style={{ paddingBottom: safeArea ? Math.max(insets.bottom, 20) : 20 }}
+      style={{ paddingBottom: safeArea ? safeAreaPadding : BOTTOM_BREATHING }}
     >
       {rejectedByPolicy ? (
         <Pressable

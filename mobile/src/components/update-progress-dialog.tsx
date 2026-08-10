@@ -78,12 +78,17 @@ export function UpdateProgressDialog({
             ) : null}
           </View>
         </View>
+        {/* `flex-1`：footer 是 flex-row 且不替调用方分配宽度。这里两种形态都要对——
+            ready 时双键各占一半，否则单键占满整行。 */}
         <AlertDialogFooter>
-          <AlertDialogCancel onPress={onDismiss}>
+          <AlertDialogCancel className="flex-1" onPress={onDismiss}>
             <Text>{isReady ? t.laterButton : t.backgroundButton}</Text>
           </AlertDialogCancel>
           {isReady ? (
-            <AlertDialogAction onPress={() => void install()}>
+            <AlertDialogAction
+              className="flex-1"
+              onPress={() => void install()}
+            >
               <Text>{t.installButton}</Text>
             </AlertDialogAction>
           ) : null}

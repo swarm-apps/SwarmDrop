@@ -114,15 +114,23 @@ export function PromptUpdateDialog({
           </Text>
         ) : null}
 
+        {/* 两个按钮都要 `flex-1`：DialogFooter 是 flex-row 且不替调用方分配宽度，
+            不加就各自缩到文字宽、挤在左侧留一大片白（真机截图实证）。等宽双键是本仓
+            移动端对话框的既定形态，参照 `ui/confirm-dialog.tsx`。 */}
         <DialogFooter>
           <Button
+            className="flex-1"
             variant="outline"
             onPress={() => handleOpenChange(false)}
             disabled={isDownloading}
           >
             <Text>{t.laterButton}</Text>
           </Button>
-          <Button onPress={() => void onAction()} disabled={isDownloading}>
+          <Button
+            className="flex-1"
+            onPress={() => void onAction()}
+            disabled={isDownloading}
+          >
             <Text>{actionLabel}</Text>
           </Button>
         </DialogFooter>

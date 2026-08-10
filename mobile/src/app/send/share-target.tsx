@@ -14,9 +14,7 @@ import { type Href, useNavigation, useRouter } from "expo-router";
 import { Check, Files, MonitorSmartphone, Send } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, View } from "react-native";
-import type {
-  MobileDevice as DeviceInfo,
-} from "react-native-swarmdrop-core";
+import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import { ConnectionBadge } from "@/components/connection-badge";
 import {
@@ -246,7 +244,11 @@ export default function ShareTargetScreen() {
                 : t`选择一个设备`
             }
             accessibilityState={{ busy: sending, disabled: !canSend }}
-            className="min-h-12 flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-primary px-4 active:opacity-70 disabled:opacity-50"
+            // 这里**不能**有 flex-1:外层那个 View 是纵向的,flexBasis:0% 会作用于**高度**,
+            // 把按钮压塌、内容对称溢出底栏 content box(prepare 期间按钮被屏底切断的根因)。
+            // 列容器默认 align-items: stretch,横向撑满本就不依赖 flex-1。
+            // 上一层 View 的 flex-1 是横向的(父是 BottomActionBar,flex-row),那个要留。
+            className="min-h-12 flex-row items-center justify-center gap-2 rounded-xl bg-primary px-4 active:opacity-70 disabled:opacity-50"
           >
             {sending ? (
               <ActivityIndicator

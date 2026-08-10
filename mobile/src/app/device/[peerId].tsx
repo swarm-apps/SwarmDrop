@@ -22,7 +22,13 @@ import {
   Users,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import {
+  ActivityIndicator,
+  type LayoutChangeEvent,
+  Pressable,
+  ScrollView,
+  View,
+} from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 import type {
   MobileDevice as DeviceInfo,
@@ -41,7 +47,7 @@ import {
 import { EncryptionNote } from "@/components/encryption-note";
 import {
   AppScreen,
-  BottomActionArea,
+  BottomActionBar,
   Surface,
 } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
@@ -65,6 +71,10 @@ import {
   trustLevelToNative,
 } from "@/core/device-trust";
 import { pickDirectory } from "@/core/receive-location";
+import {
+  BOTTOM_BREATHING,
+  useBottomSafePadding,
+} from "@/hooks/useBottomSafePadding";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { getErrorMessage } from "@/lib/errors";
@@ -94,6 +104,30 @@ export default function DeviceDetailScreen() {
   const [blockOpen, setBlockOpen] = useState(false);
   // 策略草稿是否合法(大小上限输入校验);非法时禁用保存按钮。
   const [policyValid, setPolicyValid] = useState(true);
+
+  // —— 策略 sheet 的内容底距 ——
+  // gorhom 的 footer 是**绝对定位**悬在滚动内容之上,内容侧不会自动为它让位,所以内容
+  // 底部必须空出 footer 的高度,否则最后一项被永久盖住。这里**量测**而不是手算:
+  // 此前写的是常数 142(比当时实测的 131 多 11),footer 一变高就不够,而没有任何东西会拦
+  // ——footer 补上 bottom inset 之后正好高出 24~48dp,那个常数当场失效。
+  // ⚠️ 若将来在 `AppBottomSheet` 里打开 gorhom 自带的 `enableFooterMarginAdjustment`
+  // (它做的是同一件事:把实测 footer 高度加进 `contentContainerStyle.paddingBottom`),
+  // **必须同时删掉这里的量测**,否则底距翻倍。
+  const [policyFooterHeight, setPolicyFooterHeight] = useState(
+    POLICY_FOOTER_FALLBACK_HEIGHT,
+  );
+  const handlePolicyFooterLayout = useCallback((e: LayoutChangeEvent) => {
+    setPolicyFooterHeight(e.nativeEvent.layout.height);
+  }, []);
+  const policySheetContentStyle = useMemo(
+    () => ({
+      paddingHorizontal: 20,
+      paddingTop: 8,
+      // footer 实高 + 一段呼吸位(与 footer 内部的 pt-3 对称,和 BottomActionBar 同一个数)。
+      paddingBottom: policyFooterHeight + BOTTOM_BREATHING,
+    }),
+    [policyFooterHeight],
+  );
 
   const {
     devices,
@@ -228,6 +262,11 @@ export default function DeviceDetailScreen() {
     (props: BottomSheetFooterProps) => (
       <BottomSheetFooter
         {...props}
+        // 保持 0(也是 gorhom 的默认值,写出来是为了挡住「顺手改成 insets.bottom」)。
+        // 底部安全区**只能有一处吃**,这里让给 `PolicyActionFooter` 自己的 paddingBottom:
+        // `bottomInset` 是把整条 footer 上移,下方会露出一条缝 —— 而 footer 绝对定位、
+        // 滚动内容不为它让位,内容就会从那条缝里穿出来。写进 footer 自己的 padding 则
+        // 那块不透明 `bg-card` 一直铺到屏底,与 `BottomActionBar` 同款。
         bottomInset={0}
         style={{ backgroundColor: colors.card }}
       >
@@ -235,6 +274,7 @@ export default function DeviceDetailScreen() {
           draftLevel={draftLevel}
           savingAction={savingAction}
           saveDisabled={!policyValid}
+          onLayout={handlePolicyFooterLayout}
           onSave={handleSave}
           onBlock={openBlockConfirm}
           onUnblock={handleUnblock}
@@ -245,6 +285,7 @@ export default function DeviceDetailScreen() {
     [
       colors.card,
       draftLevel,
+      handlePolicyFooterLayout,
       handleSave,
       handleUnblock,
       openBlockConfirm,
@@ -284,202 +325,215 @@ export default function DeviceDetailScreen() {
   const sendable = canSendToDevice(device);
 
   return (
-    <AppScreen
-      testID="device-detail-screen"
-      header={<SettingsHeader title={t`设备详情`} />}
-      bare
-      contentClassName="gap-4"
-    >
-      {/* pt-4 是导航条与首张卡之间的间距。header 移进 slot 后它不再是内容盒的子节点,
-          外层那个 gap-4 已经隔不到它了(与列表页的 LIST_CONTENT_PADDING_UNDER_HEADER 同值)。 */}
-      <View className="flex-1 gap-4 px-5 pt-4">
-        <Surface className="gap-4">
-          <View className="flex-row items-center gap-3">
-            <View className="size-14 items-center justify-center rounded-full bg-muted">
-              <Icon color={colors.foreground} size={25} />
-            </View>
-            <View className="min-w-0 flex-1 gap-1">
-              <Text
-                className="text-[18px] font-semibold text-foreground"
-                numberOfLines={1}
-              >
-                {displayName}
-              </Text>
-              <Text
-                className="text-[13px] text-muted-foreground"
-                numberOfLines={1}
-              >
-                {device.os} · {device.platform}
-              </Text>
-            </View>
-            <TrustBadge level={trustLevel} confirmed={device.trustConfirmed} />
-          </View>
-
-          <Pressable
-            onPress={() => organizeSheetRef.current?.present(device)}
-            accessibilityRole="button"
-            testID="device-organize-entry"
-            className="min-h-11 flex-row items-center justify-center gap-2 rounded-xl border border-border active:opacity-70"
-          >
-            <Tags color={colors.foreground} size={16} />
-            <Text className="text-[13px] font-semibold text-foreground">
-              <Trans>别名与分组</Trans>
-            </Text>
-          </Pressable>
-
-          <View className="gap-2">
-            <InfoRow
-              label={<Trans>连接状态</Trans>}
-              value={
-                device.status === "online" ? (
-                  <Trans>在线</Trans>
-                ) : (
-                  <Trans>离线</Trans>
-                )
-              }
-            />
-            <InfoRow
-              label={<Trans>连接路径</Trans>}
-              value={
-                normalizeConnectionKind(device.connection) ? (
-                  <View className="flex-row justify-end">
-                    <ConnectionBadge
-                      connection={device.connection}
-                      transport={device.connectionDetails?.transport}
-                      latencyMs={device.latencyMs}
-                    />
-                  </View>
-                ) : (
-                  <Trans>等待发现</Trans>
-                )
-              }
-            />
-            {device.latencyMs != null ? (
-              <InfoRow
-                label={<Trans>延迟</Trans>}
-                value={`${Number(device.latencyMs)}ms`}
-              />
-            ) : null}
-            {device.connectionDetails ? (
-              <ConnectionDetailsSection
-                details={device.connectionDetails}
-                lanUpgradeFailed={device.lanUpgradeFailed}
-              />
-            ) : null}
-            <InfoRow
-              label={<Trans>Peer ID</Trans>}
-              value={device.peerId}
-              mono
-            />
-            <EncryptionNote>
-              <Trans>这串 ID 由它的加密密钥生成，像指纹一样独一无二</Trans>
-            </EncryptionNote>
-          </View>
-        </Surface>
-
-        <Surface className="gap-3">
-          <View className="flex-row items-center gap-2">
-            <Shield color={colors.primary} size={18} />
-            <Text className="text-[14px] font-semibold text-foreground">
-              <Trans>信任与接收策略</Trans>
-            </Text>
-          </View>
-          <Text className="text-[13px] text-muted-foreground">
-            <PolicyHeadline note={policy.note} />
-          </Text>
-          <View className="gap-2 rounded-lg bg-muted px-3.5 py-3">
-            <InfoRow
-              label={<Trans>接收方式</Trans>}
-              value={<PolicyModeLabel note={policy.note} />}
-            />
-            <InfoRow
-              label={<Trans>文件夹</Trans>}
-              value={
-                policy.policy.allowDirectories ? (
-                  <Trans>允许</Trans>
-                ) : (
-                  <Trans>不允许</Trans>
-                )
-              }
-            />
-            <InfoRow
-              label={<Trans>保存位置</Trans>}
-              value={formatSaveLocation(policy.policy.defaultSaveLocation)}
-            />
-          </View>
-          <Pressable
-            onPress={openPolicySheet}
-            accessibilityRole="button"
-            testID="device-policy-entry"
-            className="min-h-11 flex-row items-center justify-center gap-2 rounded-xl border border-border active:opacity-70"
-          >
-            <SlidersHorizontal color={colors.foreground} size={16} />
-            <Text className="text-[13px] font-semibold text-foreground">
-              <Trans>策略设置</Trans>
-            </Text>
-          </Pressable>
-        </Surface>
-      </View>
-
-      <BottomActionArea>
-        <Pressable
-          onPress={() => {
-            router.push({
-              pathname: "/send/select-device",
-              params: { peerId: device.peerId },
-            } as never);
-          }}
-          accessibilityRole="button"
-          testID="device-detail-send-button"
-          disabled={!sendable}
-          className="min-h-12 flex-row items-center justify-center gap-2 rounded-xl bg-primary active:opacity-70 disabled:bg-muted"
-        >
-          <Send
-            color={sendable ? colors.primaryForeground : colors.mutedForeground}
-            size={17}
-          />
-          <Text
-            className={
-              sendable
-                ? "text-[14px] font-semibold text-primary-foreground"
-                : "text-[14px] font-semibold text-muted-foreground"
-            }
-          >
-            <Trans>发送文件</Trans>
-          </Text>
-        </Pressable>
-      </BottomActionArea>
-
-      <AppBottomSheet
-        ref={policySheetRef}
-        scrollable
-        contentTestID="device-policy-sheet"
-        contentContainerStyle={{
-          paddingHorizontal: 20,
-          paddingTop: 8,
-          paddingBottom: 142,
-        }}
-        footerComponent={renderPolicyFooter}
-        keyboardBehavior="interactive"
-        keyboardBlurBehavior="restore"
+    // ConfirmDialog 挂在 AppScreen **外面**:它的 Root 会渲染一个真实的零高 View,
+    // 留在带 gap 的内容盒里每个都会凭空撑出一段死带(Yoga 的 gap 不看子节点高度)。
+    // 同款注释见 settings/bootstrap-nodes.tsx。两个 gorhom sheet 走 Portal、原地不产生
+    // 节点,留在 AppScreen 里没问题。
+    <>
+      <AppScreen
+        testID="device-detail-screen"
+        header={<SettingsHeader title={t`设备详情`} />}
+        bare
       >
-        <PolicyEditor
-          deviceName={displayName}
-          draftLevel={draftLevel}
-          draftPolicy={draftPolicy}
-          onLevelChange={(level) => {
-            setDraftLevel(level);
-            // 带上当前草稿：用户显式设过的落点由内核带过去（`blocked` 除外）。
-            // 在 updater 外算：`defaultReceivePolicy` 会走一次 FFI，而 updater 在
-            // StrictMode 下可能被调用两次。它是同步的（uniffi 自由函数），没有竞态。
-            setDraftPolicy(defaultReceivePolicy(level, draftPolicy));
-          }}
-          onPolicyChange={setDraftPolicy}
-          onValidityChange={setPolicyValid}
-        />
-      </AppBottomSheet>
+        {/* 内容必须是滚动容器:展开「链路详情」后这一屏放不下,而底栏是流内兄弟节点、
+            不悬浮 —— 没有滚动时超出的部分(包括「策略设置」入口)用户永远够不到。
+            pt-4 与列表页的 LIST_CONTENT_PADDING_UNDER_HEADER 同值(导航条与首张卡的间距);
+            pb-6 是滚到底时最后一张卡与底栏之间的呼吸位。 */}
+        <ScrollView
+          className="flex-1"
+          showsVerticalScrollIndicator={false}
+          contentContainerClassName="gap-4 px-5 pt-4 pb-6"
+        >
+          <Surface className="gap-4">
+            <View className="flex-row items-center gap-3">
+              <View className="size-14 items-center justify-center rounded-full bg-muted">
+                <Icon color={colors.foreground} size={25} />
+              </View>
+              <View className="min-w-0 flex-1 gap-1">
+                <Text
+                  className="text-[18px] font-semibold text-foreground"
+                  numberOfLines={1}
+                >
+                  {displayName}
+                </Text>
+                <Text
+                  className="text-[13px] text-muted-foreground"
+                  numberOfLines={1}
+                >
+                  {device.os} · {device.platform}
+                </Text>
+              </View>
+              <TrustBadge
+                level={trustLevel}
+                confirmed={device.trustConfirmed}
+              />
+            </View>
 
-      <DeviceOrganizeSheet ref={organizeSheetRef} />
+            <Pressable
+              onPress={() => organizeSheetRef.current?.present(device)}
+              accessibilityRole="button"
+              testID="device-organize-entry"
+              className="min-h-11 flex-row items-center justify-center gap-2 rounded-xl border border-border active:opacity-70"
+            >
+              <Tags color={colors.foreground} size={16} />
+              <Text className="text-[13px] font-semibold text-foreground">
+                <Trans>别名与分组</Trans>
+              </Text>
+            </Pressable>
+
+            <View className="gap-2">
+              <InfoRow
+                label={<Trans>连接状态</Trans>}
+                value={
+                  device.status === "online" ? (
+                    <Trans>在线</Trans>
+                  ) : (
+                    <Trans>离线</Trans>
+                  )
+                }
+              />
+              <InfoRow
+                label={<Trans>连接路径</Trans>}
+                value={
+                  normalizeConnectionKind(device.connection) ? (
+                    <View className="flex-row justify-end">
+                      <ConnectionBadge
+                        connection={device.connection}
+                        transport={device.connectionDetails?.transport}
+                        latencyMs={device.latencyMs}
+                      />
+                    </View>
+                  ) : (
+                    <Trans>等待发现</Trans>
+                  )
+                }
+              />
+              {device.latencyMs != null ? (
+                <InfoRow
+                  label={<Trans>延迟</Trans>}
+                  value={`${Number(device.latencyMs)}ms`}
+                />
+              ) : null}
+              {device.connectionDetails ? (
+                <ConnectionDetailsSection
+                  details={device.connectionDetails}
+                  lanUpgradeFailed={device.lanUpgradeFailed}
+                />
+              ) : null}
+              <InfoRow
+                label={<Trans>Peer ID</Trans>}
+                value={device.peerId}
+                mono
+              />
+              <EncryptionNote>
+                <Trans>这串 ID 由它的加密密钥生成，像指纹一样独一无二</Trans>
+              </EncryptionNote>
+            </View>
+          </Surface>
+
+          <Surface className="gap-3">
+            <View className="flex-row items-center gap-2">
+              <Shield color={colors.primary} size={18} />
+              <Text className="text-[14px] font-semibold text-foreground">
+                <Trans>信任与接收策略</Trans>
+              </Text>
+            </View>
+            <Text className="text-[13px] text-muted-foreground">
+              <PolicyHeadline note={policy.note} />
+            </Text>
+            <View className="gap-2 rounded-lg bg-muted px-3.5 py-3">
+              <InfoRow
+                label={<Trans>接收方式</Trans>}
+                value={<PolicyModeLabel note={policy.note} />}
+              />
+              <InfoRow
+                label={<Trans>文件夹</Trans>}
+                value={
+                  policy.policy.allowDirectories ? (
+                    <Trans>允许</Trans>
+                  ) : (
+                    <Trans>不允许</Trans>
+                  )
+                }
+              />
+              <InfoRow
+                label={<Trans>保存位置</Trans>}
+                value={formatSaveLocation(policy.policy.defaultSaveLocation)}
+              />
+            </View>
+            <Pressable
+              onPress={openPolicySheet}
+              accessibilityRole="button"
+              testID="device-policy-entry"
+              className="min-h-11 flex-row items-center justify-center gap-2 rounded-xl border border-border active:opacity-70"
+            >
+              <SlidersHorizontal color={colors.foreground} size={16} />
+              <Text className="text-[13px] font-semibold text-foreground">
+                <Trans>策略设置</Trans>
+              </Text>
+            </Pressable>
+          </Surface>
+        </ScrollView>
+
+        <BottomActionBar testID="device-detail-action-bar">
+          <Pressable
+            onPress={() => {
+              router.push({
+                pathname: "/send/select-device",
+                params: { peerId: device.peerId },
+              } as never);
+            }}
+            accessibilityRole="button"
+            testID="device-detail-send-button"
+            disabled={!sendable}
+            // flex-1 不可省:BottomActionBar 是 flex-row,单个子节点不撑满会缩成文字宽度。
+            className="min-h-12 flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-primary active:opacity-70 disabled:bg-muted"
+          >
+            <Send
+              color={
+                sendable ? colors.primaryForeground : colors.mutedForeground
+              }
+              size={17}
+            />
+            <Text
+              className={
+                sendable
+                  ? "text-[14px] font-semibold text-primary-foreground"
+                  : "text-[14px] font-semibold text-muted-foreground"
+              }
+            >
+              <Trans>发送文件</Trans>
+            </Text>
+          </Pressable>
+        </BottomActionBar>
+
+        <AppBottomSheet
+          ref={policySheetRef}
+          scrollable
+          contentTestID="device-policy-sheet"
+          contentContainerStyle={policySheetContentStyle}
+          footerComponent={renderPolicyFooter}
+          keyboardBehavior="interactive"
+          keyboardBlurBehavior="restore"
+        >
+          <PolicyEditor
+            deviceName={displayName}
+            draftLevel={draftLevel}
+            draftPolicy={draftPolicy}
+            onLevelChange={(level) => {
+              setDraftLevel(level);
+              // 带上当前草稿：用户显式设过的落点由内核带过去（`blocked` 除外）。
+              // 在 updater 外算：`defaultReceivePolicy` 会走一次 FFI，而 updater 在
+              // StrictMode 下可能被调用两次。它是同步的（uniffi 自由函数），没有竞态。
+              setDraftPolicy(defaultReceivePolicy(level, draftPolicy));
+            }}
+            onPolicyChange={setDraftPolicy}
+            onValidityChange={setPolicyValid}
+          />
+        </AppBottomSheet>
+
+        <DeviceOrganizeSheet ref={organizeSheetRef} />
+      </AppScreen>
 
       <ConfirmDialog
         open={unpairOpen}
@@ -513,7 +567,7 @@ export default function DeviceDetailScreen() {
         contentTestID="device-block-dialog"
         actionTestID="device-block-confirm-button"
       />
-    </AppScreen>
+    </>
   );
 }
 
@@ -862,10 +916,21 @@ function bytesToMbText(bytes?: bigint | null): string {
   return mb > 0 ? String(mb) : "";
 }
 
+/**
+ * footer 尚未 `onLayout` 时的回退高度(dp)——**只影响 present 后的第一帧**,量到真值立刻覆盖。
+ *
+ * 取「最矮的一档」:pt-3(12) + 保存按钮 48 + gap-2.5(10) + 次级行 44 + 呼吸位 12,
+ * 即 `insets.bottom == 0`(Android 全屏隐藏导航)时的高度。宁可小不可大——小了首帧少留一点、
+ * 下一帧补上;大了会先撑出一段空白再缩回去,肉眼看得见。
+ * **它不是内容底距的事实源**,事实源是量测值;这里不需要跟着 footer 内容精确同步。
+ */
+const POLICY_FOOTER_FALLBACK_HEIGHT = 126;
+
 function PolicyActionFooter({
   draftLevel,
   savingAction,
   saveDisabled,
+  onLayout,
   onSave,
   onBlock,
   onUnblock,
@@ -874,6 +939,8 @@ function PolicyActionFooter({
   draftLevel: TrustLevel;
   savingAction: SavingAction;
   saveDisabled?: boolean;
+  /** 量测实高,供滚动内容让位用(见 `policySheetContentStyle`)。 */
+  onLayout: (event: LayoutChangeEvent) => void;
   onSave: () => void;
   onBlock: () => void;
   onUnblock: () => void;
@@ -881,9 +948,23 @@ function PolicyActionFooter({
 }) {
   const colors = useThemeColors();
   const blocked = draftLevel === "blocked";
+  // 底距 = 系统占用 + 呼吸位,与 `BottomActionBar` 同一个公式(相加,不是取大)。
+  // 原先是硬编码 `pb-4`(16dp):这条 footer 的底边就是屏底(sheet 挂在根 Stack 之外的
+  // `BottomSheetModalProvider` 里,没有任何安全区 padding),于是 Android 三键导航(48dp)下
+  // 「阻止设备 / 取消配对」那 44dp 高的一行有 32dp 落到系统导航栏之下,只剩约 12dp 可点
+  // ——远低于 48dp 最小触控目标,而「取消配对」是移动端解除配对的**唯一**入口。
+  //
+  // 已知取舍:键盘弹起时(高级里的「最大大小」输入框)footer 浮到键盘之上,这段系统占用
+  // 就成了多余的空隙。用 `bottomInset` 能让 gorhom 在键盘态自动抹掉它,但代价更大 ——
+  // 见 `renderPolicyFooter` 那条注释。空一点可以忍,按钮点不到不行。
+  const paddingBottom = useBottomSafePadding();
 
   return (
-    <View className="gap-2.5 border-t border-border bg-card px-5 pt-3 pb-4">
+    <View
+      className="gap-2.5 border-t border-border bg-card px-5 pt-3"
+      style={{ paddingBottom }}
+      onLayout={onLayout}
+    >
       <Pressable
         onPress={onSave}
         accessibilityRole="button"

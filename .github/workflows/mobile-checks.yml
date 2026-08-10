@@ -1,0 +1,72 @@
+# 移动端的 PR 级检查。
+#
+# 为什么新开一条而不是塞进 rust.yml：那条 workflow 从名字到每个 job 的装配（rust
+# toolchain、apt 的 webkit/appindicator、swatinem/rust-cache）都是 Rust 专用的，塞一个
+# Node/expo 的 job 进去，名字就开始说谎，而且它没有 paths 过滤——所有 PR 都会被迫跑一遍
+# mobile 的 pnpm install。这里是移动端自己的落点，将来 mobile 的 typecheck / biome /
+# check:zustand-access（目前**零 CI 覆盖**）也归这儿。
+#
+# 为什么它必须存在：`check:expo-patches` 此前只接在 workflow_dispatch 的
+# mobile-build-android 与 mobile-v* 的 mobile-release 上——两条都不是 PR / push 触发，
+# 于是「patch 又变回不进构建」这种回归最早只能在**发版当天**暴露。护栏本身没问题，
+# 接错了地方。
+#
+# 这个 job 只读文件（pnpm-workspace.yaml / package.json / patch / node_modules），
+# 判红的三道硬判据不依赖 JDK、gradle 或 Android SDK；javap 的产物诊断是软的，
+# ubuntu runner 自带 JDK 就顺带跑，没有也只是少几行提示。
+
+name: Mobile checks
+
+on:
+  push:
+    branches: [main, develop]
+    # 刻意用 `mobile/**` 这个**超集**而不是逐项列出输入（pnpm-workspace.yaml /
+    # package.json / patches/ / lockfile / 脚本本身……）：逐项列的清单每加一个新输入
+    # 就要记得同步，漏一项的表现是「检查静默不跑」——正是本仓最忌讳的那类哑错误。
+    # 代价只是每个 mobile PR 多跑一次一两分钟的 install，换的是判据不会因为漏配失效。
+    paths:
+      - "mobile/**"
+      - ".github/workflows/mobile-checks.yml"
+  pull_request:
+    paths:
+      - "mobile/**"
+      - ".github/workflows/mobile-checks.yml"
+
+concurrency:
+  group: mobile-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  expo-patches:
+    name: Expo patches enter the build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # 不带 version：读根 package.json 的 packageManager (pnpm@11.10.0)。
+      # 两者同时指定会 ERR_PNPM_BAD_PM_VERSION。
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
+
+      # 必须真装：判据要读 node_modules 里被 patch 过的源码，也要跑
+      # expo-modules-autolinking 才知道哪个 gradle 项目带预编译产物。
+      - name: Install dependencies
+        working-directory: mobile
+        run: pnpm install --frozen-lockfile
+
+      - name: Assert expo patches actually enter the build
+        working-directory: mobile
+        run: pnpm check:expo-patches

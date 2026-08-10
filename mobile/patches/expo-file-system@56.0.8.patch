@@ -83,7 +83,7 @@ index a39dfeb96731d8c75afa084742573ae0cebb0bc7..f6fe576f8071802b27038a48cfe294ae
    var offset: Long?
      get() {
        return try {
-@@ -153,6 +176,14 @@ class FileSystemFileHandle private constructor(
+@@ -153,6 +176,16 @@ class FileSystemFileHandle private constructor(
      }
      set(value) {
        if (value == null) return
@@ -91,9 +91,11 @@ index a39dfeb96731d8c75afa084742573ae0cebb0bc7..f6fe576f8071802b27038a48cfe294ae
 +      // 这种最常见的误用不会报成 UnableToReadHandleException("file handle is closed")，
 +      // 而是把底层的裸 IOException 连同整段 Java 栈冒到 JS 侧（我们实测把它一路带进了 UI toast）。
 +      //
-+      // 它**拦不住**「channel 仍报告 open、底层 fd 已被外部回收」那一类——SAF 的 fd 由
-+      // DocumentsProvider 持有，失效时 position() 会直接抛 EBADF。那个只能靠不长时间持有
-+      // 外部 fd 来规避，见 openspec/changes/receive-staging-publish。
++      // 它**拦不住**「channel 仍报告 open、底层 fd 已被外部回收」那一类。那不是 SAF 的固有
++      // 属性——「SAF 的 fd 由 DocumentsProvider 持有、失效必抛 EBADF」是 2026-08-10 推翻的误诊
++      // （它解释不了失败点每次都不同：311MB 崩在 45MB、2GB 崩在 16MB 和 54MB，只有 GC 时机
++      // 解释得通）。真因是 forContentURI 不持有 ParcelFileDescriptor、GC finalizer 关掉了 fd，
++      // 修它的是本 patch 顶部那处「构造函数持有 pfd、close() 里一并关」。
 +      ensureIsOpen()
        fileChannel.position(value)
      }

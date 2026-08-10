@@ -34,8 +34,21 @@ overrides:
 
 # expo-file-system 56.0.8 的 SAF FileHandle 只保留了 FileChannel，未持有创建它的
 # ParcelFileDescriptor；PFD 被 GC 回收后会连带关闭底层 fd，表现为大文件写入到随机位置
-# 后报 Bad file descriptor。PFD 生命周期修复来自上游 expo/expo#47176；补丁还允许以
-# "rw" 打开 SAF 的可定位写通道，避免续传时 "w" 再次截断已有文件。升级时需逐项核对后删除。
+# 后报 Bad file descriptor。PFD 生命周期修复来自上游 expo/expo#47176；补丁另外给
+# read/write 的失败带上异常类名（上游只取 e.message，最要紧的几种恰好为 null），
+# 并给 offset setter 补 ensureIsOpen()。升级时需逐项核对后删除。
+#
+# ⚠️ 这里此前写着「补丁还允许以 "rw" 打开 SAF 的可定位写通道」——**与 patch 实际内容相反**
+# （2026-08-10 更正）。patch 明确保留了上游对 SAF "rw" 的拒绝：FileOutputStream.getChannel()
+# 是 readable=false 的 channel，冒充 "rw" 只会得到一个「签名说能读、实际不能读」的句柄。
+# 接收侧也不需要它——staging 恒在应用私有目录，SAF 只在 publish 时被顺序写一次。
+#
+# ⚠️ **光在这里声明补丁不等于它进了构建。** Android 侧默认吃 expo 发布的预编译 AAR，
+# 这份 Kotlin patch 在 2026-08-10 之前从未参与编译（pnpm install 全绿、node_modules 里的
+# 源码也确实是打过补丁的，唯独产物不是）。靠 mobile/package.json 的
+# expo.autolinking.android.buildFromSource 打开源码编译，靠 mobile/scripts/check-expo-patches.mjs
+# 的 javap 符号断言看守。原委见 dev-notes/knowledge/toolchain.md
+# 「pnpm patch 打在有预编译产物的原生依赖上会静默失效」。
 patchedDependencies:
   expo-file-system@56.0.8: patches/expo-file-system@56.0.8.patch
 
