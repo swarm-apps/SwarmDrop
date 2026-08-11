@@ -503,7 +503,7 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 
 | Workflow | 作用 |
 |---|---|
-| `rust.yml` | `cargo fmt --check` + `cargo check --workspace --all-targets` + `cargo test --workspace`；**wasm 双 target 门禁**（check + clippy）；clippy job 暂 `continue-on-error`（存量 warning 基线未清） |
+| `rust.yml` | `cargo fmt --check` + `cargo check --workspace --all-targets` + `cargo test --workspace`；**wasm 双 target 门禁**（check + clippy）；native 的 clippy job 暂 `continue-on-error`（存量 warning 基线未清）。⚠️ **但 `wasm` job 里的 clippy 是硬失败的**——它跑 `check-wasm.sh --clippy`（`-D warnings`），不受那条豁免保护。v0.16.0 就是这么红的（4 处 `needless_borrow`），而红着也照样发了版，因为 release.yml 由 tag 触发、不看 rust.yml 的脸色。**动了 wasm 七 crate 就本地跑一遍 `./scripts/check-wasm.sh --clippy`**，别指望 native 那条豁免 |
 | `release.yml` | `v*` tag 触发。generate-changelog → build-tauri（四目标 + 上传 SwarmHive draft）→ finalize-swarmhive → update-latest-json（仅手动 dispatch）→ publish-release |
 | `mobile-release.yml` | `mobile-v*` tag，仅 Android |
 | `mobile-build-android.yml` / `bootstrap-release.yml` / `docs.yml` | 移动构建 / 引导节点发布 / 文档站（含 develop → GitHub Pages） |
