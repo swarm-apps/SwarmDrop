@@ -73,6 +73,7 @@ pnpm test                  # vitest。⚠️ 根 vitest.config.ts 显式 exclude
                            #   Web 应用区的测试要单独跑（见下面 docs 那条）
 pnpm check:zustand-access  # selector 派生 + store API 访问检查（src/ 与 docs/app/app）
 pnpm check:clipboard       # 禁止绕过 src/lib/clipboard.ts 直接用 navigator.clipboard
+pnpm check:node-lifecycle  # 禁止在 useEffect 里调节点启停（收敛环 → 用户停不掉节点）
 pnpm check:shared-view     # 共享包零平台依赖（import 纯度 + 无 DOM lib 的 tsc）
 pnpm check:landing         # 配对落地页体积（≤10KB gzip，含注释）+ 字典完整性
 pnpm i18n:extract          # 新增/修改翻译字符串后

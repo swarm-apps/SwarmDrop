@@ -51,7 +51,10 @@ vi.mock("sonner", () => ({
   },
 }));
 
-import { useNetworkStore } from "@/stores/network-store";
+import {
+  autoStartNodeIfEnabled,
+  useNetworkStore,
+} from "@/stores/network-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { useSecretStore } from "@/stores/secret-store";
 
@@ -102,5 +105,49 @@ describe("network-store", () => {
       provideLanHelper: true,
       publicReachability: true,
     });
+  });
+
+  describe("冷启动自动启动", () => {
+    it("开关关闭时不启动节点", async () => {
+      usePreferencesStore.setState({ autoStart: false });
+
+      await autoStartNodeIfEnabled();
+
+      expect(mocks.start).not.toHaveBeenCalled();
+      expect(useNetworkStore.getState().status).toBe("stopped");
+    });
+
+    it("开关打开时启动一次", async () => {
+      usePreferencesStore.setState({ autoStart: true });
+
+      await autoStartNodeIfEnabled();
+
+      expect(mocks.start).toHaveBeenCalledTimes(1);
+    });
+
+    // 回归锚点：自动启动此前是 `_app.tsx` 里一个依赖 `networkStatus` 的 effect，
+    // `stopNetwork()` 把状态置为 stopped 会立刻把它触发一遍——开关打开时用户根本停不掉
+    // 节点。判据是「停止之后没有任何东西再启动它」，所以断言的是调用次数没涨。
+    it("停止节点后不被自动重新启动", async () => {
+      usePreferencesStore.setState({ autoStart: true });
+      await autoStartNodeIfEnabled();
+      // start 命令只把节点拉起来，running 由后端 networkStatusChanged 事件驱动，
+      // 这里直接置为运行中以满足 stopNetwork 的前置条件。
+      useNetworkStore.setState({ status: "running" });
+
+      await useNetworkStore.getState().stopNetwork();
+
+      expect(useNetworkStore.getState().status).toBe("stopped");
+      expect(mocks.start).toHaveBeenCalledTimes(1);
+    });
+
+    // 上面这些锁的是 store 的行为，锁不住**回归源**——收敛环长在组件的 effect 里，
+    // 任何 store 层测试都观测不到它。那条规则是跨文件的架构约束，落点在
+    // `scripts/check-node-lifecycle.mjs`（`pnpm check:node-lifecycle`），与
+    // check:clipboard / check:zustand-access 同一套机制。
+    //
+    // 这里曾放过一条 `readFileSync("src/routes/_app.tsx")` + 正则的断言。它只扫那**一个**
+    // 文件——同一个环长在 `__root.tsx` 或任意组件里都照绿，而注释写得像已经钉住了回归源。
+    // 部分覆盖的护栏比没有护栏更糟：它会让人以为这件事已经有人管了。
   });
 });

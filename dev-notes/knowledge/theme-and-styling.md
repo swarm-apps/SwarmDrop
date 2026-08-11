@@ -296,6 +296,54 @@ const update = () => {
 
 **相关文件**：`src/hooks/use-countdown.ts`
 
+### 一次性的启动意图不能写成依赖状态的 effect（2026-08-11 实锤：用户停不掉节点）
+
+桌面「自动启动节点」曾是这样：
+
+```tsx
+// src/routes/_app.tsx —— 注释写着「首次进入时检查」，代码不是
+useEffect(() => {
+  if (autoStart && networkStatus === "stopped") void startNetwork();
+}, [autoStart, networkStatus, startNetwork]);   // ← networkStatus 在依赖里
+```
+
+`stopNetwork()` 的最后一步正是 `set({ status: "stopped" })`，于是这个 effect 立刻重新命中
+条件、把节点拉回去——**开关打开时「已停止」是一个不可达状态**，用户点停止只看到状态一闪
+就回。一个一次性的意图被实现成了 `stopped → running` 的**持续收敛环**。
+
+**判据**：问这句话——「这个 effect 表达的是**一次动作**还是**一条不变量**？」
+
+| 意图 | 正确形态 |
+|---|---|
+| 「启动时做一次 X」 | 冷启动序列里命令式调一次（`src/main.tsx`），**不订阅任何状态** |
+| 「只要 A 就必须 B」 | 才是收敛环，effect 依赖 A 是对的 |
+
+「自动启动」是前者：设置文案（「解锁后自动启动」）说的是下次启动的行为，不是「保持在线」。
+后者是另一个需求（掉线自动重连），要做得先改文案。
+
+**顺带**：这个 effect 还让 `useNodeRestart.restart()`（`await stopNetwork()` →
+`await startNetwork()`）一直在空转——stop 落地时 effect 抢先启动，restart 自己那次撞上
+`status === "starting"` 的幂等门禁直接返回 `true`，真正生效的是 effect 那次。**幂等门禁会
+掩盖这类竞态**，它不红不报，只是让你以为编排是自己写的那份。
+
+三端对照（本次让桌面回到同一形态）：Web 是空依赖 `useEffect`
+（`docs/app/app/_components/web-node-bootstrap.tsx`），移动端在冷启动序列里命令式读一次
+（`mobile/src/stores/mobile-core-store.ts`）。
+
+护栏是 **`pnpm check:node-lifecycle`**（`scripts/check-node-lifecycle.mjs`）：扫 `src/` 与
+`docs/app/app`，禁止 `useEffect` 内出现启停调用。禁的是**响应式**调用而不是「组件调启停」
+——用户点「停止节点」按钮当然要调，那是事件处理器，一次点击一次调用。
+
+> 这条护栏的形态换过两次，过程本身是判据：先写成 `renderHook` 测 `restart()`（测不到真正
+> 的回归源，因为它不渲染布局），再写成单测里 `readFileSync("_app.tsx")` + 正则（**只扫一个
+> 文件**——同一个环长在别处照绿，而注释读起来像已经全覆盖了）。换成脚本后**第一次跑就抓到
+> 了第二个实例**（`share-target.lazy.tsx`，那处有 ref 守卫且产品语义要求启动，已白名单）。
+> 教训：跨文件的架构约束归 `pnpm check:*`，不归单测——**部分覆盖的护栏比没有护栏更糟**，
+> 它会让人以为这件事已经有人管了。
+
+**相关文件**：`src/stores/network-store.ts`（`autoStartNodeIfEnabled`）、`src/main.tsx`、
+`src/routes/_app.tsx`、`scripts/check-node-lifecycle.mjs`
+
 ### 弹窗 seeding effect 别依赖整个 store 对象（否则弹窗内改 store 会冲掉编辑态）
 
 弹窗打开时常用 `useEffect` 把 store 持久值 seed 进本地编辑 state（别名、pill 勾选）。**若该 effect 依赖整个 store 派生对象（如 `organization`），而弹窗内又有会 mutate 这个 store 的操作（如"新建分组"）**，mutation 换掉对象引用 → effect 重跑 → 把用户尚未保存的本地编辑连同刚建的东西一起冲掉（xhigh code-review 实锤：别名、pill、新分组自动选中三样全丢）。
