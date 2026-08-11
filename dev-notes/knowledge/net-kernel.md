@@ -1475,7 +1475,7 @@ expected trait `webrtc::peer_connection::rtc_crypto::RTCCrypto`, found `rtc::rtc
 ——`peer_connection/mod.rs` 明确写着「`rtc` is a private dependency of this crate」并为部分
 参数类型做了 re-export。但 2026-08-11 时**规则没走完**，本仓要用的 5 个不在其中
 （`MulticastDnsMode` / `NetworkType` / `RTCDtlsRole` / `SctpMaxMessageSize` /
-`CertificateParams`）。已提 PR 补齐。
+`CertificateParams`）。已提 [webrtc#869](https://github.com/webrtc-rs/webrtc/pull/869) 补齐。
 
 一个**不受此限**的例外：`rtc::stun`（`udp_mux` 解析入站 STUN 学 ufrag）。它的类型
 **不跨 API 边界**——我们只拿它解析字节得到一个 ufrag 字符串，不把 `StunMessage` 传给任何

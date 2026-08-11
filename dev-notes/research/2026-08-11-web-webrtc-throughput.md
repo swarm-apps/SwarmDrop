@@ -290,7 +290,8 @@ of this crate**」，为 `CipherSuiteId` / `SrtpProtectionProfile` / `crypto` �
 （`UDPNetwork` / `InterfaceFilterFn` / `IpFilterFn` 也缺，但它们在 rtc master 上还是
 `//TODO:` 注释掉的状态，不算。）
 
-已向上游提 PR 补全，并附一条只用 `webrtc::` 路径、绝不 import `rtc` 的回归测试——
+已向上游提 [webrtc#869](https://github.com/webrtc-rs/webrtc/pull/869) 补全，并附一条只用
+`webrtc::` 路径、绝不 import `rtc` 的回归测试——
 将来新增 setter 若带进未导出的类型，那条测试会编译失败。
 
 那之后本仓还有两处要动：`rtc::stun`（`udp_mux` 解析入站 STUN 学 ufrag）改成直接依赖
