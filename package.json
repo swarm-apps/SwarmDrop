@@ -11,6 +11,7 @@
     "test": "vitest run",
     "check:zustand-access": "node scripts/check-zustand-store-access.mjs",
     "check:clipboard": "node scripts/check-clipboard-access.mjs",
+    "check:quit-entry": "node scripts/check-quit-entry.mjs",
     "check:landing": "node scripts/check-landing.mjs",
     "check:shared-view": "node scripts/check-shared-view-imports.mjs && tsc -p packages/shared-view --noEmit",
     "tauri": "tauri",
