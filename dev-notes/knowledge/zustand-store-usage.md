@@ -78,3 +78,32 @@ pnpm check:zustand-access
 action 后再 `getState()` 回读 store 快照推断真实结果。
 
 **相关文件**：`src/hooks/use-node-restart.ts`, `src/stores/network-store.ts`
+
+## persist 的写入是 fire-and-forget —— 终止进程前必须 flush
+
+`persist` 中间件在包装后的 `api.setState` 里**同步**调用 `storage.setItem()` 但**不 await**
+它。所以「store 里改了」与「后端收到了」之间隔着一次 IPC 往返，而 `commands.quitApp()` /
+`relaunch()` 都是同步命令、Rust 侧当场结束进程——同一个 tick 里「改完就退」必然丢。
+
+**判据是时间尺度，不是「附近有没有写偏好」**：托盘「退出」与 macOS `Cmd+Q` 同样紧邻着偏好
+写入（刚在设置页改完就按 Cmd+Q），但中间隔着一次人类操作（≥100ms，IPC 是 ~1ms），概率上
+输不了；程序化的「改完立刻退」才是必输。新增终止路径时该问的是「中间隔着人吗」。
+
+**正确做法**：
+- 前端所有终止进程的路径都走 `src/lib/quit-app.ts`（`quitApp` / `relaunchApp`），
+  它先 `await flushTauriStores()`。机器门禁是 `pnpm check:quit-entry`
+- `StateStorage` 适配器要按文件**串行化**写入：persist 每次写的是全量快照，乱序到达
+  等于后一次被前一次的旧快照覆盖（首次 `setItem` 要等 `load()`、紧随其后走缓存的第二次
+  会先到，这个并发是真实的）
+- 写入失败要显式 `console.error`：persist 丢弃了 `setItem()` 返回的 promise，不主动报
+  就没有任何信号
+
+**不要做**：
+- 别把 `autoSave` 的 100ms 防抖当成丢失原因。值只要进了后端内存就安全了——
+  tauri-plugin-store 会在 `RunEvent::Exit` 时保存所有 store，`Store::save` 还会取消防抖。
+  漏的只有「那次 IPC 没赶上」，所以 flush 里不可替代的是 drain 而不是 `save()`
+- 别指望把这件事下沉到 Rust：故障是「值还没到后端」，Rust 侧没有 API 能观测 webview 里
+  有几个写还在路上，`quit_app` 里 `save()` 只会把旧值写盘、日志还全绿
+
+**相关文件**：`src/lib/quit-app.ts`, `src/lib/tauri-store.ts`,
+`scripts/check-quit-entry.mjs`, `src/components/close-behavior-manager.tsx`
