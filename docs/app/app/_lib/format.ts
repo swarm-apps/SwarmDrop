@@ -41,11 +41,6 @@ export function sessionEndedAt(projection: TransferProjection): number {
   return projection.finishedAt ?? projection.updatedAt;
 }
 
-/** 按最后更新时间倒序（不改原数组）。 */
-export function sortByUpdatedDesc(items: TransferProjection[]): TransferProjection[] {
-  return [...items].sort((a, b) => b.updatedAt - a.updatedAt);
-}
-
 /**
  * 会话是否仍在进行中。传输页的「N 个进行中」与导航徽标的计数共用同一个判定——
  * 各写一份的话，将来加一个非 terminal 的新 phase，两处数字就会对不上。

@@ -48,11 +48,6 @@ interface ActivityProjectionCardProps {
    */
   inboxItemId?: string;
   onOpenInbox?: (itemId: string) => void;
-  /**
-   * 状态徽章开关 —— 卡片住在与状态同名的分组下(「已完成」组/「正在进行」组)时,
-   * 徽章只是复读分组标题,由父级关掉;混合状态的分组(需要注意/可恢复)保留。
-   */
-  showStatusBadge?: boolean;
 }
 
 function ActivityProjectionCardComponent({
@@ -64,7 +59,6 @@ function ActivityProjectionCardComponent({
   onResume,
   inboxItemId,
   onOpenInbox,
-  showStatusBadge = true,
 }: ActivityProjectionCardProps) {
   // useLingui 一职两用:订阅 locale(policyNote 经全局 i18n 即时解析,memo 组件靠它
   // 在切换语言时重算)+ 提供 _ 翻译 a11y 文案。
@@ -104,7 +98,9 @@ function ActivityProjectionCardComponent({
                 <Trans>来自 {projection.peerName}</Trans>
               )}
             </Text>
-            {showStatusBadge ? <StatusBadge status={status} /> : null}
+            {/* 徽章恒显：列表是纯时间线，没有分组标题替这一行说明状态
+                （DESIGN.md 的 Transfer List Order Contract）。 */}
+            <StatusBadge status={status} />
           </View>
           <Text className="text-[13px] text-muted-foreground" numberOfLines={1}>
             {projection.files.length} <Trans>文件</Trans>

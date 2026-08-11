@@ -1,5 +1,6 @@
 import { t } from "@lingui/core/macro";
 import {
+  compareByTimelineDesc,
   createSessionTimers,
   isProgressFresh,
   PROGRESS_STALE_MS,
@@ -19,7 +20,6 @@ import { create } from "zustand";
 import { getMobileCore } from "@/core/mobile-core";
 import type { TransferOfferQueueItem } from "@/core/transfer-types";
 import {
-  compareProjectionsByUpdatedAtDesc,
   isProjectionActive,
   isProjectionTerminal,
 } from "@/core/transfer-types";
@@ -585,6 +585,6 @@ export function useActivePrepareProgress(): MobilePrepareProgress | null {
 export function selectActiveProjectionIds(state: TransferState): string[] {
   return Object.values(state.projections)
     .filter(isProjectionActive)
-    .sort(compareProjectionsByUpdatedAtDesc)
+    .sort(compareByTimelineDesc)
     .map((projection) => projection.sessionId);
 }

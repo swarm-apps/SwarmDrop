@@ -249,6 +249,17 @@ export const SessionRow = memo(function SessionRow({
             </div>
           )}
 
+          {/* progress 还没到（冷启动首帧、或 loadProjections 刚清过进度表）时，上面那块
+              整个不渲染。旧排序下 active 行被 phaseRank 钉在最顶，读者知道那一段是
+              「进行中」；纯时间线下它可能落在任何位置，一行什么都不说的记录比排错位置
+              更糟（DESIGN.md 的 Transfer List Order Contract：每行必须自述状态）。 */}
+          {projection.phase === "active" && !progress && (
+            <div className="flex items-center gap-1.5 text-[12px] text-brand">
+              <Loader2 className="size-3 animate-spin" />
+              {projectionStatusLabel(projection)}
+            </div>
+          )}
+
           {(projection.phase === "waiting_accept" ||
             projection.phase === "offered") && (
             <div
@@ -312,8 +323,11 @@ export const SessionRow = memo(function SessionRow({
 
       {/* 右列：时间 + 行内操作 */}
       <div className="-mr-1 flex shrink-0 flex-col items-end gap-1">
+        {/* 印的必须是排序键本身：按 updatedAt 排却印 startedAt，会让一条刚续传的会话
+            置顶显示「3 天前」——行的文字和行的位置互相打脸。终态会话的 updatedAt 就是
+            它进终态的那一刻，与 finishedAt 同义。 */}
         <span className="text-[10px] text-muted-foreground">
-          {formatRelativeTime(projection.finishedAt || projection.startedAt)}
+          {formatRelativeTime(projection.updatedAt)}
         </span>
         <div className="flex items-center gap-0.5">
           {projection.phase === "active" && (

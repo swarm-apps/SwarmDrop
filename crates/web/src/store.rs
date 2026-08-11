@@ -598,9 +598,11 @@ impl SessionStore for WebTransferStore {
             .values()
             .map(|s| projection_of(&s.session, &s.files))
             .collect();
-        // `HashMap` 的迭代序不可依赖，而端口契约要求 `started_at` 倒序：没有它，
-        // 「取最近 N 条」（活动面板的 `HISTORY_LIMIT`）在 Web 上取到的就是随机 N 条。
-        // 前端各面板照旧按自己的维度重排，与本契约不冲突。
+        // `HashMap` 的迭代序不可依赖，而端口契约要求 `started_at` 倒序。
+        // 撑着这条契约的是最后这句：**前端各面板照旧按自己的维度重排**（今天三端都按
+        // `updatedAt`，见 DESIGN.md 的 Transfer List Order Contract），所以这里保证的
+        // 是「确定性」而不是「给谁看的顺序」——`started_at` 不可变，比会被 checkpoint
+        // 改写的 `updated_at` 更适合当这个锚。
         projections.sort_unstable_by_key(|p| std::cmp::Reverse(p.started_at));
         Ok(projections)
     }
@@ -1191,8 +1193,7 @@ mod tests {
     ///
     /// 与 `crates/storage-sql/src/store.rs` 的 `lists_projections_by_started_at_desc`
     /// 逐条对应——同一组落库顺序、同一组期望顺序。两端跑同一组断言正是 D3 的意义：
-    /// 本实现此前直接 `HashMap::values()` 出，顺序随机，于是「取最近 N 条」
-    /// （活动面板的 `HISTORY_LIMIT`）在浏览器上取到的是随机 N 条。
+    /// 本实现此前直接 `HashMap::values()` 出，顺序随机——端口就没有确定性可言了。
     ///
     /// 跑法：`wasm-pack test --headless --chrome -p swarmdrop-web`。
     #[wasm_bindgen_test]

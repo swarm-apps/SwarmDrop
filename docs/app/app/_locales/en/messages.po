@@ -915,7 +915,6 @@ msgid "已经和「{0}」配过对了，去「发送」页直接选它就行。"
 msgstr "You already paired with “{0}” — just pick it on the Send page."
 
 #: app/app/_components/send-panel.tsx
-#: app/app/_components/transfer-activity-panel.tsx
 #: app/app/_components/transfer-labels.ts
 msgid "已结束"
 msgstr "Finished"
@@ -1799,7 +1798,6 @@ msgid "要定位的条目已归档。"
 msgstr "The item you linked to is archived."
 
 #: app/app/_components/eta-text.tsx
-#: app/app/_components/transfer-detail.tsx
 msgid "计算中"
 msgstr "Calculating"
 

@@ -31,12 +31,6 @@ export type ProjectionStatus =
   | "expired"
   | "failed";
 
-export type ProjectionGroup =
-  | "active"
-  | "recoverable"
-  | "attention"
-  | "completed";
-
 export interface TransferOfferQueueItem {
   id: string;
   offer: {
@@ -153,34 +147,16 @@ export function projectionNeedsAttention(
   );
 }
 
-export function projectionGroup(
+/**
+ * 卡片要不要画进度条。
+ *
+ * 收成函数是因为它有两个调用点（活动页与搜索页），而它们此前靠一句「与活动页的分组判据
+ * 一致」的注释同步——搜索页最初就漏了，搜到一条正在传的会话连进度条都没有。
+ */
+export function shouldShowProgress(
   projection: MobileTransferProjection,
-): ProjectionGroup {
-  if (isProjectionActive(projection)) return "active";
-  if (isProjectionRecoverable(projection)) return "recoverable";
-  if (projectionNeedsAttention(projection)) return "attention";
-  return "completed";
-}
-
-export function groupTransferProjections(
-  projections: MobileTransferProjection[],
-): Record<ProjectionGroup, MobileTransferProjection[]> {
-  const grouped: Record<ProjectionGroup, MobileTransferProjection[]> = {
-    active: [],
-    recoverable: [],
-    attention: [],
-    completed: [],
-  };
-
-  for (const projection of projections) {
-    grouped[projectionGroup(projection)].push(projection);
-  }
-
-  for (const items of Object.values(grouped)) {
-    items.sort(compareProjectionsByUpdatedAtDesc);
-  }
-
-  return grouped;
+): boolean {
+  return isProjectionActive(projection) || isProjectionRecoverable(projection);
 }
 
 /**
@@ -232,12 +208,6 @@ export function projectionMatchesQuery(
 }
 
 /** projections 按最近更新倒序 —— 列表/分组/搜索共用的排序语义。 */
-export function compareProjectionsByUpdatedAtDesc(
-  a: MobileTransferProjection,
-  b: MobileTransferProjection,
-): number {
-  return Number(b.updatedAt - a.updatedAt);
-}
 
 export function projectionTransferredBytes(
   projection: MobileTransferProjection,

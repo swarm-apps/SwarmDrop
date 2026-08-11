@@ -915,7 +915,6 @@ msgid "已经和「{0}」配过对了，去「发送」页直接选它就行。"
 msgstr "已經和「{0}」配對過了，到「傳送」頁直接選它就行。"
 
 #: app/app/_components/send-panel.tsx
-#: app/app/_components/transfer-activity-panel.tsx
 #: app/app/_components/transfer-labels.ts
 msgid "已结束"
 msgstr "已結束"
@@ -1799,7 +1798,6 @@ msgid "要定位的条目已归档。"
 msgstr "要定位的項目已封存。"
 
 #: app/app/_components/eta-text.tsx
-#: app/app/_components/transfer-detail.tsx
 msgid "计算中"
 msgstr "計算中"
 

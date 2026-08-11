@@ -1,6 +1,7 @@
 /**
  * Transfer Page (Lazy)
  * 活动中心 —— 所有传输会话（进行中 / 可恢复 / 已结束）的 master-detail 单页。
+ * 列表是一条**纯时间线**（最后活动时间倒序，不按状态分层），筛选器负责「只看某一类」。
  *
  * 响应式（与收件箱共用 MasterDetailShell，单一标准）：
  * - 宽屏（≥920px）：左「会话列表」+ 右「会话详情」双栏。
@@ -23,6 +24,7 @@ import {
   isProjectionActive,
   isProjectionEnded,
 } from "@/lib/transfer-projection";
+import { sortByTimelineDesc } from "@swarmdrop/shared-view";
 import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -65,13 +67,6 @@ function matchesFilter(item: TransferProjection, filter: FilterKey): boolean {
   }
 }
 
-/** 列表排序权重：进行中 > 可恢复/中断 > 已结束，组内按开始时间降序 */
-function phaseRank(item: TransferProjection): number {
-  if (isProjectionActive(item)) return 0;
-  if (item.phase === "suspended") return 1;
-  return 2;
-}
-
 /* ─────────────────── 页面 ─────────────────── */
 
 function TransferPage() {
@@ -87,11 +82,9 @@ function TransferPage() {
     loadProjections();
   }, [loadProjections]);
 
+  // 纯时间线：不按状态分层（判据见 DESIGN.md 的 Transfer List Order Contract）。
   const items = useMemo(
-    () =>
-      Object.values(projections).sort(
-        (a, b) => phaseRank(a) - phaseRank(b) || b.startedAt - a.startedAt,
-      ),
+    () => sortByTimelineDesc(Object.values(projections)),
     [projections],
   );
 

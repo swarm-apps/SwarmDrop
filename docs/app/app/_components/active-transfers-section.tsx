@@ -28,7 +28,8 @@ import { ProgressBar } from "./progress-bar";
 import { StatusDot } from "./status-dot";
 import { SessionTitle } from "./session-title";
 import { PHASE_META, phaseLabel } from "./transfer-labels";
-import { isActiveSession, sortByUpdatedDesc, transferSample } from "../_lib/format";
+import { sortByTimelineDesc } from "@swarmdrop/shared-view";
+import { isActiveSession, transferSample } from "../_lib/format";
 import { NAV, transferSessionHref } from "../_lib/nav";
 import { useWebNode } from "../_lib/store";
 import { useSessionPublishing } from "../_lib/use-session-publishing";
@@ -45,7 +46,7 @@ export function ActiveTransfersSection() {
 
   // selector 只返回 store 内的稳定引用，派生放这里——`pnpm check:zustand-access` 规则 B。
   const active = useMemo(
-    () => sortByUpdatedDesc(Object.values(projections)).filter(isActiveSession),
+    () => sortByTimelineDesc(Object.values(projections).filter(isActiveSession)),
     [projections],
   );
   const shown = active.slice(0, PREVIEW_LIMIT);

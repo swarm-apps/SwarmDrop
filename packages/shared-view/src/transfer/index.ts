@@ -6,4 +6,9 @@ export {
   usableRates,
   type UsableRates,
 } from "./progress";
+export {
+  compareByTimelineDesc,
+  sortByTimelineDesc,
+  type TimelineOrdered,
+} from "./ordering";
 export { createSessionTimers, type SessionTimers } from "./session-timers";

@@ -35,9 +35,9 @@ import { RelativeTime } from "./relative-time";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
 import {
+  isActiveSession,
   isCompletedSession,
   sessionEndedAt,
-  sortByUpdatedDesc,
   transferSample,
 } from "../_lib/format";
 import type { MessageDescriptor } from "@lingui/core";
@@ -48,12 +48,12 @@ import {
   PHASE_META,
   connectionByPeer,
   connectionLabel,
-  groupSessions,
+  matchesSessionFilter,
   phaseLabel,
   type SessionFilter,
 } from "./transfer-labels";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { formatFileSize } from "@swarmdrop/shared-view";
+import { formatFileSize, sortByTimelineDesc } from "@swarmdrop/shared-view";
 import { cn } from "@/lib/cn";
 import { PANEL_SURFACE, selectedRowClass } from "./section";
 import { MasterDetail, OpenListButton } from "./master-detail";
@@ -98,9 +98,14 @@ function TransferActivityPanelInner() {
 
   const [filter, setFilter] = useState<SessionFilter>("all");
 
-  // 排序只依赖 projections；分组才依赖筛选。分两个 memo，换筛选不会连排序一起重跑。
-  const sorted = useMemo(() => sortByUpdatedDesc(Object.values(projections)), [projections]);
-  const { active, history, total } = useMemo(() => groupSessions(sorted, filter), [sorted, filter]);
+  // 排序只依赖 projections；筛选才依赖 filter。分两个 memo，换筛选不会连排序一起重跑。
+  const sorted = useMemo(() => sortByTimelineDesc(Object.values(projections)), [projections]);
+  const items = useMemo(
+    () => sorted.filter((p) => matchesSessionFilter(p, filter)),
+    [sorted, filter],
+  );
+  /** 「清空记录」删的是所有终态会话，所以按钮显隐与当前档位无关。 */
+  const hasEnded = useMemo(() => sorted.some((p) => !isActiveSession(p)), [sorted]);
   /** 会话总数（不受筛选影响）——空态要靠它区分「一条都没有」与「这一档是空的」。 */
   const grandTotal = sorted.length;
   const connections = useMemo(() => connectionByPeer(devices), [devices]);
@@ -239,7 +244,7 @@ function TransferActivityPanelInner() {
             <h2 className="text-sm font-semibold text-foreground">
               <Trans>会话</Trans>
             </h2>
-            {history.length > 0 && clearConfirm.trigger}
+            {hasEnded && clearConfirm.trigger}
           </div>
 
           {/* 筛选。只在有会话时出现——一条都没有时，四个筛选档全是空的，纯占版面。
@@ -277,32 +282,17 @@ function TransferActivityPanelInner() {
             <RailEmptyHint>
               <Trans>还没有传输会话。</Trans>
             </RailEmptyHint>
-          ) : total === 0 ? (
+          ) : items.length === 0 ? (
             // 「这一档是空的」与「一条会话都没有」是两件事。合成一句「还没有传输会话」
             // 会让刚点了「可恢复」的用户以为自己的历史没了。
             <RailEmptyHint>
               <Trans>这个筛选下没有会话。</Trans>
             </RailEmptyHint>
           ) : (
-            <div className="flex min-h-0 flex-col gap-4 overflow-y-auto">
-              {active.length > 0 && (
-                <ul className="flex flex-col gap-1.5">
-                  {active.map(renderRow)}
-                </ul>
-              )}
-              {history.length > 0 && (
-                <div className={cn(active.length > 0 && "border-t pt-3")}>
-                  {active.length > 0 && (
-                    <p className="text-xs font-medium text-muted-foreground">
-                      <Trans>已结束</Trans>
-                    </p>
-                  )}
-                  <ul className={cn("flex flex-col gap-1.5", active.length > 0 && "mt-2")}>
-                    {history.map(renderRow)}
-                  </ul>
-                </div>
-              )}
-            </div>
+            <ul className="flex min-h-0 flex-col gap-1.5 overflow-y-auto">
+              {/* 一条纯时间线，不再切成 active / history 两段（Transfer List Order Contract） */}
+              {items.map(renderRow)}
+            </ul>
           )}
         </div>
         );

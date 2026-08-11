@@ -14,11 +14,11 @@ import {
   ListItemGap,
 } from "@/components/mobile/screen";
 import { SearchHeader } from "@/components/search-header";
+import { compareByTimelineDesc } from "@swarmdrop/shared-view";
+
 import {
-  compareProjectionsByUpdatedAtDesc,
-  isProjectionActive,
-  isProjectionRecoverable,
   projectionMatchesQuery,
+  shouldShowProgress,
 } from "@/core/transfer-types";
 import { useTransferStore } from "@/stores/transfer-store";
 
@@ -48,7 +48,7 @@ export default function TransferSearchScreen() {
     if (!trimmedQuery) return [];
     return Object.values(projections)
       .filter((p) => projectionMatchesQuery(p, trimmedQuery))
-      .sort(compareProjectionsByUpdatedAtDesc);
+      .sort(compareByTimelineDesc);
   }, [projections, trimmedQuery]);
 
   const listExtraData = useMemo(
@@ -95,11 +95,7 @@ export default function TransferSearchScreen() {
             projection={item}
             progress={progressBySession[item.sessionId]}
             publishing={publishingBySession[item.sessionId]}
-            // 与活动页的分组判据一致：正在进行 / 可恢复才画进度条。此前这里一律不传，
-            // 于是搜到一条正在传的会话，连条都没有。
-            showProgress={
-              isProjectionActive(item) || isProjectionRecoverable(item)
-            }
+            showProgress={shouldShowProgress(item)}
             onPress={goDetail}
           />
         )}
