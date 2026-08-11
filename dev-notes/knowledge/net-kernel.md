@@ -1294,6 +1294,60 @@ Windows 上才是 `ConnectionReset`。只认后者等于在 Linux 上留了个�
 §1.3 / §4）把它们列为修复 #3/#4，但明确要求**先看丢包计数再改**：假设不成立的话，
 改了不仅白改，还平白加 2.4 MB/连接的内存。
 
+### ⚠️ SCTP 接收窗口**必须**从消息尺寸推导，配大了会静默丢数据（2026-08-11 修）
+
+webrtc-rs 的 driver 把每条收到的 DataChannel 消息 `try_send` 进一条深度 **256** 的通道
+（`DATA_CHANNEL_EVENT_CHANNEL_CAPACITY`，`pub(crate)` 未导出），**满了就直接丢**，
+只打一行 ERROR（[webrtc#858](https://github.com/webrtc-rs/webrtc/issues/858)）。
+
+那条队列在 **SCTP 之下**，所以 SCTP 的可靠性覆盖不到它：对端的数据确实送达、确实重组好了，
+然后被扔掉。上层 libp2p 字节流中间少一段，**永远等不齐**。
+
+**判据是硬的**：`SCTP 接收窗口 > 256 × max_message_size ⇒ 必然丢数据`。
+本仓曾配 8 MiB，而 8 KiB 消息下队列只装得下 2 MiB —— 超了 4 倍。
+
+**正确做法**：窗口从 `StreamConfig` 推导，两个模式各按自己的配置算
+（direct 用 `ctx.stream_config`，打洞用 `StreamConfig::default()`）。
+
+```rust
+fn sctp_receive_buffer(stream_config: StreamConfig) -> u32 {
+    DRIVER_EVENT_QUEUE_LEN.saturating_mul(stream_config.max_message_size() as u32)
+}
+```
+
+**不要做**：
+- 不要写死一个常量——它会与 driver 队列脱钩，而**没有任何编译期信号**。
+  `sctp_receive_buffer` 那两条护栏测试是唯一的兜底。
+- 不要以为「窗口越大吞吐越高」。旧注释写的是「1 MiB 默认会在 LAN 上掉线，spike 在 4 MiB
+  观察到失败」，据此调到 8 MiB ——**因果反了**。而且 libp2p 默认 16 KiB 消息下队列恰好
+  装 4 MiB，正是那个「观察到失败」的值。
+
+**这条缓解不完备**：队列按**条数**限、窗口按**字节**限，对端发大量小消息仍能撑爆它。
+之所以够用，是因为 libp2p 的 framing 会攒满 `max_data_size` 才 flush。**真正的修复在上游**
+——webrtc master 与 0.21.0-alpha.1 改成「队列满时停止从 core 拉取」并把这个旋钮整个删了。
+**但现在不能升**：0.21.0-alpha.1 回退了 rtc#159/#161（driver 忙循环烧核）。
+退出条件与实测数据见
+[`../research/2026-08-11-web-webrtc-throughput.md`](../research/2026-08-11-web-webrtc-throughput.md)。
+
+**相关文件**：`crates/webrtc-p2p/src/backend/native/mod.rs`、
+`crates/webrtc-p2p/src/backend/native/direct/upgrade.rs`、
+`crates/net/examples/transport_throughput.rs`（三方 transport 对照基准）
+
+### ⚠️ `webrtc` 与 `webrtc_p2p` 是**两个 target**，日志 filter 要分别放行
+
+这是上面那条 udp_mux 教训的**第二次**：`webrtc_p2p` 是本仓的传输 crate，`webrtc` 是
+webrtc-rs 自己。`EnvFilter` 按**字符串前缀**匹配，而 `"webrtc::…".starts_with("webrtc_p2p")`
+为 **false** —— 于是 `webrtc_p2p=info` 够不着 webrtc-rs 的任何日志。
+
+被挡住的正是上一条那个丢弃 ERROR。**回环实测：生产 filter 下丢掉 10 MiB，日志里零条记录。**
+
+**正确做法**：两端的 `DEFAULT_FILTER` 都要带 `webrtc=warn`（取 warn 不取 info：只要告警，
+不要每包 trace）。`EnvFilter` 取最长匹配，所以 `webrtc_p2p=info` 仍然更具体、不受影响。
+
+**相关文件**：`src-tauri/src/logging.rs`、
+`mobile/packages/swarmdrop-core/rust/mobile-core/src/logging/mod.rs`
+——**两份独立常量，改一端必须改另一端**，各自有一条护栏测试看守。
+
 ### 坑：mDNS socket 也走 `wrap_udp_socket`
 
 `MuxedRuntime` 若无差别替换，`PeerConnection` 额外绑的 `0.0.0.0:5353` 多播 socket

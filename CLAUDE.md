@@ -380,7 +380,12 @@ src-tauri/src/
 4. `PresenceSupervisor` / `InfraSupervisor` 由 core 自治拉起，host 层无需调用
 5. 事件经 tauri-specta typed events 转发前端
 
-**Tracing:** 默认 filter `swarmdrop=debug,swarmdrop_net=debug`，`RUST_LOG` 可覆盖。
+**Tracing:** 默认 filter
+`swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info,webrtc=warn,rtc=warn`，`RUST_LOG` 可覆盖。
+后三条**必须单列**——`EnvFilter` 按字符串前缀匹配，它们都不以 `swarmdrop` 开头，
+而 `webrtc_p2p`（本仓传输 crate）与 `webrtc` / `rtc*`（webrtc-rs 全家桶）又互不为前缀。
+漏掉哪条，那一层的日志在生产里就**一条都不出现**（已经踩过两次：udp_mux 丢包、
+driver 丢弃可靠消息）。桌面与移动是两份独立常量，**要一起改**。
 
 **Bootstrap / relay node:** 自建，`47.115.172.218`——TCP 4001、QUIC 4001、
 **WebRTC Direct 4003**（后者是浏览器唯一入口：https 页面拨公网裸 IP 的 `ws://` 会被
