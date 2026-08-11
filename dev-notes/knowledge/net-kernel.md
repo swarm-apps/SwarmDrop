@@ -1449,6 +1449,42 @@ rtc `pub use` 了全套子 crate（`rtc::ice` / `rtc::stun` / `rtc::dtls` / …�
 （2026-07 那阵 rtc 被 `[patch]` 换成 git 源时这是必然发生的；patch 虽已删除，但换成
 版本号解析后，任何一次版本漂移都能重演同样的分叉，所以这条约束照旧。）
 
+### ⚠️ `rtc` 是 `webrtc` 仓的 **git submodule** —— 两个都 git 依赖必然分叉（2026-08-11）
+
+上一条说的是「别绕过 `rtc::`」。这条更硬：**`webrtc` 与 `rtc` 不能同时用 git 依赖。**
+
+`webrtc` 仓把 rtc 放在 `rtc/` 子目录（submodule，`url = https://github.com/webrtc-rs/rtc`），
+`Cargo.toml` 里写的是 `rtc = { version = "…", path = "rtc" }`。于是：
+
+```toml
+# ❌ 这么写，rtc 会有两份
+webrtc = { git = "https://github.com/webrtc-rs/webrtc", rev = "…" }
+rtc    = { git = "https://github.com/webrtc-rs/rtc",    rev = "…" }   # 与 webrtc 的 path 依赖不同源
+```
+
+cargo **会**拉 webrtc 的 submodule（能在 `~/.cargo/git/checkouts/webrtc-*/…/rtc/` 看到），
+但那是 path 依赖，与我们这条 git 依赖是两个 source。`[patch.crates-io]` 也救不了——
+它管不到 path 依赖。实测报错：
+
+```
+expected `RTCDataChannelState`, found `rtc::data_channel::RTCDataChannelState`
+expected trait `webrtc::peer_connection::rtc_crypto::RTCCrypto`, found `rtc::rtc_crypto::RTCCrypto`
+```
+
+**唯一的解法是所有类型都从 `webrtc::` 取**，不出现 `rtc` 这个直接依赖。上游同意这个方向
+——`peer_connection/mod.rs` 明确写着「`rtc` is a private dependency of this crate」并为部分
+参数类型做了 re-export。但 2026-08-11 时**规则没走完**，本仓要用的 5 个不在其中
+（`MulticastDnsMode` / `NetworkType` / `RTCDtlsRole` / `SctpMaxMessageSize` /
+`CertificateParams`）。已提 PR 补齐。
+
+一个**不受此限**的例外：`rtc::stun`（`udp_mux` 解析入站 STUN 学 ufrag）。它的类型
+**不跨 API 边界**——我们只拿它解析字节得到一个 ufrag 字符串，不把 `StunMessage` 传给任何
+webrtc API，所以即便存在两份 stun crate 也不会撞类型。判据就是这句话：**分叉只在类型
+经过 API 边界时才致命**。
+
+（走 crates.io 版本号时没有这个问题：webrtc 的 path 依赖会被同版本号的 crates.io `rtc`
+统一解析。所以这条只在「想用 git master 提前拿修复」时才咬人。）
+
 ### direct 的 UDP 读循环挂在 `Transport::poll` 上
 
 与官方 `libp2p-webrtc` 同构：`UdpMux::poll` 由 `Transport::poll` 驱动，本 crate 全程

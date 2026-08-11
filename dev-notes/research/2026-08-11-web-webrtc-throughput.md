@@ -210,49 +210,129 @@ max_message_size: 16 * 1024,   // ← 硬编码，与 with_max_message_size() �
 **停止从 core 拉取**，而不是**在此等待**」*（RTP 那条仍是 DROPS，因为 UDP 本就无流控——
 与本文 §2 对「可靠层之上丢数据」和「不可靠层丢包」的区分一致）。
 
-**最有说服力的旁证**：修好根因后，他们把 `PeerConnectionBuilder::with_sctp_receive_buffer_size`
-**整个移除了**（rtc 层仍保留 `with_max_receive_buffer_size`，默认 1 MiB）。
-那个旋钮本来就不该由调用方调——配大了必然丢数据，而这一点从来没写进它的文档。
+背压的传导链他们写在字段注释里，可以逐段核对：保留装不下的事件 → 有积压时**停止从 core
+拉取** → 积压堆在 `pipeline_context.read_outs` → SCTP handler 看到后停止排空 reassembly
+queue → `a_rwnd` 缩小 → 对端减速。也就是说，`SCTP_PIPELINE_READ_BACKLOG_LIMIT`（256 条）
+接管了「限制队列占用」，而窗口回归它本来的含义。
 
-### 但现在不能升
+> **一处更正。** 本节此前写着「修好根因后他们把 `with_sctp_receive_buffer_size` 整个移除了」，
+> 并据此建议升级时删掉整项。**那是错的**：这个旋钮没有被移除，是**搬到了**
+> `SettingEngine::set_sctp_max_receive_buffer_size`，还专门配了
+> `tests/sctp_receive_buffer.rs`。它的文档也重写了，明确定义成**BDP 上限**
+> （「对端可以有多少未确认数据在飞」），并给出 RFC 4960 §6 的 1500 字节下限。
+> 所以升级后要删的是本仓那套**按 driver 队列容量压制窗口**的补偿逻辑，不是窗口本身——
+> 窗口仍然要配，只是依据从「队列装得下多少条」换回「链路要多少在途字节」。
 
-| | webrtc#858（丢消息） | rtc#159 / #161（忙循环烧核） |
+### 实测验证：#858 确实修好了
+
+把窗口**故意**设成 8 MiB（0.20 下这是队列容量的 4 倍，必然溢出），回环传 128 MiB：
+
+| | 结果 |
+|---|---|
+| **0.20.2** | ❌ 对端只收到 128,008,346 / 134,217,728 字节，**丢 5.9 MiB**，传输失败 |
+| **0.21.0-alpha.1** | ✅ 两次都 0 丢完整收到 |
+
+吞吐则**没有可区分的差异**——0.20.2 测得 76.8 / 89.7 / 200.8 MiB/s，0.21 测得
+51.5 / 77.1 / 88.1 / 90.2 / 149.2 MiB/s，两组范围完全重叠。这个回环基准的方差远大于
+版本间差距，**不要拿单次数字下结论**（我第一次就是拿 0.21 的 51 对 0.20 的 203，
+差点写成「0.21 有严重性能回退」）。
+
+### 迁移成本：6 处，全 workspace 编过、106 条测试全绿
+
+1. `pem` feature 没了（PEM API 转正，不再门控）
+2. `RTCCertificate::from_key_pair(rcgen::KeyPair)` → `generate(crypto, scheme, params)`
+3. `from_pem` 多收一个 `&dyn RTCCrypto`
+4. `serialize_pem()` 返回 `Result`（provider 可能持有不可导出的密钥，如 HSM）
+5. `PeerConnectionBuilder::with_sctp_receive_buffer_size` → `SettingEngine::set_sctp_max_receive_buffer_size`
+6. 连带：`crates/net::generate_webrtc_certificate_pem` 改 `and_then`
+
+顺带**减两处依赖**：`rcgen` 直接依赖可以删（0.21 re-export 了 `CertificateParams`，
+不必再维持「版本必须与 rtc 同线」那条约束）；crypto backend 从编译期 feature 变成运行时
+`RTCCryptoProvider`。见分支 `chore/webrtc-0.21`。
+
+### 但现在仍不能升——两个阻塞
+
+**① crates.io 的 `0.21.0-alpha.1` 缺 rtc#159/#161。**
+
+先纠正一个说法：这**不是「0.21 回退了修复」**，是**发布早于修复**。看合并时间——
+
+| PR | 内容 | 合并 |
 |---|---|---|
-| **0.20.2（本仓当前）** | ❌ 未修 | ✅ 已修 |
-| **0.21.0-alpha.1**（08-09 发布） | ✅ 已修 | ❌ **未修** |
-| webrtc master（08-10） | ✅ | — |
-| rtc master（08-11） | — | ✅ |
+| #154 | bump to `v0.21.0-alpha.1` | 08-09 23:48 |
+| #159 | ICE 终态不再上报过期 deadline | 08-10 23:38 |
+| #161 | TURN 刷新从 `now` 重排 | 08-11 01:51 |
 
-`0.21.0-alpha.1` 的 `rtc-ice/src/agent/agent_proto.rs:142` 仍是
-`if self.ufrag_pwd.remote_credentials.is_some() {`——**没有终态守卫**，即
-[`2026-08-11-webrtc-driver-busy-loop.md`](2026-08-11-webrtc-driver-busy-loop.md) 里那个
-CPU 718%、actor 饿死、7 GB 传输卡死、连接永不回收的问题。
+所以 crates.io 上那个快照落在两个修复之前。实证：`rtc-ice-0.21.0-alpha.1` 的
+`agent_proto.rs:142` 是 `if self.ufrag_pwd.remote_credentials.is_some() {`，**终态守卫不在**，
+两条护栏测试也不在；`rtc-turn` 那边同样是 `旧值.add(step)` 而非 `now.add(step)`。
+少了它们就是
+[`2026-08-11-webrtc-driver-busy-loop.md`](2026-08-11-webrtc-driver-busy-loop.md) 里
+CPU 718%、actor 饿死、7 GB 传输卡死那一套。
 
-**升上去等于拿一个更严重的问题换一个较轻的。** 两个仓的 master 各自都对了，
-只差 webrtc 的 rtc 指针（停在 08-10）跟上 rtc master 的 #159/#161（08-11 合入）。
+**两个仓的 master 都已经对了**（webrtc master 的 submodule 指针就是 rtc 的 `b0ab7f4` = #161），
+只等 alpha.2。
+
+**② 直接 patch 到 git master 会撞类型分叉。**
+
+`rtc` 是 webrtc 仓的 **git submodule**，webrtc 对它是 `path` 依赖。我们再 git 依赖一次 `rtc`
+就成了两个 source、同名两套类型，实测报错：
+
+```
+expected `RTCDataChannelState`, found `rtc::data_channel::RTCDataChannelState`
+expected trait `webrtc::peer_connection::rtc_crypto::RTCCrypto`, found `rtc::rtc_crypto::RTCCrypto`
+```
+
+上游其实已经认识到这件事，并在 `peer_connection/mod.rs` 写明「**`rtc` is a private dependency
+of this crate**」，为 `CipherSuiteId` / `SrtpProtectionProfile` / `crypto` 做了 re-export。
+但规则没走完——本仓要用的 5 个参数类型都不在：`MulticastDnsMode`、`NetworkType`、
+`RTCDtlsRole`、`SctpMaxMessageSize`、`CertificateParams`，全是
+`SettingEngineBuilder` 的 setter 参数或 `RTCCertificate::generate` 的参数。
+（`UDPNetwork` / `InterfaceFilterFn` / `IpFilterFn` 也缺，但它们在 rtc master 上还是
+`//TODO:` 注释掉的状态，不算。）
+
+已向上游提 PR 补全，并附一条只用 `webrtc::` 路径、绝不 import `rtc` 的回归测试——
+将来新增 setter 若带进未导出的类型，那条测试会编译失败。
+
+那之后本仓还有两处要动：`rtc::stun`（`udp_mux` 解析入站 STUN 学 ufrag）改成直接依赖
+`rtc-stun`——它的类型**不跨 API 边界**（只解析字节拿 ufrag 字符串，不传给任何 webrtc API），
+两份并存也不会撞；`math_rand_alpha` 只用一处，自己写几行。
 
 ### 退出条件（可判定）
 
-webrtc 发布 `0.21.0-alpha.2` 及以上，且其依赖的 `rtc-ice` 满足：
-
 ```console
-$ rg -A4 'let ice_timeout' rtc-ice-*/src/agent/agent_proto.rs   # 需含 ConnectionState::Failed | Closed 守卫
+# ① alpha.2 及以上，且 rtc-ice 含终态守卫
+$ rg -A4 'let ice_timeout' rtc-ice-*/src/agent/agent_proto.rs   # 需含 ConnectionState::Failed | Closed
+# ② 5 个参数类型可从 webrtc:: 直接命名
+$ rg 'pub use rtc::ice::\{mdns::MulticastDnsMode' webrtc-*/src/peer_connection/mod.rs
 ```
 
-届时升级，并**删掉** `SCTP_RECEIVE_BUFFER` 整项——上游已移除该 API，根因修好后也不再需要。
-注意 0.21 另有 breaking change（`SettingEngine` → `SettingEngineBuilder` 等），升级不是零成本。
+届时切到 `chore/webrtc-0.21`，删掉 `sctp_receive_buffer` 的推导（连同
+`DRIVER_EVENT_QUEUE_LEN` / `DRIVER_QUEUE_HEADROOM` 这两个镜像上游内部常量的坏味道），
+按 BDP 重新选一个窗口值。
 
-## 8. 建议顺序
+## 8. 进度
 
-1. **grep 真机日志**（§5）。一条命令，决定后面往哪走。
-2. **修 §2**：把 `SCTP_RECEIVE_BUFFER` 从队列容量推导出来，而不是拍一个数；
-   连同 §4 那条写反了的注释一起纠正，并补一条护栏测试锁住这个不变量。
-   ⚠️ 走 `/dev-workflow`，且**需要真机回归**——注释里那条「1 MiB 在 LAN 上掉线」的历史观察
-   虽然归因错了，但那个失败现象本身可能真实存在，不能只凭回环就改。
-3. **顺手带上 `poll_read` 批量取**（2.1 倍，且它独立成立）。
-4. **修 §6.3 的 SDP 硬编码**（值得反馈给上游 PR #6560）。
-5. **向上游报 §2**：driver 在队列满时应当反压 SCTP，而不是丢弃可靠送达的消息。
-   这是 webrtc-rs 的设计缺陷，不该由每个下游各自绕。
+**已落地**（分支 `fix/webrtc-sctp-window-overflow`，详见 §9）：
+
+- ✅ 窗口从消息尺寸推导，不再拍常量；§4 那条写反的注释已纠正，三条护栏测试看守
+- ✅ `poll_read` 一次填满 buf（2.1×，且独立成立）
+- ✅ 补 `rtc=warn`，让 §5 那类日志在生产里看得见（桌面 + 移动两份一起改）
+- ✅ 逐 transport 吞吐基准（`crates/net/examples/transport_throughput.rs`）
+
+**已查清、无需再做**：
+
+- ~~向上游报 §2~~ ——[webrtc#858] 早在 08-09 就已 CLOSED 并修复，修法与本文推断逐字一致（§7.5）
+- 0.21 升级已完整验证并留在 `chore/webrtc-0.21`，阻塞条件与退出判据见 §7.5
+
+**待办**：
+
+1. **真机回归**（唯一一条卡在本仓之外的）。注释里「1 MiB 在 LAN 上掉线」那条历史观察
+   虽然归因错了，但失败现象本身可能真实存在，不能只凭回环定案。
+2. **修 §6.3 的 SDP 硬编码**——`render_description` 里 `max_message_size: 16 * 1024` 是写死的，
+   本仓 fork 参数化了却没接到 `StreamConfig`。属于自己的 PR #6560，半实现状态。
+3. **上游 re-export PR** 合并后，按 §7.5 的退出条件切 0.21。
+
+[webrtc#858]: https://github.com/webrtc-rs/webrtc/issues/858
 
 ## 9. 本轮落地的修复（分支 `fix/webrtc-sctp-window-overflow`）
 
