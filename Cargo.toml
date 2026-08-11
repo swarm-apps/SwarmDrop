@@ -81,19 +81,19 @@ swarmdrop-net = { path = "crates/net" }
 #
 # 拖得越久 rebase 成本越高——动 crates/net 时顺手跑一遍上面两条命令。
 # 升级 rev 必须走独立 PR + 全量测试 + wasm check，并同步 Cargo.lock。
-libp2p = { git = "https://github.com/yexiyue/rust-libp2p", rev = "d858435cfede61115d705ed4797187eef0258861" }
-libp2p-stream = { git = "https://github.com/yexiyue/rust-libp2p", rev = "d858435cfede61115d705ed4797187eef0258861" }
+libp2p = { git = "https://github.com/yexiyue/rust-libp2p", rev = "93fa526c6593334cfbcf3731bd3043714f5f0fa6" }
+libp2p-stream = { git = "https://github.com/yexiyue/rust-libp2p", rev = "93fa526c6593334cfbcf3731bd3043714f5f0fa6" }
 # crates/webrtc-p2p 用细粒度 core/swarm 而非 libp2p facade——它要独立发布，
 # 依赖 facade 会把整个协议栈拖进它的依赖树（官方 transport crate 同样只依赖这两个）。
-libp2p-core = { git = "https://github.com/yexiyue/rust-libp2p", rev = "d858435cfede61115d705ed4797187eef0258861" }
-libp2p-swarm = { git = "https://github.com/yexiyue/rust-libp2p", rev = "d858435cfede61115d705ed4797187eef0258861" }
+libp2p-core = { git = "https://github.com/yexiyue/rust-libp2p", rev = "93fa526c6593334cfbcf3731bd3043714f5f0fa6" }
+libp2p-swarm = { git = "https://github.com/yexiyue/rust-libp2p", rev = "93fa526c6593334cfbcf3731bd3043714f5f0fa6" }
 # DataChannel 之上的 libp2p framing（以及 Noise 握手、SDP 模板、certhash 编解码）。
 # 泛型且不依赖 webrtc-rs，两个 target 共用。
 #
 # 注意：官方的 `libp2p-webrtc`（webrtc-direct）已于 2026-07-28 **整体移除**——它的活
 # 由 `webrtc-p2p` 接了过来。留着它等于把 webrtc-rs 0.17 与 0.20 两套 ICE/DTLS/SCTP
 # 同时编进二进制。`libp2p-webrtc-utils` 是另一个 crate，仍然要用。
-libp2p-webrtc-utils = { git = "https://github.com/yexiyue/rust-libp2p", rev = "d858435cfede61115d705ed4797187eef0258861" }
+libp2p-webrtc-utils = { git = "https://github.com/yexiyue/rust-libp2p", rev = "93fa526c6593334cfbcf3731bd3043714f5f0fa6" }
 # 自研 WebRTC 传输，**同时提供打洞（`/webrtc`）与 direct（`/webrtc-direct`）两种模式**，
 # 已完全取代官方 `libp2p-webrtc`。只有 crates/net 依赖它；打洞按 `Builder::webrtc_p2p`
 # 开关，direct 始终启用（它是浏览器拨公网/同网裸 IP 的入口）。

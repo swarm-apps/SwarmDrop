@@ -103,7 +103,8 @@ pub(crate) async fn inbound(
 
     // 顺序与 dialer 相反：先收下（构造的）offer，再生成真 answer。
     pc.set_remote_description(
-        sdp::offer(remote, &ufrag).map_err(|e| Error::Connection(e.to_string()))?,
+        sdp::offer(remote, &ufrag, ctx.stream_config)
+            .map_err(|e| Error::Connection(e.to_string()))?,
     )
     .await
     .map_err(|e| Error::Connection(format!("设置构造的 offer 失败：{e}")))?;
@@ -173,7 +174,7 @@ pub(crate) async fn outbound(
         .await
         .map_err(|e| Error::Connection(format!("设置本地 offer 失败：{e}")))?;
     pc.set_remote_description(
-        sdp::answer(remote, server_fingerprint, &ufrag)
+        sdp::answer(remote, server_fingerprint, &ufrag, ctx.stream_config)
             .map_err(|e| Error::Connection(e.to_string()))?,
     )
     .await
