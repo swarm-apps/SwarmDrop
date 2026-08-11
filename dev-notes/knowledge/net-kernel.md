@@ -1466,7 +1466,7 @@ cargo **会**拉 webrtc 的 submodule（能在 `~/.cargo/git/checkouts/webrtc-*/
 但那是 path 依赖，与我们这条 git 依赖是两个 source。`[patch.crates-io]` 也救不了——
 它管不到 path 依赖。实测报错：
 
-```
+```text
 expected `RTCDataChannelState`, found `rtc::data_channel::RTCDataChannelState`
 expected trait `webrtc::peer_connection::rtc_crypto::RTCCrypto`, found `rtc::rtc_crypto::RTCCrypto`
 ```
