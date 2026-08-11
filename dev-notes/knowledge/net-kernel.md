@@ -1325,13 +1325,55 @@ fn sctp_receive_buffer(stream_config: StreamConfig) -> u32 {
 **这条缓解不完备**：队列按**条数**限、窗口按**字节**限，对端发大量小消息仍能撑爆它。
 之所以够用，是因为 libp2p 的 framing 会攒满 `max_data_size` 才 flush。**真正的修复在上游**
 ——webrtc master 与 0.21.0-alpha.1 改成「队列满时停止从 core 拉取」并把这个旋钮整个删了。
-**但现在不能升**：0.21.0-alpha.1 回退了 rtc#159/#161（driver 忙循环烧核）。
+**crates.io 的 0.21.0-alpha.1 不能直升**，它缺 rtc#159/#161（driver 忙循环烧核）。
+注意措辞：**不是「0.21 回退了修复」，是发布早于修复**——#154 bump 版本在 08-09 23:48，
+而 #159 合于 08-10 23:38、#161 合于 08-11 01:51。两个仓的 master 现在都对了。
+
+已在 `chore/webrtc-0.21` 分支验证过一条可行路径（fork 集成分支 + `[patch.crates-io]`
+指 rtc master，三个修复一次拿全，门禁全绿、实测零丢），但那是独立的大改动，尚未合入。
 退出条件与实测数据见
-[`../research/2026-08-11-web-webrtc-throughput.md`](../research/2026-08-11-web-webrtc-throughput.md)。
+[`../research/2026-08-11-web-webrtc-throughput.md`](../research/2026-08-11-web-webrtc-throughput.md) §7.5。
 
 **相关文件**：`crates/webrtc-p2p/src/backend/native/mod.rs`、
 `crates/webrtc-p2p/src/backend/native/direct/upgrade.rs`、
 `crates/net/examples/transport_throughput.rs`（三方 transport 对照基准）
+
+### ⚠️ `set_send_high_water_mark` 是**下界**，不是 buffer 上界（2026-08-11 修）
+
+上一条讲的是**接收**侧丢消息。这条是**发送**侧，症状一模一样（传输卡住、零报错），
+根因完全不同，两条一起看才完整。
+
+`asynchronous-codec` 的 `Framed`：
+
+```rust
+fn poll_ready(..) { while buffer.len() >= high_water_mark { flush } }  // ← 攒够才 flush
+fn start_send(item) { encode(item, &mut buffer) }                      // ← 之后再追加一整条
+```
+
+于是 buffer 峰值 = `hwm - 1 + 一条完整帧`。而 `PollDataChannel::poll_write` 把**一次写出
+变成一条 SCTP 消息**，长度一旦超过协商的 `max_message_size`，rtc 直接拒收整条
+（`SctpHandler.handle_write got error: outbound packet larger than maximum message size`），
+那一帧就没了，上层字节流永不重同步。
+
+libp2p 原本写的是 `set_send_high_water_mark(config.max_data_size())`，注释还说这是为了
+避免超限——**方向反了**。正确值是 **1**：buffer 只要非空就 flush，于是每条帧单独成一条
+消息，既不会超限也符合 spec（每条 DataChannel 消息 = 一个 protobuf 帧）。已修，见
+libp2p PR #6560 的第二个 commit。
+
+**触发条件是混合帧尺寸**，这决定了测试怎么写：一串满尺寸帧**复现不出来**——每条都把
+buffer 顶过水位线、当场 flush，什么都不剩。必须先来一条**短帧**（留下的 buffer 低于
+水位线），再跟一条满尺寸帧，两者才会被一起写出。本仓实测（1 MiB / 8 KiB 上限）：
+125 次写出 8190 B，**3 次 8419 B**，SCTP 恰好拒了那三条，接收端少 49,467 B。
+
+**它被另一个 bug 掩盖了很久**：SDP 里 `a=max-message-size` 曾硬编码 16384，而本仓 framing
+用 8 KiB，合并后的写出正好卡在 16384 以内。把声明改成跟随配置（同 PR 第一个 commit）之后
+才炸出来。所以那两个 commit **必须一起进，只合前一个是净回归**——这也是「修一个 bug 前
+先确认它没在掩盖另一个」的实例。
+
+**判据**：`max_message_size` 的发送侧上限由 rtc 的
+`SctpTransport::calc_message_size(remote_sdp_advertised, local_can_send)` 取 **min** 决定，
+按它 resize `internal_buffer`，发送时判 `payload.len() > internal_buffer.len()`。也就是说
+**对端 SDP 声明的值直接决定本端能发多大**。
 
 ### ⚠️ `webrtc` 与 `webrtc_p2p` 是**两个 target**，日志 filter 要分别放行
 
