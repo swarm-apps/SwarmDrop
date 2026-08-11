@@ -528,19 +528,19 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
   退出：PR 均 MERGED → 切官方 git；crates.io 发布 0.57 → 切版本号依赖。
   详见 [`net-kernel.md`](dev-notes/knowledge/net-kernel.md) 的「临时 fork 集成策略」。
   **升级 rev 必须走独立 PR + 全量测试 + wasm check**，并同步 Cargo.lock。
-- **`webrtc` 吃 crates.io `0.20.1`；但 `rtc` 全家桶被 patch 到 git（2026-08-11 起）。**
-  五个功能补丁（rtc #137 / #138 / #140、webrtc #825 / #828）已随 **0.20.0 正式版**进 crates.io。
-  ⚠️ **根 `Cargo.toml` 的 `[patch.crates-io]` 把整个 `rtc-*` workspace 指向上游 `v0.20.x`
-  分支**（rev `1ab0b083`，版本号仍是 `0.20.1`，故 API 零变更）。修的是
-  [rtc#158](https://github.com/webrtc-rs/rtc/issues/158) / [#161](https://github.com/webrtc-rs/rtc/pull/161)：
-  **ICE / TURN 在终态持续上报「已过期的 deadline」，driver 的 event loop 因此 100% 烧一个核，
-  并且再也读不到命令通道——`close()` 送不进去，连接永远回收不掉**。实测桌面端接过几次
-  浏览器连接后 CPU 718%、`swarmdrop_net` 的 actor 被饿死、日志整片消失、传输卡死。
-  修复已合并但**晚于所有已发布版本**，故只能从 git 取。三条约束：**①必须 patch 整个
-  workspace**（只换 `rtc-ice` 会让 rtc-shared/stun/mdns 分叉成两份）；**②不能指 master**
-  （已是 `0.21.0-alpha.1`，API 大重构，本仓 11 处编译错）；**③版本号必须满足依赖树约束**，
-  否则 patch 被 cargo 静默忽略。退出条件：crates.io 发布 rtc ≥ `0.20.2` → 删 patch 段。
-  完整因果链见 [`2026-08-11-webrtc-driver-busy-loop.md`](dev-notes/research/2026-08-11-webrtc-driver-busy-loop.md)。
+- **`webrtc` 与 `rtc` 全家桶吃 crates.io `0.20.2`，零 pin、零 patch。**
+  ⚠️ **`0.20.2` 是硬下限**，卡在两批各自独立的修复上，降版本会静默地把它们一起丢掉：
+  - **≥ 0.20.0**：五个功能补丁（rtc #137 / #138 / #140、webrtc #825 / #828）。
+  - **≥ 0.20.2**：[rtc#159](https://github.com/webrtc-rs/rtc/pull/159) /
+    [#161](https://github.com/webrtc-rs/rtc/pull/161) —— **ICE / TURN 在终态持续上报
+    「已过期的 deadline」，driver 的 event loop 因此 100% 烧一个核，并且再也读不到命令
+    通道——`close()` 送不进去，连接永远回收不掉**。实测桌面端接过几次浏览器连接后
+    CPU 718%、`swarmdrop_net` 的 actor 被饿死、日志整片消失、7GB 传输卡死。
+
+  修复合并时晚于所有已发布版本，故 v0.16.1 曾以 `[patch.crates-io]` 指 git 应急；
+  上游 2026-08-11 发布 `0.20.2` 后 patch 段已整体删除（`0.20.2` = 当时 pin 的 rev
+  加一个版本号 bump，内容逐字相同）。完整因果链见
+  [`2026-08-11-webrtc-driver-busy-loop.md`](dev-notes/research/2026-08-11-webrtc-driver-busy-loop.md)。
   2026-08-04 曾短暂 pin 过 fork 集成分支，为的是提前用上
   [webrtc#850](https://github.com/webrtc-rs/webrtc/pull/850) →
   [#853](https://github.com/webrtc-rs/webrtc/pull/853) 想公开的
@@ -554,7 +554,6 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
   1500，不按应用最大数据报）。**两者都没有反馈回路**（缓冲算小了内核静默丢尾部段、
   判据漏一种就把公网监听端口永久关掉），本仓最早那版两个都错了——那个文件里的两条护栏
   测试是唯一的兜底，**改实现必须同时改测试**。
-  ⚠️ **别降回 `0.20.0-rc.*`**——rc 版不含五个补丁。
   ⚠️ **别降回 `0.20.0-rc.*`**——rc 版不含五个补丁，direct 监听端会起不来、数据面静默丢包。
   0.20.0 把 `AsyncUdpSocket` 换成 quinn 式 poll API，适配时连带修掉 `udp_mux` 三个既有
   缺陷（GRO 合并包没拆、判据漏 `ConnectionRefused` 使 Linux 监听端口可被远程掀掉、

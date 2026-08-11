@@ -1446,7 +1446,10 @@ API、在这里必须绕：
 `crates/webrtc-p2p/src/backend/wasm/direct.rs`、
 `crates/webrtc-p2p/src/{config.rs,swarm/{transport,direct}.rs}`、
 `crates/webrtc-p2p/examples/direct_listener.rs`、`crates/webrtc-p2p/Cargo.toml`（`rtc` /
-`webrtc` 的版本下限说明）、根 `Cargo.toml` 的 `[patch.crates-io]`（两条 pin 与退出条件）
+`webrtc` 的版本下限说明——**两批修复卡出两个下限**：≥ 0.20.0 与 ≥ 0.20.2，后者见
+[`2026-08-11-webrtc-driver-busy-loop.md`](../research/2026-08-11-webrtc-driver-busy-loop.md)）。
+根 `Cargo.toml` 现无 `[patch.crates-io]` 段——2026-08-04 与 08-11 各有一批 patch，均已
+兑现退出条件删除
 
 ## wasm 工程约定
 

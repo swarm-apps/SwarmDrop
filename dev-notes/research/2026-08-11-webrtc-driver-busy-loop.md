@@ -3,8 +3,9 @@
 > **日期**：2026-08-11
 > **数据**：桌面 mac / Windows 同场日志两份（已 gitignore）、活动监视器截图、
 > `sample(1)` 线程栈快照（`swarmdrop` pid 91689，5 秒）
-> **决策状态**：**根因已确认到上游源码行，已修复**（`[patch.crates-io]` → rtc `v0.20.x`）。
-> 上游 issue/PR 均已存在且合并，只是未发布到 crates.io。
+> **决策状态**：**根因已确认到上游源码行，已修复且已回归常规依赖**。
+> 修复当天先以 `[patch.crates-io]` 指 git 应急（v0.16.1 发出去的就是这一版）；
+> 上游同日发布 `0.20.2`，patch 段已整体删除，现吃 crates.io。
 > **方法**：日志时间线定位 → `sample` 抓热点栈 → 逐层读上游源码闭合因果链。
 > 结论不含推测环节。
 
@@ -191,7 +192,30 @@ PR 合并于 08-10），所以只能先从 git 取。
 
 `cargo check --workspace --all-targets` 零错误零改动通过，验证了「API 零变更」这一判断。
 
-## 5. 顺带发现（未修）
+### 4.1 退出条件已兑现（同日）
+
+上游在 patch 落地当天就发布了 `0.20.2`（rtc / rtc-ice `03:25`、webrtc `03:32`）。
+`v0.20.x` 分支上它是 `efad79d "bump version to v0.20.2"`，**正好在我们 pin 的 `1ab0b083`
+之上一个提交**——也就是「pin 的 rev + 一个版本号 bump」，代码逐字相同。于是：patch 段整体
+删除，`crates/webrtc-p2p/Cargo.toml` 的两条依赖提到 `0.20.2`，`cargo update -p rtc -p webrtc`
+把 17 个包全部从 git 源换回 crates.io，零分叉。
+
+校验没有停在版本号上——直接 diff 了两个 registry 解压目录：
+
+```
+$ diff -ru ~/.cargo/registry/src/*/rtc-ice-0.20.0/src \
+           ~/.cargo/registry/src/*/rtc-ice-0.20.2/src
+```
+
+整个 crate 的差异就是 `agent_proto.rs` 那个终态守卫，外加一条回归测试
+`test_failed_agent_stops_and_restart_resumes_connectivity_check_timer`。那条测试的
+doc comment 与本文 §2 的推导逐条对应，包括结论句「a Sans-I/O driver can spin
+indefinitely」——上游与本仓是各自独立走到同一条因果链上的。
+
+**留下的约束**：`0.20.2` 现在是**硬下限**（写在 `crates/webrtc-p2p/Cargo.toml` 的注释里）。
+它与既有的「≥ 0.20.0，别回 rc」是两批独立修复卡出的两个下限，降版本会静默丢掉其中一批。
+
+## 5. 顺带发现（已修，同批发布）
 
 `crates/webrtc-p2p/src/backend/native/direct/udp_mux.rs:272`，`UdpMux::poll` 在**没有任何
 进展**时也无条件自唤醒：
@@ -207,13 +231,24 @@ Poll::Pending
 只是把忙循环搬到 executor 上绕一圈，CPU 一分不省。
 
 不是本次事故的原因（触发它要求底层 socket 返回 `Ok(0)`，而 webrtc-rs 的实现在无数据时
-返回 `Pending`），但属同一类缺陷。改法是把 `break` 换成 `continue`——让下一轮
-`poll_recv` 有机会返回 `Pending` 并登记 waker，`MAX_RECV_BURST` 兜住病态情况。
-**改这个文件必须同时改文件末尾那两条护栏测试**（见其顶部注释块）。
+返回 `Pending`），但属同一类缺陷——**同一个失效模式在我们自己的代码里也有一份**。
+
+已修（`a4076322`）：`break` 换成 `continue`，让下一轮 `poll_recv` 有机会返回 `Pending`
+并登记 waker（`MAX_RECV_BURST` 兜住病态情况）；自唤醒改为**只在真有进展时**触发，由一个
+`progressed` 标志看守。护栏测试从两条加到三条：
+
+| 测试 | 看守的方向 |
+|---|---|
+| `idle_poll_does_not_self_wake` | 空闲不自唤醒 |
+| `burst_of_zero_counts_does_not_self_wake` | 连续 `Ok(0)` 也不自唤醒（本节发现的那条） |
+| `burst_exhausted_with_data_self_wakes` | **反向**：burst 用满且确有数据时**必须**自唤醒 |
+
+第三条是刻意加的反向护栏——只有前两条时，把 `wake_by_ref` 整个删掉也能全绿，而那会让
+高流量下的读取停在 burst 边界上不再推进。
 
 ## 6. 待复测
 
 - [ ] **web→native 吞吐**：500 KB/s 是否随本次修复回到正常量级。理论上应该——CPU 被空转
       吃光会直接压制收发；但也不排除另有独立瓶颈（对照组：web→web 4 MB/s 不经过 native driver）
 - [ ] **长时传输**：7GB 级传输在有 Web 端连入 / 断开的场景下能否跑完
-- [ ] 上游 rtc 发布 0.20.2 后，删 patch 并回归
+- [x] ~~上游 rtc 发布 0.20.2 后，删 patch 并回归~~ —— 同日兑现，见 §4.1
