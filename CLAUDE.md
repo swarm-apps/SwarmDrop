@@ -65,6 +65,9 @@ pnpm check:shared-view
 # 禁止绕过 src/lib/clipboard.ts 直接用 navigator.clipboard
 pnpm check:clipboard
 
+# 禁止绕过 src/lib/quit-app.ts 直接终止进程（退出/重启前必须 flush 偏好写入）
+pnpm check:quit-entry
+
 # 配对落地页（docs/public/p/）体积 ≤10KB gzip（注释也算）+ en/zh-TW 字典完整性
 pnpm check:landing
 

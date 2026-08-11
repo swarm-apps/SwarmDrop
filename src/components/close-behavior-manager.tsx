@@ -20,8 +20,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { commands, events } from "@/lib/bindings";
+import { events } from "@/lib/bindings";
 import { usePreferencesStore } from "@/stores/preferences-store";
+import { quitApp } from "@/lib/quit-app";
 import { isMac } from "@/lib/utils";
 
 /** 缩盘后首次提示「仍在后台」（仅一次）。在组件内调用以便用已激活的翻译。 */
@@ -65,10 +66,6 @@ export function CloseBehaviorManager() {
     }
   }, [hasShownTrayHint, setHasShownTrayHint, t, trayWord]);
 
-  const quit = useCallback(async () => {
-    await commands.quitApp();
-  }, []);
-
   // 唯一拦截 ✕：始终 preventDefault，按 closeBehavior 显式执行。
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -79,7 +76,7 @@ export function CloseBehaviorManager() {
         if (closeBehavior === "tray") {
           await hideToTray();
         } else if (closeBehavior === "quit") {
-          await quit();
+          await quitApp();
         } else {
           setRemember(false); // 每次询问都从未勾选开始，避免上次残留导致误持久化
           setAskOpen(true);
@@ -93,7 +90,7 @@ export function CloseBehaviorManager() {
       disposed = true;
       unlisten?.();
     };
-  }, [closeBehavior, hideToTray, quit]);
+  }, [closeBehavior, hideToTray]);
 
   // 托盘信号（类型化 tauri-specta 事件）：打开接收文件夹 / 跳设置（路径与路由由前端拥有）。
   useEffect(() => {
@@ -134,8 +131,8 @@ export function CloseBehaviorManager() {
   const onQuit = useCallback(async () => {
     if (remember) setCloseBehavior("quit");
     setAskOpen(false);
-    await quit();
-  }, [remember, quit, setCloseBehavior]);
+    await quitApp();
+  }, [remember, setCloseBehavior]);
 
   return (
     <AlertDialog open={askOpen} onOpenChange={setAskOpen}>
