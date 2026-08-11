@@ -5,7 +5,7 @@
 //! 目录，真实用户 profile 零接触。**仅 debug build 生效**，release 永远走平台
 //! 默认目录，避免把 fixture 覆盖带进生产。
 //!
-//! 三个调用方（[`file_keychain`](super::file_keychain) /
+//! 三个调用方（[`identity_store`](super::identity_store) /
 //! [`device_config`](super::device_config) 工厂 / [`crate::database`]）统一经此取目录，
 //! `SWARMDROP_DATA_DIR` 的判断只在这里发生。
 
@@ -13,7 +13,10 @@ use std::path::PathBuf;
 
 use tauri::{AppHandle, Manager};
 
-/// identity / device_config 用的数据目录（默认平台 `app_data_dir`）。
+/// `device_config.json`（设备名）用的数据目录（默认平台 `app_data_dir`）。
+///
+/// **身份不在这里**——它走 [`app_local_data_dir`]，理由见那里。设备名是可漫游的偏好，
+/// 私钥不是。
 pub fn app_data_dir(app: &AppHandle) -> tauri::Result<PathBuf> {
     if let Some(dir) = fixture_dir() {
         return Ok(dir);
@@ -21,7 +24,12 @@ pub fn app_data_dir(app: &AppHandle) -> tauri::Result<PathBuf> {
     app.path().app_data_dir()
 }
 
-/// database 用的本地数据目录（默认平台 `app_local_data_dir`）。
+/// database 与**身份文件**用的本地数据目录（默认平台 `app_local_data_dir`）。
+///
+/// Windows 上这与 [`app_data_dir`] 是两个目录：那边是 `%APPDATA%`（会被域漫游配置文件
+/// 同步到服务器），这边是 `%LOCALAPPDATA%`。`identity.json` / `paired-devices.json` 走这条
+/// ——**私钥不该跟着漫游**。macOS 与 Linux 上两者解析到同一个目录，所以调用点无需分平台。
+///
 /// fixture 覆盖时与 [`app_data_dir`] 归到同一目录，让一份 fixture 自洽。
 pub fn app_local_data_dir(app: &AppHandle) -> tauri::Result<PathBuf> {
     if let Some(dir) = fixture_dir() {

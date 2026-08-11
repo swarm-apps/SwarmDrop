@@ -2,7 +2,7 @@
 
 // 设备的别名与分组编辑。
 //
-// **别名与分组是纯本机偏好**——不写进 keychain 的 `PairedDeviceInfo`，也不同步给对端。
+// **别名与分组是纯本机偏好**——不写进持久化的 `PairedDeviceInfo`，也不同步给对端。
 // 所以它整条链路都在前端：写 `preferences-store`（localStorage），读也从那里读，
 // 不经过 wasm。这也是它能在 Web 端先落地、而信任策略编辑不能的原因（后者要内核写入路径）。
 //

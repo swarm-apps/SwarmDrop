@@ -72,13 +72,14 @@ url = "2"
 specta = { version = "=2.0.0-rc.25", features = ["derive", "uuid", "chrono", "serde_json"] }
 specta-typescript = "=0.0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript", "derive"] }
-# keyring 4.x：默认 v1 feature 按平台自动选后端（macOS=apple-native / Windows=windows-native /
-# Linux=zbus-secret-service + crypto-rust）。4.x 已移除 apple-native/windows-native/
-# linux-native-sync-persistent/crypto-rust/vendored 等旧 feature，故不再按 target 分别声明。
-keyring = "4.1.2"
 # 桌面壳原生字符串（托盘菜单 + 系统通知）本地化。前端 Lingui 管 App 内文案，rust-i18n
 # 只覆盖 Rust 直接渲染的 OS 表面。locale 目录见 src-tauri/locales/，i18n! 宏在 lib.rs，
 # 缺项回退源 locale zh。
+# 身份文件的原子写（`host/identity_store.rs`）。**不是新增编译单元**——
+# tauri-plugin-updater 已经把它拉进依赖树了，这里只是把它变成显式依赖。
+# 用它而不是手搓：随机名 + O_EXCL + unix 0600 + 「任何提前返回都在 drop 时清残留」
+# 这四条正是它的实现保证，自己写就是把安全攸关的 POSIX 管道再证明一遍。
+tempfile = "3"
 rust-i18n = "4"
 tauri-plugin-deep-link = "2.4.9"
 

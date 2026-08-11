@@ -987,6 +987,10 @@ msgstr "Copied"
 msgid "已复制到剪贴板"
 msgstr "Copied to clipboard"
 
+#: src/components/network/node-status-sheet.tsx
+msgid "已复制身份文件路径"
+msgstr "Identity file path copied"
+
 #: src/lib/transfer-projection.ts
 msgid "已完成"
 msgstr "Completed"
@@ -1864,8 +1868,8 @@ msgid "粘贴邀请"
 msgstr "Paste Invite"
 
 #: src/components/network/node-status-sheet.tsx
-msgid "系统钥匙串"
-msgstr "System keychain"
+#~ msgid "系统钥匙串"
+#~ msgstr "System keychain"
 
 #: src/routes/_onboarding/device-name.lazy.tsx
 msgid "给设备取个名字"
@@ -2147,8 +2151,12 @@ msgid "跨网络"
 msgstr "Cross-Network"
 
 #: src/components/network/node-status-sheet.tsx
-msgid "身份存放位置"
-msgstr "Identity storage"
+#~ msgid "身份存放位置"
+#~ msgstr "Identity storage"
+
+#: src/components/network/node-status-sheet.tsx
+msgid "身份文件"
+msgstr "Identity file"
 
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "输入 Multiaddr 地址，如 /ip4/.../p2p/..."

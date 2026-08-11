@@ -11,8 +11,6 @@ import {
   AppAmbientLightOverlay,
 } from "@/components/layout/app-ambient-background";
 import { AppTopBar } from "@/components/layout/app-topbar";
-import { useNetworkStore } from "@/stores/network-store";
-import { usePreferencesStore } from "@/stores/preferences-store";
 import { ConnectionRequestDialog } from "@/components/pairing/connection-request-dialog";
 import { TransferOfferDialog } from "@/components/transfer/transfer-offer-dialog";
 import { ExternalOpenHandler } from "@/components/external-open-handler";
@@ -35,10 +33,6 @@ export const Route = createFileRoute("/_app")({
 });
 
 function AppLayout() {
-  const autoStart = usePreferencesStore((s) => s.autoStart);
-  const networkStatus = useNetworkStore((s) => s.status);
-  const startNetwork = useNetworkStore((s) => s.startNetwork);
-
   // 传输事件监听
   useEffect(() => {
     setupTransferListeners();
@@ -63,14 +57,9 @@ function AppLayout() {
     };
   }, []);
 
-  // 自动启动节点(解锁后首次进入时检查)
-  useEffect(() => {
-    if (autoStart && networkStatus === "stopped") {
-      void startNetwork().then((ok) => {
-        if (!ok) console.warn("[auto-start] 节点自动启动失败");
-      });
-    }
-  }, [autoStart, networkStatus, startNetwork]);
+  // 自动启动节点**不在这里**：它是冷启动序列的一环，住在 `src/main.tsx`
+  // （`autoStartNodeIfEnabled`）。此前这里挂着一个依赖 `networkStatus` 的 effect，
+  // 那让「启动时自动启动一次」变成了 `stopped → running` 的收敛环，用户停不掉节点。
 
   const location = useLocation();
 

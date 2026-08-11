@@ -44,7 +44,7 @@ impl MigratorTrait for Migrator {
 /// [`is_stale_migration_history`] 待在一起。
 ///
 /// 重建丢的是**这个库里的东西**：传输历史、收件箱、邀请注册表。设备身份与已配对设备
-/// 存在 keychain（桌面 release）/ `dev-identity.json`（桌面 debug）/ 平台安全存储（移动），
+/// 存在 `identity.json`（桌面，三平台统一的文件后端）/ 平台安全存储（移动），
 /// 不在这个库里，**配对关系不受影响**；已落盘的文件本身也不动。
 pub async fn connect_and_migrate(
     db_path: &std::path::Path,

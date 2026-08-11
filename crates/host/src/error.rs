@@ -18,7 +18,7 @@ pub enum AppError {
     #[error("Network error: {0}")]
     Network(String),
 
-    /// 身份存储（keychain / 密钥材料）的读写**真的失败了**。
+    /// 身份存储（密钥材料）的读写**真的失败了**。
     ///
     /// **不要拿它当配对路径的垃圾桶。** 它一度承载了 8 处毫不相关的失败——peer_id 解析、
     /// multiaddr 解析、二维码生成、邀请标识格式、邀请状态没落盘、设备找不到——而前端按
@@ -31,7 +31,7 @@ pub enum AppError {
     /// 设备身份尚未就绪（私钥还没加载进内存）。
     ///
     /// 与 [`Self::Identity`] 的区别是「没走到」与「做了但失败」：这个通常意味着启动时的
-    /// `initialize_identity` 失败过或还没调用，用户的正确动作是重启应用，而不是排查钥匙串。
+    /// `initialize_identity` 失败过或还没调用，用户的正确动作是重启应用，而不是去翻身份文件。
     #[error("identity not ready")]
     IdentityNotReady,
 

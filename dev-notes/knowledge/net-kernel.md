@@ -1294,6 +1294,60 @@ Windows 上才是 `ConnectionReset`。只认后者等于在 Linux 上留了个�
 §1.3 / §4）把它们列为修复 #3/#4，但明确要求**先看丢包计数再改**：假设不成立的话，
 改了不仅白改，还平白加 2.4 MB/连接的内存。
 
+### ⚠️ SCTP 接收窗口**必须**从消息尺寸推导，配大了会静默丢数据（2026-08-11 修）
+
+webrtc-rs 的 driver 把每条收到的 DataChannel 消息 `try_send` 进一条深度 **256** 的通道
+（`DATA_CHANNEL_EVENT_CHANNEL_CAPACITY`，`pub(crate)` 未导出），**满了就直接丢**，
+只打一行 ERROR（[webrtc#858](https://github.com/webrtc-rs/webrtc/issues/858)）。
+
+那条队列在 **SCTP 之下**，所以 SCTP 的可靠性覆盖不到它：对端的数据确实送达、确实重组好了，
+然后被扔掉。上层 libp2p 字节流中间少一段，**永远等不齐**。
+
+**判据是硬的**：`SCTP 接收窗口 > 256 × max_message_size ⇒ 必然丢数据`。
+本仓曾配 8 MiB，而 8 KiB 消息下队列只装得下 2 MiB —— 超了 4 倍。
+
+**正确做法**：窗口从 `StreamConfig` 推导，两个模式各按自己的配置算
+（direct 用 `ctx.stream_config`，打洞用 `StreamConfig::default()`）。
+
+```rust
+fn sctp_receive_buffer(stream_config: StreamConfig) -> u32 {
+    DRIVER_EVENT_QUEUE_LEN.saturating_mul(stream_config.max_message_size() as u32)
+}
+```
+
+**不要做**：
+- 不要写死一个常量——它会与 driver 队列脱钩，而**没有任何编译期信号**。
+  `sctp_receive_buffer` 那两条护栏测试是唯一的兜底。
+- 不要以为「窗口越大吞吐越高」。旧注释写的是「1 MiB 默认会在 LAN 上掉线，spike 在 4 MiB
+  观察到失败」，据此调到 8 MiB ——**因果反了**。而且 libp2p 默认 16 KiB 消息下队列恰好
+  装 4 MiB，正是那个「观察到失败」的值。
+
+**这条缓解不完备**：队列按**条数**限、窗口按**字节**限，对端发大量小消息仍能撑爆它。
+之所以够用，是因为 libp2p 的 framing 会攒满 `max_data_size` 才 flush。**真正的修复在上游**
+——webrtc master 与 0.21.0-alpha.1 改成「队列满时停止从 core 拉取」并把这个旋钮整个删了。
+**但现在不能升**：0.21.0-alpha.1 回退了 rtc#159/#161（driver 忙循环烧核）。
+退出条件与实测数据见
+[`../research/2026-08-11-web-webrtc-throughput.md`](../research/2026-08-11-web-webrtc-throughput.md)。
+
+**相关文件**：`crates/webrtc-p2p/src/backend/native/mod.rs`、
+`crates/webrtc-p2p/src/backend/native/direct/upgrade.rs`、
+`crates/net/examples/transport_throughput.rs`（三方 transport 对照基准）
+
+### ⚠️ `webrtc` 与 `webrtc_p2p` 是**两个 target**，日志 filter 要分别放行
+
+这是上面那条 udp_mux 教训的**第二次**：`webrtc_p2p` 是本仓的传输 crate，`webrtc` 是
+webrtc-rs 自己。`EnvFilter` 按**字符串前缀**匹配，而 `"webrtc::…".starts_with("webrtc_p2p")`
+为 **false** —— 于是 `webrtc_p2p=info` 够不着 webrtc-rs 的任何日志。
+
+被挡住的正是上一条那个丢弃 ERROR。**回环实测：生产 filter 下丢掉 10 MiB，日志里零条记录。**
+
+**正确做法**：两端的 `DEFAULT_FILTER` 都要带 `webrtc=warn`（取 warn 不取 info：只要告警，
+不要每包 trace）。`EnvFilter` 取最长匹配，所以 `webrtc_p2p=info` 仍然更具体、不受影响。
+
+**相关文件**：`src-tauri/src/logging.rs`、
+`mobile/packages/swarmdrop-core/rust/mobile-core/src/logging/mod.rs`
+——**两份独立常量，改一端必须改另一端**，各自有一条护栏测试看守。
+
 ### 坑：mDNS socket 也走 `wrap_udp_socket`
 
 `MuxedRuntime` 若无差别替换，`PeerConnection` 额外绑的 `0.0.0.0:5353` 多播 socket
@@ -1394,6 +1448,42 @@ rtc `pub use` 了全套子 crate（`rtc::ice` / `rtc::stun` / `rtc::dtls` / …�
 
 （2026-07 那阵 rtc 被 `[patch]` 换成 git 源时这是必然发生的；patch 虽已删除，但换成
 版本号解析后，任何一次版本漂移都能重演同样的分叉，所以这条约束照旧。）
+
+### ⚠️ `rtc` 是 `webrtc` 仓的 **git submodule** —— 两个都 git 依赖必然分叉（2026-08-11）
+
+上一条说的是「别绕过 `rtc::`」。这条更硬：**`webrtc` 与 `rtc` 不能同时用 git 依赖。**
+
+`webrtc` 仓把 rtc 放在 `rtc/` 子目录（submodule，`url = https://github.com/webrtc-rs/rtc`），
+`Cargo.toml` 里写的是 `rtc = { version = "…", path = "rtc" }`。于是：
+
+```toml
+# ❌ 这么写，rtc 会有两份
+webrtc = { git = "https://github.com/webrtc-rs/webrtc", rev = "…" }
+rtc    = { git = "https://github.com/webrtc-rs/rtc",    rev = "…" }   # 与 webrtc 的 path 依赖不同源
+```
+
+cargo **会**拉 webrtc 的 submodule（能在 `~/.cargo/git/checkouts/webrtc-*/…/rtc/` 看到），
+但那是 path 依赖，与我们这条 git 依赖是两个 source。`[patch.crates-io]` 也救不了——
+它管不到 path 依赖。实测报错：
+
+```text
+expected `RTCDataChannelState`, found `rtc::data_channel::RTCDataChannelState`
+expected trait `webrtc::peer_connection::rtc_crypto::RTCCrypto`, found `rtc::rtc_crypto::RTCCrypto`
+```
+
+**唯一的解法是所有类型都从 `webrtc::` 取**，不出现 `rtc` 这个直接依赖。上游同意这个方向
+——`peer_connection/mod.rs` 明确写着「`rtc` is a private dependency of this crate」并为部分
+参数类型做了 re-export。但 2026-08-11 时**规则没走完**，本仓要用的 5 个不在其中
+（`MulticastDnsMode` / `NetworkType` / `RTCDtlsRole` / `SctpMaxMessageSize` /
+`CertificateParams`）。已提 [webrtc#869](https://github.com/webrtc-rs/webrtc/pull/869) 补齐。
+
+一个**不受此限**的例外：`rtc::stun`（`udp_mux` 解析入站 STUN 学 ufrag）。它的类型
+**不跨 API 边界**——我们只拿它解析字节得到一个 ufrag 字符串，不把 `StunMessage` 传给任何
+webrtc API，所以即便存在两份 stun crate 也不会撞类型。判据就是这句话：**分叉只在类型
+经过 API 边界时才致命**。
+
+（走 crates.io 版本号时没有这个问题：webrtc 的 path 依赖会被同版本号的 crates.io `rtc`
+统一解析。所以这条只在「想用 git master 提前拿修复」时才咬人。）
 
 ### direct 的 UDP 读循环挂在 `Transport::poll` 上
 

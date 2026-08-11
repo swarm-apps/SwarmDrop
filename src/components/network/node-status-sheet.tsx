@@ -54,7 +54,7 @@ import { usePairedOnlineCount } from "@/hooks/use-paired-online-count";
 import { useNetworkStore } from "@/stores/network-store";
 import { useSecretStore } from "@/stores/secret-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
-import type { InfraLink } from "@/lib/bindings";
+import { commands, type InfraLink } from "@/lib/bindings";
 
 interface NodeStatusSheetProps {
   open: boolean;
@@ -68,6 +68,25 @@ const platformLabel: Record<string, string> = {
   android: "Android",
   ios: "iOS",
 };
+
+/**
+ * 身份文件路径，**每进程取一次**。
+ *
+ * 它由 `app_local_data_dir` + 固定文件名拼出，进程内恒定；而这个面板是 Dialog 的子树，
+ * 关掉即卸载，不 memo 的话每开一次都发一轮 IPC（诊断层还折叠着的时候也发）。
+ * 失败吞成空串——调用点据此渲染 `—`，诊断少一行不该让整个面板出错。
+ */
+let identityPathPromise: Promise<string> | null = null;
+function identityFilePathOnce(): Promise<string> {
+  // **只缓存成功的结果**。一次瞬时失败（例如弹窗在 webview 重载期间打开、Tauri handler
+  // 还没就绪）如果被缓存下来，这一行就会钉死在 `—` 直到重启应用——而用户恰恰是在出问题
+  // 的时候才来看它。失败就把 memo 清掉，下次开弹窗重试。
+  identityPathPromise ??= commands.getIdentityFilePath().catch(() => {
+    identityPathPromise = null;
+    return "";
+  });
+  return identityPathPromise;
+}
 
 export function NodeStatusSheet({ open, onOpenChange }: NodeStatusSheetProps) {
   return (
@@ -103,6 +122,13 @@ function NodeStatusContent({ onClose }: { onClose: () => void }) {
   const [systemHostname, setSystemHostname] = useState("");
   useEffect(() => {
     hostname().then((name) => setSystemHostname(name ?? ""));
+  }, []);
+
+  // 身份文件路径。取不到就留空，`CopyableValue` 那侧渲染成 `—`——诊断少一行信息
+  // 不该让整个面板出错。
+  const [identityPath, setIdentityPath] = useState("");
+  useEffect(() => {
+    void identityFilePathOnce().then(setIdentityPath);
   }, []);
 
   // 诊断层受控：`openDiagnostics` 这个 CTA 要能把它展开，`<details>` 自管开合就做不到。
@@ -246,10 +272,15 @@ function NodeStatusContent({ onClose }: { onClose: () => void }) {
                 {networkStatus?.discoveredPeers ?? 0}
               </span>
             </DiagnosticRow>
-            <DiagnosticRow label={<Trans>身份存放位置</Trans>}>
-              <span className="text-sm text-foreground">
-                <Trans>系统钥匙串</Trans>
-              </span>
+            {/* 身份自 2026-08 由系统钥匙串改为本机明文文件（0600）。这一行因此从
+                「一句不必关心的实现细节」变成用户**需要**据以行动的信息：备份、换机
+                迁移、自己收紧权限都要先找得到它，所以给的是可复制的完整路径。 */}
+            <DiagnosticRow label={<Trans>身份文件</Trans>}>
+              <CopyableValue
+                value={identityPath}
+                display={truncateMiddle(identityPath, 8, 23)}
+                toastLabel={t`已复制身份文件路径`}
+              />
             </DiagnosticRow>
             {/* 运行时长住诊断层：它回答不了「别人能不能连到我」这个问题。 */}
             <DiagnosticRow label={<Trans>运行时长</Trans>}>

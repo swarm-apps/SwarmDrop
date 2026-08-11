@@ -46,7 +46,17 @@ const MAX_LOG_FILES: usize = 7;
 /// 所以传输探针（`swarmdrop_transfer::probe`）天然放行。而 `webrtc_p2p` 不以 `swarmdrop`
 /// 开头、前缀匹配够不着，**必须单列**，否则 webrtc-direct 数据面的告警一条都进不来
 /// （理由与桌面 `logging.rs` 的同名常量一致，两端要一起改）。
-const DEFAULT_FILTER: &str = "swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info";
+///
+/// **`webrtc=warn` 同理，且是不同的 target**：`webrtc_p2p` 是本仓的传输 crate，`webrtc`
+/// 是 webrtc-rs 自己，`"webrtc::…".starts_with("webrtc_p2p")` 为假。被它挡住的是
+/// `Failed to send DataChannelMessage … Full`——driver 队列满时丢弃可靠送达的消息
+/// （webrtc#858）。完整判据见桌面 `logging.rs` 与 `webrtc_p2p` 的 `sctp_receive_buffer`。
+///
+/// **`rtc=warn` 是同一套栈的另一半**：`rtc` / `rtc_sctp` / `rtc_ice` / `rtc_dtls` 都不以
+/// `webrtc` 开头。driver 忙循环（rtc#159/#161）打在 `rtc_ice`，接收窗口 / 重组类问题
+/// 打在 `rtc_sctp`。
+const DEFAULT_FILTER: &str =
+    "swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info,webrtc=warn,rtc=warn";
 
 /// 文件层的级别。**刻意比平台层保守**：`swarmdrop_net` 在 P2P 场景下事件很密，
 /// 文件层若也吃 `debug`，用户存储会被快速消耗。
@@ -250,25 +260,63 @@ mod tests {
             }
         }
 
-        for target in ["swarmdrop_core", "swarmdrop_net", "swarmdrop_transfer"] {
+        // `tracing` 宏的 `target:` 必须是字面量，所以只能逐条手写、不能在循环里参数化。
+        // （早先那版确实写了 `for target in [...]`，但循环体里发的是**固定的三条**、
+        // 断言又只看 "probe" 在不在——于是「三个里有一个能过」就算通过，等于没测。）
+        fn capture(emit: impl FnOnce()) -> String {
             let sink = Buf(Arc::new(Mutex::new(Vec::new())));
             let subscriber = tracing_subscriber::registry()
                 .with(fmt::layer().with_writer(sink.clone()).with_ansi(false))
                 .with(EnvFilter::new(DEFAULT_FILTER));
-
-            tracing::subscriber::with_default(subscriber, || {
-                tracing::info!(target: "swarmdrop_core", "probe");
-                tracing::info!(target: "swarmdrop_net", "probe");
-                tracing::info!(target: "swarmdrop_transfer", "probe");
-            });
-
+            tracing::subscriber::with_default(subscriber, emit);
             let out = String::from_utf8_lossy(&sink.0.lock().unwrap()).into_owned();
-            assert!(
-                out.contains("probe"),
-                "DEFAULT_FILTER ({DEFAULT_FILTER}) 没有匹配到 target `{target}`，\
-                 这会导致日志一条都不产生且不报错"
-            );
+            out
         }
+
+        macro_rules! assert_passes {
+            ($target:literal, $emit:expr) => {
+                assert!(
+                    capture(|| $emit).contains("probe"),
+                    "DEFAULT_FILTER ({DEFAULT_FILTER}) 挡住了 target `{}`，\
+                     这会导致那条路径的日志一条都不产生且不报错",
+                    $target
+                );
+            };
+        }
+
+        assert_passes!(
+            "swarmdrop_core",
+            tracing::info!(target: "swarmdrop_core", "probe")
+        );
+        assert_passes!(
+            "swarmdrop_net",
+            tracing::info!(target: "swarmdrop_net", "probe")
+        );
+        assert_passes!(
+            "swarmdrop_transfer",
+            tracing::info!(target: "swarmdrop_transfer", "probe")
+        );
+        assert_passes!(
+            "webrtc_p2p",
+            tracing::info!(target: "webrtc_p2p::x", "probe")
+        );
+
+        // **webrtc-rs 本身**（与 `webrtc_p2p` 是两个 target）。它的 ERROR 里有
+        // `Failed to send DataChannelMessage … Full`——driver 队列满时丢弃可靠送达的
+        // 消息。少了 `webrtc=warn`，那条路径在生产日志里一条都不出现，而数据照丢。
+        assert_passes!(
+            "webrtc",
+            tracing::error!(target: "webrtc::peer_connection::driver", "probe")
+        );
+        // 同一套栈的另一半：忙循环打在 `rtc_ice`，接收窗口 / 重组类问题打在 `rtc_sctp`。
+        assert_passes!(
+            "rtc_ice",
+            tracing::warn!(target: "rtc_ice::agent::agent_proto", "probe")
+        );
+        assert_passes!(
+            "rtc_sctp",
+            tracing::warn!(target: "rtc_sctp::association", "probe")
+        );
     }
 
     /// 钉住 D6 那条无声失败：guard 必须被 `LogState` 持有。

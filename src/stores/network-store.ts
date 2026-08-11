@@ -90,7 +90,7 @@ async function setupEventListeners() {
       usePairingStore.getState().handleInboundRequest(event.payload);
     }),
 
-    // 配对成功或 Identify 刷新（后端已写入 host keychain 持久化）
+    // 配对成功或 Identify 刷新（后端已写入身份存储持久化）
     events.pairedDeviceAdded.listen((event) => {
       useSecretStore.getState().upsertPairedDevice(event.payload);
     }),
@@ -241,6 +241,29 @@ export const useNetworkStore = create<NetworkState>()((set, get) => ({
 /** 命令式边界：供非 React/store orchestration 回调启动节点。 */
 export function startNetworkFromStore(): Promise<boolean> {
   return useNetworkStore.getState().startNetwork();
+}
+
+/**
+ * 冷启动时的一次性自动启动：读一次「自动启动节点」偏好，为真则启动节点。
+ *
+ * **只在冷启动序列里调用一次**（`src/main.tsx`），不订阅任何状态。它此前是 `_app.tsx`
+ * 里一个依赖 `networkStatus` 的 effect，于是「App 启动时自动启动一次」被写成了
+ * `stopped → running` 的持续收敛环：`stopNetwork()` 的最后一步正是把状态置为 `stopped`，
+ * effect 立刻把节点拉回去——开关打开时「已停止」这个状态根本不可达，用户点了停止只看到
+ * 状态一闪就回。设置文案（「解锁后自动启动」）与那个 effect 自己的注释（「首次进入时检查」）
+ * 表达的都是一次性意图，只有代码是收敛环。
+ *
+ * 三端至此同一形态：Web 是空依赖 `useEffect`（`web-node-bootstrap.tsx`），
+ * 移动端在冷启动序列里命令式读一次（`mobile-core-store.ts`）。
+ *
+ * 失败不在这里提示：`startNetwork()` 内部已落 error 状态并 toast，与手动启动同一条反馈路径。
+ */
+export async function autoStartNodeIfEnabled(): Promise<void> {
+  if (!usePreferencesStore.getState().autoStart) return;
+  // 走 `startNetworkFromStore` 而不是自己 `getState().startNetwork()`：那条正是
+  // 「从 React 外面启动节点」的既有边界（`pairing-store` 也走它），两个入口并存意味着
+  // 将来往这个边界上加东西（重入门禁、启动来源打点）必须记得两处都加。
+  await startNetworkFromStore();
 }
 
 /** 命令式边界：供配对流程用当前网络快照补全设备展示名。 */

@@ -6,7 +6,7 @@
 use swarmdrop_net::{NodeId, SecretKey};
 
 use crate::error::{AppError, AppResult};
-use crate::host::{DeviceIdentityBytes, IdentityMigrationState, KeychainProvider};
+use crate::host::{DeviceIdentityBytes, KeychainProvider};
 
 /// 已初始化的设备身份。
 pub struct InitializedIdentity {
@@ -16,7 +16,7 @@ pub struct InitializedIdentity {
     pub created: bool,
 }
 
-/// 从 host keychain 读取设备身份；不存在时自动生成并保存。
+/// 从宿主身份存储读取设备身份；不存在时自动生成并保存。
 ///
 /// keypair 存量为 protobuf 编码，[`SecretKey::from_protobuf`] 与之完全兼容。
 pub async fn load_or_create_identity<P>(provider: &P) -> AppResult<InitializedIdentity>
@@ -44,9 +44,6 @@ where
         .save_identity(DeviceIdentityBytes {
             keypair: keypair_bytes.clone(),
         })
-        .await?;
-    provider
-        .save_migration_state(IdentityMigrationState::Completed)
         .await?;
 
     Ok(InitializedIdentity {
@@ -77,7 +74,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::host::{KeychainProvider, MemoryHost};
+    use crate::host::MemoryHost;
 
     fn memory_host() -> MemoryHost {
         MemoryHost::new()
@@ -89,10 +86,6 @@ mod tests {
 
         let created = super::load_or_create_identity(&host).await.unwrap();
         assert!(created.created);
-        assert_eq!(
-            host.load_migration_state().await.unwrap(),
-            crate::host::IdentityMigrationState::Completed
-        );
 
         let loaded = super::load_or_create_identity(&host).await.unwrap();
         assert!(!loaded.created);

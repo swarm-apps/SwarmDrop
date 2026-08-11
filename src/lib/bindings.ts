@@ -125,11 +125,19 @@ supported: string[] } |
 	 *  ——它是与网络无关的内容账本，绑到节点生命周期上会变成「没联网就翻不了已收到的东西」。
 	 */
 	deleteInboxItem: (itemId: string, deleteLocalFiles: boolean) => __TAURI_INVOKE<null>("delete_inbox_item", { itemId, deleteLocalFiles }),
-	/**  从系统 keychain 初始化设备身份，不再要求用户输入 Stronghold 密码。 */
+	/**  初始化设备身份（读身份存储，不存在则生成），不要求用户输入任何密码。 */
 	initializeIdentity: () => __TAURI_INVOKE<IdentityState>("initialize_identity"),
-	/**  生成新的 Ed25519 密钥对（protobuf 编码，与存量 keychain 格式兼容）。 */
+	/**  生成新的 Ed25519 密钥对（protobuf 编码）。 */
 	generateKeypair: () => __TAURI_INVOKE<number[]>("generate_keypair"),
-	/**  注册密钥对到 Tauri state，并在桌面端写入系统 keychain。 */
+	/**
+	 *  设备身份文件的绝对路径，供节点状态诊断展示。
+	 * 
+	 *  身份自 keychain 改为明文文件后，「存在哪」从一句不必关心的实现细节变成了用户
+	 *  **需要**知道的事：备份、迁移设备、自行收紧权限都要先找得到它。诊断里只写
+	 *  「本机文件」而不给路径，等于把「系统钥匙串」换成另一个同样无法据此行动的说法。
+	 */
+	getIdentityFilePath: () => __TAURI_INVOKE<string>("get_identity_file_path"),
+	/**  注册密钥对到 Tauri state，并在桌面端写入身份存储。 */
 	registerKeypair: (keypair: number[]) => __TAURI_INVOKE<string>("register_keypair", { keypair }),
 	/**  读取持久化的设备名（onboarding 完成前为 `None`）。 */
 	getDeviceName: () => __TAURI_INVOKE<string | null>("get_device_name"),
@@ -200,7 +208,7 @@ supported: string[] } |
 	 *  配对成功后由 core 落盘并 emit `paired-device-added`。
 	 * 
 	 *  返回 [`PairingOutcome`]：`response` 是对端的答复，`persisted` 为 `false` 时表示
-	 *  **配对成功了但这条记录没写进钥匙串** —— 本次运行内可用，重启后这台设备会从列表消失
+	 *  **配对成功了但这条记录没落盘** —— 本次运行内可用，重启后这台设备会从列表消失
 	 *  （对端仍记着）。UI 必须如实告知，不能当成普通成功。
 	 */
 	consumePairInvite: (invite: string) => __TAURI_INVOKE<PairingOutcome>("consume_pair_invite", { invite }),
@@ -219,7 +227,7 @@ supported: string[] } |
 	 * 
 	 *  接受后由 core 落盘并 emit `paired-device-added` 事件通知前端。
 	 * 
-	 *  **返回是否已落盘**（响应本身是入参，不必回传）：`false` = 配对成功但记录没写进钥匙串，
+	 *  **返回是否已落盘**（响应本身是入参，不必回传）：`false` = 配对成功但记录没落盘，
 	 *  重启后这台设备会不见（对端仍记着）。语义与 [`PairingOutcome::persisted`] 同。
 	 */
 	respondPairingRequest: (pendingId: number, method: PairingMethod, response: PairingResponse) => __TAURI_INVOKE<boolean>("respond_pairing_request", { pendingId, method, response }),

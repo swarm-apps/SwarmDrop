@@ -68,6 +68,9 @@ pnpm check:clipboard
 # 禁止绕过 src/lib/quit-app.ts 直接终止进程（退出/重启前必须 flush 偏好写入）
 pnpm check:quit-entry
 
+# 禁止在 useEffect 里调节点启停 —— 那会长成收敛环，用户点了停止立刻被拉回
+pnpm check:node-lifecycle
+
 # 配对落地页（docs/public/p/）体积 ≤10KB gzip（注释也算）+ en/zh-TW 字典完整性
 pnpm check:landing
 
@@ -127,12 +130,32 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 | IPC | tauri-specta v2 —— TS bindings 自动生成，**不手写 invoke 封装** |
 | Backend | Rust 2024, Tauri 2 |
 | P2P | 自研 `crates/net`（iroh 风格 API，libp2p 底层，native + wasm 双 target） |
-| Security | Ed25519 身份 · 系统钥匙串（keyring 4）· Noise/TLS 传输层加密 · BLAKE3 + bao-tree 逐块验签 |
+| Security | Ed25519 身份 · 桌面明文文件 0600 / 移动系统安全存储 · Noise/TLS 传输层加密 · BLAKE3 + bao-tree 逐块验签 |
 | Database | SeaORM 2.0 + SQLite（传输历史、断点续传 checkpoint、收件箱）——**仅 native** |
 | MCP | rmcp 2 + axum（桌面本地 MCP server） |
 
-> **Stronghold 已移除。** 私钥现由宿主 keychain 端口管理（桌面 = `keyring` 系统钥匙串），
-> 前端 `secret-store` 只是运行时镜像，不再持久化任何密钥。
+> **Stronghold 已移除。** 私钥由宿主 `KeychainProvider` 端口管理，前端 `secret-store`
+> 只是运行时镜像，不再持久化任何密钥。
+>
+> **桌面身份不在系统钥匙串里（2026-08-11 起）。** 三个桌面平台统一存
+> `app_local_data_dir` 下的 `identity.json`（unix 0600）+ `paired-devices.json`，
+> `keyring` 依赖已删除。根因是 `tauri.conf.json` 的 `"signingIdentity": "-"`（ad-hoc
+> 签名）没有稳定的 designated requirement——macOS 的 keychain ACL 按 DR 匹配调用方，
+> 每次构建 cdhash 都变，于是**每次启动都弹授权框、且「始终允许」写不进可信列表**
+> （启动读三条 item 就弹三次）。debug build 早就走文件后端（同一个签名问题，那侧的
+> 失败形态是 `errSecInteractionNotAllowed`），只是 release 一直没承认它。
+> 三平台统一而非只改 macOS：per-app ACL 只有 macOS 有（Windows 凭据管理器对同用户
+> 进程本来就不设防），换来的是不必永久携带一个 `cfg(target_os)` 存储后端分叉。
+>
+> 两条**把 dev 实现提为生产必须补上**的差异，改这块时不能退回去：**原子写**
+> （临时文件 + rename；私钥文件写到一半断电 = 身份不可恢复）与**读取失败不降级**
+> （解析失败必须 `Err`；dev 那版返回默认值，于是 core 会生成新身份**并覆盖原文件**，
+> 一次磁盘坏块就静默换掉身份，用户只看到「设备列表空了」）。两条各有一条护栏测试
+> 看守，见 `src-tauri/src/host/identity_store.rs`。
+>
+> 安全形态如实说：私钥**明文**，防的是「其他用户」，不防「同用户下的其他进程」，
+> 等同无口令的 `~/.ssh/id_ed25519`。将来若拿到 Developer ID 签名，切回 keychain 是
+> 换一个端口实现（`keychain.rs` 在 git 历史里完整可取）。
 >
 > **生物识别已移除（2026-07-27）。** 它随密码解锁流程一起失效后，依赖、插件注册和
 > capability 又空挂了一段时间，期间 README 与文档站一直在宣传一个不存在的功能。
@@ -276,7 +299,7 @@ Rust 命令薄壳在 `src-tauri/src/commands/`，按业务域分文件：`lifecy
 - `index.tsx` — 重定向
 
 > **密码 / 解锁 / 生物识别登录流程已整体移除。** 不再有 `_auth` 布局、`auth-store`
-> 或 `isSetupComplete` 守卫。首启只问设备名，身份由后端 keychain 静默管理。
+> 或 `isSetupComplete` 守卫。首启只问设备名，身份由后端身份存储静默管理。
 
 **State Management** — Zustand stores：
 
@@ -335,7 +358,7 @@ src-tauri/src/
 ├── main.rs             # Binary entry point
 ├── commands.rs         # 命令薄壳入口 + with_manager! 宏
 ├── commands/           # lifecycle / inbox / identity / pairing / transfer / mcp / i18n / external_open
-├── host/               # Desktop adapter：keychain(keyring) / file_keychain / notifier / paths
+├── host/               # Desktop adapter：identity_store(文件) / notifier / paths
 │                       #   / update_installer / event_bus / file_source / file_sink / device_config
 ├── network.rs          # NetManager 类型别名 + Tauri 事件转发
 ├── database.rs         # SeaORM 连接初始化 + `TransferStoreState` 类型别名 + 启动清理
@@ -360,7 +383,12 @@ src-tauri/src/
 4. `PresenceSupervisor` / `InfraSupervisor` 由 core 自治拉起，host 层无需调用
 5. 事件经 tauri-specta typed events 转发前端
 
-**Tracing:** 默认 filter `swarmdrop=debug,swarmdrop_net=debug`，`RUST_LOG` 可覆盖。
+**Tracing:** 默认 filter
+`swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info,webrtc=warn,rtc=warn`，`RUST_LOG` 可覆盖。
+后三条**必须单列**——`EnvFilter` 按字符串前缀匹配，它们都不以 `swarmdrop` 开头，
+而 `webrtc_p2p`（本仓传输 crate）与 `webrtc` / `rtc*`（webrtc-rs 全家桶）又互不为前缀。
+漏掉哪条，那一层的日志在生产里就**一条都不出现**（已经踩过两次：udp_mux 丢包、
+driver 丢弃可靠消息）。桌面与移动是两份独立常量，**要一起改**。
 
 **Bootstrap / relay node:** 自建，`47.115.172.218`——TCP 4001、QUIC 4001、
 **WebRTC Direct 4003**（后者是浏览器唯一入口：https 页面拨公网裸 IP 的 `ws://` 会被

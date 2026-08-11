@@ -44,8 +44,17 @@ vi.mock("@/lib/clipboard", () => ({
   readText: vi.fn(async () => ""),
 }));
 
+// `vi.mock` 的工厂被 hoist 到文件顶部，引用不到普通的顶层常量——路径要经 `vi.hoisted`
+// 才能同时被工厂和用例读到（仓库里其他 mock 用的是同一个模式）。
+const { IDENTITY_PATH } = vi.hoisted(() => ({
+  IDENTITY_PATH:
+    "/Users/demo/Library/Application Support/com.yexiyue.swarmdrop/identity.json",
+}));
+
 vi.mock("@/lib/bindings", () => ({
-  commands: {},
+  commands: {
+    getIdentityFilePath: vi.fn().mockResolvedValue(IDENTITY_PATH),
+  },
   events: {},
 }));
 
@@ -162,6 +171,24 @@ describe("NodeStatusSheet", () => {
     expect(screen.queryByText("已发现节点")).not.toBeNull();
     expect(screen.queryByText("运行时长")).not.toBeNull();
     expect(screen.queryByText("监听地址")).not.toBeNull();
+    // 身份存放位置也是 Node Status Contract 列明的信息位之一，此前这条护栏漏了它。
+    expect(screen.queryByText("身份文件")).not.toBeNull();
+  });
+
+  // 光断言 label 渲染是不够的：`getIdentityFilePath` 失败时那一行会退成 `—`，label 照在，
+  // 而 DESIGN.md 的契约要的是「可据以行动的路径」——「system keychain」和「一个本地文件」
+  // 一样没用。所以要断言路径本身到达了 DOM。
+  it("身份文件那行给的是可复制的完整路径，不只是一个标签", async () => {
+    render(
+      <I18nProvider i18n={i18n}>
+        <NodeStatusSheet open onOpenChange={() => {}} />
+      </I18nProvider>,
+    );
+
+    const row = await screen.findByTitle(IDENTITY_PATH);
+    // 屏幕上是中间省略的短形式，复制/title 给完整值（见 CopyableValue 的文档）。
+    expect(row.textContent).toContain("…");
+    expect(row.textContent).toContain("identity.json");
   });
 
   it("节点没跑时给的是启动动作，不是四个写死的 0", () => {

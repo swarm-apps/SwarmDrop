@@ -88,15 +88,30 @@ impl AsyncRead for PollDataChannel {
     ) -> Poll<io::Result<usize>> {
         let dc = self.dc.clone();
         let mut shared = self.lock();
+        // **一次 poll 要尽量填满 `buf`，不能取到一条消息就返回。**
+        //
+        // 消费速率直接决定 driver 那条队列会不会溢出——它满了就**丢弃**已经可靠送达的
+        // 消息（webrtc#858，判据与量化见 `super::sctp_receive_buffer`）。早先每次只搬一条：
+        // 上层给 256 KiB 的 buf、一条消息 8 KiB，31/32 的容量空着，每 8 KiB 都要穿一遍
+        // 完整的 poll 链。回环实测填满 buf 后吞吐 **2.1×**（145 → 301 MiB/s）。
+        //
+        // ⚠️ 省下的是 poll 链与 waker 往返，**不是堆分配**：下面每取到一条消息就把
+        // `reading` 置空，所以仍是每条消息各 `Box::pin` 一个 `dc.poll()` future。
+        // 真要省那个，得让 future 跨消息存活（或换成不装箱的具名 future）。
+        let mut filled = 0usize;
         loop {
             if !shared.read_buf.is_empty() {
-                let n = buf.len().min(shared.read_buf.len());
-                buf[..n].copy_from_slice(&shared.read_buf.split_to(n));
-                return Poll::Ready(Ok(n));
+                let n = (buf.len() - filled).min(shared.read_buf.len());
+                buf[filled..filled + n].copy_from_slice(&shared.read_buf.split_to(n));
+                filled += n;
+                if filled == buf.len() {
+                    return Poll::Ready(Ok(filled));
+                }
             }
             if shared.eof {
-                // 0 字节即 EOF，这是 AsyncRead 的约定。
-                return Poll::Ready(Ok(0));
+                // 0 字节即 EOF，这是 AsyncRead 的约定；已搬到的字节要先交出去，
+                // 否则最后一批数据会连同 EOF 一起丢掉。
+                return Poll::Ready(Ok(filled));
             }
 
             if shared.reading.is_none() {
@@ -104,20 +119,29 @@ impl AsyncRead for PollDataChannel {
                 shared.reading = Some(async move { dc.poll().await }.boxed());
             }
             let fut = shared.reading.as_mut().expect("刚置入");
-            match ready!(fut.poll_unpin(cx)) {
-                Some(DataChannelEvent::OnMessage(msg)) => {
+            match fut.poll_unpin(cx) {
+                Poll::Ready(Some(DataChannelEvent::OnMessage(msg))) => {
                     shared.reading = None;
                     // **接管所有权，别 clone**：`BytesMut` 的 `Clone` 是深拷贝（不是
-                    // 引用计数），而走到这里 `read_buf` 必然为空——循环顶部已经把
-                    // 非空的情况提前返回了。这是唯一的逐字节路径，白烧两次整包 memcpy。
+                    // 引用计数），而走到这里 `read_buf` 必然为空——上面刚把它排干。
+                    // 这是唯一的逐字节路径，白烧两次整包 memcpy。
                     shared.read_buf = msg.data;
                 }
-                Some(DataChannelEvent::OnClose) | None => {
+                Poll::Ready(Some(DataChannelEvent::OnClose)) | Poll::Ready(None) => {
                     shared.reading = None;
                     shared.eof = true;
                 }
                 // OnOpen / OnBufferedAmountLow 等与字节流无关，取下一个事件继续。
-                Some(_) => shared.reading = None,
+                Poll::Ready(Some(_)) => shared.reading = None,
+                // 暂时没有更多消息：已搬到字节就先交出去。**只在一个字节都没有时才挂起**
+                // ——`Ok(0)` 会被 `AsyncRead` 的调用方读成 EOF。
+                Poll::Pending => {
+                    return if filled > 0 {
+                        Poll::Ready(Ok(filled))
+                    } else {
+                        Poll::Pending
+                    };
+                }
             }
         }
     }

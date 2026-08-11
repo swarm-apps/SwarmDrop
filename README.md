@@ -34,7 +34,8 @@ search what you've received.
 - **End-to-end encrypted** — every connection is Noise- or TLS 1.3-encrypted and
   mutually authenticated. Relays only ever forward ciphertext they hold no key for.
 - **No accounts, no servers** — pair with a one-time signed invite (link or QR), or let
-  LAN discovery find your devices. Ed25519 device identity, held in the OS keychain.
+  LAN discovery find your devices. Ed25519 device identity, held by the OS secure store on
+  mobile and in an owner-only file on desktop.
 - **Resumable** — per-chunk BLAKE3 verification via bao-tree; every block is checked as
   it lands. Survives drops, restarts and flaky links.
 - **AI-drivable** — an embedded MCP server exposes transfers and inbox search to agents.
@@ -113,8 +114,11 @@ graph TB
 
 **Security model**
 
-- **Identity** — Ed25519 keypair; the private key lives in the OS keychain (Keychain /
-  Credential Manager / Secret Service).
+- **Identity** — Ed25519 keypair. On mobile the private key lives in the OS secure store
+  (iOS Keychain / Android EncryptedSharedPreferences). On desktop it lives in an
+  owner-only file (`0600` on unix) under the app data directory — same shape as a
+  passphrase-less SSH key. It protects against other users, not against other processes
+  running as you.
 - **Pairing** — one-time signed invite: Ed25519 signature + 128-bit capability + 24h
   TTL. The capability rides in the URL fragment, so it never reaches a server.
 - **In transit** — Noise (TCP / WebRTC) or TLS 1.3 (QUIC). Every connection runs its own
@@ -138,7 +142,7 @@ graph TB
 | i18n | Lingui 6 (zh · zh-TW · en) + rust-i18n for native strings |
 | Backend | Rust 2024 · Tauri 2 · SeaORM + SQLite |
 | P2P | in-house `swarmdrop-net` — an iroh-style `Endpoint` API over libp2p (mDNS · Kademlia · Relay · DCUtR · WebRTC-Direct), native + wasm |
-| Security | OS keychain · Ed25519 · Noise / TLS 1.3 · BLAKE3 + bao-tree |
+| Security | Ed25519 identity · Noise / TLS 1.3 · BLAKE3 + bao-tree |
 | AI | embedded MCP server (rmcp + axum, `127.0.0.1` only) |
 | IPC types | tauri-specta — commands and events, fully typed |
 

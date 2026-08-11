@@ -60,7 +60,7 @@ async fn wait_webrtc_direct_addrs(endpoint: &Endpoint) -> Vec<Addr> {
 async fn webrtc_direct_listener_and_stable_certhash() {
     init_tracing();
 
-    // 持久化证书：两次 bind 的 certhash 必须一致（模拟 keychain 存量）
+    // 持久化证书：两次 bind 的 certhash 必须一致（模拟身份存储里的存量）
     let cert_pem = swarmdrop_net::generate_webrtc_certificate_pem().expect("generate cert");
 
     let mut hashes = Vec::new();
