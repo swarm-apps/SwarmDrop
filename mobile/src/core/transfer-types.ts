@@ -207,8 +207,6 @@ export function projectionMatchesQuery(
   );
 }
 
-/** projections 按最近更新倒序 —— 列表/分组/搜索共用的排序语义。 */
-
 export function projectionTransferredBytes(
   projection: MobileTransferProjection,
   progress?: MobileTransferProgress,

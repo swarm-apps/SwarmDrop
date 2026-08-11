@@ -73,7 +73,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { copyText } from "@/lib/clipboard";
-import { formatFileSize, formatRelativeTime } from "@/lib/format";
+import { formatFileSize, relativeTimeMessage } from "@/lib/format";
 import {
   groupByTimeBucket,
   type TimeBucket,
@@ -784,7 +784,7 @@ function RailRowShell({
       </span>
       <span className="min-w-0 flex-1">{children}</span>
       <span className="shrink-0 self-start pt-0.5 text-[11px] tabular-nums text-muted-foreground">
-        {formatRelativeTime(receivedAt)}
+        {t(relativeTimeMessage(receivedAt))}
       </span>
     </button>
   );
@@ -1062,7 +1062,7 @@ function ReaderContent({
               </span>
               <Dot />
               <span className="tabular-nums">
-                {formatRelativeTime(detail.receivedAt)}
+                {t(relativeTimeMessage(detail.receivedAt))}
               </span>
             </p>
           </div>

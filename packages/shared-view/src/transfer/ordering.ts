@@ -33,8 +33,8 @@
  * 排序需要的最小结构。
  *
  * 三端的 projection 类型各不相同，且**移动端的 `updatedAt` 是 `bigint`**（uniffi 的
- * i64 映射），所以这里既不能收窄成 `number`，也不能用相减实现比较——`bigint - number`
- * 在 JS 里直接抛 TypeError。
+ * i64 映射），所以这里不能收窄成 `number`。跨类型混用的后果见 `compareByTimelineDesc`
+ * 的实现注释——那是本比较器唯一会静默出错的地方。
  */
 export interface TimelineOrdered {
   readonly sessionId: string;
@@ -48,9 +48,16 @@ export interface TimelineOrdered {
  * Record 的插入序变，表现为「刷新一下这两行就换个位置」。
  */
 export function compareByTimelineDesc(a: TimelineOrdered, b: TimelineOrdered): number {
-  if (a.updatedAt !== b.updatedAt) {
-    return a.updatedAt < b.updatedAt ? 1 : -1;
-  }
+  // 先归一成 number，**不要**直接拿 `updatedAt` 比。`100n !== 100` 恒为 true（严格比较
+  // 跨类型不相等），而 `100n < 100` 又按数值判 false——两条组合起来会让
+  // `compare(a,b)` 与 `compare(b,a)` 同时返回 -1，是个不满足反对称性的比较器，
+  // TimSort 拿到它会给出依赖输入顺序的任意结果，正好毁掉下面那行兜底想要的确定性。
+  // 单端内类型本来一致，但签名允许混用（乐观插入一行 `Date.now()` 就够了），而这种
+  // 错法是**静默**的——旧的 `Number(b.updatedAt - a.updatedAt)` 至少会抛 TypeError。
+  // 毫秒时间戳 ~1.7e12，远在 `MAX_SAFE_INTEGER` 之内，转换无损。
+  const at = Number(a.updatedAt);
+  const bt = Number(b.updatedAt);
+  if (at !== bt) return at < bt ? 1 : -1;
   return a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0;
 }
 

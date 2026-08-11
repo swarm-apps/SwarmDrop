@@ -1,4 +1,5 @@
 import { useLingui } from "@lingui/react/macro";
+import { compareByTimelineDesc } from "@swarmdrop/shared-view";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Search, SearchX } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
@@ -14,7 +15,6 @@ import {
   ListItemGap,
 } from "@/components/mobile/screen";
 import { SearchHeader } from "@/components/search-header";
-import { compareByTimelineDesc } from "@swarmdrop/shared-view";
 
 import {
   projectionMatchesQuery,

@@ -54,6 +54,10 @@ msgstr "{activeTransferCount, plural, one {正在进行的 # 个传输会被中�
 msgid "{activeTransferCount, plural, one {重启会中断正在进行的 # 个传输。} other {重启会中断正在进行的 # 个传输。}}"
 msgstr "{activeTransferCount, plural, one {重启会中断正在进行的 # 个传输。} other {重启会中断正在进行的 # 个传输。}}"
 
+#: src/lib/format.ts
+msgid "{days} 天前"
+msgstr "{days} 天前"
+
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "{deviceCount, plural, one {# 台设备} other {# 台设备}}"
 msgstr "{deviceCount, plural, one {# 台设备} other {# 台设备}}"
@@ -62,10 +66,18 @@ msgstr "{deviceCount, plural, one {# 台设备} other {# 台设备}}"
 msgid "{firstFileName} 等 {fileCount} 个文件"
 msgstr "{firstFileName} 等 {fileCount} 个文件"
 
+#: src/lib/format.ts
+msgid "{hours} 小时前"
+msgstr "{hours} 小时前"
+
 #. placeholder {0}: ms / 1000
 #: src/stores/pairing-store.ts
 msgid "{label}超时（{0}s）"
 msgstr "{label}超时（{0}s）"
+
+#: src/lib/format.ts
+msgid "{minutes} 分钟前"
+msgstr "{minutes} 分钟前"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "{title} 等 {itemCount} 个文件"
@@ -480,6 +492,10 @@ msgstr "切换后会立即重新生成邀请，此前展示的二维码随即失
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "切换过滤条件，或通过邀请连接设备。"
 msgstr "切换过滤条件，或通过邀请连接设备。"
+
+#: src/lib/format.ts
+msgid "刚刚"
+msgstr "刚刚"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 #: src/routes/_app/inbox/index.lazy.tsx

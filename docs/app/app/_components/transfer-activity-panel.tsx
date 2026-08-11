@@ -35,7 +35,6 @@ import { RelativeTime } from "./relative-time";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
 import {
-  isActiveSession,
   isCompletedSession,
   sessionEndedAt,
   transferSample,
@@ -105,7 +104,10 @@ function TransferActivityPanelInner() {
     [sorted, filter],
   );
   /** 「清空记录」删的是所有终态会话，所以按钮显隐与当前档位无关。 */
-  const hasEnded = useMemo(() => sorted.some((p) => !isActiveSession(p)), [sorted]);
+  const hasEnded = useMemo(
+    () => sorted.some((p) => matchesSessionFilter(p, "ended")),
+    [sorted],
+  );
   /** 会话总数（不受筛选影响）——空态要靠它区分「一条都没有」与「这一档是空的」。 */
   const grandTotal = sorted.length;
   const connections = useMemo(() => connectionByPeer(devices), [devices]);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { sortByTimelineDesc } from "./ordering";
+import { compareByTimelineDesc, sortByTimelineDesc } from "./ordering";
 
 const at = (sessionId: string, updatedAt: number | bigint) => ({ sessionId, updatedAt });
 
@@ -25,6 +25,21 @@ describe("sortByTimelineDesc", () => {
 
     expect(one.map((s) => s.sessionId)).toEqual(["a", "z"]);
     expect(other.map((s) => s.sessionId)).toEqual(["a", "z"]);
+  });
+
+  it("number 与 bigint 混用时仍是合法比较器（反对称）——错了会静默给出任意顺序", () => {
+    const bigintSide = at("a", 100n);
+    const numberSide = at("b", 100);
+
+    // 同一时刻、类型不同：必须落到 sessionId 兜底，且两个方向必须互为相反
+    expect(compareByTimelineDesc(bigintSide, numberSide)).toBeLessThan(0);
+    expect(compareByTimelineDesc(numberSide, bigintSide)).toBeGreaterThan(0);
+
+    expect(
+      sortByTimelineDesc([at("late", 300), at("early", 100n), at("mid", 200)]).map(
+        (s) => s.sessionId,
+      ),
+    ).toEqual(["late", "mid", "early"]);
   });
 
   it("吃得下移动端的 bigint（相减会 TypeError，所以实现只能用比较）", () => {

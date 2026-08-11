@@ -1,4 +1,5 @@
 import { Trans, useLingui } from "@lingui/react/macro";
+import { sortByTimelineDesc } from "@swarmdrop/shared-view";
 import { useFocusEffect, useRouter } from "expo-router";
 import { ArrowLeftRight, Search, SearchX, Trash2 } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
@@ -20,7 +21,6 @@ import {
 import { SettingsHeader } from "@/components/settings-header";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Text } from "@/components/ui/text";
-import { sortByTimelineDesc } from "@swarmdrop/shared-view";
 
 import {
   isProjectionRecoverable,
@@ -88,22 +88,28 @@ export default function ActivityScreen() {
   );
 
   // 计数按全量算(不随筛选变化),让用户在任何筛选下都能看到全貌;谓词与列表过滤共用一份。
-  const filterCounts = useMemo(
-    () =>
-      Object.fromEntries(
-        ACTIVITY_FILTERS.map((f) => [
-          f,
-          allProjections.filter((p) => matchesActivityFilter(p, f)).length,
-        ]),
-      ) as Record<ActivityFilter, number>,
-    [allProjections],
-  );
+  // 一趟数完五档：按档各扫一遍是 5×N 次谓词调用，而每次调用还要重跑
+  // projectionDirection / isProjectionRecoverable / projectionNeedsAttention。
+  const filterCounts = useMemo(() => {
+    const counts = Object.fromEntries(
+      ACTIVITY_FILTERS.map((f) => [f, 0]),
+    ) as Record<ActivityFilter, number>;
+    for (const projection of allProjections) {
+      for (const f of ACTIVITY_FILTERS) {
+        if (matchesActivityFilter(projection, f)) counts[f]++;
+      }
+    }
+    return counts;
+  }, [allProjections]);
 
   // 一条纯时间线：不按状态分层，顺序全交给最后活动时间
   // （判据见 DESIGN.md 的 Transfer List Order Contract）。
   // 排序只依赖 projections——别和只影响筛选的参数挤进同一个 memo，
   // 否则每点一次筛选 chip 都要重跑一次全量排序。
-  const sorted = useMemo(() => sortByTimelineDesc(allProjections), [allProjections]);
+  const sorted = useMemo(
+    () => sortByTimelineDesc(allProjections),
+    [allProjections],
+  );
   const items = useMemo(
     () => sorted.filter((p) => matchesActivityFilter(p, filter)),
     [sorted, filter],

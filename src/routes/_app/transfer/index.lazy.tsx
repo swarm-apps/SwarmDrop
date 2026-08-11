@@ -178,7 +178,10 @@ function TransferPage() {
             selectedId={shown?.sessionId ?? null}
             onSelect={selectSession}
             onAfterSelect={closeDrawer}
-            onClear={items.length > 0 ? () => setClearOpen(true) : null}
+            // 判据是「有没有终态记录」而不是「列表非空」：`clearTransferHistory` 只删终态，
+            // 只有一条活跃会话时旧判据照样给出按钮，点完什么都没删却 toast「已清空」。
+            // Web 面板的 `hasEnded` 是同一条判据。
+            onClear={counts.ended > 0 ? () => setClearOpen(true) : null}
           />
         )}
         detail={({ openList, isCompact }) =>
