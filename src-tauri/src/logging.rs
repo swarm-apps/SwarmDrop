@@ -5,7 +5,7 @@
 //!
 //! ## 为什么要 reload
 //!
-//! 日志订阅必须在 `tauri::Builder` **之前**注册，否则 keychain 读取、节点 bind 这些
+//! 日志订阅必须在 `tauri::Builder` **之前**注册，否则身份读取、节点 bind 这些
 //! 启动早期（且最容易出问题）的日志会丢。可那时候 `app.path().app_log_dir()` 还拿不到
 //! ——它需要 App 实例。
 //!
@@ -46,7 +46,17 @@ const MAX_LOG_FILES: usize = 7;
 /// 2026-08-10 诊断「浏览器→桌面恒定 3.3 MB/s」时，头号嫌疑正是那条被日志级别屏蔽掉的
 /// 丢包路径——查不到不是因为没丢，是因为看不见。取 `info` 而非 `debug`：只要告警与
 /// 连接生命周期，不要每包的 trace。
-const DEFAULT_FILTER: &str = "swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info";
+///
+/// **`webrtc=warn` 是同一个教训的第二次**（2026-08-11）：`webrtc_p2p` 是本仓的传输 crate，
+/// **`webrtc` 是 webrtc-rs 自己**，两者是不同的 target，而 `"webrtc::…".starts_with("webrtc_p2p")`
+/// 为假——于是上面那条 directive 够不着它。被挡住的正是
+/// `Failed to send DataChannelMessage to data channel N: Full`：driver 的每通道队列满了就
+/// **丢弃已经可靠送达的消息**（webrtc#858，判据见 `webrtc_p2p` 的 `sctp_receive_buffer`）。
+/// 回环实测在生产 filter 下丢掉 10 MiB、日志里**零条记录**。
+///
+/// 顺序无所谓，`EnvFilter` 取**最长匹配**：`webrtc_p2p=info` 比 `webrtc=warn` 更具体，
+/// 本仓 crate 的级别不受影响。
+const DEFAULT_FILTER: &str = "swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info,webrtc=warn";
 
 /// 文件层的级别，**刻意比控制台保守**。
 ///
@@ -235,5 +245,82 @@ mod tests {
         // RELOAD 未设置时同样走 None 分支；这里两种失败路径都不该 panic。
         let result = install_file_layer(Path::new("/proc/nonexistent-swarmdrop-log"));
         assert!(result.is_none());
+    }
+
+    /// [`DEFAULT_FILTER`] 必须真的放行这些 target，否则那条路径的日志**一条都不产生、
+    /// 且不报错**——`EnvFilter` 按 target 前缀匹配，够不着就是静默丢弃。
+    ///
+    /// 这类失败已经吃过两次：2026-08-10 是 `webrtc_p2p`（udp_mux 丢包看不见），
+    /// 2026-08-11 是 `webrtc`（driver 丢弃可靠消息看不见，`"webrtc::…"` 并不以
+    /// `webrtc_p2p` 开头）。移动端 `logging/mod.rs` 有一条同款测试——**两端的
+    /// `DEFAULT_FILTER` 是两份独立常量，改一端必须改另一端**，这两条测试各自看守一份。
+    #[test]
+    fn default_filter_passes_the_targets_we_depend_on() {
+        use std::sync::{Arc, Mutex};
+
+        use tracing_subscriber::fmt::MakeWriter;
+
+        #[derive(Clone)]
+        struct Buf(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Buf {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for Buf {
+            type Writer = Self;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        // `tracing` 宏的 `target:` 必须是字面量，没法在循环里参数化，只能逐条手写。
+        fn capture(emit: impl FnOnce()) -> String {
+            let sink = Buf(Arc::new(Mutex::new(Vec::new())));
+            let subscriber = tracing_subscriber::registry()
+                .with(fmt::layer().with_writer(sink.clone()).with_ansi(false))
+                .with(EnvFilter::new(DEFAULT_FILTER));
+            tracing::subscriber::with_default(subscriber, emit);
+            let out = String::from_utf8_lossy(&sink.0.lock().unwrap()).into_owned();
+            out
+        }
+
+        macro_rules! assert_passes {
+            ($target:literal, $emit:expr) => {
+                assert!(
+                    capture(|| $emit).contains("probe"),
+                    "DEFAULT_FILTER ({DEFAULT_FILTER}) 挡住了 target `{}`，\
+                     这会让那条路径的日志一条都不产生且不报错",
+                    $target
+                );
+            };
+        }
+
+        assert_passes!(
+            "swarmdrop",
+            tracing::info!(target: "swarmdrop_core", "probe")
+        );
+        assert_passes!(
+            "swarmdrop_net",
+            tracing::info!(target: "swarmdrop_net", "probe")
+        );
+        assert_passes!(
+            "swarmdrop_transfer",
+            tracing::info!(target: "swarmdrop_transfer", "probe")
+        );
+        assert_passes!(
+            "webrtc_p2p",
+            tracing::info!(target: "webrtc_p2p::x", "probe")
+        );
+        // webrtc-rs 本身。它的 ERROR 里有 `Failed to send DataChannelMessage … Full`
+        // ——driver 队列满时丢弃可靠送达的消息（webrtc#858）。
+        assert_passes!(
+            "webrtc",
+            tracing::error!(target: "webrtc::peer_connection::driver", "probe")
+        );
     }
 }

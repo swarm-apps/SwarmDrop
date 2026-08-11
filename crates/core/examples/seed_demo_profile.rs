@@ -1,11 +1,18 @@
 //! Demo profile seeder —— 为录制 / 截图生成一个「干净、可复现、隐私安全」的 fixture profile。
 //!
 //! 往 `SWARMDROP_DATA_DIR`（或第一个命令行参数）指定的目录写入：
-//! - `dev-identity.json`：新生成的 self keypair + 一组通用名的已配对设备（**合法假 PeerId**，
-//!   由真 Ed25519 keypair 派生，才能通过 app 的 `PeerId` 反序列化校验）
+//! - `identity.json`：新生成的 self keypair
+//! - `paired-devices.json`：一组通用名的已配对设备（**合法假 PeerId**，由真 Ed25519 keypair
+//!   派生，才能通过 app 的 `PeerId` 反序列化校验）
 //! - `device_config.json`：通用本机设备名
 //!
-//! 与 app 的 `file_keychain` 复用同一份 [`PairedDeviceInfo`] 结构 + serde 派生，schema 永远对齐。
+//! `paired-devices.json` 复用 app 的 [`PairedDeviceInfo`] 结构 + serde 派生，schema 自动对齐。
+//! **`identity.json` 不是**——它的外层形状（字段名、camelCase、0600、pretty）是照着
+//! `src-tauri/src/host/identity_store.rs` 的私有 `IdentityFile` **手抄的第二份**，改那个
+//! 结构必须同步这里。之所以不把 `IdentityFile` 提到 `crates/host` 共用：那个 crate 的判据
+//! 是「多个宿主会写出逐行同构的实现」，而这个格式只有桌面一个宿主用（移动端是真 keychain）。
+//! 漂移是**静默**的——两个字段都带 `#[serde(default)]`，少写一个只会得到默认值、fixture
+//! 看起来完全正常。
 //! 只含虚构设备名 / 假 PeerId，满足 `e2e/desktop/demo-postproduction-design.md` §6 隐私治理。
 //!
 //! 用法（配合 `SWARMDROP_DATA_DIR` 覆盖，见 `src-tauri/src/host/paths.rs`）：
@@ -117,20 +124,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     ];
 
-    // 复用 app 的 dev-identity.json schema（camelCase）：{ keypair, migrationCompleted, pairedDevices }。
-    let identity = serde_json::json!({
-        "keypair": serde_json::to_value(&self_keypair)?,
-        "migrationCompleted": true,
-        "pairedDevices": serde_json::to_value(&devices)?,
-    });
+    // 复用 app 的 identity.json schema（camelCase）：{ keypair, webrtcCertificatePem }。
+    // 密钥与设备列表**分两个文件**，与 `src-tauri/src/host/identity_store.rs` 的布局一致
+    // （理由见那里：设备列表会被频繁重写，不该与私钥同文件）。
+    let identity = serde_json::json!({ "keypair": serde_json::to_value(&self_keypair)? });
 
-    let identity_path = dir.join("dev-identity.json");
+    let identity_path = dir.join("identity.json");
     std::fs::write(&identity_path, serde_json::to_string_pretty(&identity)?)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&identity_path, std::fs::Permissions::from_mode(0o600))?;
     }
+
+    std::fs::write(
+        dir.join("paired-devices.json"),
+        serde_json::to_string_pretty(&devices)?,
+    )?;
 
     let device_config = serde_json::json!({ "device_name": "SwarmDrop 演示机" });
     std::fs::write(

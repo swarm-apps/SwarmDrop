@@ -139,8 +139,12 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase];   // 住在共享 crate
 
 | 端口 | 装什么 | 桌面 | 移动 | Web |
 |---|---|---|---|---|
-| `KeychainProvider` | **秘密**：Ed25519 身份私钥、WebRTC 证书。不出进程、不可导出 | 系统钥匙串（dev 走 `dev-identity.json`） | iOS Keychain / Android EncryptedSharedPreferences | **没有实现** |
-| `PairedDeviceStore` | **业务数据**：已配对设备列表。可导出、每次写都是整份快照覆写 | 同上后端的一个条目 | 同一个存储桥 | IndexedDB 的 `kv` |
+| `KeychainProvider` | **秘密**：Ed25519 身份私钥、WebRTC 证书。不出进程、不可导出 | `identity.json`（0600，**不是**系统钥匙串，见下条） | iOS Keychain / Android EncryptedSharedPreferences | **没有实现** |
+| `PairedDeviceStore` | **业务数据**：已配对设备列表。可导出、每次写都是整份快照覆写 | `paired-devices.json`（独立文件） | 同一个存储桥 | IndexedDB 的 `kv` |
+
+> **trait 名仍叫 `KeychainProvider`，但桌面实现已经不是 keychain。** 端口名描述的是
+> 「安全身份存储」这个**角色**，三端共用；移动端确实是系统 keychain，桌面端 2026-08-11
+> 起是文件。改名要动 uniffi 桥的跨 FFI 契约与三端实现，收益不抵成本。
 
 **约定：端口只 load/save，算法在 core。** 列表语义（`load` / `save` / `upsert` /
 `update_policy` / `remove`）唯一实现在 `swarmdrop_core::paired_devices`，对
@@ -174,6 +178,35 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase];   // 住在共享 crate
 （唯一的列表算法）、`crates/core/src/identity.rs`（只剩密钥材料）、
 `src-tauri/src/host.rs`（`keychain_provider` / `paired_device_store` 两个工厂）、
 `crates/web/src/paired_devices.rs`
+
+### 把 dev 的权宜实现提为生产实现，必补两条：原子写、读取失败不降级（2026-08-11）
+
+桌面身份存储从系统 keychain 换成文件后端时，`file_keychain.rs`（原 dev-only）几乎可以
+原样提正——**但它有两处只在 dev 成立的偷懒，直接提正会把「省事」变成「数据丢失」**：
+
+| dev 的写法 | 生产必须改成 | 不改的后果 |
+|---|---|---|
+| `fs::write` 直接覆盖 | 临时文件 → `sync_all()` → `rename` | 写私钥途中断电 = 截断的 JSON = **身份不可恢复地丢失** |
+| 读失败 `warn!` + 返回 `Default` | 文件不存在 → `Ok(None)`；**存在但解析失败 → `Err`** | 一次磁盘坏块 → `load_identity()` 说「没有身份」→ core 生成新身份**并覆盖原文件**。用户只看到「设备列表空了」，零错误提示 |
+
+第二条尤其反直觉：dev 那句注释写的是「容错读：解析失败一律降级为默认值，**绝不返回
+`Err`**」——在 dev 环境这是对的（永远能起来），在生产它把一个可恢复的读取故障升级成了
+不可恢复的身份替换。**容错的方向要看下游拿它做什么**：下游若会「据此创建并覆盖」，
+容错就是破坏。
+
+推论三条：
+- 权限（unix `0600`）要设在**临时文件上、rename 之前**，否则目标文件有一个「以默认权限
+  存在」的窗口。
+- **不必 fsync 父目录**：那只影响「新内容崩溃后是否保住」，不影响「文件是否损坏」——
+  rename 未持久化时留下的是旧文件的完整内容，不变量仍成立。
+- 密钥与业务数据**分文件**：`paired-devices.json` 会随 identify 观察到的对端改名而重写，
+  与私钥同文件意味着每次改名都擦写一遍承载私钥的那个文件，每次都是一个新的损坏窗口。
+
+两条各有一条护栏测试看守（`corrupt_identity_file_errors_instead_of_resetting` /
+`atomic_write_leaves_no_temp_and_restricts_permissions`），**改实现必须同时改测试**。
+
+**相关文件**：`src-tauri/src/host/identity_store.rs`、
+`openspec/changes/desktop-identity-file-store/design.md`（D3 / D3b）
 
 ### 同一个写动作散在三端，会长出三种失败语义
 
@@ -294,7 +327,7 @@ uniffi 方法返回出去的，还是变成了 `FatalError(String)`。**
 
 | 端口 | 装什么 | 桌面 | 移动 | Web |
 |---|---|---|---|---|
-| `KeychainProvider` | 密钥材料（Ed25519 身份 / WebRTC 证书） | `keyring`（dev 走 `dev-identity.json`） | iOS Keychain / Android EncryptedSharedPreferences | 无实现（身份自管在 `crates/web/src/identity.rs`） |
+| `KeychainProvider` | 密钥材料（Ed25519 身份 / WebRTC 证书） | `identity.json`（0600 文件，三平台统一） | iOS Keychain / Android EncryptedSharedPreferences | 无实现（身份自管在 `crates/web/src/identity.rs`） |
 | `PairedDeviceStore` | 已配对设备列表（整份快照覆写） | 同 keychain 后端的一个条目 | 同一个存储桥 | IndexedDB `kv` |
 | `DeviceConfig` | 用户设的设备名 | `device_config.json` | `data_dir/device_config.json`（同格式） | IndexedDB 键 `swarmdrop.deviceName.v1` |
 | `FileAccess` | 文件读写（source 上半区 + sink 下半区） | 本地 FS + Android SAF | `MobileFileAccessAdapter` | OPFS |
@@ -1030,7 +1063,7 @@ but its file is missing")`。这发生在任何 DDL 之前 ——
   只删主文件而留下历史版本的 `-wal`，新库会读到一段本该消失的旧事务。
 
 代价的边界值得写清楚（用户会问）：丢的是**这个库里的**传输历史、收件箱、邀请注册表；
-设备身份与已配对设备在 keychain / `dev-identity.json` / 平台安全存储里，**配对关系不丢**，
+设备身份与已配对设备在 `identity.json` + `paired-devices.json`（桌面）/ 平台安全存储（移动）里，**配对关系不丢**，
 已落盘的文件也不动。
 
 ### 目录式迁移**不能**用 `DeriveMigrationName` —— 它会把版本名变成 `mod`
@@ -1361,25 +1394,43 @@ Direct（局域网点击配对，`/devices` 页「连接」按钮）没有配对
 
 ## 身份存储 (keychain)
 
-### dev 用文件后端、release 用系统 keychain（ad-hoc 签名导致 keychain 拒读）
+### 桌面三平台统一走文件，不用系统 keychain（2026-08-11 起）
 
-`pnpm tauri dev` 编译的是 **ad-hoc 签名（linker-signed）二进制**——`codesign -dvvv target/debug/swarmdrop` 显示 `flags=0x20002(adhoc,linker-signed)`、`TeamIdentifier=not set`，且 `Identifier` 带内容 hash **每次 rebuild 都变**。macOS login keychain 对 ad-hoc 签名进程访问限制极严，所有 `keyring` 请求（**连查询一个不存在的条目**）都返回 `errSecInteractionNotAllowed`（"Platform secure storage failure: User interaction is not allowed."，不弹授权框直接硬拒）。
+> **本条取代了原来的「dev 用文件后端、release 用系统 keychain」。** 那个分叉的前提是
+> 「只有 dev 二进制是 ad-hoc 签名」——**错的**：`tauri.conf.json` 写着
+> `"macOS": { "signingIdentity": "-" }`，release 产物同样是 ad-hoc。两个构建面对的是
+> 同一个签名问题，只是失败形态不同，而只有 debug 那侧承认了它。
 
-表现：设备身份起不来 → `initialize_identity` 抛错 → core `identity.rs` 的 `provider.load_identity().await?` 直接 `?` 传播（`keychain.rs` 只把 `NoEntry` 转 `Ok(None)`，其它错误一律 `Err`，连"生成新身份"退路都没有）→ 前端 `deviceId` 为 null → 点"启动节点"静默无反应。**删 keychain 条目无效**（是签名问题、非条目问题，新签名读旧条目/连查询都被拒）。
+`pnpm tauri dev` 与 release 产物都是 **ad-hoc 签名**（`codesign -dvvv` 显示
+`flags=0x20002(adhoc,linker-signed)`、`TeamIdentifier=not set`，`Identifier` 带内容 hash
+**每次 rebuild 都变**）。macOS 的 keychain ACL 按 designated requirement 匹配调用方，
+ad-hoc 签名没有稳定的 DR，于是：
 
-**正确做法**：
-- 身份存储后端按 build 类型分叉，cfg 边界**唯一集中**在工厂 `crate::host::keychain_provider(&app)`：
-  - `#[cfg(debug_assertions)]` → `FileKeychainProvider`（`app_data_dir/dev-identity.json` 明文持久，写后 `chmod 0600`）
-  - `#[cfg(not(debug_assertions))]` → `DesktopKeychainProvider`（系统 keychain）
-- 工厂返回 `Arc<dyn KeychainProvider>` 统一两分支静态类型（cfg 分支返回不同具体类型，`-> impl Trait` 无法统一）；core 函数签名是 `P: KeychainProvider + ?Sized`，用 `&*provider` 传入。
-- 文件后端必须**持久**（keypair 存盘、复用），否则每次重启换 PeerId 破坏配对测试。`load_identity` 在文件缺失/keypair 空时返回 `Ok(None)`（绝不 `Err`），让 core 走"生成新身份并 save"路径。
-- 调用 `Arc<dyn KeychainProvider>` 的 trait 方法**不需要** `KeychainProvider` 在 scope（trait object 走 vtable）；从具体 struct 换成 `Arc<dyn>` 后记得删掉原 `use ...::KeychainProvider`，否则 unused import warning。
+| 构建 | 表现 |
+|---|---|
+| debug | 所有 `keyring` 请求（**连查询一个不存在的条目**）硬拒 `errSecInteractionNotAllowed`，不弹框 |
+| release | **每次启动弹授权框**，且因为没有稳定标识，系统无法把它写进 item 的可信应用列表——**「始终允许」形同虚设**。启动读三条 item 就弹三次 |
 
-**不要做**：
-- 不要在 `DesktopKeychainProvider` 内部塞 `if-cfg` 降级——release 也可能在 keychain 偶发报错时误把明文私钥落盘；且降级逻辑散落每个方法。独立 provider + cfg 门控 `#[cfg(debug_assertions)] pub mod file_keychain;` 让 release 二进制根本不含文件后端代码。
-- 给新增 `#[tauri::command]` 透传 `app: AppHandle` 改变了命令签名（如 `remove_paired_device` 补 app），但 Tauri 按类型注入、不占前端参数位，前端 invoke 不变；改后跑一次 `pnpm tauri dev` 重新导出 bindings 即可。
+**现在的做法**：三个桌面平台统一文件后端，零 cfg 分叉，`keyring` 依赖已删除。
 
-**相关文件**：`src-tauri/src/host/file_keychain.rs`、`src-tauri/src/host.rs`（`keychain_provider` 工厂）、`crates/core/src/identity.rs`、`src-tauri/src/host/keychain.rs`
+- `identity.json`（keypair + WebRTC 证书 PEM，unix `0600`）+ `paired-devices.json`（设备列表），
+  两个文件，落 `app_local_data_dir`（**不是** `app_data_dir`——Windows 上后者是 `%APPDATA%`
+  会随域漫游配置文件同步，私钥不该漫游；macOS/Linux 两者本就同一目录，所以这不是平台分叉）。
+- 为什么不只改 macOS：**per-app ACL 只有 macOS 有**。Windows 凭据管理器按用户账户隔离、
+  同用户任何进程都能读；Linux Secret Service 仅在 keyring 锁定时加密。按平台分叉要永久
+  携带一个 `cfg(target_os)` 存储后端，代价高于那点收益。
+- 安全形态**如实说**：私钥明文，防「其他用户」不防「同用户下的其他进程」，等同无口令的
+  `~/.ssh/id_ed25519`。对外表述（文档站 / README / 应用内诊断）必须与此一致——
+  **改实现不改宣传是本仓犯过的错**（生物识别那次）。
+- 拿到 Developer ID 之后想切回 keychain：换一个端口实现即可，`keychain.rs` 在 git 历史里
+  完整可取。端口 trait 名保留 `KeychainProvider`（描述角色，移动端确实是 keychain）。
+
+**提为生产实现时补的那两条（原子写 / 读取失败不降级）见上面「把 dev 的权宜实现提为
+生产实现」那条**——它们是这次改动里唯一不能照搬 dev 代码的部分。
+
+**相关文件**：`src-tauri/src/host/identity_store.rs`、`src-tauri/src/host.rs`
+（`keychain_provider` / `paired_device_store` 两个工厂）、`crates/core/src/identity.rs`、
+`openspec/changes/desktop-identity-file-store/`
 
 ## 系统托盘
 
@@ -1447,18 +1498,29 @@ src-tauri 是 rmcp 唯一直接依赖方（`tauri-plugin-mcp-bridge` **不**依�
 
 **相关文件**：`src-tauri/src/mcp/{tools,resources,server}.rs`
 
-### keyring 3.x→4.x：feature 体系重构为 v1 facade（旧 feature 全删）+ 仅 release 可验证
+### ~~keyring 3.x→4.x 升级~~ —— **依赖已于 2026-08-11 整体移除**
 
-keyring 4.x 不是无脑 bump：把后端拆成 `keyring-core` + 各平台独立 store crate，默认 `v1` feature 按 target 自动 set_default_store。**旧 feature（apple-native/windows-native/linux-native-sync-persistent/crypto-rust/vendored）全部移除**，保留会编译失败。
+> **本条已作废，保留是因为它记录了一次真实的踩坑。** `keyring` 依赖、`host/keychain.rs`
+> 与 debug/release 的存储二选一都已删除，桌面三平台统一走 `identity.json` 文件后端
+> （见上面「桌面三平台统一走文件，不用系统 keychain」）。**若将来拿到 Developer ID
+> 想切回 keychain，下面这些仍然适用**，那份实现在 git 历史里完整可取。
 
-**正确做法**：
-- 删掉三个 `[target.'cfg(...)'.dependencies]` keyring 块，合并为 `[dependencies]` 单行 `keyring = "4.1.2"`（不要再写 default-features=false 或旧 feature 名）。
-- `keychain.rs` 源码**零改动**：`Entry::new` / `set_secret`/`get_secret` / `set_password`/`get_password` / `delete_credential` / `KeyringError::NoEntry` / `{error}` Display 全兼容。`pub mod keychain` 无条件编译，故 debug `cargo check` 即可覆盖；release cfg 工厂分支用 `cargo check --release` 坐实。
-- Linux 后端由 dbus-secret-service 换纯 Rust zbus，不再链接 libdbus/OpenSSL；`release.yml` 无 keyring 专属 apt 依赖、无需改。
+keyring 4.x 不是无脑 bump：把后端拆成 `keyring-core` + 各平台独立 store crate，默认 `v1`
+feature 按 target 自动 set_default_store。**旧 feature（apple-native/windows-native/
+linux-native-sync-persistent/crypto-rust/vendored）全部移除**，保留会编译失败。合并为
+`[dependencies]` 单行 `keyring = "4.1.2"`（不要再写 default-features=false 或旧 feature 名）。
+Linux 后端由 dbus-secret-service 换纯 Rust zbus，不再链接 libdbus/OpenSSL。
 
-**验证盲区（务必真机）**：keyring 仅 release build 生效（debug 走 `file_keychain`）+ macOS ad-hoc 签名进程被 Keychain 拒读 → `cargo test`/`pnpm tauri dev` **覆盖不到真实路径**，编译通过≠功能正确。必须出签名 release 包在三平台手测身份读写 + 重启 PeerId 稳定。跨版本 store 实现全换，老用户旧条目可能读不到 → 走"找不到即重建"（[见上 keychain 段]）→ PeerId 重置需重新配对，release note 要提示。
+**留下的一条仍然成立的判据**：跨版本换 store 实现会让老用户读不到旧身份 → PeerId 重置 →
+需重新配对，**release note 必须提示**。2026-08-11 换成文件后端时这条正是主要代价。
 
-**相关文件**：`src-tauri/src/host/keychain.rs`、`src-tauri/src/host.rs`
+⚠️ **移除 keyring 的副作用（未清理）**：存量安装的系统钥匙串里仍留着四条
+`com.yexiyue.swarmdrop` 条目（`device-identity` 是 `set_secret` 存的**原始 Ed25519 私钥**、
+`paired-devices`、`identity-migration-state`、`webrtc-direct-certificate`）。删掉依赖之后
+应用再也够不到它们，**一把已经失去用途的私钥会无限期留在钥匙串里**。macOS 上手动清理：
+`security delete-generic-password -s com.yexiyue.swarmdrop -a device-identity`（四条各一次）。
+
+**相关文件**：（`src-tauri/src/host/keychain.rs` 已删除，见 git 历史）
 
 ### 桌面「用本应用打开文件」（share-target 入口）：文件用 Tauri fileAssociations（按扩展名），别用 public.data 通配
 

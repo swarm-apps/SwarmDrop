@@ -3,7 +3,7 @@
  *
  * 设备身份和已配对设备列表的运行时镜像。
  *
- * **不再持久化到 localStorage**——身份由后端 host keychain 管理，每次启动从
+ * **不再持久化到 localStorage**——身份由后端身份存储端口管理，每次启动从
  * `initializeIdentity()` 重新读取。原先包了一层 zustand `persist` middleware
  * 但 `partialize: () => ({})` 不写任何字段，是名存实亡的空壳，已删除。
  */
@@ -22,7 +22,7 @@ interface SecretState {
   deviceId: string | null;
   /** 已配对设备列表 */
   pairedDevices: PairedDevice[];
-  /** 身份初始化错误（如 keychain 访问被拒），null 表示成功 */
+  /** 身份初始化错误（如身份文件读取失败 / 解析失败），null 表示成功 */
   initError: string | null;
   /** 是否已完成 hydration */
   _hasHydrated: boolean;
@@ -54,7 +54,7 @@ export const useSecretStore = create<SecretState>()((set, get) => ({
         initError: null,
       });
     } catch (err) {
-      // 身份初始化失败（如 dev 二进制签名漂移导致 keychain 拒读）不应让整个应用
+      // 身份初始化失败（如身份文件损坏——那会报错而不是静默生成新身份）不应让整个应用
       // 启动 reject 成静默 UNHANDLED_REJECTION——记录错误，供 startNetwork 等流程
       // 给出明确提示，而不是表现为"点了没反应"。
       console.error("Failed to initialize identity:", err);
@@ -101,7 +101,7 @@ export const useSecretStore = create<SecretState>()((set, get) => ({
 }));
 
 /**
- * 初始化设备身份运行时镜像（从后端 host keychain 拉取）。
+ * 初始化设备身份运行时镜像（从后端身份存储拉取）。
  */
 export async function rehydrateSecretStore() {
   const state = useSecretStore.getState();

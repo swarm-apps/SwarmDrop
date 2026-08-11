@@ -864,7 +864,7 @@ impl McpHandler {
 
     /// 确保本机 P2P 节点已上线
     #[tool(
-        description = "确保本机 P2P 节点已上线：已运行则幂等返回当前网络状态；未运行则自动启动（从 keychain 自取已配对设备 + 默认网络设置）。需设备身份已在 SwarmDrop 中解锁——身份未就绪时报错提示到 app 解锁。不提供停止节点的能力（下线是用户级操作）。",
+        description = "确保本机 P2P 节点已上线：已运行则幂等返回当前网络状态；未运行则自动启动（从身份存储自取已配对设备 + 默认网络设置）。需设备身份已在 SwarmDrop 中解锁——身份未就绪时报错提示到 app 解锁。不提供停止节点的能力（下线是用户级操作）。",
         annotations(read_only_hint = false, open_world_hint = true)
     )]
     pub async fn ensure_node_running(&self) -> Result<CallToolResult, ErrorData> {

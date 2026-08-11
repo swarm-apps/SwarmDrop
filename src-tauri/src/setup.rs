@@ -19,7 +19,7 @@ use tauri_specta::{Builder as SpectaBuilder, ErrorHandlingMode, collect_commands
 /// 此刻还在 `tauri::Builder` 之前，`app_log_dir()` 拿不到。等 setup hook 里
 /// 取到目录后再由 `install_file_layer` 装载。
 ///
-/// 之所以不把整个初始化推迟到 setup hook：那会丢掉启动早期的日志，而 keychain
+/// 之所以不把整个初始化推迟到 setup hook：那会丢掉启动早期的日志，而身份
 /// 读取与节点 bind 恰好在那之前，且它们正是最容易出问题的阶段。
 pub fn init_tracing() {
     crate::logging::init();
@@ -65,6 +65,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             // identity
             commands::initialize_identity,
             commands::generate_keypair,
+            commands::get_identity_file_path,
             commands::register_keypair,
             commands::get_device_name,
             commands::set_device_name,

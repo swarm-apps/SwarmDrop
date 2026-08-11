@@ -160,7 +160,6 @@ pub enum SinkOp {
 struct MemoryHostInner {
     identity: Option<DeviceIdentityBytes>,
     webrtc_certificate_pem: Option<String>,
-    migration_state: Option<IdentityMigrationState>,
     paired_devices: Vec<PairedDeviceInfo>,
     device_name: Option<DeviceName>,
     events: Vec<CoreEvent>,
@@ -284,23 +283,6 @@ impl KeychainProvider for MemoryHost {
             .lock()
             .expect("memory host poisoned")
             .webrtc_certificate_pem = None;
-        Ok(())
-    }
-
-    async fn load_migration_state(&self) -> AppResult<IdentityMigrationState> {
-        Ok(self
-            .inner
-            .lock()
-            .expect("memory host poisoned")
-            .migration_state
-            .unwrap_or(IdentityMigrationState::NotStarted))
-    }
-
-    async fn save_migration_state(&self, state: IdentityMigrationState) -> AppResult<()> {
-        self.inner
-            .lock()
-            .expect("memory host poisoned")
-            .migration_state = Some(state);
         Ok(())
     }
 }
@@ -516,8 +498,7 @@ mod tests {
 
     use super::{
         CoreEvent, CoreSaveLocation, DeviceIdentityBytes, EventBus, FileAccess, FileSinkId,
-        FileSourceId, HostFileMetadata, IdentityMigrationState, KeychainProvider, MemoryHost,
-        PairedDeviceStore,
+        FileSourceId, HostFileMetadata, KeychainProvider, MemoryHost, PairedDeviceStore,
     };
     use crate::device::{OsInfo, PairedDeviceInfo};
     use crate::network::NetworkStatus;
@@ -552,18 +533,6 @@ mod tests {
         assert_eq!(host.load_identity().await.unwrap(), None);
         host.save_identity(identity.clone()).await.unwrap();
         assert_eq!(host.load_identity().await.unwrap(), Some(identity));
-
-        assert_eq!(
-            host.load_migration_state().await.unwrap(),
-            IdentityMigrationState::NotStarted
-        );
-        host.save_migration_state(IdentityMigrationState::Completed)
-            .await
-            .unwrap();
-        assert_eq!(
-            host.load_migration_state().await.unwrap(),
-            IdentityMigrationState::Completed
-        );
 
         let device = PairedDeviceInfo::new(peer_id(), os_info("phone"), 42);
         host.save_paired_devices(std::slice::from_ref(&device))

@@ -16,7 +16,7 @@ pub struct IdentityState {
     pub created: bool,
 }
 
-/// 从系统 keychain 初始化设备身份，不再要求用户输入 Stronghold 密码。
+/// 初始化设备身份（读身份存储，不存在则生成），不要求用户输入任何密码。
 #[tauri::command]
 #[specta::specta]
 pub async fn initialize_identity(app: AppHandle) -> AppResult<IdentityState> {
@@ -38,11 +38,22 @@ pub async fn initialize_identity(app: AppHandle) -> AppResult<IdentityState> {
     })
 }
 
-/// 生成新的 Ed25519 密钥对（protobuf 编码，与存量 keychain 格式兼容）。
+/// 生成新的 Ed25519 密钥对（protobuf 编码）。
 #[tauri::command]
 #[specta::specta]
 pub async fn generate_keypair() -> AppResult<Vec<u8>> {
     Ok(SecretKey::generate().to_protobuf())
+}
+
+/// 设备身份文件的绝对路径，供节点状态诊断展示。
+///
+/// 身份自 keychain 改为明文文件后，「存在哪」从一句不必关心的实现细节变成了用户
+/// **需要**知道的事：备份、迁移设备、自行收紧权限都要先找得到它。诊断里只写
+/// 「本机文件」而不给路径，等于把「系统钥匙串」换成另一个同样无法据此行动的说法。
+#[tauri::command]
+#[specta::specta]
+pub async fn get_identity_file_path(app: AppHandle) -> AppResult<String> {
+    Ok(crate::host::identity_file_path(&app)?.display().to_string())
 }
 
 /// 读取持久化的设备名（onboarding 完成前为 `None`）。
@@ -94,7 +105,7 @@ pub async fn set_device_name(
     Ok(normalized.map(DeviceName::into_string))
 }
 
-/// 注册密钥对到 Tauri state，并在桌面端写入系统 keychain。
+/// 注册密钥对到 Tauri state，并在桌面端写入身份存储。
 #[tauri::command]
 #[specta::specta]
 pub async fn register_keypair(app: AppHandle, keypair: Vec<u8>) -> AppResult<String> {

@@ -133,7 +133,7 @@ pub(crate) struct EndpointConfig {
     /// 中继服务端（LanHelper；wasm 下忽略——behaviour 字段编译期不存在）。
     pub relay_server: Option<RelayServerConfig>,
     /// webrtc-direct 的持久化证书（PEM）。**certhash 进分享地址——证书变则
-    /// 分享出去的地址全部失效**，生产必须注入持久化证书（keychain/数据目录）；
+    /// 分享出去的地址全部失效**，生产必须注入持久化证书（宿主身份存储）；
     /// `None` 时每次随机生成（仅测试/临时场景可接受）。native only。
     pub webrtc_cert_pem: Option<String>,
     /// WebRTC 打洞传输（`None` = 不启用）。双 target 均可用。

@@ -572,6 +572,13 @@ builds, so it is fixed here rather than in three places:
 word, attribution (source · scope · roles), and the **verbatim `lastError` with a copy button** —
 plus local truth: node ID, reachable addresses, NAT, listen addresses, identity storage, uptime.
 
+**Identity storage must be actionable, not a label.** On desktop the private key lives in an
+owner-only file (`0600`), not the OS keychain, so this row gives the **copyable absolute path** —
+backing up, migrating to a new machine and tightening permissions all start with finding the file.
+A row reading "system keychain" or "a local file" tells the user nothing they can act on. Mobile
+keeps a plain label (the OS secure store is not user-addressable); Web answers a different question
+entirely ("am I still me after a refresh?") and is documented with its own copy.
+
 Uptime belongs in the diagnostic layer, not the conclusion layer: it answers none of the four
 questions above.
 

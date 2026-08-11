@@ -27,19 +27,19 @@ impl std::fmt::Debug for DeviceIdentityBytes {
     }
 }
 
-/// 身份存储迁移状态。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub enum IdentityMigrationState {
-    NotStarted,
-    Completed,
-}
-
-/// 宿主提供的安全身份存储。
+/// 宿主提供的设备身份存储。
 ///
 /// **只管密钥材料**（设备 Ed25519 身份 + WebRTC Direct 证书）。已配对设备列表不在这里，
 /// 见 [`PairedDeviceStore`]。
+///
+/// **名字描述的是角色，不是实现——别照它推断桌面走系统钥匙串。** 移动端确实是系统
+/// keychain（iOS Keychain / Android EncryptedSharedPreferences）；桌面端自 2026-08-11
+/// 起是 `app_local_data_dir` 下权限 0600 的明文文件（`src-tauri/src/host/identity_store.rs`，
+/// 根因与安全边界见那里的模块文档）。
+///
+/// **改名的触发条件：当没有任何一端还是 keychain 时。** 现在改是把一个对移动端准确的名字
+/// 换成一个更笼统的，而代价是 uniffi 那侧 `ForeignKeychainProvider` 的跨 FFI 契约与 4 个
+/// 入库的生成文件（cpp / ts）——不值。
 #[async_trait]
 pub trait KeychainProvider: Send + Sync {
     async fn load_identity(&self) -> AppResult<Option<DeviceIdentityBytes>>;
@@ -53,17 +53,14 @@ pub trait KeychainProvider: Send + Sync {
     async fn load_webrtc_certificate_pem(&self) -> AppResult<Option<String>>;
     async fn save_webrtc_certificate_pem(&self, pem: String) -> AppResult<()>;
     async fn delete_webrtc_certificate_pem(&self) -> AppResult<()>;
-
-    async fn load_migration_state(&self) -> AppResult<IdentityMigrationState>;
-    async fn save_migration_state(&self, state: IdentityMigrationState) -> AppResult<()>;
 }
 
 /// 已配对设备列表的持久化端口（整份快照读写）。
 ///
 /// **为什么它不属于 [`KeychainProvider`]。** 两者存的东西性质相反：密钥材料是不出进程的
-/// 秘密（宿主实现只负责把它交给系统钥匙串，任何人能读到都算泄露），而已配对设备列表是
+/// 秘密（宿主实现只负责把它交给平台的安全存储或受限文件，任何人能读到都算泄露），而已配对设备列表是
 /// 可导出、会被整份覆写、将来还可能供用户备份的**业务数据**。合成一个 trait 的代价由
-/// 没有钥匙串的那一端付：浏览器为了存一份设备列表得实现六个永远不该被调用的密钥方法，
+/// 没有密钥存储的那一端付：浏览器为了存一份设备列表得实现六个永远不该被调用的密钥方法，
 /// 而 `load_identity()` 返回 `Ok(None)` 这种「实现了但不能用」的方法是最容易被误用的
 /// 形态——调用方编译通过、运行期静默无效。拆开之后 Web 端只实现这两个方法，也就没有
 /// 理由再在自己那侧长一套平行实现。

@@ -299,7 +299,7 @@ impl PresenceSupervisor {
     /// - 解除配对 → 出白名单 + 断开连接 + 移除状态
     ///
     /// **撤销的触发判据是内存 `paired` 表**（`NetManager` 建的那份共享 `DashMap`），
-    /// 不是持久化列表：只把设备从 keychain / IndexedDB 里删掉，下面的
+    /// 不是持久化列表：只把设备从宿主身份存储 / IndexedDB 里删掉，下面的
     /// `presence − paired` 差集永远算不出它，保活与重探会一直跑到进程退出。
     /// 解除配对因此必须走
     /// [`PairingManager::unpair`](crate::pairing::PairingManager::unpair)——它删的正是这份表。

@@ -91,7 +91,7 @@ pub async fn generate_pair_invite(
     net: State<'_, NetManagerState>,
     local_only: Option<bool>,
 ) -> AppResult<String> {
-    // 身份「还没就绪」不是「读写身份失败」——用户的正确动作是重启应用，不是去查钥匙串。
+    // 身份「还没就绪」不是「读写身份失败」——用户的正确动作是重启应用，不是去查身份文件。
     let secret = app
         .try_state::<SecretKey>()
         .ok_or_else(AppError::identity_not_ready)?
@@ -198,7 +198,7 @@ fn parse_invite_id(text: &str) -> AppResult<[u8; 32]> {
 /// 配对成功后由 core 落盘并 emit `paired-device-added`。
 ///
 /// 返回 [`PairingOutcome`]：`response` 是对端的答复，`persisted` 为 `false` 时表示
-/// **配对成功了但这条记录没写进钥匙串** —— 本次运行内可用，重启后这台设备会从列表消失
+/// **配对成功了但这条记录没落盘** —— 本次运行内可用，重启后这台设备会从列表消失
 /// （对端仍记着）。UI 必须如实告知，不能当成普通成功。
 #[tauri::command]
 #[specta::specta]
@@ -340,7 +340,7 @@ pub async fn update_paired_device_policy(
 ///
 /// 接受后由 core 落盘并 emit `paired-device-added` 事件通知前端。
 ///
-/// **返回是否已落盘**（响应本身是入参，不必回传）：`false` = 配对成功但记录没写进钥匙串，
+/// **返回是否已落盘**（响应本身是入参，不必回传）：`false` = 配对成功但记录没落盘，
 /// 重启后这台设备会不见（对端仍记着）。语义与 [`PairingOutcome::persisted`] 同。
 #[tauri::command]
 #[specta::specta]

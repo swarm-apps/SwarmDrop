@@ -410,8 +410,9 @@ const SECURITY: Array<{ term: string; detail: ReactNode }> = [
     term: "设备身份",
     detail: (
       <>
-        Ed25519 密钥对。私钥交给系统钥匙串（macOS Keychain / Windows 凭据管理器 / Linux Secret
-        Service），不落进应用自己的文件。
+        Ed25519 密钥对。移动端交给系统安全存储（iOS Keychain / Android
+        EncryptedSharedPreferences）；桌面端存在应用数据目录下仅本人可读的文件里（unix 权限
+        0600），形态与无口令的 SSH 私钥一致。
       </>
     ),
   },

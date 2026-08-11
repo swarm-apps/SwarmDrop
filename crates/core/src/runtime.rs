@@ -74,10 +74,10 @@ impl EndpointProfile {
 /// `PairingManager` 的本机 `OsInfo` 与 identify 的 `agent_version`，不重启节点。
 ///
 /// 已配对设备的事实源是 `paired_device_store` 这个端口，本函数内部 load 一次——调用方
-/// **不再预先加载、也不再传快照**。（此前桌面还在快照之上叠了一层「keychain 为空则回退
+/// **不再预先加载、也不再传快照**。（此前桌面还在快照之上叠了一层「存储为空则回退
 /// 前端 IPC 传来的列表」的静默兜底，那份前端列表本身就是后端的镜像。）
 ///
-/// keychain 存量为 protobuf 编码，[`SecretKey`] 与之完全兼容。
+/// 身份存储里的存量为 protobuf 编码，[`SecretKey`] 与之完全兼容。
 // 依赖注入组合根：参数都是三端各自供给的端口 / 身份 / 配置（secret / os_info /
 // device_config / paired / network_config / profile / event_bus / notifier / invite_store /
 // transfer 工厂），打包成 struct 只是把同一组必填项换个容器、并不减少调用方负担，故直接放行。

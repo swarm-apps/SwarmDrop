@@ -200,7 +200,8 @@ impl PairingManager {
     /// 退回旧的「重启丢邀请」语义。**构造后需调用 [`Self::load_invites`]** 把已落盘的
     /// 邀请读回内存表，否则重启后它们等同不存在。
     ///
-    /// `paired_store` 是已配对设备列表的持久化端口（native = keychain 条目 /
+    /// `paired_store` 是已配对设备列表的持久化端口（桌面 = `paired-devices.json` /
+    /// 移动 = 系统安全存储 /
     /// wasm = IndexedDB），[`Self::unpair`] 靠它把解除配对做成原子操作。
     ///
     /// `os_info` 是本机设备信息，由组合根注入——**不要在这里 `OsInfo::default()`**，
@@ -599,7 +600,7 @@ impl PairingManager {
         let peer_id = device.peer_id;
 
         // **先写内存表，再落盘。** `respond_pairing_request` 在此之前已经把 `Success`
-        // 回给了对端，而落盘是一次真实 I/O（桌面钥匙串 / Web IndexedDB 往返 / 移动平台
+        // 回给了对端，而落盘是一次真实 I/O（桌面文件 / Web IndexedDB 往返 / 移动平台
         // 安全存储）—— 那段窗口里对端可能已经发来 offer，而本机 `is_paired` 还是 false，
         // 会被 `NotPaired` 拒掉。写在 await 之前，这条缝就不存在。
         //
