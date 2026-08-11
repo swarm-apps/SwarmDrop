@@ -12,8 +12,11 @@ use crate::{commands, events};
 use tauri::{Builder, Manager, Wry};
 use tauri_specta::{Builder as SpectaBuilder, ErrorHandlingMode, collect_commands, collect_events};
 
-/// 初始化 tracing 订阅器（默认 `swarmdrop=debug,swarmdrop_net=debug`，可被
-/// `RUST_LOG` 覆盖）。
+/// 初始化 tracing 订阅器（默认过滤见 [`crate::logging`] 的 `DEFAULT_FILTER`，
+/// 可被 `RUST_LOG` 覆盖）。
+///
+/// 这里刻意不复述那个值——它已经漂移过一次（补 `webrtc_p2p` / `webrtc` / `rtc` 时
+/// 这条注释没跟上），而复述一份就等于再造一个会过期的事实源。
 ///
 /// 实现搬进 [`crate::logging`]：控制台层在这里立即生效，**文件层留一个空位**——
 /// 此刻还在 `tauri::Builder` 之前，`app_log_dir()` 拿不到。等 setup hook 里

@@ -54,9 +54,15 @@ const MAX_LOG_FILES: usize = 7;
 /// **丢弃已经可靠送达的消息**（webrtc#858，判据见 `webrtc_p2p` 的 `sctp_receive_buffer`）。
 /// 回环实测在生产 filter 下丢掉 10 MiB、日志里**零条记录**。
 ///
+/// **`rtc=warn` 覆盖的是同一套栈的另一半**：`rtc` / `rtc_sctp` / `rtc_ice` / `rtc_dtls` /
+/// `rtc_turn` 都不以 `webrtc` 开头，同样够不着上面两条。这不是补充而是必需——
+/// 2026-08-11 修的 driver 忙循环（rtc#159/#161）就打在 `rtc_ice`，而「接收窗口 / 重组」
+/// 这类问题打在 `rtc_sctp`，正是本条 filter 想抓的那一类。
+///
 /// 顺序无所谓，`EnvFilter` 取**最长匹配**：`webrtc_p2p=info` 比 `webrtc=warn` 更具体，
 /// 本仓 crate 的级别不受影响。
-const DEFAULT_FILTER: &str = "swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info,webrtc=warn";
+const DEFAULT_FILTER: &str =
+    "swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info,webrtc=warn,rtc=warn";
 
 /// 文件层的级别，**刻意比控制台保守**。
 ///
@@ -301,7 +307,7 @@ mod tests {
         }
 
         assert_passes!(
-            "swarmdrop",
+            "swarmdrop_core",
             tracing::info!(target: "swarmdrop_core", "probe")
         );
         assert_passes!(
@@ -321,6 +327,16 @@ mod tests {
         assert_passes!(
             "webrtc",
             tracing::error!(target: "webrtc::peer_connection::driver", "probe")
+        );
+        // 同一套栈的另一半。忙循环（rtc#159/#161）打在 `rtc_ice`，
+        // 接收窗口 / 重组类问题打在 `rtc_sctp`——都不以 `webrtc` 开头。
+        assert_passes!(
+            "rtc_ice",
+            tracing::warn!(target: "rtc_ice::agent::agent_proto", "probe")
+        );
+        assert_passes!(
+            "rtc_sctp",
+            tracing::warn!(target: "rtc_sctp::association", "probe")
         );
     }
 }
