@@ -24,6 +24,25 @@
 //! [`ManagedPeerConnection`] 持有，它就一定会被关闭**。握手成功时把这个值本身
 //! **move 给下一任持有者**（muxer），守卫就跟着连接走，中途一刻也没有裸 `Arc`。
 //!
+//! # ⚠️ 这道守卫解决的是「谁来调 `close()`」，不是「调了一定有用」
+//!
+//! 2026-08-11 又发作了一次同样的 948%/718% 现象，**而本类型当时正常工作**。真因在上游：
+//! ICE agent 进入 `Failed` 后 `poll_timeout()` 持续返回一个落在过去的 deadline，driver 的
+//! event loop 对已过期 deadline 走 `handle_timeout` + `continue`，**那条 `continue` 跳过了
+//! 整个 `select!`**——而 `close()` 正是经那里的命令通道送达的。于是 [`Drop`] 派出的
+//! `pc.close().await` 永远完不成，守卫形同虚设。
+//!
+//! 换句话说：**只要 driver 可能陷入不读命令的循环，任何依赖它协作的关闭机制都不成立。**
+//! 上面那句「泄漏有两条来源」因此是**不完整**的——它只数了「没人调 close」的情形。
+//!
+//! 该 bug 已由上游 [rtc#159](https://github.com/webrtc-rs/rtc/pull/159) 修复，本仓经根
+//! `Cargo.toml` 的 `[patch.crates-io]` 取用（含完整因果链与退出条件）。完整复盘见
+//! `dev-notes/research/2026-08-11-webrtc-driver-busy-loop.md`。
+//!
+//! 若同类问题再次出现（上游回归、或换成别的不读命令的循环），本类型**兜不住**，
+//! 得改用不依赖 driver 协作的手段——`Runtime::spawn` 返回的 `JoinHandle` 带 `abort()`，
+//! 那是目前看得见的唯一硬手段。
+//!
 //! wasm 侧的对称实现在 [`backend::wasm::muxer`](crate::backend::wasm::muxer) 的 `Drop`
 //! 里——那边泄漏的是浏览器自己管的对象，这边泄漏的是本进程的 CPU。
 

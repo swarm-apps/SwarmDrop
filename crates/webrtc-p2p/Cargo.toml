@@ -52,6 +52,10 @@ unsigned-varint = { workspace = true }
 # ⚠️ **不要降回 0.20.0-rc.\***：本仓依赖的五个补丁（rtc #137 / #138 / #140、
 # webrtc #825 / #828）直到 0.20.0 正式版才进 crates.io。少了它们 direct 监听端起不来、
 # 数据面静默丢包，且全链路零报错——复盘见 `dev-notes/blogs/webrtc/`。
+#
+# ⚠️ **`rtc-*` 整棵子树被根 Cargo.toml 的 `[patch.crates-io]` 换成了 git**（rtc#159 /
+# #161，两条「过期 deadline 让 driver 空转烧核」的修复，尚未发布到 crates.io）。
+# 版本号仍是 0.20.1，API 与这里声明的完全一致——patch 的理由、退出条件写在那里。
 webrtc = "0.20.0"
 # 只为**打开 pem feature**：`RTCCertificate::{from_pem, serialize_pem}` 挂在它下面，
 # 而 rtc 的默认 feature 不含 pem、`webrtc` 也没有透传它。direct 模式要把证书持久化
