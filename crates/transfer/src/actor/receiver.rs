@@ -604,14 +604,14 @@ impl ReceiverActor {
         // `mark_file_completed` 就把位图写成完整，两者恒等价，而多一份状态就多一处会漂。
         //
         // 断流优于静默丢数据——走到这里说明对端与本端对「哪些文件已收齐」的认知已经分叉。
-        if file_is_complete(&file_info, bitmaps) {
+        if file_is_complete(file_info, bitmaps) {
             return Err(AppError::Transfer(format!(
                 "文件已发布后仍收到数据块（协议违规）: file_id={}, offset={}",
                 range.file_id, range.offset
             )));
         }
         let sink_id = self
-            .ensure_sink(&file_info, sinks, started_files, progress, is_resume)
+            .ensure_sink(file_info, sinks, started_files, progress, is_resume)
             .await?;
         // 建 sink 归 `rest`，**不能让它默默滚进 `write`**：每个文件的首块要走
         // `create_sink`，在 Android 上那是一次 SAF 文档创建（慢路径）。而 `write` 那一桶的
@@ -619,14 +619,14 @@ impl ReceiverActor {
         // 显示出一个根本不存在的写盘瓶颈，正好误导这个探针存在的目的。
         probe.lap(DIGEST_REST);
         let completed_bitmap = self
-            .persist_chunk(&file_info, &sink_id, &range, data, bitmaps, probe)
+            .persist_chunk(file_info, &sink_id, &range, data, bitmaps, probe)
             .await?;
         self.emit_chunk_progress(progress, &range).await;
         // `rest` 收 ensure_sink、bitmap 簿记与进度事件；发布单独成桶——它与前三者差着
         // 好几个数量级（SAF 目标是全量拷贝），混在一起真机日志就分不出是哪一段慢。
         probe.lap(DIGEST_REST);
         if let Some(bitmap) = completed_bitmap {
-            self.publish_file(&file_info, sinks, bitmap).await?;
+            self.publish_file(file_info, sinks, bitmap).await?;
             probe.lap(DIGEST_PUBLISH);
         }
         Ok(())
