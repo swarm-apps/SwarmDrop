@@ -122,7 +122,9 @@ read_source_chunk().await  →  encode_proof()  →  write_frame().await
 
 ## 下一步（按价值排序）
 
-1. **跨网测一次**（手机走蜂窝或异地 Wi-Fi）——局域网 20 MB/s 说明不了中转/打洞路径。
-2. **确认 prepare 假设**（上面那个单一观察，几乎零成本）。
-3. **干净的 WebTransport vs WebRTC A/B**，同构建同链路——有了它才能写下倍数。
+1. **读一次探针**（零成本，不用改代码）：Web 端发送时看 console 的 `传输探针` 行，按上面
+   那张表判读。它直接回答「发送方向慢在哪」，而现在只有推理。
+2. **跨网测一次**（手机走蜂窝或异地 Wi-Fi）——局域网 20 MB/s 说明不了中转/打洞路径，
+   而那正是「打洞只有 WebRTC 有」这条限制真正起作用的地方。
+3. **干净的 WebTransport vs WebRTC A/B**，同构建同链路同手机——有了它才能写下倍数。
 4. iOS + Safari；Firefox（Gecko）至今未测。
