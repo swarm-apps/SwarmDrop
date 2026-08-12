@@ -118,8 +118,15 @@ DPR、帧率、层不透明度与遮罩，理由与数值见 DESIGN.md 的 Ambie
 UUID——永远生成不出来。传输详情因此走 `?session=…` + 就地展开，而不是照搬桌面端的
 `_app/transfer/$sessionId`。
 
-> **2026-08-04 更新**：历史列表的 8 条硬截断**已删除**，`groupSessions` 的第二个参数
-> 从 `selectedId` 换成了筛选档（全部 / 进行中 / 可恢复 / 已结束，与桌面同名同义）。
+> **2026-08-04 更新**：历史列表的 8 条硬截断**已删除**，改成筛选档
+> （全部 / 进行中 / 可恢复 / 已结束）。
+>
+> **2026-08-12 更新**：`groupSessions` 已不存在——列表不再切成 active / history 两段，
+> 而是一条纯时间线，只剩单会话谓词 `matchesSessionFilter(projection, filter)`。
+> 排序收进了 `@swarmdrop/shared-view` 的 `sortByTimelineDesc`（三端唯一一份），
+> 判据见 `DESIGN.md` 的 **Transfer List Order Contract**。⚠️ 那四档与桌面**同名但
+> 判据尚未同义**（本端 `active` 含 suspended、`ended` 只看 terminal），契约的
+> open gaps 里记着这条待收敛。
 >
 > 原先的做法是「只留最近 8 条已结束会话，并显式保留选中项，免得深链指向第 20 条时进来
 > 看到一个什么都没选中的列表」。那个补丁修的是症状：**第 9 条起在 UI 里根本够不着**，

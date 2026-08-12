@@ -55,6 +55,10 @@ msgstr "{activeTransferCount, plural, one {é²è¡ä¸­ç # åå
 msgid "{activeTransferCount, plural, one {重启会中断正在进行的 # 个传输。} other {重启会中断正在进行的 # 个传输。}}"
 msgstr "{activeTransferCount, plural, one {éåæä¸­æ·é²è¡ä¸­ç # åå³è¼¸ã} other {éåæä¸­æ·é²è¡ä¸­ç # åå³è¼¸ã}}"
 
+#: src/lib/format.ts
+msgid "{days} 天前"
+msgstr "{days} 天前"
+
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "{deviceCount, plural, one {# 台设备} other {# 台设备}}"
 msgstr "{deviceCount, plural, other {# 台裝置}}"
@@ -63,10 +67,18 @@ msgstr "{deviceCount, plural, other {# 台裝置}}"
 msgid "{firstFileName} 等 {fileCount} 个文件"
 msgstr "{firstFileName} 等 {fileCount} 個檔案"
 
+#: src/lib/format.ts
+msgid "{hours} 小时前"
+msgstr "{hours} 小時前"
+
 #. placeholder {0}: ms / 1000
 #: src/stores/pairing-store.ts
 msgid "{label}超时（{0}s）"
 msgstr "{label}逾時（{0}s）"
+
+#: src/lib/format.ts
+msgid "{minutes} 分钟前"
+msgstr "{minutes} 分鐘前"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "{title} 等 {itemCount} 个文件"
@@ -481,6 +493,10 @@ msgstr "切換後會立即重新產生邀請，先前顯示的 QR Code 隨即失
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "切换过滤条件，或通过邀请连接设备。"
 msgstr "切換篩選條件，或透過邀請連線裝置。"
+
+#: src/lib/format.ts
+msgid "刚刚"
+msgstr "剛剛"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 #: src/routes/_app/inbox/index.lazy.tsx

@@ -1,4 +1,5 @@
-import { i18n } from "@lingui/core";
+import { i18n, type MessageDescriptor } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
 import {
   formatTimeLeft as formatTimeLeftIn,
   formatTransferRate,
@@ -54,15 +55,25 @@ export function formatTimeLeft(seconds: number): string {
  * **刻意不进共享包**：输出是本地化文案，而三端各说各的（移动端返回的甚至是 `<Trans>` 节点，
  * 不是字符串）。收进共享包就必须改掉其中一端的渲染输出。
  *
- * 这里的中文是硬编码的——它先于 Lingui 接入存在，属于既有负债，不在共享包收口的范围内。
+ * 返回**描述符**而非字符串：本模块是纯函数，翻译宏在这里只能定义、不能展开
+ * （展开要 `useLingui()`，那是组件的事）。调用点拿到描述符自己 `t(...)`。
+ * 此前这里硬编码中文，en / zh-TW 下整列时间戳都是简体——而
+ * `Transfer List Order Contract` 刚把「每行印它被排序的那个时间戳」定成必须。
  */
-export function formatRelativeTime(date: Date | number): string {
+export function relativeTimeMessage(date: Date | number): MessageDescriptor {
   const now = Date.now();
   const ts = typeof date === "number" ? date : date.getTime();
   const diff = Math.floor((now - ts) / 1000);
 
-  if (diff < 60) return "刚刚";
-  if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
-  return `${Math.floor(diff / 86400)} 天前`;
+  if (diff < 60) return msg`刚刚`;
+  if (diff < 3600) {
+    const minutes = Math.floor(diff / 60);
+    return msg`${minutes} 分钟前`;
+  }
+  if (diff < 86400) {
+    const hours = Math.floor(diff / 3600);
+    return msg`${hours} 小时前`;
+  }
+  const days = Math.floor(diff / 86400);
+  return msg`${days} 天前`;
 }

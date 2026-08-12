@@ -55,6 +55,10 @@ msgstr "{activeTransferCount, plural, one {# transfer in progress will be interr
 msgid "{activeTransferCount, plural, one {重启会中断正在进行的 # 个传输。} other {重启会中断正在进行的 # 个传输。}}"
 msgstr "{activeTransferCount, plural, one {Restarting will interrupt # transfer in progress.} other {Restarting will interrupt # transfers in progress.}}"
 
+#: src/lib/format.ts
+msgid "{days} 天前"
+msgstr "{days}d ago"
+
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "{deviceCount, plural, one {# 台设备} other {# 台设备}}"
 msgstr "{deviceCount, plural, one {# device} other {# devices}}"
@@ -63,10 +67,18 @@ msgstr "{deviceCount, plural, one {# device} other {# devices}}"
 msgid "{firstFileName} 等 {fileCount} 个文件"
 msgstr "{firstFileName} and {fileCount} files"
 
+#: src/lib/format.ts
+msgid "{hours} 小时前"
+msgstr "{hours}h ago"
+
 #. placeholder {0}: ms / 1000
 #: src/stores/pairing-store.ts
 msgid "{label}超时（{0}s）"
 msgstr "{label} timed out ({0}s)"
+
+#: src/lib/format.ts
+msgid "{minutes} 分钟前"
+msgstr "{minutes}m ago"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "{title} 等 {itemCount} 个文件"
@@ -481,6 +493,10 @@ msgstr "Toggling regenerates the invite immediately; the QR code shown before st
 #: src/routes/_app/devices/-components/add-device-section.tsx
 msgid "切换过滤条件，或通过邀请连接设备。"
 msgstr "Change the filter, or connect a device with an invite."
+
+#: src/lib/format.ts
+msgid "刚刚"
+msgstr "Just now"
 
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 #: src/routes/_app/inbox/index.lazy.tsx

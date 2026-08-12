@@ -188,7 +188,12 @@ NativeWind 5 preview 给 `ScrollView` 注册了 `contentContainerClassName`（`A
 这类间接 prop 有注册盲区）。
 
 **相关文件**：[src/app/(main)/inbox.tsx](../../src/app/(main)/inbox.tsx)（FlatList），
-[src/app/activity.tsx](../../src/app/activity.tsx)（SectionList）
+[src/app/activity.tsx](../../src/app/activity.tsx)（FlatList）
+
+> `mobile/src` 里**现在已经没有 SectionList 了**——传输记录页 2026-08-12 随「三端传输
+> 列表改成一条时间线」从四组 SectionList 换成了扁平 FlatList。上面那条注册盲区对
+> SectionList 依然成立（`renderSectionHeader` 等间接 prop 同样绕过 NativeWind），
+> 只是本仓暂时找不到活的例子了。
 
 ### 内容区加载态用骨架屏镜像真实布局,spinner 只留给按钮/行内
 

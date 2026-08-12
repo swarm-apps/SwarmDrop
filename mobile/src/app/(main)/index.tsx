@@ -1,5 +1,6 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import {
+  compareByTimelineDesc,
   type DeviceOrganization,
   deviceGroupNames,
   deviceIdentityHint,
@@ -54,10 +55,7 @@ import {
 import { Text } from "@/components/ui/text";
 import { canSendToDevice } from "@/core/device-trust";
 import { getMobileCore } from "@/core/mobile-core";
-import {
-  compareProjectionsByUpdatedAtDesc,
-  isProjectionActive,
-} from "@/core/transfer-types";
+import { isProjectionActive } from "@/core/transfer-types";
 import { useNodeHealth } from "@/hooks/use-node-health";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { devicePlatformIcon } from "@/lib/device-platform";
@@ -188,7 +186,7 @@ export default function DevicesScreen() {
     () =>
       Object.values(projections)
         .filter(isProjectionActive)
-        .sort(compareProjectionsByUpdatedAtDesc)
+        .sort(compareByTimelineDesc)
         .slice(0, 3),
     [projections],
   );

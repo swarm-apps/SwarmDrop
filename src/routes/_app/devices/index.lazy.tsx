@@ -39,6 +39,7 @@ import {
   deviceIdentityHint,
   hasDuplicateOrganizedName,
   organizedDeviceName,
+  sortByTimelineDesc,
   sortDeviceGroups,
   type DeviceOrganization,
 } from "@swarmdrop/shared-view";
@@ -173,9 +174,7 @@ function DevicesPage() {
 
   const activeItems = useMemo(
     () =>
-      Object.values(projections)
-        .filter(isProjectionActive)
-        .sort((a, b) => b.startedAt - a.startedAt),
+      sortByTimelineDesc(Object.values(projections).filter(isProjectionActive)),
     [projections],
   );
 

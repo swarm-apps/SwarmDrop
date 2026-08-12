@@ -791,6 +791,87 @@ the same rule `src/index.css` already states for status colors as text — measu
 mobile shipped raw amber on both the fill and the icon. **Dark mode passes either way**, so checking
 only the dark theme will tell you nothing.
 
+### Transfer List Order Contract (cross-platform)
+
+**The transfer list is one timeline, ordered by last activity. It is not grouped by state.**
+
+Until 2026-08-12 all three builds sorted by state first and time second, each with its own shape:
+desktop ranked active → suspended → everything else and then sorted by `startedAt`; mobile rendered a
+four-section `SectionList` (active / recoverable / attention / completed); web split into `active`
+and `history` with a heading between them. The three also disagreed on the key — desktop used
+`startedAt`, the other two `updatedAt` — so **the same resumed session sat at the top on two builds
+and near the bottom on the third**.
+
+- **The key is `updatedAt` — last activity, never `startedAt`.** The question this list answers is
+  "what happened recently". A session started three days ago and resumed a minute ago is the single
+  most relevant row on the screen, and sorting by start time buries it three days down. Pause-then-
+  resume-tomorrow is routine, not an edge case.
+- **A live transfer is recognised by being the only row that moves, not by its position.** The DB
+  does rewrite `updated_at` on every checkpoint (`update_file_checkpoint_ranges`), but that fact
+  never reaches a list: checkpoints emit `TransferProgress`, while `TransferProjection` is emitted
+  only on a state transition (`crates/transfer/src/coordinator.rs`), and no store writes `updatedAt`
+  from a progress event. **So a 20-minute transfer has its `updatedAt` frozen at the moment it went
+  `active`, and any session that finishes meanwhile sorts above it.** That is the accepted trade of
+  this contract, not an oversight — the active row carries the only progress bar and the only
+  animation on screen, and the "active" filter is one tap away. If it ever stops being acceptable,
+  the honest fix is a throttled projection emit on checkpoint, *not* a state tier bolted back on top
+  of the ordering.
+- **Ties break on `sessionId`.** The list source is `Object.values(projections)`; without a
+  deterministic tiebreak two same-millisecond rows swap places on re-render for no visible reason.
+- **Grouping is the user's move, not the list's** — which obliges every build to keep a filter for
+  each class its grouping used to surface. Flattening mobile without adding a `可恢复` chip would
+  have deleted the only affordance for "which one can I resume": its `attention` predicate returns
+  `!recoverable` for a suspended session, so recoverable was the one class its filters could not
+  reach. Baking that split into the default view charges every reader for it: a
+  just-failed session renders *below* a pile of days-old completions because it lives in a later
+  section. Mobile's search screen had already reached this conclusion independently — "搜索场景没有
+  分组语境,卡片保留状态徽章承担状态信息".
+- **Consequence, binding: every row states its own state.** With no section heading above it, the
+  status badge is no longer redundant and MUST NOT be suppressed. Mobile previously hid the badge
+  inside the *active* and *completed* sections precisely because the heading said it; flattening
+  without re-enabling the badge is how "已完成" and "失败" become indistinguishable.
+
+**The storage ports are not bound by this contract.** `list_transfer_projections` returns
+`started_at` descending on both implementations (`crates/storage-sql`, `crates/web`); that is a
+*determinism* guarantee, not a presentation order — the front-end Record is rebuilt from incremental
+events anyway, so the port order is gone by the first update. `started_at` is the better anchor there
+precisely because it never changes.
+
+**One implementation, not three:** `sortByTimelineDesc` / `compareByTimelineDesc` in
+`@swarmdrop/shared-view`. The comparator takes `{ sessionId, updatedAt }` and compares rather than
+subtracts, because **mobile's `updatedAt` is a `bigint`** (uniffi i64) and `bigint - number` throws.
+Anything re-deriving this order locally is the drift this contract exists to prevent.
+
+- **Every row prints the timestamp it was sorted by.** Printing `startedAt` while sorting on
+  `updatedAt` puts "3 天前" at the top of the list on the contract's own headline scenario. Terminal
+  sessions are unaffected in substance — their `updatedAt` *is* the moment they ended.
+
+**Permitted divergence: the list primitive and the filter sets.** Desktop and web render into a
+master-detail shell, mobile into a `FlatList`. Mobile's filters are `all / receive / send /
+recoverable / attention` — direction-first, because that is the question a phone user arrives with;
+the other two are `all / active / recoverable / ended`. Neither licenses a second ordering rule.
+
+**Open gaps as of 2026-08-12 — this contract is not yet fully met, and saying so is part of the
+contract** (same discipline as the Transfer Progress Contract above; the Node Status Contract cost
+us once by reading as a description of code that was really a wish list):
+
+- **Desktop and web share four filter names but not four predicates.** Desktop's `active` is
+  offered/waiting/active and its `ended` also absorbs *non-recoverable* suspended sessions; web's
+  are `phase !== "terminal"` and `phase === "terminal"`. A non-recoverable interruption therefore
+  files under 已结束 on desktop and 进行中 on web. This is the same shape of drift as the
+  `startedAt`/`updatedAt` split this contract just closed, one chip to the left. Closing it means
+  deciding which reading is right — a real product call, not a move — so it is deliberately left
+  out of the PR that wrote this contract. The three predicates belong in
+  `@swarmdrop/shared-view/transfer` beside the comparator; the filter *sets* stay per build.
+- **Web draws one grey dot for every terminal session** (`PHASE_META[phase].dot`). While 已结束 was
+  its own section that was fine; interleaved into a timeline the dot becomes the only
+  pre-attentive signal and it says nothing — completed and failed look identical until you read the
+  label. Desktop and mobile already colour by outcome.
+- **Mobile lost one line of grouping knowledge** with no new home: the 已完成 section's subtitle
+  「收到的内容已放进收件箱」. The per-row inbox button is its actionable form and the list header
+  still says it once, so this is an accepted loss rather than an open bug — recorded because it is
+  the only thing in that flattening that genuinely belonged to the group layer.
+
 ### Bottom Action Contract (mobile)
 
 **A pinned bottom action is not trim; when it fails, a feature disappears.** The device detail screen

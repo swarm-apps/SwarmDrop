@@ -28,7 +28,7 @@ import {
   calcPercent,
   formatFileSize,
   formatSpeed,
-  formatRelativeTime,
+  relativeTimeMessage,
 } from "@/lib/format";
 import { failureCodeMessage, getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
@@ -193,7 +193,14 @@ export const SessionRow = memo(function SessionRow({
             这与设备卡片网格用 `auto-fill + minmax(300px,1fr)` 而不是 `xl:grid-cols-3`
             是同一条判据——列宽由这一栏能有多宽决定，不由窗口多宽决定。 */}
         <div className="@container mt-0.5">
-          {projection.phase === "active" && progress && (
+          {/* **不要**把这里改回 `&& progress`：progress 还没到（冷启动首帧、或
+              loadProjections 刚清过进度表）时整块状态区会变空白。旧排序下 active 行被
+              phaseRank 钉在最顶，读者知道那一段是「进行中」；纯时间线下它可能落在任何
+              位置，一行什么都不说的记录比排错位置更糟（Transfer List Order Contract：
+              每行必须自述状态）。这里的每个值本来就有 progress 缺席时的退路：
+              `progressPercent` 回落到 `transferredBytes / totalSize`，文件名回落到
+              「传输中」，`formatSpeed` 与 `EtaSlot` 各自处理 undefined。 */}
+          {projection.phase === "active" && (
             <div className="mt-0.5 flex flex-col gap-1.5">
               {/* 这里**刻意不给 `aria-label`**（详情面板那两条给了）：整行是
                   `role="button"`，而 ARIA 对 button 规定 Children Presentational: True
@@ -312,8 +319,11 @@ export const SessionRow = memo(function SessionRow({
 
       {/* 右列：时间 + 行内操作 */}
       <div className="-mr-1 flex shrink-0 flex-col items-end gap-1">
+        {/* 印的必须是排序键本身：按 updatedAt 排却印 startedAt，会让一条刚续传的会话
+            置顶显示「3 天前」——行的文字和行的位置互相打脸。终态会话的 updatedAt 就是
+            它进终态的那一刻，与 finishedAt 同义。 */}
         <span className="text-[10px] text-muted-foreground">
-          {formatRelativeTime(projection.finishedAt || projection.startedAt)}
+          {t(relativeTimeMessage(projection.updatedAt))}
         </span>
         <div className="flex items-center gap-0.5">
           {projection.phase === "active" && (
