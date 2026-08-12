@@ -80,6 +80,13 @@ pnpm check:landing         # 配对落地页体积（≤10KB gzip，含注释）
 pnpm i18n:extract          # 新增/修改翻译字符串后
                            # ⚠️ 提取完要**补 en / zh-TW 译文**，否则那两个语言静默回落中文
 
+# 移动端（在 mobile/ 下跑 —— 独立 pnpm workspace，改了 mobile/src 就要跑）
+# ⚠️ 这两条**零 CI 覆盖**：mobile-checks.yml 目前只跑 check:expo-patches，
+#    workflow 自己的注释也写着 typecheck / biome / check:zustand-access 还没接进去。
+#    漏跑没人会告诉你——2026-08-12 的传输时间线改动就是这么带着 4 个 biome error 提交的。
+pnpm typecheck
+pnpm lint:ci               # biome（import 排序 + 格式）；`pnpm lint` 是可写版
+
 # Rust（在仓库根目录跑即可，workspace 会一并 check）
 cargo fmt --all
 cargo check --workspace --all-targets

@@ -109,6 +109,9 @@ pnpm wdio
 pnpm install
 pnpm ios / pnpm android
 pnpm typecheck
+pnpm lint:ci            # biome（import 排序 + 格式）。⚠️ **和 typecheck 一样零 CI 覆盖**
+                        #   —— mobile-checks.yml 目前只跑 check:expo-patches，
+                        #   所以这两条的唯一执行者就是这份清单
 pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 ```
 
