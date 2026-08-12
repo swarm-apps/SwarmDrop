@@ -63,29 +63,42 @@ profile 改回 `opt-level = 3` 的理由，见 `toolchain.md`）。改完之后 
 - ❌ **不是 wasm 的 blake3 慢。** 两个方向的浏览器侧都要做 blake3——收端逐块验签、发端建
   outboard 加逐块 proof，工作量同量级。若 blake3 是瓶颈，两个方向该一样慢。
 
-### 剩下的：发送路径是串行的，而它独有一份跨边界拷贝
+### 又排除两条
 
-`crates/transfer/src/actor/sender.rs` 的 `write_block` 严格串行，**没有预取**：
+- ❌ **不是 `encode_proof` 里藏了个 O(n²)。**（值得查，因为这个系列里
+  [`01-the-hidden-quadratic.md`](../blogs/transfer-throughput/01-the-hidden-quadratic.md)
+  就是这类。）它按 range 只走 O(块 + log n) 的父哈希，`outboard_bytes` 是借用不拷贝；
+  2 GB 文件在 256 KiB chunk group 下 outboard 才 ~512 KB。
+- ❌ **不是停等流控的窗口 RTT。** `WINDOW_CHUNKS = 16` ⇒ 一窗 4 MiB，2 GB 只停 512 次；
+  局域网 RTT 下不到 1.5 s，而整程 ~220 s。`sync_window` 的 doc 早就写了这个判断。
 
-```text
-read_source_chunk().await  →  encode_proof()  →  write_frame().await
-```
+- ❌ **不是「发送侧多一份跨 JS↔wasm 拷贝」。** 我一度这么写过，**是错的**：两个方向都跨
+  两次边界（收 = 读帧 + 写 OPFS，发 = 读 File + 写流）。拷贝次数对称。照着「减少拷贝」
+  去优化会走偏。
 
-浏览器上那个 `read_source_chunk`（`crates/web/src/file_access.rs:137`）每 256 KiB 要做：
+### 剩下的：**接收端流水线化了，发送端没有**
 
-1. `File.slice(offset, end)` — 廉价
-2. `blob.array_buffer()` — 磁盘读 + 在 **JS 堆**上产生一个新 ArrayBuffer（第一次拷贝）
-3. `JsFuture` await — 一次 promise/microtask 往返
-4. `Uint8Array::new(&buf).to_vec()` — **第二次拷贝**，JS 堆 → wasm 线性内存
+| | 接收端 | 发送端 |
+|---|---|---|
+| 形态 | `receiver.rs:374`：收帧 ‖ 消化两条并发路径，中间一条有界队列（`DIGEST_QUEUE_CHUNKS`），窗口确认**就地回、不等消化** | `sender.rs` 无 `join` / `spawn` / 队列；`write_block` 严格 `read_source_chunk().await → encode_proof() → write_frame().await` |
+| 来源 | 2026-08-10 那轮流水线化（[`03-both-sides-waiting.md`](../blogs/transfer-throughput/03-both-sides-waiting.md)，拿回 50%） | **那轮没动它** |
 
-2 GB / 256 KiB = 8192 次，即 ~8192 次 promise 往返 + **~4 GB 的 memcpy**，而这些**全都
-不与网络发送重叠**——串行链上读完才发，发完才读下一块。
+这正好解释了「为什么偏偏是浏览器发送慢」——串行本身是两端都有的，但它的**代价**只在
+浏览器那侧显形：
 
-接收方向没有对称的停顿：它由网络驱动，写盘与收下一帧天然交错。
+- **Android 发**：串行同样成立，但「读 + 算」是原生文件读（~GB/s）+ NEON blake3，
+  相对 20 MB/s 的网络几乎免费，串不串行看不出来。
+- **浏览器发**：「读 + 算」是 `File.slice().array_buffer()` 的 promise 往返 + wasm 里
+  无 SIMD 的 blake3，**这段时间完全不与网络发送重叠**。
 
-⚠️ **以上是「剩下的那个」，不是实测结论。** 别照着它去优化——先读探针（下一节）。
-[`2026-08-11-web-webrtc-throughput.md`](2026-08-11-web-webrtc-throughput.md) 记的教训正是
-凭推理排除掉一层、后来发现排除是错的。
+**量级估算**：256 KiB/块，9 MB/s ⇒ 29 ms/块；另一方向 20 MB/s ⇒ 13 ms/块。若网络写就是
+那 13 ms，剩下 ~16 ms 是白白串行掉的读+算。流水线化后应落到 `max(13, 16) ≈ 16 ms`
+⇒ **~16 MB/s，约 +80%**。这与 blog 03 在接收侧「拿回 50%」是同一个量级。
+
+⚠️ **这是最可能的原因，不是实测结论。** 上面那个估算依赖「20 MB/s 那向是写受限」这个
+未验证前提。别照着它直接开工——先读探针（下一节）。这个系列的
+[`00-probe-over-elimination.md`](../blogs/transfer-throughput/00-probe-over-elimination.md)
+整篇就在讲上一轮怎么把「我没找到」当成了「它不存在」。
 
 ### 怎么量：探针已经在那儿，不用改代码
 

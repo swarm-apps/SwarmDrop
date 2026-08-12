@@ -2051,10 +2051,16 @@ wasm target 下根本不在依赖树里，直接用会逼着 `swarmdrop_core` �
   改完之后 WebRTC 那条**没有在真机上重测过**。要倍数就得做同构建同链路的 A/B。
   **跨网仍未测**——局域网数说明不了中转/打洞路径，「打洞 vs webrtc-direct」这个变量
   至今没分离过。
-- **发送方向慢 2.2 倍（20 vs 9 MB/s）是已知未解。** 已由代码事实排除三条：prepare
-  （Web 端单独追踪 `activePrepare`，9 MB/s 是纯数据面速率）、OPFS 写盘（收才写，收反而快）、
-  wasm blake3（两个方向工作量同量级）。剩下的嫌疑是 `write_block` 严格串行且浏览器侧
-  `read_source_chunk` 每块多两次跨 JS↔wasm 拷贝——**但那是推理不是实测**。
+- **发送方向慢 2.2 倍（20 vs 9 MB/s）：最可能是「接收端流水线化了、发送端没有」。**
+  2026-08-10 那轮把接收端拆成「收帧 ‖ 消化」两条并发路径（`receiver.rs:374`），
+  **发送端没动**——`write_block` 至今是 `读 .await → 建 proof → 发 .await` 的串行链。
+  串行本身两端都有，但代价只在浏览器那侧显形：Android 的「读+算」是原生文件读 + NEON
+  blake3，相对网络几乎免费；浏览器的是 promise 往返 + 无 SIMD 的 wasm blake3，且完全不与
+  网络发送重叠。估算流水线化可回到 ~16 MB/s（+80%），与 blog 03 在接收侧「拿回 50%」同量级。
+  已排除：prepare（Web 端单独追踪 `activePrepare`，9 是纯数据面速率）、OPFS 写盘（收才写而
+  收更快）、wasm blake3 本身（两向工作量同量级）、`encode_proof` 的 O(n²)（按 range 走
+  O(块 + log n)）、停等窗口 RTT（4 MiB 一窗，2 GB 只停 512 次）。
+  ⚠️ **仍是推理不是实测**，且「发送侧多一份跨 JS↔wasm 拷贝」那条说法是错的——两向都跨两次。
   量它不用改代码：`SendProbe` 的 read/proof/write/ack 分解已经打在浏览器 console 上
   （`swarmdrop_transfer` 在 Web 端是 DEBUG，探针发 `info!`）。完整推导与判读表见
   [`2026-08-12-webtransport-field-test.md`](../research/2026-08-12-webtransport-field-test.md)。
