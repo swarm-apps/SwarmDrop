@@ -348,6 +348,34 @@ uniffi 方法返回出去的，还是变成了 `FatalError(String)`。**
 **相关文件**：`crates/host/src/ports.rs`、`crates/core/src/host.rs`（`MemoryHost`）、
 `src-tauri/src/host.rs`（工厂 + `AppPaths` 的删除理由）
 
+### 端口打包成 struct 的判据是「去向」，不是「参数个数」（2026-08-12）
+
+`start_node` / `NetManager::new` / `PairingManager::new` 曾各挂一条
+`#[expect(clippy::too_many_arguments)]`，理由都写着「打包成 struct 只是换个容器、
+不减调用方负担」。**那个理由是错的**——收益从来不在参数少几个，在两处：
+
+- **位置换成名字。** 12 个位置参数里的 `None` 要靠数数才知道是 notifier，三个 host 于是
+  各在调用点写一行注释说明它是什么。加端口时也从「每个调用点静默移位」变成「每个调用点
+  缺一个具名字段」——后者编译器会指着说缺哪个。
+- **签名说出了归属。** `PairingPorts` 那四项 `NetManager` **一个都不用**，只是整体转交
+  `PairingManager`；散成四个位置参数时，`NetManager::new` 看起来像是自己也要用它们。
+
+现在的三个参数对象与各自的判据：
+
+| 类型 | 装什么 | 归在一起的**共同不变量** |
+|---|---|---|
+| `NodeCredentials` | 身份密钥 + webrtc PEM + WebTransport 证书端口 | 全部由宿主持久化且**跨重启不变**；任一项换掉，此前分发出去的地址集体失效 |
+| `HostPorts` | 5 个宿主端口（组合根的入参） | 三端各自实现，组合根一次注入 |
+| `PairingPorts` | 其中 4 个（event_bus / notifier / invite_store / paired_store） | **只服务配对域**，`NetManager` 是纯管道 |
+
+**反例同样重要**：`PairingPorts` 刻意**不含** `DeviceConfig`，尽管 `HostPorts` 有它、
+把整份递下去更省事。设备名的落盘必须排在推网络之前（顺序住在 `device_name::rename_device`），
+把那个端口递到配对域等于为「顺手存一下名字」开一条绕过该顺序的路——症状是用户看到
+「改成功了」、重启却变回旧名字。**一个用不到的端口不是无害的冗余，是一条被打开的旁路。**
+
+**相关文件**：`crates/core/src/runtime.rs`（`NodeCredentials` / `HostPorts`）、
+`crates/core/src/pairing/manager.rs`（`PairingPorts`）、`crates/core/src/network/manager.rs`
+
 ### 两个容易被臆测错的 API 事实
 
 - **`TransferManager` 没有名为 Offer / Send / Resume 的三个入口**。真实的流程入口是 `flow/`

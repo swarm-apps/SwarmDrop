@@ -10,11 +10,9 @@ use super::{BootstrapCandidateManager, NetworkStatus, NodeStatus};
 use crate::device::{DeviceName, OsInfo, PairedDeviceInfo};
 use crate::device_manager::DeviceManager;
 use crate::error::{AppError, AppResult};
-use crate::host::{EventBus, Notifier, PairedDeviceStore};
 use crate::infra::{InfraAddrResult, InfraSupervisor};
-use crate::pairing::manager::PairingManager;
+use crate::pairing::manager::{PairingManager, PairingPorts};
 use crate::presence::{PresenceMap, PresenceSupervisor};
-use swarmdrop_invite::InviteStore;
 
 // TransferRuntime 端口随 transfer 域迁出（消费方 NetManager 在 core，实现方
 // TransferManager 在 transfer，端口定义在下层 transfer 以免 transfer 反依赖 core）。
@@ -43,22 +41,16 @@ impl<TTransfer> NetManager<TTransfer>
 where
     TTransfer: TransferRuntime,
 {
-    /// `invite_store` 是邀请注册表的落盘端口（native = `SqlInviteStore` /
-    /// wasm = IndexedDB 实现），由宿主注入；不需要持久化时传
-    /// `Arc::new(NoopInviteStore)`。构造后宿主应 `await pairing().load_invites()`。
+    /// `ports` 里的四个端口**本类型一个都不用**，整体转交 [`PairingManager`]；判据见
+    /// [`PairingPorts`]。构造后宿主应 `await pairing().load_invites()`。
     ///
-    /// `paired_devices` 与 `paired_store` **不是冗余**：构造是同步的，拿不到 `.await`，
-    /// 所以由调用方（`runtime::start_node`）先从同一个端口 load 出快照建共享 `DashMap`，
-    /// 端口本身再转交 `PairingManager` 供 [`unpair`](PairingManager::unpair) 写回。
-    /// 两者同源，不是两个事实源。
+    /// `paired_devices` 与 [`PairingPorts::paired_store`] **不是冗余**：构造是同步的，
+    /// 拿不到 `.await`，所以由调用方（`runtime::start_node`）先从同一个端口 load 出快照建
+    /// 共享 `DashMap`，端口本身再转交 `PairingManager` 供 [`unpair`](PairingManager::unpair)
+    /// 写回。两者同源，不是两个事实源。
     ///
     /// `os_info` 是**本机**设备信息（平台探测 + 用户设备名），由 `runtime::start_node`
     /// 装配后透传给 [`PairingManager`]——配对请求与邀请串的 display 都读它。
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "与 runtime::start_node 同源：参数都是三端各自供给的端口/身份/配置，\
-                  打包成 struct 只是换个容器、不减调用方负担"
-    )]
     pub fn new(
         endpoint: Endpoint,
         os_info: OsInfo,
@@ -66,10 +58,7 @@ where
         transfer: TTransfer,
         network_config: NetworkRuntimeConfig,
         candidates: BootstrapCandidateManager,
-        event_bus: Arc<dyn EventBus>,
-        notifier: Option<Arc<dyn Notifier>>,
-        invite_store: Arc<dyn InviteStore>,
-        paired_store: Arc<dyn PairedDeviceStore>,
+        ports: PairingPorts,
     ) -> Self {
         // 创建共享的已配对设备 Map：PairingManager 读写，DeviceManager 只读
         let paired_map: Arc<DashMap<_, _>> = Arc::new(
@@ -89,16 +78,13 @@ where
             candidates.clone(),
         ));
         let devices = Arc::new(DeviceManager::new(paired_map.clone(), presence_map));
-        // pairing 需要 devices（Direct 的局域网校验）+ event_bus + notifier
+        // pairing 需要 devices（Direct 的局域网校验）+ 上面那四个端口
         let pairing = Arc::new(PairingManager::new(
             endpoint.clone(),
             os_info,
             paired_map,
             devices.clone(),
-            event_bus,
-            notifier,
-            invite_store,
-            paired_store,
+            ports,
         ));
         // 基础设施链路收敛：候选表为期望状态源，reservation 断线自动重建
         let infra = Arc::new(InfraSupervisor::new(

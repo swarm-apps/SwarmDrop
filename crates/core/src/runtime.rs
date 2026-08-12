@@ -19,7 +19,7 @@ use crate::network::NetManager;
 use crate::network::config::{
     NetworkRuntimeConfig, bootstrap_node_addrs, create_candidate_manager,
 };
-use crate::pairing::{PairingManager, PairingService};
+use crate::pairing::{PairingManager, PairingPorts, PairingService};
 use crate::presence::OnlineRecordLookup;
 use crate::protocol::{
     IDENTIFY_PROTOCOL, PAIRING, PAIRING_PROTOCOL, TRANSFER_CTRL, TRANSFER_CTRL_PROTOCOL,
@@ -64,6 +64,45 @@ impl EndpointProfile {
     }
 }
 
+/// 本机的**长期凭据**：身份密钥与各传输的证书材料。
+///
+/// 三项归在一起不是为了凑参数，而是它们共享同一条不变量：**全部由宿主持久化，且跨重启
+/// 不变**。任何一项换了，此前分发出去的地址就集体失效——身份密钥换了对端认不出这是同一
+/// 台设备，两份证书换了地址里的 `certhash` 随之改变，浏览器拨过去在 TLS 阶段被拒。
+/// `crates/core/src/runtime.rs` 的三条 `*_survives_restart` / `*_reuses_certhash` 测试看守
+/// 的就是这条。
+pub struct NodeCredentials {
+    /// Ed25519 身份密钥（身份存储里的存量为 protobuf 编码，与之完全兼容）。
+    pub secret_key: SecretKey,
+    /// webrtc-direct 的持久化证书 PEM。`None` = 每次随机生成（仅浏览器与临时场景）。
+    pub webrtc_certificate_pem: Option<String>,
+    /// WebTransport 配置，本质是它的**证书持久化端口**。`None` = 只拨号不监听；
+    /// 宿主给一个带端口的配置才监听（`bind` 自动补监听地址）。
+    /// core 因此既不认识证书、也不判断平台——浏览器构造不出带 store 的配置。
+    pub webtransport: Option<WebTransportConfig>,
+}
+
+/// 宿主端口集 —— 三端各自实现（桌面文件 / 移动系统存储 / 浏览器 IndexedDB），
+/// 由组合根一次注入。
+///
+/// 打包成 struct 的收益不在「参数少几个」，在于**位置换成了名字**：`None` 这样的实参
+/// 在 12 个位置参数里要靠数数才知道是 notifier，而三个 host 各自还得在调用点写一行注释
+/// 说明它是什么。加端口时也从「每个调用点静默移位」变成「每个调用点缺一个具名字段」。
+pub struct HostPorts {
+    /// 设备名等本机偏好。组合根从它读设备名填进 `OsInfo.name`。
+    pub device_config: Arc<dyn DeviceConfig>,
+    /// 已配对设备的**事实源**。组合根内部 load 一次建共享表，端口本身转交
+    /// `PairingManager` 供 unpair 写回——两者同源，不是两个事实源。
+    pub paired_device_store: Arc<dyn PairedDeviceStore>,
+    /// core 事件出口（network / pairing / transfer 各域事件汇聚后交给宿主）。
+    pub event_bus: Arc<dyn EventBus>,
+    /// 系统通知。`None` = 该端没有这个概念（移动端与浏览器）。
+    pub notifier: Option<Arc<dyn Notifier>>,
+    /// 邀请注册表的落盘端口（native = `SqlInviteStore` / wasm = IndexedDB 实现）。
+    /// 不需要持久化时传 `Arc::new(NoopInviteStore)`——退回「重启丢邀请」的旧语义。
+    pub invite_store: Arc<dyn InviteStore>,
+}
+
 /// 启动 P2P 节点并装配 core 网络管理器与协议路由。
 ///
 /// 设备名从 `device_config` 端口读出后塞入 `OsInfo.name`，经 identify 的 `agent_version`
@@ -73,40 +112,27 @@ impl EndpointProfile {
 /// [`device_name::rename_device`](crate::device_name::rename_device)，它同时更新
 /// `PairingManager` 的本机 `OsInfo` 与 identify 的 `agent_version`，不重启节点。
 ///
-/// 已配对设备的事实源是 `paired_device_store` 这个端口，本函数内部 load 一次——调用方
+/// 已配对设备的事实源是 [`HostPorts::paired_device_store`]，本函数内部 load 一次——调用方
 /// **不再预先加载、也不再传快照**。（此前桌面还在快照之上叠了一层「存储为空则回退
 /// 前端 IPC 传来的列表」的静默兜底，那份前端列表本身就是后端的镜像。）
-///
-/// 身份存储里的存量为 protobuf 编码，[`SecretKey`] 与之完全兼容。
-// 依赖注入组合根：参数都是三端各自供给的端口 / 身份 / 配置（secret / os_info /
-// device_config / paired / network_config / profile / event_bus / notifier / invite_store /
-// transfer 工厂），打包成 struct 只是把同一组必填项换个容器、并不减少调用方负担，故直接放行。
-#[expect(
-    clippy::too_many_arguments,
-    reason = "依赖注入组合根，参数都是三端必填的端口/身份/配置，打包成 struct 不减负担"
-)]
 pub async fn start_node<F>(
-    secret_key: SecretKey,
-    webrtc_certificate_pem: Option<String>,
-    // WebTransport 配置。`None` = 只拨号；宿主给一个带证书端口的配置才监听
-    // （`bind` 自动补监听地址）。core 不认识证书本身 —— 判据见
-    // `WebTransportConfig` 的文档。
-    webtransport: Option<WebTransportConfig>,
+    credentials: NodeCredentials,
     os_info: OsInfo,
-    device_config: Arc<dyn DeviceConfig>,
-    paired_device_store: Arc<dyn PairedDeviceStore>,
     network_config: NetworkRuntimeConfig,
     profile: EndpointProfile,
-    event_bus: Arc<dyn EventBus>,
-    notifier: Option<Arc<dyn Notifier>>,
-    // 邀请注册表的落盘端口（native = SqlInviteStore / wasm = IndexedDB 实现）。
-    // 不需要持久化时传 Arc::new(NoopInviteStore) —— 退回「重启丢邀请」的旧语义。
-    invite_store: Arc<dyn InviteStore>,
+    ports: HostPorts,
     create_transfer: F,
 ) -> AppResult<StartedNode>
 where
     F: FnOnce(Endpoint) -> TransferManager,
 {
+    let HostPorts {
+        device_config,
+        paired_device_store,
+        event_bus,
+        notifier,
+        invite_store,
+    } = ports;
     // 宿主传进来的 `os_info` **只承载平台探测部分**（hostname / os / platform / arch）：
     // native 走 `OsInfo::default()` 的 env 探测、wasm 走 `web_os_info()`——env 探测在 wasm
     // 恒 unknown，故必须由调用方注入。
@@ -129,15 +155,7 @@ where
     };
     let agent_version = os_info.to_agent_version();
 
-    let endpoint = build_endpoint(
-        secret_key,
-        webrtc_certificate_pem,
-        webtransport,
-        agent_version,
-        &network_config,
-        profile,
-    )
-    .await?;
+    let endpoint = build_endpoint(credentials, agent_version, &network_config, profile).await?;
 
     // 注册引导节点为 **DHT 种子**（bootstrap 依赖至少一个 kad server 进路由表）。
     // 浏览器端无内置引导，整循环跳过。
@@ -191,10 +209,12 @@ where
         transfer,
         network_config,
         candidate_manager,
-        event_bus,
-        notifier.clone(),
-        invite_store,
-        paired_device_store,
+        PairingPorts {
+            event_bus,
+            notifier: notifier.clone(),
+            invite_store,
+            paired_store: paired_device_store,
+        },
     );
 
     // 把落盘的邀请读回内存表。必须在对外服务之前完成：注册表是一次性消费的权威判定点，
@@ -277,9 +297,7 @@ const STUN_SERVERS: &[&str] = &[
 /// server_mode 由 AutoNAT 判定。在线记录 lookup 用 [`LookupBuilderFn`] 延迟构造（构造依赖
 /// 已 bind 的 Endpoint）。identify 协议 / agent_version / DHT server_mode 三端一致。
 async fn build_endpoint(
-    secret_key: SecretKey,
-    webrtc_certificate_pem: Option<String>,
-    webtransport: Option<WebTransportConfig>,
+    credentials: NodeCredentials,
     agent_version: String,
     config: &NetworkRuntimeConfig,
     profile: EndpointProfile,
@@ -289,12 +307,12 @@ async fn build_endpoint(
         ..DhtConfig::default()
     };
     let mut builder = Endpoint::builder()
-        .secret_key(secret_key)
+        .secret_key(credentials.secret_key)
         .identify_protocol(IDENTIFY_PROTOCOL)
         .agent_version(agent_version)
         .dht(dht_config);
 
-    if let Some(pem) = webrtc_certificate_pem {
+    if let Some(pem) = credentials.webrtc_certificate_pem {
         builder = builder.webrtc_certificate(pem);
     }
 
@@ -327,7 +345,11 @@ async fn build_endpoint(
     // 要不要**监听**由宿主决定 —— 它给了带证书端口的配置就监听，`bind` 会自动补那条
     // 监听地址（见 `ensure_webtransport_listen`）。core 因此既不认识证书、也不判断平台：
     // 浏览器构造不出带 store 的配置（`with_store` 是 native-only），天然只拨号。
-    builder = builder.webtransport(webtransport.unwrap_or_else(WebTransportConfig::client_only));
+    builder = builder.webtransport(
+        credentials
+            .webtransport
+            .unwrap_or_else(WebTransportConfig::client_only),
+    );
 
     // relay server 仅 Native + LanHelper（Browser 是纯 relay client，永不当 server）。
     // 这里判据是「端点形态是否 Native」，与 `registers_infra()`（是否注册引导设施）语义无关，
@@ -345,6 +367,16 @@ async fn build_endpoint(
 mod tests {
     use super::*;
 
+    /// 每次都是**新身份**：这些用例验证的是装配路径，不是身份复用；要验证跨重启复用的
+    /// 那两条各自显式传同一份证书 / 同一个 store。
+    fn credentials(webtransport: Option<WebTransportConfig>) -> NodeCredentials {
+        NodeCredentials {
+            secret_key: SecretKey::generate(),
+            webrtc_certificate_pem: None,
+            webtransport,
+        }
+    }
+
     /// 回归锚点：Native profile 装配（TCP/QUIC listen + DHT lookup）能 bind——等价泛化前
     /// 的硬编码路径。Browser profile（空 listen + relay client、无 lookup/infra）也能 bind，
     /// 结构上验证「同一 `build_endpoint` 吃两种形态」。
@@ -353,9 +385,7 @@ mod tests {
         let config = NetworkRuntimeConfig::default();
 
         let native = build_endpoint(
-            SecretKey::generate(),
-            None,
-            None,
+            credentials(None),
             "swarmdrop/test".to_string(),
             &config,
             EndpointProfile::Native,
@@ -365,9 +395,7 @@ mod tests {
         native.close().await;
 
         let browser = build_endpoint(
-            SecretKey::generate(),
-            None,
-            None,
+            credentials(None),
             "swarmdrop/test".to_string(),
             &config,
             EndpointProfile::Browser,
@@ -427,11 +455,9 @@ mod tests {
     #[tokio::test]
     async fn native_with_cert_store_listens_on_webtransport() {
         let native = build_endpoint(
-            SecretKey::generate(),
-            None,
-            Some(WebTransportConfig::with_store(Arc::new(
+            credentials(Some(WebTransportConfig::with_store(Arc::new(
                 swarmdrop_net::WebTransportMemoryCertificateStore::default(),
-            ))),
+            )))),
             "swarmdrop/test".to_string(),
             &NetworkRuntimeConfig::default(),
             EndpointProfile::Native,
@@ -450,9 +476,7 @@ mod tests {
     #[tokio::test]
     async fn native_without_cert_store_does_not_listen_on_webtransport() {
         let native = build_endpoint(
-            SecretKey::generate(),
-            None,
-            None,
+            credentials(None),
             "swarmdrop/test".to_string(),
             &NetworkRuntimeConfig::default(),
             EndpointProfile::Native,
@@ -489,9 +513,7 @@ mod tests {
         let mut hashes = Vec::new();
         for _ in 0..2 {
             let native = build_endpoint(
-                SecretKey::generate(),
-                None,
-                Some(WebTransportConfig::with_store(store.clone())),
+                credentials(Some(WebTransportConfig::with_store(store.clone()))),
                 "swarmdrop/test".to_string(),
                 &NetworkRuntimeConfig::default(),
                 EndpointProfile::Native,
@@ -512,9 +534,7 @@ mod tests {
     #[tokio::test]
     async fn native_profile_publishes_webrtc_direct_address() {
         let native = build_endpoint(
-            SecretKey::generate(),
-            None,
-            None,
+            credentials(None),
             "swarmdrop/test".to_string(),
             &NetworkRuntimeConfig::default(),
             EndpointProfile::Native,
@@ -538,9 +558,10 @@ mod tests {
         let mut hashes = Vec::new();
         for _ in 0..2 {
             let native = build_endpoint(
-                SecretKey::generate(),
-                Some(pem.clone()),
-                None,
+                NodeCredentials {
+                    webrtc_certificate_pem: Some(pem.clone()),
+                    ..credentials(None)
+                },
                 "swarmdrop/test".to_string(),
                 &NetworkRuntimeConfig::default(),
                 EndpointProfile::Native,

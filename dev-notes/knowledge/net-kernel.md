@@ -412,16 +412,40 @@ Circuit Relay reservation 的应答地址，否则客户端会以 `NoAddressesIn
 拒绝 reservation。`Swarm::add_external_address` 又不保证回发
 `ExternalAddrConfirmed`，只依赖 watch 事件会让状态与实际 Swarm 配置分叉。
 
-**正确做法**：
-- 组合根在 `Endpoint::bind()` 前经 `Builder::external_addrs()` 登记已知公网
-  TCP / QUIC / WebSocket 地址；它们同时成为 `watch_addrs().external` 初值。
-- 运行期得到的地址经 `Endpoint::add_external_addr()` 登记；actor 同步更新同一
-  watch 状态并通知 address lookup。
-- WebRTC Direct 使用与 transport 完全相同的持久化 PEM，通过
-  `webrtc_direct_addr_from_pem()` 预先派生带 `certhash` 的公网地址，**不要**等待
-  listener 启动后从字符串猜 hash。
+**正确做法**（2026-08-12 起，见下节；此处保留问题描述）：
+- 组合根在 `Endpoint::bind()` 前经 `Builder::external_addrs()` 登记**不带 certhash 且恒定
+  不变**的那几条（TCP / QUIC）；它们同时成为 `watch_addrs().external` 初值。
+- 其余全部交给 `Builder::external_ip()`，由内核从监听地址映射。
 
-**相关文件**：`crates/net/src/{endpoint/{builder.rs,mod.rs},actor.rs,lib.rs}`、
+**相关文件**：`crates/net/src/{endpoint/builder.rs,actor.rs,addrset.rs}`、
+`crates/bootstrap/src/lib.rs`
+
+### 公网地址跟着监听地址走，不从证书第二次派生（2026-08-12）
+
+内核多了一条 external 来源：`Builder::external_ip(IpAddr)`。给了它之后，actor 持续维护
+「当前监听集合中每条**非 circuit** 地址 ⇒ IP 段换成这个 IP」这一份，与宿主声明的
+（`external_addrs`）、AutoNAT 确认的三者取并集下发。判据全在
+`crates/net/src/addrset.rs` 的 `map_to_public_ip`（circuit 排除 + 改写后去重），
+三条单元测试各守一条。
+
+**这条机制取代了两样东西**，两样都不要加回来：
+
+1. **bootstrap 里那个自制的地址跟踪任务**（watch 监听地址 → 筛 WebTransport → 改写 IP →
+   `set_external_addrs(静态 ∪ 观测)`）。它做的正是内核现在做的事，但记了第二份账；而
+   `set_external_addrs` 是整份替换，两个事实源不一致的症状是「某条地址悄悄不再被通告」，
+   本机日志完全正常。bootstrap 现在只剩一个**纯日志**的 watch 循环。
+2. **`swarmdrop_net::webrtc_direct_addr_from_pem()`**（已删除）。它是「从证书算 certhash」
+   的第二条路径，与传输启动时实际使用的那条并行存在；漂移的症状是浏览器在 TLS 阶段被拒、
+   日志毫无线索。映射版按定义不可能与传输不一致——certhash 直接取自监听地址本身。
+
+**为什么 TCP/QUIC 仍然静态声明一次**：它们不用等监听结果就能算出来，而 bind 返回到第一批
+`NewListenAddr` 抵达之间有个窗口，那期间来的 reservation 请求拿不到可拨地址会被客户端以
+`NoAddressesInReservation` 整个拒掉（上一节踩过）。映射随后算出同样两条，重合去重，所以
+这份预声明是纯保险。带 certhash 的两条不能这么办——静态算它们就得重新引入上面第 2 条。
+`bootstrap` 有一条测试（`statically_declared_addresses_agree_with_the_public_ip_mapping`）
+钉住「预声明的内容必须与映射结果一致」，否则就是凭空多通告一条从未监听过的地址。
+
+**相关文件**：`crates/net/src/{addrset.rs,actor.rs,endpoint/builder.rs}`、
 `crates/bootstrap/src/lib.rs`
 
 ### 公共基础设施地址由 Host 配置，核心只消费候选（2026-07-24）
@@ -1597,7 +1621,7 @@ API、在这里必须绕：
 - `wasm-bindgen-futures` 必须精确 pin `=0.4.58`（master 的 libp2p-swarm 钉死了它）。
 - **`check-wasm.sh --clippy` 用 `-D warnings`，比本机 `cargo clippy` 严**：改 core/host 里
   会进 wasm 门禁的代码时，纯 `cargo clippy`（无 `-D warnings`）只当 warning 放行的 lint
-  （如给 `start_node` 加参数触发的 `too_many_arguments`）会在 wasm job 变硬错误挂 CI。
+  （如给组合根加参数触发的 `too_many_arguments`）会在 wasm job 变硬错误挂 CI。
   提交前对 wasm 侧改动跑 `bash scripts/check-wasm.sh --clippy`，别只信本机 clippy 绿。
 
 ## wire v2 契约点（改动前先看固化测试）

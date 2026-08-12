@@ -256,6 +256,12 @@ pub(crate) struct Actor {
     declared_external: Vec<Addr>,
     /// **自动确认的**外部可达地址（AutoNAT / identify 观测，由 Swarm 事件驱动）。
     confirmed_external: Vec<Addr>,
+    /// 由 [`EndpointConfig::external_ip`] 从监听集合映射出来的外部地址（未配置时恒空）。
+    ///
+    /// 独立一份而不并进 `declared_external`：它是内核**派生**的，随监听地址增删自动
+    /// 重算；混进宿主声明的那份，宿主下一次整份声明就会把它抹掉，而下一条监听事件又把
+    /// 它加回来 —— 视图于是永久抖动。判据见 [`Actor::recompute_mapped_external`]。
+    mapped_external: Vec<Addr>,
     /// LanHelper 模式下作为 external 登记的**私网/回环监听地址**。
     ///
     /// 单独一份而不并进 `declared_external`：它们不属于「公网地址诊断」，不该出现在
@@ -306,6 +312,9 @@ impl Actor {
             // 不重复下发——`resync_external` 的差集因此从零开始就是空的。
             declared_external: config.external_addrs.clone(),
             confirmed_external: Vec::new(),
+            // 监听地址此刻一条都还没到（`0.0.0.0` 尚未展开），故初值必为空——
+            // 第一批 `NewListenAddr` 到达时才有内容。
+            mapped_external: Vec::new(),
             lan_announced: Vec::new(),
             // 与 `bind` 里给的视图初值一致：那里已经把 `external_addrs` 推给 Swarm 了。
             swarm_external: crate::addrset::dedup_preserving_order(&config.external_addrs),
@@ -316,7 +325,7 @@ impl Actor {
         }
     }
 
-    /// 重算外部地址视图 = 声明的 ∪ 自动确认的，并把差量下发给 Swarm。
+    /// 重算外部地址视图 = 宿主声明的 ∪ 自动确认的 ∪ 公网 IP 映射的，并把差量下发给 Swarm。
     ///
     /// **视图自身就是「上次同步了什么」的账本**，不另存第三份——多存一份就多一个会与
     /// 视图漂移的真值。
@@ -330,10 +339,18 @@ impl Actor {
     /// 拿视图当账本时那类地址**谁都撤不掉**：它从没进过视图，差量算不到它。以前无害
     /// （tcp/quic/webrtc-direct 的监听地址恒定），但 WebTransport 的地址带 certhash、
     /// 每 14 天变一次 —— 于是每轮换一次就多留一条死地址，随 identify 广播给每个对端。
-    fn resync_external(&mut self) {
+    ///
+    /// **通知 lookup 的动作交给调用方**（返回值就是「要不要通知」）：监听地址与外部地址
+    /// 常常在同一个事件里一起变（`NewListenAddr` 会同时改监听视图和公网 IP 映射），
+    /// 本函数自己 publish 的话那个事件就发两轮——而每轮都会连带触发一次 DHT publish。
+    #[must_use = "视图变了就要 publish_addrs()，否则 lookup 拿到的是旧地址"]
+    fn resync_external(&mut self) -> bool {
         let view_external = crate::addrset::union_preserving_order(
             &self.declared_external,
-            &self.confirmed_external,
+            &crate::addrset::union_preserving_order(
+                &self.confirmed_external,
+                &self.mapped_external,
+            ),
         );
         // Swarm 侧还要带上 LanHelper 那部分。
         let desired = crate::addrset::union_preserving_order(&view_external, &self.lan_announced);
@@ -353,19 +370,45 @@ impl Actor {
         }
         self.swarm_external = desired;
 
-        // 视图只在内容真变时才广播 —— 「没变」是常态（bootstrap 每次 watch 醒来都会把
-        // 同一份声明重发一遍），白广播会连带触发一轮 DHT publish。
-        let changed = self.watches.addrs.send_if_modified(|info| {
+        // 视图只在内容真变时才广播 —— 「没变」是常态（宿主每次重试都会把同一份声明重发
+        // 一遍），白广播会连带触发一轮 DHT publish。
+        self.watches.addrs.send_if_modified(|info| {
             if info.external == view_external {
                 false
             } else {
                 info.external = view_external;
                 true
             }
-        });
-        if changed {
-            self.publish_addrs();
+        })
+    }
+
+    /// 按 [`EndpointConfig::external_ip`] 重算「监听地址的公网形态」，返回是否有变化。
+    ///
+    /// **不自己 `resync_external`**：它的两个调用点都还有别的 external 来源要同时变
+    /// （`NewListenAddr` 可能同时登记 LanHelper 地址、`remove_listen_addrs` 可能同时撤销
+    /// 它），各自 resync 一次就是把整轮差量算两遍、并可能对外广播两次「地址变了」。
+    ///
+    /// 每次都从 `listen` 视图整份重算，而不是按事件增删自己维护一份：视图是监听地址的
+    /// 唯一真相源，整份派生天然不会与它漂移，也就没有「漏处理某条失效路径」这种缺陷
+    /// ——`ListenerClosed` 与 `ExpiredListenAddr` 是两条独立路径，本仓已经在
+    /// `lan_announced` 上踩过一次「只处理了其中一条」。
+    ///
+    /// 映射本身（含 circuit 排除与去重）在 [`crate::addrset::map_to_public_ip`]。
+    fn recompute_mapped_external(&mut self) -> bool {
+        let Some(ip) = self.config.external_ip else {
+            return false;
+        };
+        // borrow 必须在 `resync_external` 之前放掉——那里要写同一个 watch。
+        let mapped = {
+            let info = self.watches.addrs.borrow();
+            crate::addrset::map_to_public_ip(&info.listen, ip)
+        };
+
+        if mapped == self.mapped_external {
+            return false;
         }
+        self.mapped_external = mapped;
+        true
     }
 
     pub(crate) async fn run(mut self) {
@@ -412,7 +455,9 @@ impl Actor {
                 // 账本原样记「宿主声明了什么」，规范化（去重/排序）留给 `resync_external`
                 // 的输出——两处都做等于有两份规范。
                 self.declared_external = addrs;
-                self.resync_external();
+                if self.resync_external() {
+                    self.publish_addrs();
+                }
                 let _ = reply.send(Ok(()));
             }
             ActorMessage::SetAgentVersion {
@@ -1284,24 +1329,29 @@ impl Actor {
                 //    地址，否则 client 侧报 NoAddressesInReservation 拒绝
                 //    整个 reservation（master 实测）。
                 // loopback 一并放行：仅本机可达，生产无害，测试环境必需。
-                if self
+                let announces_lan = self
                     .config
                     .relay_server
                     .as_ref()
                     .is_some_and(|s| s.announce_private_addrs)
-                    && (addr.is_private_lan() || addr.is_loopback())
-                {
-                    // 经账本登记而不是直接推给 Swarm —— 直接推的话它就成了「视图不知道、
-                    // 因而永远撤不掉」的那一类。WebTransport 的监听地址带 certhash、
-                    // 每 14 天变一次，撤不掉就会一直累积。
-                    if !self.lan_announced.contains(&addr) {
-                        self.lan_announced.push(addr.clone());
-                        self.resync_external();
-                    }
+                    && (addr.is_private_lan() || addr.is_loopback());
+                // 经账本登记而不是直接推给 Swarm —— 直接推的话它就成了「视图不知道、
+                // 因而永远撤不掉」的那一类。WebTransport 的监听地址带 certhash、
+                // 每 14 天变一次，撤不掉就会一直累积。
+                let mut external_changed = false;
+                if announces_lan && !self.lan_announced.contains(&addr) {
+                    self.lan_announced.push(addr.clone());
+                    external_changed = true;
                 }
                 self.watches
                     .addrs
                     .send_modify(|info| info.listen.push(addr));
+                // 公网 IP 映射跟着监听集合走，必须在视图更新**之后**重算。
+                external_changed |= self.recompute_mapped_external();
+                if external_changed {
+                    // 返回值可丢：监听视图已经变了，下面那句 publish 无论如何都要发。
+                    let _ = self.resync_external();
+                }
                 self.publish_addrs();
             }
             SwarmEvent::ListenerClosed {
@@ -1341,7 +1391,9 @@ impl Actor {
                 let addr = Addr::from_multiaddr(address);
                 if !self.confirmed_external.contains(&addr) {
                     self.confirmed_external.push(addr);
-                    self.resync_external();
+                    if self.resync_external() {
+                        self.publish_addrs();
+                    }
                 }
             }
             SwarmEvent::ExternalAddrExpired { address } => {
@@ -1356,7 +1408,9 @@ impl Actor {
                 // 账本也有 ⇒ 无需动作」而**跳过重新登记** —— 于是 Swarm 永久不再通告它，
                 // 视图与 UI 却仍然说它可达。摘掉之后差量才会把它重新 add 回去。
                 self.swarm_external.retain(|a| *a != addr);
-                self.resync_external();
+                if self.resync_external() {
+                    self.publish_addrs();
+                }
             }
             SwarmEvent::Behaviour(ev) => self.handle_behaviour_event(ev),
             other => debug!(?other, "swarm event"),
@@ -1549,16 +1603,18 @@ impl Actor {
         let before = self.lan_announced.len();
         self.lan_announced
             .retain(|a| !removed.contains(a.as_multiaddr()));
-        if self.lan_announced.len() != before {
-            self.resync_external();
-        }
+        let mut external_changed = self.lan_announced.len() != before;
 
-        let changed = self.watches.addrs.send_if_modified(|info| {
+        let listen_changed = self.watches.addrs.send_if_modified(|info| {
             let before = info.listen.len();
             info.listen.retain(|a| !removed.contains(a.as_multiaddr()));
             info.listen.len() != before
         });
-        if changed {
+        // 同上，公网 IP 映射从更新后的 listen 视图整份重算，与 LanHelper 那份合并成
+        // 一次 resync、一次 publish。
+        external_changed |= self.recompute_mapped_external();
+        let view_changed = external_changed && self.resync_external();
+        if listen_changed || view_changed {
             self.publish_addrs();
         }
     }

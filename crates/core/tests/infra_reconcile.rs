@@ -14,6 +14,7 @@ use swarmdrop_core::network::candidates::{BootstrapCandidateSource, CandidateRol
 use swarmdrop_core::network::config::create_candidate_manager;
 use swarmdrop_core::network::event_loop::handle_core_node_event;
 use swarmdrop_core::network::{NetManager, NetworkRuntimeConfig};
+use swarmdrop_core::pairing::PairingPorts;
 use swarmdrop_net::{Addr, DhtConfig, Endpoint, RelayServerConfig, SecretKey};
 
 /// 已配对设备列表的持久化端口替身（本用例只关心 presence/infra，列表恒为空）。
@@ -108,10 +109,12 @@ async fn reservation_rebuilds_after_helper_restart() {
         (),
         network_config,
         candidates,
-        bus.clone(),
-        None,
-        std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
-        Arc::new(memory_host()),
+        PairingPorts {
+            event_bus: bus.clone(),
+            notifier: None,
+            invite_store: std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
+            paired_store: Arc::new(memory_host()),
+        },
     );
 
     let shared = manager.shared_refs();
@@ -296,10 +299,12 @@ async fn relay_state_transitions_are_pushed_to_the_host() {
         (),
         network_config,
         candidates,
-        bus.clone() as Arc<dyn EventBus>,
-        None,
-        std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
-        Arc::new(memory_host()),
+        PairingPorts {
+            event_bus: bus.clone() as Arc<dyn EventBus>,
+            notifier: None,
+            invite_store: std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
+            paired_store: Arc::new(memory_host()),
+        },
     );
     let shared = manager.shared_refs();
     tokio::spawn(run_event_loop(

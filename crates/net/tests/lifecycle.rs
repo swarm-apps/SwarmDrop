@@ -238,6 +238,79 @@ async fn redeclaring_external_addresses_retracts_the_ones_left_out() {
     endpoint.close().await;
 }
 
+/// `external_ip` 把**运行期才知道的**监听地址映射成公网形态。
+///
+/// 与 `external_addrs` 的差别正在这里：监听端口是 `tcp/0` 让内核分配的，bind 时谁都算不
+/// 出来，静态声明根本没有可声明的内容。带 certhash 的传输是同一个形状——那串 hash 由
+/// 传输在启动时产生，只有跟着监听地址走才拿得到当前正确的那个。
+#[tokio::test]
+async fn external_ip_maps_runtime_listen_addresses() {
+    let endpoint = Endpoint::builder()
+        .listen(vec!["/ip4/127.0.0.1/tcp/0".parse().expect("valid")])
+        .external_ip("203.0.113.10".parse().expect("valid ip"))
+        .bind()
+        .await
+        .expect("bind");
+
+    let external = await_external(&endpoint, "出现映射到公网 IP 的地址", |ext| {
+        ext.iter().any(|a| {
+            let s = a.to_string();
+            s.starts_with("/ip4/203.0.113.10/tcp/") && !s.ends_with("/tcp/0")
+        })
+    })
+    .await;
+
+    // 监听视图里那条的端口必须与映射出来的一致——映射改的只有 IP 段。
+    let listen_port = endpoint
+        .watch_addrs()
+        .get()
+        .listen
+        .iter()
+        .find_map(|a| {
+            // `split_once` 而不是 `rsplit().next()`：后者对不含 `/tcp/` 的地址会把整条
+            // 地址当成「端口」返回，于是这个 find_map 永远命中第一条、下面的 expect 形同虚设。
+            a.to_string()
+                .split_once("/tcp/")
+                .map(|(_, port)| port.to_owned())
+        })
+        .expect("应有一条 tcp 监听地址");
+    assert!(
+        external
+            .iter()
+            .any(|a| a.to_string() == format!("/ip4/203.0.113.10/tcp/{listen_port}")),
+        "映射结果应与实际监听端口一致：{external:?}"
+    );
+
+    endpoint.close().await;
+}
+
+/// 映射出来的地址与宿主声明的地址**并存**，互不覆盖。
+///
+/// 两者是两个独立来源（一个是「我确知这几条」、一个是「我的监听地址换上这个 IP」），
+/// 合成一份账本的话，其中一方每更新一次就会把另一方抹掉。
+#[tokio::test]
+async fn external_ip_and_declared_addresses_coexist() {
+    let declared: swarmdrop_net::Addr = "/ip4/203.0.113.10/udp/4001/quic-v1".parse().unwrap();
+    let endpoint = Endpoint::builder()
+        .listen(vec!["/ip4/127.0.0.1/tcp/0".parse().expect("valid")])
+        .external_ip("203.0.113.10".parse().expect("valid ip"))
+        .external_addrs(vec![declared.clone()])
+        .bind()
+        .await
+        .expect("bind");
+
+    let external = await_external(&endpoint, "声明的与映射的同时在场", |ext| {
+        ext.contains(&declared)
+            && ext
+                .iter()
+                .any(|a| a.to_string().starts_with("/ip4/203.0.113.10/tcp/"))
+    })
+    .await;
+    assert!(external.contains(&declared), "实得 {external:?}");
+
+    endpoint.close().await;
+}
+
 /// 声明是**幂等**的：同一份内容重复声明不应让视图产生新版本。
 ///
 /// 这条看守的是调用方的重试路径 —— bootstrap 的地址跟踪任务每次 watch 醒来都会重发

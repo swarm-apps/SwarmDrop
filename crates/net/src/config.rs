@@ -216,6 +216,11 @@ pub(crate) struct EndpointConfig {
     /// 公网 relay 通常监听 `0.0.0.0`，而 reservation 应答必须返回公网地址；
     /// 该字段让组合根在 bind 后立即把已知公网 TCP/QUIC/WS 地址注册给 Swarm。
     pub external_addrs: Vec<Addr>,
+    /// 本节点的公网 IP（静态 1:1 NAT / 直接持有公网 IP 时给）。
+    ///
+    /// 给了就由内核持续维护「每条监听地址换上这个 IP」的那一份 external 地址，跟着监听
+    /// 集合增删。判据见 [`Builder::external_ip`](crate::endpoint::builder::Builder::external_ip)。
+    pub external_ip: Option<std::net::IpAddr>,
     /// 监听地址（wasm 下必须为空——浏览器不能 listen 本地 socket，
     /// circuit listen 由 `ensure_relay_reservation` 触发）。
     pub listen: Vec<Addr>,
@@ -243,6 +248,7 @@ impl Default for EndpointConfig {
             webrtc_p2p: None,
             webtransport: None,
             external_addrs: Vec::new(),
+            external_ip: None,
             listen: Vec::new(),
             stream_limits: StreamLimits::default(),
             connect_timeout: Duration::from_secs(30),
@@ -276,6 +282,7 @@ impl std::fmt::Debug for EndpointConfig {
             .field("webtransport", &self.webtransport)
             .field("listen", &self.listen)
             .field("external_addrs", &self.external_addrs)
+            .field("external_ip", &self.external_ip)
             .field("stream_limits", &self.stream_limits)
             .field("connect_timeout", &self.connect_timeout)
             .finish()

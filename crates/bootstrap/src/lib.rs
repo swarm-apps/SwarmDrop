@@ -12,10 +12,10 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use swarmdrop_net::{
-    Addr, DhtConfig, Endpoint, RelayServerConfig, SecretKey, TransportKind,
-    WebTransportCertificateStore, WebTransportConfig, webrtc_direct_addr_from_pem,
+    Addr, DhtConfig, Endpoint, RelayServerConfig, SecretKey, WebTransportCertificateStore,
+    WebTransportConfig,
 };
-use tracing::{info, warn};
+use tracing::info;
 
 const IDENTIFY_PROTOCOL: &str = "/swarmdrop/2.0.0";
 /// 引导 + relay 节点的运行配置。
@@ -62,7 +62,10 @@ pub async fn run(config: BootstrapConfig) -> Result<()> {
         .identify_protocol(IDENTIFY_PROTOCOL)
         .agent_version(format!("swarm-bootstrap/{}", env!("CARGO_PKG_VERSION")))
         .listen(listen_addrs)
-        .external_addrs(external_addrs.clone())
+        .external_addrs(external_addrs)
+        // 其余公网地址由内核从监听地址映射：WebTransport 与 WebRTC Direct 的地址里带
+        // certhash，跟着监听地址走才拿得到当前正确的那个（判据见 `Builder::external_ip`）。
+        .external_ip(config.external_ip)
         .dht(DhtConfig {
             query_timeout: Duration::from_secs(60),
             record_ttl: Duration::from_secs(2 * 3600),
@@ -80,24 +83,44 @@ pub async fn run(config: BootstrapConfig) -> Result<()> {
         .await
         .context("启动 SwarmDrop 网络内核失败")?;
 
-    // WebTransport 的公网地址必须跟着内核走，不能像 TCP/QUIC 那样静态登记 —— 见函数文档。
-    // 静态那几条一并交给它：`set_external_addrs` 是整份替换，漏掉就等于撤销。
-    spawn_webtransport_external_addr_tracker(
-        endpoint.clone(),
-        config.external_ip,
-        external_addrs.clone(),
-    );
-
     info!(node_id = %endpoint.node_id(), "Bootstrap + Relay 节点已启动");
-    for addr in external_addrs {
-        info!(%addr, "已公告公网地址");
-    }
+    spawn_external_addr_logger(endpoint.clone());
     info!("等待连接；按 Ctrl+C 或发送 SIGTERM 关闭");
 
     util::signal::shutdown_signal().await;
     info!("正在关闭 Bootstrap + Relay 节点");
     endpoint.close().await;
     Ok(())
+}
+
+/// 把内核当前通告的公网地址打进日志，随其变化重打。**只做日志，不参与任何决策。**
+///
+/// 这是运维面而非协议面的需要：这台机器的全部职责就是「在几个已知地址上可被拨到」，
+/// 而其中两条带 certhash（WebTransport 每 14 天还会换一次），部署后没有别的办法确认它们
+/// 长成什么样。默认 filter 是 `info`，所以打在 info 上。
+///
+/// ⚠️ **不要让它变回「跟踪并声明」**：地址的差量、去重、撤销全部住在内核
+/// （`Builder::external_ip` + `Endpoint::set_external_addrs`），这里再记一份账就有了两个
+/// 事实源——而两者不一致时的症状是「某条地址悄悄不再被通告」，日志上完全看不出来。
+fn spawn_external_addr_logger(endpoint: Endpoint) {
+    tokio::spawn(async move {
+        let mut addrs = endpoint.watch_addrs();
+        // `watch` 是 last-value-wins，中间态可能被跳过——对日志无所谓，打的始终是当前全集。
+        let mut last: Vec<Addr> = Vec::new();
+        loop {
+            let external = addrs.with(|info| info.external.clone());
+            if external != last {
+                for addr in &external {
+                    info!(%addr, "已公告公网地址");
+                }
+                last = external;
+            }
+            if addrs.updated().await.is_none() {
+                // 内核已关闭。
+                break;
+            }
+        }
+    });
 }
 
 fn listen_addrs(config: &BootstrapConfig) -> Result<Vec<Addr>> {
@@ -120,86 +143,21 @@ fn listen_addrs(config: &BootstrapConfig) -> Result<Vec<Addr>> {
     .collect()
 }
 
-/// 跟踪 WebTransport 的通告地址，把它们的公网版本登记给内核。
+/// 启动即可声明的公网地址 —— **只有** TCP / QUIC 这两条。
 ///
-/// # 为什么不能像 TCP/QUIC 那样在启动时登记一次
+/// 它们的公网形态只由「公网 IP + 端口」决定，不用等监听结果就能算出来，所以在这里预先
+/// 声明一次，覆盖 bind 返回到第一批 `NewListenAddr` 抵达之间的窗口：那期间来的
+/// reservation 请求若拿不到任何可拨地址，客户端会以 `NoAddressesInReservation` 拒掉整个
+/// reservation（本仓实测踩过）。内核的 `external_ip` 映射随后会算出同样的两条，重合去重，
+/// 这份预声明因此是纯保险、无副作用。
 ///
-/// 那两条的公网地址只由「公网 IP + 端口」决定，恒定不变。WebTransport 的地址里带着
-/// **certhash**，而证书每 14 天轮换一次 —— 启动时算出来的那条会在第一次轮换后失效，
-/// 而失效的表现是浏览器拨号在 TLS 阶段被拒，日志里看不出与证书有关。
-///
-/// 所以公网地址跟着内核实际通告的监听地址走：监听地址天然带着**当前正确的** certhash，
-/// 这里只把 IP 换成公网 IP。轮换时内核会重新发一轮 `NewAddress`，本任务随之补登记。
-///
-/// # 为什么整份声明，而不是「发现一条登记一条」
-///
-/// 登记进去的地址会随 identify 广播给每一个对端，而轮换后的旧地址是**死的**（对端拨过去
-/// 在 TLS 阶段被拒），所以必须撤销。判据与两级后果见
-/// [`Endpoint::set_external_addrs`]。
-///
-/// 本任务因此只做一件事：把「此刻应该通告哪些公网地址」整份算出来交给内核。差量、去重、
-/// 失败重试全在内核那一份实现里，这里既不记账也不判断增删——**声明式的形态天然对漏采样
-/// 免疫**：`watch` 是 last-value-wins，轮换瞬间的中间态大概率被跳过，而每轮都重新声明全集
-/// 的话，跳过与否都不影响最终收敛。
-///
-/// # 静态地址必须一起声明
-///
-/// TCP / QUIC / WebRTC Direct 那几条的公网地址恒定不变，`Builder::external_addrs` 在 bind
-/// 时已经给过一次。但 [`Endpoint::set_external_addrs`] 是**整份替换**：本任务若只声明
-/// WebTransport 那几条，第一次调用就会把静态那几条撤销掉 —— relay reservation 的应答随即
-/// 失去可拨地址。所以每轮声明的是「静态 ∪ 当前观测」的全集。
-fn spawn_webtransport_external_addr_tracker(
-    endpoint: Endpoint,
-    external_ip: IpAddr,
-    static_addrs: Vec<Addr>,
-) {
-    tokio::spawn(async move {
-        let mut addrs = endpoint.watch_addrs();
-        // 上一轮**成功声明**的整份内容。两个用途，都不是「记账」：跳过内容相同的重复声明
-        // （`watch` 因任何地址变化醒来，包括 relay circuit 上下线），以及据此决定要不要
-        // 打日志。失败时不更新它，于是下一轮自然重试 —— 幂等声明不需要记「哪条成功了」。
-        let mut declared: Vec<Addr> = Vec::new();
-
-        loop {
-            // 筛与改写分开：判据用内核的权威 `Addr::transport()`（它知道
-            // `/webtransport` 必须排在 `/quic-v1` 之前），改写用通用的 `Addr::with_ip`。
-            // 两者都不是为本调用点特制的 —— 上一版在 crates/net 刻了一个
-            // `webtransport_addr_with_ip`，那既重复了判据又在共享层写上了调用方的名字。
-            let webtransport: Vec<Addr> = addrs.with(|info| {
-                info.listen
-                    .iter()
-                    .filter(|a| a.transport() == Some(TransportKind::Webtransport))
-                    .map(|a| a.with_ip(external_ip))
-                    .collect()
-            });
-
-            // 静态地址必须一起声明：`set_external_addrs` 是整份替换，漏掉它们就等于撤销。
-            // 不在这里去重 —— 内核收到声明后会统一规范化（`0.0.0.0` 展开出的多条改写后
-            // 会重合），两处都做就有了两份规范。
-            let next: Vec<Addr> = static_addrs.iter().chain(&webtransport).cloned().collect();
-
-            if next != declared {
-                match endpoint.set_external_addrs(next.clone()).await {
-                    Ok(()) => {
-                        for addr in &webtransport {
-                            info!(%addr, "已公告 WebTransport 公网地址");
-                        }
-                        declared = next;
-                    }
-                    Err(e) => warn!(error = %e, "声明公网地址失败，下轮重试"),
-                }
-            }
-
-            if addrs.updated().await.is_none() {
-                // 内核已关闭。
-                break;
-            }
-        }
-    });
-}
-
+/// **带 certhash 的两条（WebRTC Direct / WebTransport）刻意不在这里。** 静态算它们需要
+/// 另起一条「从证书派生 certhash」的路径，与传输实际使用的那条一旦漂移，症状是浏览器在
+/// TLS 阶段被拒、而日志里看不出与证书有关；WebTransport 更是每 14 天轮换一次，静态那条
+/// 第一次轮换后就成了死地址。两条都交给 `external_ip` 从**监听地址本身**取——那里的
+/// certhash 按定义就是当前正确的那个。
 fn external_addrs(config: &BootstrapConfig) -> Result<Vec<Addr>> {
-    let mut addrs: Vec<Addr> = [
+    [
         addr(config.external_ip, format!("tcp/{}", config.tcp_port)),
         addr(
             config.external_ip,
@@ -207,17 +165,7 @@ fn external_addrs(config: &BootstrapConfig) -> Result<Vec<Addr>> {
         ),
     ]
     .into_iter()
-    .collect::<Result<_>>()?;
-    addrs.push(
-        webrtc_direct_addr_from_pem(
-            config.external_ip,
-            config.webrtc_port,
-            &config.webrtc_certificate_pem,
-        )
-        .map_err(anyhow::Error::msg)
-        .context("从 WebRTC Direct 证书构造公网地址失败")?,
-    );
-    Ok(addrs)
+    .collect()
 }
 
 fn addr(ip: IpAddr, suffix: String) -> Result<Addr> {
@@ -252,13 +200,26 @@ mod tests {
         }
     }
 
+    /// 启动即声明的**只有** TCP / QUIC 两条。
+    ///
+    /// 这条挡的是「顺手补齐」：看到清单里少了 webrtc-direct / webtransport 就静态加一条。
+    /// 那需要另起一条从证书派生 certhash 的路径，而与传输实际使用的那条一旦漂移，症状是
+    /// 浏览器在 TLS 阶段被拒、日志里毫无线索；WebTransport 更是每 14 天轮换一次，静态那条
+    /// 第一次轮换后就成了死地址。两条都由内核的 `external_ip` 从监听地址映射。
     #[test]
-    fn external_addresses_include_webrtc_certhash() {
-        assert!(
-            external_addrs(&config())
-                .unwrap()
-                .iter()
-                .any(|addr| addr.to_string().contains("/webrtc-direct/certhash/"))
+    fn statically_declared_addresses_are_only_the_certhash_free_ones() {
+        let addrs: Vec<String> = external_addrs(&config())
+            .unwrap()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+
+        assert_eq!(
+            addrs,
+            vec![
+                "/ip4/203.0.113.10/tcp/4001".to_string(),
+                "/ip4/203.0.113.10/udp/4001/quic-v1".to_string(),
+            ]
         );
     }
 
@@ -289,20 +250,24 @@ mod tests {
         );
     }
 
-    /// WebTransport 的公网地址**不进** `external_addrs` —— 它的 certhash 每 14 天变一次，
-    /// 静态登记的那条会在第一次轮换后失效。改由
-    /// `spawn_webtransport_external_addr_tracker` 跟着内核的监听地址走。
+    /// 静态声明的那几条，内容必须与「监听地址换上公网 IP」得到的一致。
     ///
-    /// 这条断言存在的意义是防止有人「顺手补齐」：看到 external_addrs 里少了 WebTransport
-    /// 就加一条静态的，那正是本设计要避免的东西。
+    /// 两者会被内核取并集：不一致就等于凭空多通告一条从未监听过的地址，而它照样会随
+    /// identify 广播出去。这条把「预声明是纯保险」这句话变成可检查的事实。
     #[test]
-    fn external_addresses_exclude_webtransport() {
-        assert!(
-            !external_addrs(&config())
-                .unwrap()
-                .iter()
-                .any(|addr| addr.to_string().contains("/webtransport")),
-            "WebTransport 公网地址必须由运行时跟踪产生，不能静态登记"
-        );
+    fn statically_declared_addresses_agree_with_the_public_ip_mapping() {
+        let config = config();
+        let mapped: Vec<String> = listen_addrs(&config)
+            .unwrap()
+            .iter()
+            .map(|a| a.with_ip(config.external_ip).to_string())
+            .collect();
+
+        for declared in external_addrs(&config).unwrap() {
+            assert!(
+                mapped.contains(&declared.to_string()),
+                "{declared} 不在监听地址的公网映射里：{mapped:?}"
+            );
+        }
     }
 }

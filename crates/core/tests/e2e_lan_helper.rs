@@ -21,6 +21,7 @@ use swarmdrop_core::host::{CoreEvent, EventBus, FileAccess, MemoryHost};
 use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_manager};
 use swarmdrop_core::network::event_loop::{handle_core_node_event, run_event_loop};
 use swarmdrop_core::network::{BootstrapCandidateSource, NetManager};
+use swarmdrop_core::pairing::PairingPorts;
 use swarmdrop_core::runtime::build_router;
 use swarmdrop_core::transfer::manager::TransferManager;
 use swarmdrop_storage_sql::SqlSessionStore;
@@ -103,10 +104,12 @@ async fn spawn_node(
         transfer,
         network_config,
         candidate_manager,
-        event_bus.clone(),
-        None,
-        std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
-        Arc::new(host.clone()),
+        PairingPorts {
+            event_bus: event_bus.clone(),
+            notifier: None,
+            invite_store: std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
+            paired_store: Arc::new(host.clone()),
+        },
     );
 
     // Router：三协议入站路由，复用 runtime 的装配（避免协议注册漂移）。

@@ -21,6 +21,7 @@ use swarmdrop_core::host::{CoreEvent, DeviceConfig, EventBus, MemoryHost};
 use swarmdrop_core::network::config::create_candidate_manager;
 use swarmdrop_core::network::event_loop::handle_core_node_event;
 use swarmdrop_core::network::{NetManager, NetworkRuntimeConfig};
+use swarmdrop_core::pairing::PairingPorts;
 use swarmdrop_net::{Addr, DhtConfig, Endpoint, NodeAddr, NodeId, SecretKey};
 
 /// A 的主机名。**必须与测试里用的设备名不同**——`to_agent_version()` 在
@@ -86,10 +87,12 @@ async fn spawn_node(secret: SecretKey, os_info: OsInfo, paired: Vec<PairedDevice
         (),
         network_config,
         candidates,
-        bus.clone(),
-        None,
-        Arc::new(swarmdrop_invite::NoopInviteStore),
-        Arc::new(host.clone()),
+        PairingPorts {
+            event_bus: bus.clone(),
+            notifier: None,
+            invite_store: Arc::new(swarmdrop_invite::NoopInviteStore),
+            paired_store: Arc::new(host.clone()),
+        },
     );
 
     let shared = manager.shared_refs();

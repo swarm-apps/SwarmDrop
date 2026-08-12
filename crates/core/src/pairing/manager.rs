@@ -194,32 +194,46 @@ pub struct PairingManager {
     paired_store: Arc<dyn PairedDeviceStore>,
 }
 
+/// 配对域需要的宿主端口。
+///
+/// 四项**只服务配对域**：[`NetManager`](crate::network::NetManager) 一项都不用，只是把
+/// 它整体转交下来。收成一个类型正是为了让这件事在签名上就看得见——散成四个位置参数时，
+/// `NetManager::new` 看起来像是自己也要用它们。
+///
+/// 刻意**不含** `DeviceConfig`：设备名的落盘必须排在推网络之前，那个顺序住在
+/// [`rename_device`](crate::device_name::rename_device)。把它递到这一层，等于为「在配对
+/// 域里顺手存一下名字」开一条绕过该顺序的路——用户会看到「改成功了」、重启却变回旧名字。
+pub struct PairingPorts {
+    /// 入站配对请求到达时发 [`CoreEvent::PairingRequestReceived`](crate::host::CoreEvent)。
+    pub event_bus: Arc<dyn EventBus>,
+    /// 入站请求的系统通知。`None` = 该端没有这个概念（移动端与浏览器）。
+    pub notifier: Option<Arc<dyn Notifier>>,
+    /// 邀请注册表的落盘端口（native = SQL / wasm = IndexedDB）；传
+    /// [`NoopInviteStore`](swarmdrop_invite::NoopInviteStore) 退回「重启丢邀请」的旧语义。
+    /// **构造后需调用 [`PairingManager::load_invites`]** 把已落盘的邀请读回内存表，
+    /// 否则重启后它们等同不存在。
+    pub invite_store: Arc<dyn InviteStore>,
+    /// 已配对设备列表的持久化端口（桌面 = `paired-devices.json` / 移动 = 系统安全存储 /
+    /// wasm = IndexedDB），[`PairingManager::unpair`] 靠它把解除配对做成原子操作。
+    pub paired_store: Arc<dyn PairedDeviceStore>,
+}
+
 impl PairingManager {
-    /// `invite_store` 是邀请注册表的落盘端口（native = SQL / wasm = IndexedDB），
-    /// 由宿主在组装点注入；传 [`NoopInviteStore`](swarmdrop_invite::NoopInviteStore)
-    /// 退回旧的「重启丢邀请」语义。**构造后需调用 [`Self::load_invites`]** 把已落盘的
-    /// 邀请读回内存表，否则重启后它们等同不存在。
-    ///
-    /// `paired_store` 是已配对设备列表的持久化端口（桌面 = `paired-devices.json` /
-    /// 移动 = 系统安全存储 /
-    /// wasm = IndexedDB），[`Self::unpair`] 靠它把解除配对做成原子操作。
-    ///
     /// `os_info` 是本机设备信息，由组合根注入——**不要在这里 `OsInfo::default()`**，
     /// 那正是「用户设的名字进不了配对请求、也进不了邀请串」这条 bug 的成因。
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "与 NetManager::new 同源：参数都是三端各自供给的端口/身份/配置"
-    )]
     pub fn new(
         endpoint: Endpoint,
         os_info: OsInfo,
         paired_devices: Arc<DashMap<NodeId, PairedDeviceInfo>>,
         devices: Arc<DeviceManager>,
-        event_bus: Arc<dyn EventBus>,
-        notifier: Option<Arc<dyn Notifier>>,
-        invite_store: Arc<dyn InviteStore>,
-        paired_store: Arc<dyn PairedDeviceStore>,
+        ports: PairingPorts,
     ) -> Self {
+        let PairingPorts {
+            event_bus,
+            notifier,
+            invite_store,
+            paired_store,
+        } = ports;
         Self {
             endpoint,
             os_info: RwLock::new(os_info),
@@ -833,10 +847,12 @@ mod tests {
             OsInfo::default(),
             paired,
             devices,
-            event_bus,
-            None,
-            Arc::new(NoopInviteStore),
-            paired_store,
+            PairingPorts {
+                event_bus,
+                notifier: None,
+                invite_store: Arc::new(NoopInviteStore),
+                paired_store,
+            },
         )
     }
 
@@ -855,10 +871,12 @@ mod tests {
             os_info,
             paired,
             devices,
-            Arc::new(host.clone()),
-            None,
-            Arc::new(NoopInviteStore),
-            Arc::new(host),
+            PairingPorts {
+                event_bus: Arc::new(host.clone()),
+                notifier: None,
+                invite_store: Arc::new(NoopInviteStore),
+                paired_store: Arc::new(host),
+            },
         )
     }
 

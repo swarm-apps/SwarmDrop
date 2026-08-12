@@ -17,7 +17,7 @@ use swarmdrop_core::host::EventBus;
 use swarmdrop_core::network::event_loop::spawn_event_loop;
 use swarmdrop_core::network::{CandidateRoles, NetManager, NetworkRuntimeConfig};
 use swarmdrop_core::protocol::pairing::{PairingRefuseReason, PairingResponse};
-use swarmdrop_core::runtime::{EndpointProfile, start_node};
+use swarmdrop_core::runtime::{EndpointProfile, HostPorts, NodeCredentials, start_node};
 use swarmdrop_host::device::{DeviceName, DeviceReceivePolicy, DeviceTrustLevel};
 use swarmdrop_host::{CoreSaveLocation, FileAccess, FileSourceId, PairedDeviceStore};
 use swarmdrop_invite::{
@@ -271,26 +271,30 @@ impl WebNode {
         let store_for_factory = store_port.clone();
         let events_for_factory = transfer_events.clone();
         let started = start_node(
-            secret.clone(),
-            None,
-            // 浏览器只拨号，没有服务端证书可存 —— 它那侧的 WebTransport 启用判据是
-            // 「有没有 `WebTransport` API」，与这个端口无关。
-            None,
+            NodeCredentials {
+                secret_key: secret.clone(),
+                // 浏览器只拨号，两份服务端证书都无处可存 —— 它那侧的 WebTransport 启用
+                // 判据是「有没有 `WebTransport` API」，与这两项无关。
+                webrtc_certificate_pem: None,
+                webtransport: None,
+            },
             os_info,
-            // 设备名的事实源：IndexedDB 的 `kv` store。`start_node` 自己 load 并填进
-            // `OsInfo.name`，浏览器侧不再有第二份本机 OsInfo 副本。
-            Arc::new(crate::device_config::IdbDeviceConfig),
-            paired_store.clone(),
             // `bootstrap_nodes` 留空：浏览器拨不了 TCP/QUIC 内置 bootstrap。公网入口
             // 由前端的 `ensureConfiguredRelays` 用 webrtc-direct 地址经 `addInfraNode`
             // 补，走的是候选表而不是这份启动配置。
             NetworkRuntimeConfig::default(),
             EndpointProfile::Browser,
-            event_bus.clone(),
-            None, // 浏览器无系统通知
-            // 邀请注册表落盘：刷新页面比重启桌面 App 频繁得多，内存态会让刚发出的邀请
-            // 立刻变成「不认识」（openspec: invite-persistence）。
-            Arc::new(crate::invite_store::IdbInviteStore),
+            HostPorts {
+                // 设备名的事实源：IndexedDB 的 `kv` store。`start_node` 自己 load 并填进
+                // `OsInfo.name`，浏览器侧不再有第二份本机 OsInfo 副本。
+                device_config: Arc::new(crate::device_config::IdbDeviceConfig),
+                paired_device_store: paired_store.clone(),
+                event_bus: event_bus.clone(),
+                notifier: None, // 浏览器无系统通知
+                // 邀请注册表落盘：刷新页面比重启桌面 App 频繁得多，内存态会让刚发出的邀请
+                // 立刻变成「不认识」（openspec: invite-persistence）。
+                invite_store: Arc::new(crate::invite_store::IdbInviteStore),
+            },
             move |endpoint| {
                 TransferManager::new(
                     endpoint,

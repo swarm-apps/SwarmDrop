@@ -85,12 +85,33 @@ impl Builder {
     /// 声明启动时已知的外部可达地址（等价于 bind 后立刻
     /// [`Endpoint::set_external_addrs`] 一次，但赶得上启动早期的 reservation 应答）。
     ///
-    /// 典型场景是公网 relay 的 TCP/QUIC 地址。WebRTC Direct 的 certhash 可用
-    /// [`crate::webrtc_direct_addr_from_pem`] 从同一持久化证书预先派生；地址会随证书轮换
-    /// 变化的传输（WebTransport）则要在运行期用 [`Endpoint::set_external_addrs`] 持续声明
-    /// ——那条**必须**跟着轮换更新，理由见该方法的文档。
+    /// 只适合**不用等监听结果就能算出来、且恒定不变**的那几条（公网 relay 的 TCP/QUIC）。
+    /// 带 certhash 的传输不要在这里预先派生 —— 那需要第二条从证书算 certhash 的路径，
+    /// 与传输实际使用的那条一旦漂移，症状是浏览器在 TLS 阶段被拒而日志毫无线索。
+    /// 那几条交给 [`external_ip`](Self::external_ip)，它从**监听地址本身**取 certhash。
     pub fn external_addrs(mut self, addrs: Vec<Addr>) -> Self {
         self.config.external_addrs = addrs;
+        self
+    }
+
+    /// 本节点的公网 IP —— 内核据此把每条监听地址映射成公网形态并持续维护。
+    ///
+    /// 适用于**静态 1:1 NAT 或直接持有公网 IP**的节点（公网 bootstrap/relay、端口转发到
+    /// 固定公网 IP 的桌面端）。给了之后内核维护第三份 external 来源：
+    /// 「当前监听集合中每条非 circuit 地址 ⇒ 把 IP 段换成这个 IP」，随监听地址增删同步，
+    /// 与 [`external_addrs`](Self::external_addrs) 声明的、AutoNAT 确认的三者取并集。
+    ///
+    /// # 为什么必须由内核持续维护，而不是启动时算一次
+    ///
+    /// 监听地址不是恒定的：WebTransport 的地址里带 **certhash**，而证书每 14 天轮换一次。
+    /// 启动时算出来的那条会在第一次轮换后变成死地址，还会随 identify 广播给每个对端。
+    /// 跟着监听集合走则天然带着**当前正确的** certhash，轮换时内核重新发一轮
+    /// `NewListenAddr`，这份映射随之更新、旧的随之撤销。
+    ///
+    /// circuit 地址被排除：`/…/p2p/<relay>/p2p-circuit` 里的 IP 段属于中继方，换成本机的
+    /// 公网 IP 会得到一条谁都拨不通、且指认错了中继的地址。
+    pub fn external_ip(mut self, ip: std::net::IpAddr) -> Self {
+        self.config.external_ip = Some(ip);
         self
     }
 
