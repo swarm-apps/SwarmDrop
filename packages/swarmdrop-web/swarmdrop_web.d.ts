@@ -56,8 +56,38 @@ export type ConnectionJson = {
     addr: string,
 };
 
-/**  连接类型。 */
-export type ConnectionType = "lan" | "dcutr" | "relay";
+/**
+ *  连接类型：给所有人看的一句话结论。**与 [`PathKind`] 一一对应**，本层不做推断。
+ *
+ *  # [`Direct`](Self::Direct) 与 [`Dcutr`](Self::Dcutr) 是两件事，不能合并
+ *
+ *  两者的数据面质量相同（一个字节都不过中继），分开只为回答「怎么建起来的」，
+ *  而这两条的排查方向相反：「打洞」意味着 NAT 穿透成功、该去看 ICE 与信令；
+ *  「直连」意味着压根没打洞，该去看那条地址是谁给的、隧道底下又是什么。
+ *
+ *  此前 [`PathKind::Direct`] 一档同时装着这两种来路，且被一对一映射成 `Dcutr`，
+ *  于是任何非私网非中继的连接都被 UI 标成「打洞」——一条
+ *  `/ip4/100.x/udp/…/webtransport` 的 Tailscale 直拨会显示成「打洞 + WebTransport」。
+ *  现在区分由内核给出（[`PathKind::HolePunched`]），本枚举照搬。
+ *
+ *  ⚠️ 那次修复中途走过一条弯路，别再走回去：**不要用「传输是不是 WebRTC」反推打洞**。
+ *  原生端 libp2p 自己的 `dcutr` behaviour 是开着的，它打出的是 TCP/QUIC 直连，
+ *  按传输反推会把真打洞判成「没打洞」。判据的唯一归属是 [`PathKind`]，
+ *  它当前的识别范围与缺口写在那个枚举的文档里。
+ *
+ *  [`PathKind`]: swarmdrop_net_base::PathKind
+ *  [`PathKind::Direct`]: swarmdrop_net_base::PathKind::Direct
+ *  [`PathKind::HolePunched`]: swarmdrop_net_base::PathKind::HolePunched
+ */
+export type ConnectionType =
+/**  局域网直连（私网地址或 loopback）。 */
+"lan" |
+/**  直连，但不是打洞来的：公网地址直拨，或经 mesh VPN 隧道（Tailscale 等）。 */
+"direct" |
+/**  WebRTC 打洞建立的直连：**信令**经 relay，数据面一个字节不过中继。 */
+"dcutr" |
+/**  经 circuit relay 中继：数据面整条经第三方转发。 */
+"relay";
 
 /**
  *  接收端保存位置（host-agnostic）。
@@ -533,8 +563,14 @@ export type PairingOutcomeJson = {
  */
 export type PairingRefusedJson = { type: "user_rejected" };
 
-/**  连接路径类别（[`swarmdrop_net_base::PathKind`] 的 JS 投影，TS 侧是字符串联合）。 */
-export type PathKindJson = "local" | "direct" | "relayed";
+/**
+ *  连接路径类别（[`swarmdrop_net_base::PathKind`] 的 JS 投影，TS 侧是字符串联合）。
+ *
+ *  `camelCase` 而非 `lowercase`：要与被投影的 `PathKind` 逐字一致，否则双词变体两边
+ *  对不上（`holePunched` vs `holepunched`），而单词变体又看不出差别——正是那种在加进
+ *  第一个双词变体时才暴露、且没有任何编译错误的错位。
+ */
+export type PathKindJson = "local" | "direct" | "holePunched" | "relayed";
 
 /**
  *  挂起入站配对请求的 JS 投影（`pending_pairing_requests()` 返回）。
@@ -891,7 +927,7 @@ export class WebNode {
     close(): Promise<void>;
     /**
      * 拨任意 multiaddr（`.../ws` 或 `.../webrtc-direct/certhash/...`，须带 `/p2p/<id>`）。
-     * 返回结构化的连接信息（`{ path: "local"|"direct"|"relayed", addr }`）。
+     * 返回结构化的连接信息（`{ path: "local"|"direct"|"holePunched"|"relayed", addr }`）。
      *
      * `signal`（可选）：标准 `AbortSignal`——超时组合用平台原语表达
      * （`AbortSignal.timeout(5000)` / `AbortSignal.any([...])`）。abort 时 Promise
@@ -1370,6 +1406,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly start: () => void;
     readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly default_receive_policy: (a: any, b: number) => [number, number, number];
     readonly inbox_search_limit: () => number;
@@ -1420,7 +1457,6 @@ export interface InitOutput {
     readonly webnode_take_skipped_forward_paths: (a: number) => [number, number];
     readonly webnode_transfer_history: (a: number) => any;
     readonly webnode_update_paired_device_policy: (a: number, b: number, c: number, d: any, e: number) => any;
-    readonly start: () => void;
     readonly default_device_name: () => [number, number];
     readonly get_device_name: () => any;
     readonly set_device_name: (a: number, b: number) => any;
