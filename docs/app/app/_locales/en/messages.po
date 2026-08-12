@@ -184,7 +184,6 @@ msgstr "Could not download the folder “{directory}”"
 msgid "与另一台设备互换一次邀请即可，之后长期有效。"
 msgstr "Exchange one invite with another device — the pairing then lasts."
 
-#: app/app/_components/connection-badge.tsx
 #: app/app/_components/transfer-labels.ts
 #: app/app/_lib/network-view.ts
 msgid "中继"
@@ -805,7 +804,6 @@ msgstr "This is the name peers see in pairing confirmations and transfer request
 msgid "对端在配对确认与传输请求里看到的就是这一行。清空即回落到浏览器 UA 派生的默认名。"
 msgstr "This is the name peers see in pairing confirmations and transfer requests. Clear it to fall back to the browser's UA-derived default."
 
-#: app/app/_components/connection-badge.tsx
 #: app/app/_components/transfer-labels.ts
 #: app/app/_lib/network-view.ts
 msgid "局域网"
@@ -1085,13 +1083,13 @@ msgstr "Open file"
 msgid "打开诊断"
 msgstr "Open diagnostics"
 
-#: app/app/_components/connection-badge.tsx
+#: app/app/_components/transfer-labels.ts
 msgid "打洞"
-msgstr "Hole-punch"
+msgstr "Hole-punched"
 
 #: app/app/_components/transfer-labels.ts
-msgid "打洞直连"
-msgstr "Hole-punched direct"
+#~ msgid "打洞直连"
+#~ msgstr "Hole-punched direct"
 
 #. placeholder {0}: files[0].name
 #: app/app/_components/forward-to-device-dialog.tsx
@@ -1442,6 +1440,10 @@ msgstr "Going to <0>Devices</0>…"
 msgid "正在连接"
 msgstr "Connecting"
 
+#: app/app/_components/pairing-confirm-dialog.tsx
+msgid "正在连接中继…"
+msgstr "Connecting to relay…"
+
 #: app/app/_lib/network-view.ts
 msgid "正在连接网络…"
 msgstr "Connecting to the network…"
@@ -1504,6 +1506,10 @@ msgstr "Here the browser does not provide <0>navigator.storage</0> or <1>crypto.
 #: app/app/_lib/network-view.ts
 msgid "浏览器拨不了 {0} 地址，本端支持：{1}"
 msgstr "The browser cannot dial {0} addresses. This build supports: {1}"
+
+#: app/app/_components/pairing-confirm-dialog.tsx
+msgid "浏览器要先连上中继才拨得到对方，通常几秒。连上后会自动继续。"
+msgstr "Your browser needs a relay connection before it can reach them — usually a few seconds. Pairing continues automatically."
 
 #: app/app/_components/appearance-panel.tsx
 #: app/app/_components/rail-tools.tsx
@@ -1594,6 +1600,10 @@ msgstr "Leave empty for no limit"
 #: app/app/_components/send-panel.tsx
 msgid "目标设备"
 msgstr "Target device"
+
+#: app/app/_components/transfer-labels.ts
+msgid "直连"
+msgstr "Direct"
 
 #: app/app/_components/unpair-dialog.tsx
 msgid "确定要取消与「{deviceName}」的配对吗？取消后需要重新配对才能传输文件。"
@@ -1763,6 +1773,10 @@ msgstr "Node stopped"
 #: app/app/_components/receive-panel.tsx
 msgid "节点已停止，打包中断"
 msgstr "The node was stopped, so the archive was left unfinished"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "节点已停止，重新启动后再试一次。"
+msgstr "The node was stopped. Start it again, then retry."
 
 #: app/app/_lib/network-view.ts
 msgid "节点未运行"
@@ -1985,6 +1999,10 @@ msgstr "This entry is no longer there. Go back to the list and start over."
 #: app/app/_components/inbox-views.tsx
 msgid "这条记录里没有文件"
 msgstr "This entry has no files"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "这条邀请已经过期，请让对方重新生成。"
+msgstr "This invite has expired — ask the other device to generate a new one."
 
 #: app/app/_components/pairing-confirm-dialog.tsx
 msgid "这条邀请已过期，让对方重新生成一条。"

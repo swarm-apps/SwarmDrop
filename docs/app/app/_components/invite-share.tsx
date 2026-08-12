@@ -25,7 +25,18 @@ import { remainingLabel, remainingSeconds } from "../_lib/invite";
 import { useCopyToClipboard } from "../_lib/use-copy";
 import { getNode } from "../_lib/node-runtime";
 
-/** 码面边长（px）。手机扫描距离 20–30cm 下够用，也不至于把面板撑开。 */
+/**
+ * 码面边长（px）。手机扫描距离 20–30cm 下够用，也不至于把面板撑开。
+ *
+ * ⚠️ **它同时是后端的地址预算**：196 是三端里最小的码面（桌面 260、移动端白卡内沿
+ * `220-2×12` 也是 196），而 `crates/core/src/pairing/manager.rs` 的
+ * `INVITE_QR_MAX_MODULES = 98` 正是 `196 / 2`（px/模块跌破 2 摄像头就读不出来）——
+ * 邀请里塞得下几条地址由那个数决定。
+ *
+ * **改小这个数就是在收紧那个预算，而没有任何门禁会告诉你**：跨语言常量没法共享，
+ * 二维码照样生成、链接照样能用，唯一的症状是真机扫不出来。要改就连那个常量一起改，
+ * 并重跑 `invite_stays_scannable_at_every_scale`。
+ */
 const QR_SIZE = 196;
 /** 白卡内边距（px），须与下面的 `p-3` 一致——尺寸由它派生，改一处不会静默错位。 */
 const CARD_PADDING = 12;

@@ -58,6 +58,10 @@ const MODULE_COLOR = "#0a0a0a";
 
 export const InviteQr = memo(function InviteQr({
   invite,
+  // ⚠️ 220 减去下面那 12 的两侧内边距 = **196**，与 Web 端的 `QR_SIZE` 并列为三端最小
+  // 码面，而 `crates/core/src/pairing/manager.rs` 的 `INVITE_QR_MAX_MODULES = 98` 就是
+  // `196 / 2` 反推出来的（px/模块跌破 2 摄像头读不出来）。改小它 = 收紧邀请的地址预算，
+  // 而跨语言常量没有门禁会拦：码照样生成、链接照样能用，只有真机扫不出来。
   size = 220,
   overlay = null,
 }: InviteQrProps) {

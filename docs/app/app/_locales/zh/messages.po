@@ -184,7 +184,6 @@ msgstr "下载目录「{directory}」失败"
 msgid "与另一台设备互换一次邀请即可，之后长期有效。"
 msgstr "与另一台设备互换一次邀请即可，之后长期有效。"
 
-#: app/app/_components/connection-badge.tsx
 #: app/app/_components/transfer-labels.ts
 #: app/app/_lib/network-view.ts
 msgid "中继"
@@ -805,7 +804,6 @@ msgstr "对端在配对确认与传输请求里看到的就是这一行。清空
 msgid "对端在配对确认与传输请求里看到的就是这一行。清空即回落到浏览器 UA 派生的默认名。"
 msgstr "对端在配对确认与传输请求里看到的就是这一行。清空即回落到浏览器 UA 派生的默认名。"
 
-#: app/app/_components/connection-badge.tsx
 #: app/app/_components/transfer-labels.ts
 #: app/app/_lib/network-view.ts
 msgid "局域网"
@@ -1085,13 +1083,13 @@ msgstr "打开文件"
 msgid "打开诊断"
 msgstr "打开诊断"
 
-#: app/app/_components/connection-badge.tsx
+#: app/app/_components/transfer-labels.ts
 msgid "打洞"
 msgstr "打洞"
 
 #: app/app/_components/transfer-labels.ts
-msgid "打洞直连"
-msgstr "打洞直连"
+#~ msgid "打洞直连"
+#~ msgstr "打洞直连"
 
 #. placeholder {0}: files[0].name
 #: app/app/_components/forward-to-device-dialog.tsx
@@ -1442,6 +1440,10 @@ msgstr "正在进入 <0>设备</0>…"
 msgid "正在连接"
 msgstr "正在连接"
 
+#: app/app/_components/pairing-confirm-dialog.tsx
+msgid "正在连接中继…"
+msgstr "正在连接中继…"
+
 #: app/app/_lib/network-view.ts
 msgid "正在连接网络…"
 msgstr "正在连接网络…"
@@ -1504,6 +1506,10 @@ msgstr "浏览器在此环境不提供 <0>navigator.storage</0> / <1>crypto.subt
 #: app/app/_lib/network-view.ts
 msgid "浏览器拨不了 {0} 地址，本端支持：{1}"
 msgstr "浏览器拨不了 {0} 地址，本端支持：{1}"
+
+#: app/app/_components/pairing-confirm-dialog.tsx
+msgid "浏览器要先连上中继才拨得到对方，通常几秒。连上后会自动继续。"
+msgstr "浏览器要先连上中继才拨得到对方，通常几秒。连上后会自动继续。"
 
 #: app/app/_components/appearance-panel.tsx
 #: app/app/_components/rail-tools.tsx
@@ -1594,6 +1600,10 @@ msgstr "留空表示不限制"
 #: app/app/_components/send-panel.tsx
 msgid "目标设备"
 msgstr "目标设备"
+
+#: app/app/_components/transfer-labels.ts
+msgid "直连"
+msgstr "直连"
 
 #: app/app/_components/unpair-dialog.tsx
 msgid "确定要取消与「{deviceName}」的配对吗？取消后需要重新配对才能传输文件。"
@@ -1763,6 +1773,10 @@ msgstr "节点已停止"
 #: app/app/_components/receive-panel.tsx
 msgid "节点已停止，打包中断"
 msgstr "节点已停止，打包中断"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "节点已停止，重新启动后再试一次。"
+msgstr "节点已停止，重新启动后再试一次。"
 
 #: app/app/_lib/network-view.ts
 msgid "节点未运行"
@@ -1985,6 +1999,10 @@ msgstr "这条记录已经不在了，请返回列表重新开始"
 #: app/app/_components/inbox-views.tsx
 msgid "这条记录里没有文件"
 msgstr "这条记录里没有文件"
+
+#: app/app/_components/pairing-panel.tsx
+msgid "这条邀请已经过期，请让对方重新生成。"
+msgstr "这条邀请已经过期，请让对方重新生成。"
 
 #: app/app/_components/pairing-confirm-dialog.tsx
 msgid "这条邀请已过期，让对方重新生成一条。"

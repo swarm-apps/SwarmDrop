@@ -218,6 +218,17 @@ impl Addr {
             .any(|p| matches!(p, Protocol::WebRTC | Protocol::WebRTCDirect))
     }
 
+    /// 该地址是否包含 WebTransport 传输段。
+    ///
+    /// ⚠️ **它与 [`is_quic_v1`](Self::is_quic_v1) 不互斥**：WebTransport 地址形如
+    /// `/ip4/…/udp/…/quic-v1/webtransport/certhash/…`，两个段同时在场，所以
+    /// `is_quic_v1()` 对它**也为真**。任何「挑一条 QUIC 出来」的地方都必须显式排除它，
+    /// 否则会把一条 WebTransport 地址当成裸 QUIC 交出去 —— 判据错了，但没有任何编译错误。
+    /// 同一个陷阱在 [`transport`](Self::transport) 里由「WebTransport 先判」解决。
+    pub fn is_webtransport(&self) -> bool {
+        self.0.iter().any(|p| p == Protocol::WebTransport)
+    }
+
     /// 把地址里的 IP 段换成 `ip`，其余段原样保留。
     ///
     /// 用途是「监听地址 → 公网地址」：绑在 `0.0.0.0` 的节点通告出去的必须是公网 IP，

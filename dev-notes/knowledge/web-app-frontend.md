@@ -462,6 +462,70 @@ subscriptions = { stopPoll: startStatePoll(n), stopRelayWatch: startRelayWatch(n
 **相关文件**：`docs/app/app/_lib/node-lifecycle.ts`、`docs/app/app/_lib/event-dispatch.ts`、
 `docs/app/app/_components/node-status-dialog.tsx`、`docs/app/app/_components/node-not-ready-state.tsx`
 
+## ⚠️ `status === "running"` **不代表拨得动中继**——消费邀请要等 reservation（2026-08-12 修）
+
+从 `/p/` 落地页点进来的人，配对**必然失败**，而且是 100% 复现。
+
+**根因是两个「就绪」被当成了一个**。`markRunning` 只说明 wasm 节点 spawn 完成、订阅装好了；
+引导节点此刻才刚被 `replayInfraNodes` 登记成**意图**，core 的 InfraSupervisor 最迟 1s 后才
+发出第一轮拨号，拨通 + reservation 还要几秒。而确认卡恰恰是由 `pairing-panel` 的补偿
+effect 在 `ready` 翻真那一刻解码出来的——**「打开链接 → 立刻点确认」必然落在这个窗口里**。
+
+**为什么非等中继不可**（这条是机制，不是保守）：跨网时邀请里唯一用得上的是对方的 circuit
+地址，而 circuit 地址的**外层**是对方连中继用的那种传输（桌面是 TCP，见
+`crates/net/src/transport.rs` 里 `supported_transports` 的说明）。**浏览器拨不动 TCP** ——
+它只有在自己已经连上同一台中继时，libp2p 才会复用那条现成连接做 HOP。
+
+判据取 `selectReservation`（reservation 已建）而不是 `connected`：前者蕴含后者，还额外保证
+配对成功后对方拨得回来；用后者只能省一两秒，却要多解释一次两者的差别。
+
+三条约束，改这块前逐条看：
+
+- **等待只推迟，不否决。** 超时（20s）后照常发起握手——同网时邀请里带着对方的 webrtc-direct
+  直连地址，那条路径与中继毫无关系。做成前置条件，等于让一个纯优化的时机调整反过来掐死
+  原本能成的配对。所以 `waitForPairingReadiness` 返回 `boolean` 而不是抛错。
+- **`LocalOnly` 邀请跳过等待。** 它里面根本没有 circuit 地址（`select_invite_addrs` 只放
+  私网那一桶），等中继纯属白等；何况这类场景常常压根连不上公网。
+- **等待期间必须能取消，而取消要真的中断。** 这一段可长达 20 秒且尚未出网，锁住用户没有
+  道理；但只作废结果（`useAsyncAction.cancel()`）**不够**——那次等待会照常走完然后发出握手，
+  把一条用户已经放弃的一次性邀请消费掉。所以要 `AbortController`，且调用方靠
+  `signal.aborted` 区分「别等了，直接试」与「别试了」，`false` 这个返回值本身分不开这两者。
+
+还有两条不那么显然的：
+
+- **等完之后句柄要重新取一次**（`getNode()` 比对实例，不只是判空）。等待长达 20s，其间
+  用户完全可能停掉节点，而 `closeNode()` 走的是 `close(self)` —— **wasm 侧的指针被释放**，
+  拿闭包里那个旧句柄再调方法，得到的是一句 `null pointer passed to rust`：用户看不懂，
+  日志也指不回真正的原因。重启后 `spawnNode()` 给的又是另一个实例，同样不该拿来续这一趟。
+- **`useAsyncAction.pending` 的守卫要放行等待段。** 那些「握手在途时不换邀请」的守卫
+  （`setInviteAndPreview` 的早退）理由是「`connect_invite` 一发出对端就可能 CAS 消费掉」——
+  等中继时那个理由一条都不成立，照旧拦下只会让用户在 20 秒里换不掉一条粘错的邀请，
+  而输入框看着还能打字（它只按 `ready` 禁用）。放行的同时要 abort 在途等待，否则它会
+  照常走完并用**已经被换掉**的那条邀请去握手。
+
+**对称性提醒**：生成邀请那侧一直有这道门（没有 reservation 就禁用按钮 + 一段解释文案），
+消费这侧的缺失纯属遗漏。**两侧的网络前提本就不同**（生成要「别人拨得到我」，消费要
+「我拨得到别人」），只是在浏览器上恰好都归结为同一件事：有没有一条活的 circuit 预留。
+
+### 已知边界：`localOnly` 不是「需不需要中继」的精确判据
+
+跳过等待的判据现在是 `preview.localOnly`，而真正该问的是**这条邀请里有没有直连地址**。
+两者在一种真实场景下分叉：**离线局域网**（无网演示、封了 bootstrap 的访客 Wi-Fi）里，
+对方发的是一条普通 `Auto` 邀请（没人会去翻「仅同一网络内可用」那个开关），里面带着
+局域网 webrtc-direct / WebTransport 地址，浏览器本可以立刻拨通 —— 却要先白等满 20 秒，
+因为那种环境下 reservation **永远**不会出现。
+
+结果是「慢，但仍然成功」，不是失败，所以没在本轮修。要修得给 `PairInvitePreviewJson`
+加一位「有无直连地址」，而那是 `crates/web` 的公开面改动，**三条 codegen 链路都要重跑**
+（见本文件「改 `crates/web` 的公开面」一节）。同一条边界也解释了另一个场景：邀请方在
+自己还没建起 reservation 时生成的 `Auto` 邀请里压根没有 circuit 地址，等它同样是白等。
+
+桌面与移动 App **不需要**这道门：它们是 native，拨得动 circuit 外层的 TCP/QUIC，
+不必先跟中继建立关系。这也是为什么这条只在浏览器上暴露。
+
+**相关文件**：`docs/app/app/_lib/pair-readiness.ts`（含单测）、
+`docs/app/app/_components/pairing-panel.tsx`、`docs/app/app/_components/pairing-confirm-dialog.tsx`
+
 ## 手测坑：Next Dev Tools 浮标会挡住底部导航
 
 `pnpm dev` 下左下角的 Next.js Dev Tools 徽标是 fixed 定位，正好压在窄屏底部导航上，
@@ -611,10 +675,14 @@ docs/app/app/_lib/view-types.ts        ← 手工再导出新类型（它刻意�
 - **白卡内禁用 `text-fd-*` 主题 token**。码面固定深模块 + 白底、不随暗色主题反色
   （摄像头对反色 QR 识别差），所以卡内文字在暗色主题下会变浅灰压在白底上。用固定的
   `text-slate-*`。
-- **容量不是约束，密度才是**。QR 在 ECL::M 下约 2079 字节 wire 才到顶，而浏览器邀请最坏
-  327 字节（地址只来自 relay reservation，`append_invite_transports` 每桶最多留 2 条）。
-  先出事的是「196px 码面下 px/模块 < 2 就扫不动」——真放宽地址上限时，掉的是扫码成功率
-  而不是编码。
+- **容量不是约束，密度才是**。QR 在 ECL::M 下约 2079 字节 wire 才到顶；先出事的是
+  「196px 码面下 px/模块 < 2 就扫不动」，也就是含 quiet zone 不超过 98 模块。
+  浏览器自己发的邀请离这个上限很远（地址只来自 relay reservation），**会顶到线的是桌面
+  与移动端发的**——它们地址多，而这里的 196px 正是三端里最小的那个码面，上限因此由本页定。
+  ⚠️ 这条此前写着「每桶最多留 2 条」，2026-08-12 起是 **3 条**（多一条 WebTransport），
+  并且加了一道按码面密度回收地址的闸。判据、实测数据与丢弃顺序在
+  [`net-kernel.md`](net-kernel.md) 的「邀请地址有 QR 密度上限」一节，**改码面尺寸
+  （`QR_SIZE`）就是在改那条上限**，两边要一起动。
 
 **相关文件**：`docs/app/app/_components/invite-share.tsx`、`crates/web/src/node.rs`、
 `crates/invite/src/qr.rs`

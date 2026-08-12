@@ -425,6 +425,13 @@ driver 丢弃可靠消息）。桌面与移动是两份独立常量，**要一�
 > **读失败不降级**），各端只给路径 —— 与 `JsonFileDeviceConfig` 同一体例。
 > 那个端口**刻意不挂在 `KeychainProvider` 上**：那个 trait 的方法都是「读一次就完」，而这份
 > 证书要 14 天轮换并回写；顺带也就不必动 uniffi 跨 FFI 契约。判据与护栏测试见 net-kernel.md。
+>
+> **WebTransport 地址也进配对邀请**（2026-08-12 起，`append_invite_transports` 每桶三条：
+> native + WebTransport + WebRTC）。但邀请是**二维码承载**的，地址多到一定程度就扫不动 ——
+> 上限由三端最小码面 196px 反推（含 quiet zone ≤ 98 模块），而补它之前满配桌面就已经
+> 卡在 97。所以挑完地址还要过 `fit_invite_to_scannable` 一道密度闸，按价值反序回收：
+> **WebTransport 第一批丢**（丢了浏览器仍能靠 webrtc-direct 拨通，配对后 identify 会把它
+> 交回来）、**circuit 一条都不丢**（跨网唯一可达路径）。实测四档数据与回归钉见 net-kernel.md。
 
 客户端清单按端分两份，各自只列本端用得上的 transport（部署配置，不属于 P2P 内核）：
 `src/lib/bootstrap-nodes.ts` + `mobile/src/core/bootstrap-nodes.ts`（原生端：tcp + quic）、
