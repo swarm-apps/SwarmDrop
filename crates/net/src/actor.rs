@@ -280,6 +280,8 @@ pub(crate) struct Actor {
     self_tx: mpsc::Sender<ActorMessage>,
     config: EndpointConfig,
     node_id: NodeId,
+    /// 活跃流计数（与 `Endpoint` 共用同一份）。只读，用来判断关掉一条连接安不安全。
+    registry: crate::stream::StreamRegistry,
 }
 
 impl Actor {
@@ -290,8 +292,10 @@ impl Actor {
         self_tx: mpsc::Sender<ActorMessage>,
         config: EndpointConfig,
         node_id: NodeId,
+        registry: crate::stream::StreamRegistry,
     ) -> Self {
         Self {
+            registry,
             swarm,
             rx,
             dials: HashMap::new(),
@@ -875,6 +879,46 @@ impl Actor {
         self.best_tier(peer).is_some_and(|current| target < current)
     }
 
+    /// 升级成功之后，关掉留在劣档上的那些连接。
+    ///
+    /// # 不关的话，升级只是把「走慢连接」的概率从 100% 降到 50%
+    ///
+    /// `libp2p-stream` 的 `Shared::sender()` 在该 peer 的**所有**连接里
+    /// `.choose(&mut rand::thread_rng())` —— 均匀随机。所以只要劣档连接还在，
+    /// 每条新流都在掷硬币。而 UI 侧 `best_conn` 按 `path_rank` 取最好的那条上报，
+    /// 于是界面显示「直连」、一半的流在走中继：一半诚实一半撒谎。
+    ///
+    /// # 判据只能是「该 peer 一条流都没有」
+    ///
+    /// 想关得更准就得知道「哪条流在哪条连接上」，而 `libp2p-stream` 随机挑完并不回报，
+    /// 从我们这侧观测不到（见 [`StreamRegistry::is_idle`](crate::stream::StreamRegistry::is_idle)）。
+    /// 所以宁可保守：有任何活跃流就整轮跳过，**绝不打断正在传的数据**。
+    ///
+    /// 代价是「传输途中升级成功」那一格要等到下一次触发才收敛。可接受——那条正在传的流
+    /// 本来就已经绑在旧连接上，早关晚关都救不了它，而早关会直接打断它。
+    ///
+    /// 调用点有两处：连接建立后（**主路径**：升级通常发生在 identify 首帧，此时用户还没
+    /// 开始传，一关就干净）与每次 identify（自愈：补上被活跃流挡掉的那些轮次）。
+    fn prune_inferior_conns(&mut self, peer: PeerId) {
+        let inferior = inferior_conns(self.conns.get(&peer).map_or(&[], Vec::as_slice));
+        if inferior.is_empty() {
+            return;
+        }
+        if !self.registry.is_idle(peer) {
+            debug!(
+                %peer,
+                pending = inferior.len(),
+                "defer pruning inferior connections: peer still has active streams"
+            );
+            return;
+        }
+        for id in inferior {
+            if self.swarm.close_connection(id) {
+                info!(%peer, ?id, "closed inferior connection after upgrade");
+            }
+        }
+    }
+
     /// 清掉该 peer 的两个升级在途标记（连接建立 / 拨号失败时调）。
     ///
     /// **两条路径的标记必须分开存**：跨网时对端 identify 里那些私网地址本就拨不通，
@@ -1238,9 +1282,11 @@ impl Actor {
                     .push((connection_id, info.clone()));
                 self.publish_conns();
 
-                // 本轮升级已有结果（无论这条是不是升级建出来的）；成功则 only_relayed
-                // 转 false 自然不再重试，失败则等下一次 identify / mDNS 重来。
+                // 本轮升级已有结果（无论这条是不是升级建出来的）；成功则 best_tier
+                // 转好、`wants_upgrade_to` 自然不再重试，失败则等下一次 identify / mDNS。
                 self.clear_upgrade_marks(&peer_id);
+                // **主路径**：升级刚落地就把劣档连接关掉，否则新流会在两条连接间掷硬币。
+                self.prune_inferior_conns(peer_id);
 
                 let node = NodeId::from_peer_id(peer_id);
                 if u32::from(num_established) == 1 {
@@ -1491,6 +1537,8 @@ impl Actor {
                 // 换的是「LAN 拨不通时不用再等 5 分钟才轮到打洞」。
                 self.try_upgrade_to_lan(peer_id, &info.listen_addrs);
                 self.try_upgrade_to_direct(peer_id, &info.listen_addrs);
+                // 自愈：补上此前被活跃流挡掉的清理轮次。
+                self.prune_inferior_conns(peer_id);
                 let protocols = info
                     .protocols
                     .iter()
@@ -1971,6 +2019,22 @@ fn classify_path(addr: &Addr, relayed: bool) -> PathKind {
 /// reservation 还没起来），对端根本拨不过来，此时若还讲定序就会两边互等、谁都不发起。
 fn should_initiate(local: &PeerId, remote: &PeerId, local_reachable: bool) -> bool {
     !local_reachable || local < remote
+}
+
+/// 一组连接里**档位严格劣于最好那一档**的那些。没有可关的（只有一条、或全都同档）
+/// 时返回空。
+///
+/// 抽成自由函数只为可测：真正的 `prune_inferior_conns` 要一个 `Swarm` 才能跑，
+/// 而「该关哪些」这个决策本身是纯的。
+fn inferior_conns(conns: &[(ConnectionId, ConnInfo)]) -> Vec<ConnectionId> {
+    let Some(best) = conns.iter().map(|(_, i)| i.addr.dial_tier()).min() else {
+        return Vec::new();
+    };
+    conns
+        .iter()
+        .filter(|(_, info)| info.addr.dial_tier() > best)
+        .map(|(id, _)| *id)
+        .collect()
 }
 
 /// 从对端自报的地址里挑出 LAN 升级候选：**严格优于 `current` 的那一档里最好的一档**。
@@ -2508,6 +2572,61 @@ mod tests {
         assert!(
             !lan_candidates(&addrs, DialTier::Relayed).is_empty(),
             "中继 → 直连仍然要拨"
+        );
+    }
+
+    fn conn(id: usize, addr: &str) -> (ConnectionId, ConnInfo) {
+        let addr: Addr = addr.parse().expect("valid multiaddr");
+        (
+            ConnectionId::new_unchecked(id),
+            ConnInfo {
+                path: classify_path(&addr, addr.is_circuit()),
+                addr,
+                rtt: None,
+            },
+        )
+    }
+
+    /// **升级必须伴随关掉劣档连接。** 不关的话，`libp2p-stream` 的
+    /// `.choose(&mut rand::thread_rng())` 会让每条新流在两条连接间掷硬币——
+    /// 升级只是把「走慢连接」的概率从 100% 降到 50%。
+    #[test]
+    fn inferior_conns_lists_everything_below_the_best_tier() {
+        let relayed = format!("/ip4/47.115.172.218/tcp/4001/p2p/{RELAY}/p2p-circuit/p2p/{PEER}");
+        let conns = [
+            conn(1, &relayed),
+            conn(2, "/ip4/192.168.1.5/udp/54323/webrtc-direct"),
+            conn(
+                3,
+                &format!(
+                    "/ip4/192.168.1.5/udp/54324/quic-v1/webtransport/certhash/{H1}/certhash/{H2}"
+                ),
+            ),
+        ];
+
+        assert_eq!(
+            inferior_conns(&conns),
+            vec![
+                ConnectionId::new_unchecked(1),
+                ConnectionId::new_unchecked(2)
+            ],
+            "只留最好的那一档，其余全关"
+        );
+    }
+
+    /// 同档不关：它们之间掷硬币无所谓，而多一条连接是有价值的冗余。
+    #[test]
+    fn inferior_conns_keeps_every_connection_in_the_best_tier() {
+        let conns = [
+            conn(1, "/ip4/192.168.1.5/tcp/4001"),
+            conn(2, "/ip4/192.168.1.5/udp/4001/quic-v1"),
+        ];
+        assert!(inferior_conns(&conns).is_empty());
+
+        assert!(inferior_conns(&[]).is_empty(), "没连接时不该 panic");
+        assert!(
+            inferior_conns(&[conn(1, "/ip4/192.168.1.5/udp/54323/webrtc-direct")]).is_empty(),
+            "只有一条时无论多差都不能关——关了就断线了"
         );
     }
 

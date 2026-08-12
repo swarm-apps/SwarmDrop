@@ -267,6 +267,9 @@ impl Builder {
 
         let (actor_tx, actor_rx) = mpsc::channel::<ActorMessage>(COMMAND_CHANNEL_SIZE);
         let dht_enabled = config.dht.is_some();
+        // registry 在这里建而不是在下面的 `Inner` 里：actor 也要读它（判断关掉一条连接
+        // 安不安全），而**必须是同一份**——两份各记各的，actor 会以为对端永远空闲。
+        let registry = StreamRegistry::new(config.stream_limits);
         let actor = Actor::new(
             swarm,
             actor_rx,
@@ -279,6 +282,7 @@ impl Builder {
             actor_tx.clone(),
             config.clone(),
             node_id,
+            registry.clone(),
         );
         let actor_handle = n0_future::task::spawn(actor.run());
 
@@ -287,7 +291,7 @@ impl Builder {
             node_id,
             actor_tx: actor_tx.clone(),
             control,
-            registry: StreamRegistry::new(config.stream_limits),
+            registry,
             watch_addrs: addrs_rx,
             watch_nat: nat_rx,
             watch_conns: conns_rx,

@@ -183,7 +183,7 @@ Web 端那颗「测试连通性」按钮就是这么变成一个不可能失败�
 而每一步看起来都在正常工作。判据是 `transport::dialable_kind(kind, browser)`，
 纯函数以便两个 target 都能在 native 上测。
 
-### ⚠️ 未修：升级建出第二条连接，但数据流**随机**挑连接（2026-08-12 发现）
+### 升级必须**关掉劣档连接**，否则新流在两条连接间掷硬币（2026-08-12 修）
 
 `libp2p-stream` 的 `Shared::sender()` 是这一行：
 
@@ -191,18 +191,29 @@ Web 端那颗「测试连通性」按钮就是这么变成一个不可能失败�
 .choose(&mut rand::thread_rng())
 ```
 
-**在该 peer 的所有连接里均匀随机挑一条。** 而升级成功后**旧连接不会被关闭**
-（`ConnectionEstablished` 分支只清升级标记、发 `PathChanged`），于是：
+**在该 peer 的所有连接里均匀随机挑一条。** 而升级会新建一条连接、旧的不会自动消失，于是：
 
-> 升级只把「走慢连接」的概率从 100% 降到 50%，没有消除它。
+> 只升级不关旧连接，等于把「走慢连接」的概率从 100% 降到 50%，而不是消除它。
 
-这条**早于本次改动就存在**（中继 → 打洞升级同样如此），而且 UI 会显示「直连」——
-`best_conn` 按 `path_rank` 取最好的那条报给前端，于是**界面说直连、一半的流在走中继**。
-它属于本仓最不喜欢的那类形态：一半诚实一半撒谎。
+这条**早于按档升级就存在**（中继 → 打洞升级同样如此），且 UI 会显示「直连」——
+`best_conn` 按 `path_rank` 取最好的那条报给前端，于是**界面说直连、一半的流在走中继**：
+本仓最不喜欢的那类形态，一半诚实一半撒谎。
 
-修法只有一个方向：**升级成功后关掉劣档连接**。没有就地做，是因为它会杀掉正在那条连接上
-传输的流（转 Interrupted 走恢复路径）——识别「这条连接上有没有活跃数据流」需要按 connection
-记账，而现有 registry 是按 (peer, protocol) 记的。动它之前先想清楚这一点。
+现在 `prune_inferior_conns(peer)` 在两处触发：**连接建立后**（主路径——升级通常发生在
+identify 首帧，此时用户还没开始传，一关就干净）与**每次 identify**（自愈，补上被挡掉的轮次）。
+
+⚠️ **判据只能是「该 peer 一条流都没有」**（`StreamRegistry::is_idle`）。想关得更准就得知道
+「哪条流在哪条连接上」——而 `libp2p-stream` 随机挑完**并不回报挑了哪条**，从我们这侧根本
+观测不到，registry 也只按 `(peer, protocol)` 记账。所以宁可保守：有任何活跃流就整轮跳过，
+**绝不打断正在传的数据**。
+
+代价是「传输途中升级成功」那一格要等到下一轮 identify（~5 分钟）才收敛。**这个代价是对的**：
+那条正在传的流本来就已经绑在旧连接上，早关晚关都救不了它，而早关会直接把它打断。
+
+三条护栏：`inferior_conns_lists_everything_below_the_best_tier`（该关的都关）、
+`inferior_conns_keeps_every_connection_in_the_best_tier`（只有一条时无论多差都不关——
+关了就断线）、`is_idle_covers_both_directions_and_recovers_after_drop`（**入站也算活跃**，
+只看出站会把正在接收的会话判成空闲）。
 
 **相关文件**：`crates/net-base/src/addr.rs`（`DialTier`）、`crates/net/src/actor.rs`
 （`best_tier` / `lan_candidates`）、`crates/net/src/transport.rs`（`dialable_kind`）

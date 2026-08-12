@@ -154,6 +154,20 @@ impl StreamRegistry {
         }
     }
 
+    /// 该 peer 当前有没有活跃流（收发两向都算）。
+    ///
+    /// 用途只有一个：**决定能不能安全地关掉一条劣档连接**（升级之后的清理，见
+    /// `actor::prune_inferior_conns`）。粒度只到 peer 而不是 connection，是因为
+    /// `libp2p-stream` 开流时**随机挑连接**且不回报挑了哪条——「这条流落在哪条连接上」
+    /// 从我们这一侧根本观测不到。
+    ///
+    /// 于是判据只能保守成「该 peer 一条流都没有」：宁可晚一轮再关，也不能关掉一条
+    /// 正在传数据的连接。
+    pub(crate) fn is_idle(&self, peer: PeerId) -> bool {
+        let inner = self.inner.lock().expect("registry lock poisoned");
+        !inner.inbound_per_peer.contains_key(&peer) && !inner.outbound_per_peer.contains_key(&peer)
+    }
+
     /// 尝试占用一条流的配额。成功返回 guard（drop 归还），超限返回 `None`。
     pub(crate) fn try_acquire(
         &self,
@@ -230,6 +244,34 @@ mod tests {
 
     fn proto() -> ProtocolId {
         ProtocolId::from_static("/test/data/1")
+    }
+
+    /// `is_idle` 是「关掉劣档连接」唯一的安全闸——判错的后果是**打断正在传的文件**。
+    ///
+    /// 收发两向都要算：接收方的数据流是入站的，只看出站会把正在接收的会话判成空闲。
+    #[test]
+    fn is_idle_covers_both_directions_and_recovers_after_drop() {
+        let reg = StreamRegistry::new(StreamLimits::default());
+        let peer = test_peer();
+        let other = libp2p::identity::Keypair::generate_ed25519()
+            .public()
+            .to_peer_id();
+
+        assert!(reg.is_idle(peer), "没开流时是空闲的");
+
+        let inbound = reg.try_acquire(peer, proto(), Direction::Inbound);
+        assert!(
+            !reg.is_idle(peer),
+            "入站流也算活跃——接收方的数据流正是入站的"
+        );
+        assert!(reg.is_idle(other), "别的 peer 不受影响");
+        drop(inbound);
+        assert!(reg.is_idle(peer), "guard 归还后恢复空闲");
+
+        let outbound = reg.try_acquire(peer, proto(), Direction::Outbound);
+        assert!(!reg.is_idle(peer));
+        drop(outbound);
+        assert!(reg.is_idle(peer));
     }
 
     // 迁自旧栈 data_channel.rs 的配额语义矩阵
