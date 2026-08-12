@@ -682,6 +682,7 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | 重构系列博客 | `dev-notes/blogs/2026-07-net-refactor-series.md` |
 | 配对重构系列博客 | `dev-notes/blogs/pairing-invite/README.md` |
 | WebRTC 系列博客（零基础入门 + 上游补丁复盘） | `dev-notes/blogs/webrtc/README.md` |
+| WebTransport 系列博客（零基础入门 + 证书轮换设计） | `dev-notes/blogs/webtransport/README.md`（`serverCertificateHashes`、certhash 进地址与 Noise 子集判据、两张证书为什么必须重叠、28 天寿命、实测数字与三处未查清） |
 | 传输吞吐系列博客（2026-08-10 真机实测复盘） | `dev-notes/blogs/transfer-throughput/README.md`（探针 vs 排除法、bao 的 O(n²)、两套加密栈、停等流控、`try_join` 的取消语义） |
 | 产品需求 | `dev-notes/product-requirements.md` |
 | UI 设计文件 | `dev-notes/design/design.pen` |
