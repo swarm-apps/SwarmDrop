@@ -16,6 +16,9 @@ specta = { version = "=2.0.0-rc.25", features = ["derive"], optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+# 只给 compact 的体积回归测试用：`CompactAddrs` 本身不绑定序列化格式，
+# 但它的唯一消费者（crates/invite 的邀请 wire）用 postcard，量体积得按同一把尺。
+postcard = { version = "1.1", features = ["use-std"] }
 
 [features]
 default = []

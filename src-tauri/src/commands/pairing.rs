@@ -51,10 +51,13 @@ pub struct PairInvitePreview {
 
 /// 生成 canonical 邀请链接的二维码 SVG（三端统一编码规范：原样编码 + 最优分段 + ECL::M
 /// + quiet zone，见 `swarmdrop_invite::qr`）。前端 `dangerouslySetInnerHTML` 塞入白卡。
+///
+/// `face_px` 是二维码**实际占据的边长**（不是白卡外框）。它同时是地址提示的预算：
+/// 码面放不下时后端按价值反序回收地址，所以传小了不会失败、只会让邀请少几条可拨路径。
 #[tauri::command]
 #[specta::specta]
-pub fn invite_qr_svg(invite: String) -> AppResult<String> {
-    swarmdrop_invite::invite_qr_svg(&invite)
+pub fn invite_qr_svg(invite: String, face_px: u32) -> AppResult<String> {
+    swarmdrop_invite::invite_qr_svg(&invite, face_px)
         .map_err(|e| AppError::invalid_argument(format!("二维码生成失败: {e}")))
 }
 

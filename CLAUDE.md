@@ -237,12 +237,12 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 
 | Crate | 职责 |
 |---|---|
-| `crates/net-base` | 网络类型底座。`NodeId` / `Addr` / `NodeAddr` / `ProtocolId` / `NatStatus` —— libp2p 类型在此收口成 newtype，**不向上穿透** |
+| `crates/net-base` | 网络类型底座。`NodeId` / `Addr` / `NodeAddr` / `ProtocolId` / `NatStatus` —— libp2p 类型在此收口成 newtype，**不向上穿透**。另有 `compact`：地址列表的紧凑编解码（certhash / relay 身份跨地址去重），给二维码这类长度敏感的载体用 |
 | `crates/net` | 网络内核 `swarmdrop-net`。iroh 风格 `Endpoint` 门面 + 后台 actor，隐藏事件循环、连接管理、协议路由、地址选择 |
 | `crates/webtransport-p2p` | libp2p **WebTransport** 传输的 native 一半（listener + dialer）——上游只有浏览器侧的 `webtransport-websys`。底层 `wtransport` 0.7.1。同样不带 swarmdrop 前缀、零 swarmdrop 依赖，将来 subtree split。**重心在证书生命周期不在传输层**（14 天两张证书轮换 + 通告地址随之变化） |
 | `crates/webrtc-p2p` | libp2p WebRTC 传输，**两种模式**：打洞（`/webrtc`，spec `/webrtc-signaling/0.0.1`，三端默认开启——打洞要两端都支持，只开一边等于没开）+ direct（`/webrtc-direct`，**已完全取代官方 `libp2p-webrtc` 与 `libp2p-webrtc-websys`**，native 监听 + 拨号、浏览器拨号均已实测跑通）。刻意不带 swarmdrop 前缀、不依赖任何 swarmdrop crate，将来要 subtree split 出去独立发布 |
 | `crates/host` | 宿主端口层（platform-neutral ports + DTO + error + device 类型），供 core 与 transfer 共同依赖。现有 6 个端口：`KeychainProvider` / `PairedDeviceStore` / `DeviceConfig` / `FileAccess` / `Notifier` / `UpdateInstaller`（`AppPaths` 已删，零实现零消费）。设备名归一化的唯一入口 `DeviceName::parse` 也在这里 |
-| `crates/invite` | PairInvite 编解码 + 一次性状态表 + 二维码。**wasm-clean，不依赖 core** |
+| `crates/invite` | PairInvite 编解码 + 一次性状态表 + 二维码 + `compose`（邀请带哪些地址、密度不够时先丢哪条）。**wasm-clean，不依赖 core** |
 | `crates/transfer` | 文件传输域 + 收件箱领域模型（`inbox.rs` 的 DTO 与共享规则，各存储实现调它）。经端口 trait 依赖倒置，**不依赖 sea-orm / pairing / network** |
 | `crates/core` | 平台无关业务核心：identity / network / pairing / presence / device_manager / protocol / infra |
 | `crates/storage-sql` | `SessionStore` / `InboxStore` 端口的 SeaORM+SQLite 实现，**native-only** |
@@ -427,11 +427,18 @@ driver 丢弃可靠消息）。桌面与移动是两份独立常量，**要一�
 > 证书要 14 天轮换并回写；顺带也就不必动 uniffi 跨 FFI 契约。判据与护栏测试见 net-kernel.md。
 >
 > **WebTransport 地址也进配对邀请**（2026-08-12 起，`append_invite_transports` 每桶三条：
-> native + WebTransport + WebRTC）。但邀请是**二维码承载**的，地址多到一定程度就扫不动 ——
-> 上限由三端最小码面 196px 反推（含 quiet zone ≤ 98 模块），而补它之前满配桌面就已经
-> 卡在 97。所以挑完地址还要过 `fit_invite_to_scannable` 一道密度闸，按价值反序回收：
-> **WebTransport 第一批丢**（丢了浏览器仍能靠 webrtc-direct 拨通，配对后 identify 会把它
-> 交回来）、**circuit 一条都不丢**（跨网唯一可达路径）。实测四档数据与回归钉见 net-kernel.md。
+> native + WebTransport + WebRTC）。但邀请是**二维码承载**的，地址多到一定程度就扫不动，
+> 所以挑完地址还要过一道密度闸，按价值反序回收：**WebTransport 第一批丢**（丢了浏览器仍能
+> 靠 webrtc-direct 拨通，配对后 identify 会把它交回来）、**circuit 一条都不丢**（跨网唯一
+> 可达路径）。
+>
+> **这道闸在 wire v2（2026-08-13）之后基本不再触发**：地址走
+> `swarmdrop_net_base::compact` 的紧凑编码（certhash 与 relay 身份各建去重表），満配桌面
+> 地址区 663 → 约 252 字节，四档配置全留、一条不裁。**预算也不再是常量**——三端把自己的
+> 码面 px 传进 `invite_qr_*`，`crates/invite::qr` 只留 `MIN_PX_PER_MODULE = 2`，
+> 于是**裁剪发生在渲染侧、链接保留全部地址**。
+> ⚠️ 现在最坏情况的主导变量不是地址数而是**设备名**：`DeviceName::MAX_CHARS = 40`，
+> 40 个中文字 120 字节，比压缩后的整个地址区一半还多。判据、实测五档与回归钉见 net-kernel.md。
 
 客户端清单按端分两份，各自只列本端用得上的 transport（部署配置，不属于 P2P 内核）：
 `src/lib/bootstrap-nodes.ts` + `mobile/src/core/bootstrap-nodes.ts`（原生端：tcp + quic）、
@@ -444,12 +451,15 @@ driver 丢弃可靠消息）。桌面与移动是两份独立常量，**要一�
 > 副产品：Android 与桌面的 transport 栈终于一致（Android 曾因 JNI DNS 问题编不进 ws）。
 
 **配对：PairInvite（一次性签名邀请）。**
-6 位数字分享码已废弃。现在是自包含邀请串 `sd:…`（Ed25519 签名 + 128bit capability +
-TTL 24h + 一次性消费）；链接走 Base64URL，二维码走同一 wire 的 `SD…` Base32 表现。
+6 位数字分享码已废弃。现在是自包含邀请串（Ed25519 签名 + 128bit capability + TTL 24h +
+一次性消费），只有**一种**对外文本形态：canonical https 链接 + base32 payload
+（openspec: invite-url-canonical）——链接分享、二维码、剪贴板感知、深链共用同一个字符串。
 **24 小时（`INVITE_TTL_SECS = 86_400`）不是笔误**：邀请跨重启存活（openspec: invite-persistence），
 所以三端都必须提供「已发出的邀请」清单与撤销入口，位置统一贴着生成入口（不进设置页）。
-签名尾置以覆盖版本判别码防降级。
-实现在 `crates/invite`，设计见 `openspec/changes/pair-invite-protocol/design.md`。
+签名对象是 `域分隔标签 ‖ core 字节`（含版本标识，防降级）；**地址提示刻意不在签名覆盖
+范围内**——它是下游自证的（拨过去由传输层对已签名的 `inviter_id` 强制校验），换来的是
+「裁地址不需要私钥」。实现在 `crates/invite`（地址策略在 `compose.rs`），设计见
+`openspec/changes/pair-invite-protocol/design.md` 与 `openspec/changes/invite-wire-v2/`。
 
 **DHT 的用途已变**：不再用于分享码查找，改为已配对设备的 **presence 在线记录**
 （`crates/core/src/presence/`）。

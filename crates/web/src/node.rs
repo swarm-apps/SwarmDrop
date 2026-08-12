@@ -594,11 +594,15 @@ impl WebNode {
     /// 加这套机器不值，而 `getNode()` 是现成的。
     ///
     /// 同步返回：纯计算，不碰 IndexedDB 也不碰网络。
-    pub fn invite_qr_svg(&self, invite: String) -> Result<String, JsValue> {
-        // 不用 `js_err`（它一律映射成 `kind: "network"`）：编码失败是纯计算的「输入装不下」
-        // ——QR 在 ECL::M 下的容量上限约 2KB wire，而本机产出的邀请最坏 327 字节，够不着。
-        // 真报出来时若顶着「网络错误」的标题，只会把排查引到完全无关的方向。
-        swarmdrop_invite::invite_qr_svg(&invite)
+    ///
+    /// `face_px` 是二维码实际占据的边长（不是白卡外框），同时是地址提示的预算 ——
+    /// 放不下时按价值反序回收地址。
+    pub fn invite_qr_svg(&self, invite: String, face_px: u32) -> Result<String, JsValue> {
+        // 不用 `js_err`（它一律映射成 `kind: "network"`）：这里的失败都是纯计算的输入问题
+        // ——码面传得太小、或者传进来的根本不是一条有效邀请。容量则从来不是约束：QR 在
+        // ECL::M 下能装约 2KB wire，而邀请即便满配也只有几百字节，且渲染前还会按码面回收
+        // 地址。真报出来时若顶着「网络错误」的标题，只会把排查引到完全无关的方向。
+        swarmdrop_invite::invite_qr_svg(&invite, face_px)
             .map_err(|e| WebError::invalid_input(e.to_string()).into())
     }
 

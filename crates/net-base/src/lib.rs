@@ -9,13 +9,17 @@
 //! - [`ProtocolId`] —— 流协议标识（`/swarmdrop/pairing/2` 形态）。
 //! - [`NatStatus`] / [`PathKind`] / [`TransportKind`] / [`DiscoverySource`] ——
 //!   跨 IPC 的状态枚举。
+//! - [`compact`] —— 地址列表的紧凑二进制表示（certhash / relay 身份跨地址去重），
+//!   给二维码这类长度敏感的载体用。
 
 mod addr;
+pub mod compact;
 mod node_id;
 mod protocol_id;
 mod status;
 
 pub use addr::{Addr, AddrParseError, DialTier, NodeAddr};
+pub use compact::CompactAddrs;
 pub use node_id::{IdParseError, NodeId, SecretKey};
 pub use protocol_id::{InvalidProtocolId, ProtocolId};
 pub use status::{DiscoverySource, NatStatus, PathKind, TransportKind};

@@ -405,6 +405,7 @@ extern "C" {
     RustBuffer uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(
         /*handle*/ uint64_t ptr, 
         RustBuffer invite, 
+        uint32_t face_px, 
         RustCallStatus *uniffi_out_err
     );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_pair_invites(
@@ -5359,7 +5360,7 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix"),
-        2,
+        3,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(rt, thisVal, args, count);
         }
@@ -7128,7 +7129,7 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         RustCallStatus status = uniffi::swarmdrop_mobile_core::Bridging<RustCallStatus>::rustSuccess(rt);
-        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), 
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi_jsi::Bridging<uint32_t>::fromJs(rt, callInvoker, args[2]), 
             &status
         );
         uniffi::swarmdrop_mobile_core::Bridging<RustCallStatus>::copyIntoJs(rt, callInvoker, status, args[count - 1]);

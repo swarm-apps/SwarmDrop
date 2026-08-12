@@ -157,8 +157,11 @@ impl MobileCore {
     }
 
     /// 生成邀请串的二维码模块矩阵（RN 按此绘制；三端统一编码规范见 `swarmdrop_invite::qr`）。
-    pub fn invite_qr_matrix(&self, invite: String) -> FfiResult<MobileQrMatrix> {
-        let matrix = swarmdrop_invite::invite_qr_matrix(&invite)
+    ///
+    /// `face_px` 是二维码**实际占据的边长**——RN 端那个 `size` 是白卡外框，要减掉两侧内边距
+    /// 再传。它同时是地址提示的预算：放不下时按价值反序回收地址。
+    pub fn invite_qr_matrix(&self, invite: String, face_px: u32) -> FfiResult<MobileQrMatrix> {
+        let matrix = swarmdrop_invite::invite_qr_matrix(&invite, face_px)
             .map_err(|e| FfiError::InvalidArgument(format!("二维码生成失败: {e}")))?;
         let size = matrix.len() as u32;
         let modules = matrix.into_iter().flatten().collect();

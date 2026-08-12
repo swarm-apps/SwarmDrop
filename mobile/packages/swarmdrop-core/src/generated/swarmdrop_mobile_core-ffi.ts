@@ -114,7 +114,7 @@ interface NativeModuleInterface {
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_transfer_projections(uniffiSelf: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_get_transfer_source_paths(uniffiSelf: bigint, sessionId: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_initialize_identity(uniffiSelf: bigint): bigint;
-    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(uniffiSelf: bigint, invite: Uint8Array, uniffi_out_err: UniffiRustCallStatus): Uint8Array;
+    ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(uniffiSelf: bigint, invite: Uint8Array, facePx: number, uniffi_out_err: UniffiRustCallStatus): Uint8Array;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_is_receiving_paused(uniffiSelf: bigint): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_devices(uniffiSelf: bigint, filter: Uint8Array): bigint;
     ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_inbox_items(uniffiSelf: bigint, includeArchived: number): bigint;

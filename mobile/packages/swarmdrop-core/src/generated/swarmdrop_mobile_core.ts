@@ -7116,8 +7116,11 @@ export interface MobileCoreLike {
     initializeIdentity(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileIdentity>;
 /**
  * 生成邀请串的二维码模块矩阵（RN 按此绘制；三端统一编码规范见 `swarmdrop_invite::qr`）。
+ *
+ * `face_px` 是二维码**实际占据的边长**——RN 端那个 `size` 是白卡外框，要减掉两侧内边距
+ * 再传。它同时是地址提示的预算：放不下时按价值反序回收地址。
  */
-    inviteQrMatrix(invite: string) /*throws*/: MobileQrMatrix;
+    inviteQrMatrix(invite: string, facePx: number) /*throws*/: MobileQrMatrix;
 /**
  * 查询当前是否暂停接收。节点未启动视为「未暂停」（对齐桌面语义），
  * 这样 RN 侧在节点未运行时也能安全读取初始状态。
@@ -7937,8 +7940,11 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     
 /**
  * 生成邀请串的二维码模块矩阵（RN 按此绘制；三端统一编码规范见 `swarmdrop_invite::qr`）。
+ *
+ * `face_px` 是二维码**实际占据的边长**——RN 端那个 `size` 是白卡外框，要减掉两侧内边距
+ * 再传。它同时是地址提示的预算：放不下时按价值反序回收地址。
  */
-    inviteQrMatrix(invite: string): MobileQrMatrix /*throws*/ {
+    inviteQrMatrix(invite: string, facePx: number): MobileQrMatrix /*throws*/ {
     return ((__rb: Uint8Array) => {
         try {
             return FfiConverterTypeMobileQrMatrix.lift(__rb);
@@ -7951,6 +7957,7 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
                 return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(
                 uniffiTypeMobileCoreObjectFactory.clonePointer(this),
         FfiConverterString.lower(invite, nativeModule().rustbuffer_alloc),
+        FfiConverterUInt32.lower(facePx, nativeModule().rustbuffer_alloc),
                 callStatus);
             },
             /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
@@ -9326,7 +9333,7 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity() !== 64600) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_invite_qr_matrix() !== 8809) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_invite_qr_matrix() !== 1665) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_invite_qr_matrix");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_is_receiving_paused() !== 45427) {

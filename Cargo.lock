@@ -9434,6 +9434,7 @@ version = "0.1.0"
 dependencies = [
  "libp2p-identity",
  "multiaddr",
+ "postcard",
  "serde",
  "serde_json",
  "specta",

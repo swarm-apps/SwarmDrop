@@ -36,7 +36,13 @@ export interface InviteQrOverlay {
 interface InviteQrProps {
   /** canonical 邀请链接（原样传给后端编码，不做大小写归一）；null 时展示骨架 */
   invite: string | null;
-  /** 边长（px），默认 260 */
+  /**
+   * 码面边长（px）—— 二维码**实际占据**的那块，白卡内边距在外框上，所以就是这个数。
+   *
+   * 它同时是后端的地址预算：`swarmdrop_invite::qr` 按 `size / 2px每模块` 决定这张码放得下
+   * 几条地址提示，放不下时按价值反序回收（circuit 永不丢）。所以**改小它 = 邀请里的可拨
+   * 路径变少**，不是渲染变糊。链接不受影响——那条路径没有密度上限，保留全部地址。
+   */
   size?: number;
   /** 覆盖态；null 表示码有效可扫 */
   overlay?: InviteQrOverlay | null;
@@ -58,7 +64,10 @@ const OVERLAY_ICON = {
 
 export const InviteQr = memo(function InviteQr({
   invite,
-  size = 260,
+  // 240 与唯一调用点（`_app/pairing/generate.lazy.tsx`）一致。**默认值不能比它大**：
+  // 这个数现在是地址预算，写大了等于给一张 240px 的卡片申请更宽的密度余量，
+  // 产出的码会跌破 2px/模块。
+  size = 240,
   overlay = null,
   className,
 }: InviteQrProps) {
@@ -72,7 +81,7 @@ export const InviteQr = memo(function InviteQr({
     let cancelled = false;
     setState({ status: "loading" });
     commands
-      .inviteQrSvg(invite)
+      .inviteQrSvg(invite, size)
       .then((svg) => {
         if (!cancelled) setState({ status: "ok", svg });
       })
@@ -82,7 +91,8 @@ export const InviteQr = memo(function InviteQr({
     return () => {
       cancelled = true;
     };
-  }, [invite]);
+    // size 进依赖不是形式主义：它是后端的地址预算，改了尺寸要重新裁一次
+  }, [invite, size]);
 
   // 渲染失败自成一态：把它折进覆盖层，语义和过期/等待共用一套呈现
   const effectiveOverlay: InviteQrOverlay | null =
