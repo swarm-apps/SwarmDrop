@@ -1137,8 +1137,11 @@ export class WebNode {
      * 加这套机器不值，而 `getNode()` 是现成的。
      *
      * 同步返回：纯计算，不碰 IndexedDB 也不碰网络。
+     *
+     * `face_px` 是二维码实际占据的边长（不是白卡外框），同时是地址提示的预算 ——
+     * 放不下时按价值反序回收地址。
      */
-    invite_qr_svg(invite: string): string;
+    invite_qr_svg(invite: string, face_px: number): string;
     /**
      * 本机未过期的已发出邀请（最近生成的在前）。
      *
@@ -1406,7 +1409,9 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly start: () => void;
+    readonly default_device_name: () => [number, number];
+    readonly get_device_name: () => any;
+    readonly set_device_name: (a: number, b: number) => any;
     readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly default_receive_policy: (a: any, b: number) => [number, number, number];
     readonly inbox_search_limit: () => number;
@@ -1433,7 +1438,7 @@ export interface InitOutput {
     readonly webnode_infra_ensure: (a: number, b: number, c: number) => [number, number, number, number];
     readonly webnode_infra_links: (a: number) => [number, number, number];
     readonly webnode_infra_until_active: (a: number, b: number, c: number, d: number) => any;
-    readonly webnode_invite_qr_svg: (a: number, b: number, c: number) => [number, number, number, number];
+    readonly webnode_invite_qr_svg: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly webnode_list_invites: (a: number) => [number, number, number];
     readonly webnode_mark_inbox_item_opened: (a: number, b: number, c: number) => any;
     readonly webnode_node_id: (a: number) => [number, number];
@@ -1457,9 +1462,7 @@ export interface InitOutput {
     readonly webnode_take_skipped_forward_paths: (a: number) => [number, number];
     readonly webnode_transfer_history: (a: number) => any;
     readonly webnode_update_paired_device_policy: (a: number, b: number, c: number, d: any, e: number) => any;
-    readonly default_device_name: () => [number, number];
-    readonly get_device_name: () => any;
-    readonly set_device_name: (a: number, b: number) => any;
+    readonly start: () => void;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
     readonly __wbg_intounderlyingsink_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
