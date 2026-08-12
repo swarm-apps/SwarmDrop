@@ -18,17 +18,17 @@ import type { InfraLinkRow } from "@/hooks/use-node-health";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import { truncateAddr as sharedTruncateAddr } from "@swarmdrop/shared-view";
 
-/** 地址太长时中间省略，但复制拿到的始终是完整串。 */
+/**
+ * 地址太长时中间省略，但复制拿到的始终是完整串。
+ *
+ * 逻辑走 `@swarmdrop/shared-view`（三端同一份），这里只钉住移动端的宽度。此前本地那份
+ * 有两个缺陷：用 `indexOf("/p2p/")` 会在 circuit 地址上把 `/p2p-circuit/` 整段静默吃掉、
+ * 前缀被截时不补省略号。
+ */
 export function truncateAddr(addr: string): string {
-  if (addr.length <= 46) return addr;
-  const p2pIdx = addr.indexOf("/p2p/");
-  if (p2pIdx === -1) return `${addr.slice(0, 24)}…${addr.slice(-14)}`;
-  const prefix = addr.slice(0, Math.min(p2pIdx, 24));
-  const peerId = addr.slice(p2pIdx + 5);
-  const shortPeerId =
-    peerId.length > 12 ? `${peerId.slice(0, 6)}…${peerId.slice(-6)}` : peerId;
-  return `${prefix}/p2p/${shortPeerId}`;
+  return sharedTruncateAddr(addr, 46);
 }
 
 /** 状态点 **加词**——契约里光一个色点不算数。 */

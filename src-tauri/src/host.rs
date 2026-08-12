@@ -31,6 +31,7 @@ pub mod notifier;
 // 所以模块声明**不加** cfg —— release 下它照常编译，只是永远走平台默认目录。
 pub mod paths;
 pub mod update_installer;
+pub mod webtransport_cert;
 
 /// 身份与已配对设备的桌面存储后端。
 ///
@@ -61,6 +62,21 @@ pub fn keychain_provider(app: &tauri::AppHandle) -> crate::AppResult<Arc<dyn Key
 pub fn paired_device_store(app: &tauri::AppHandle) -> crate::AppResult<Arc<dyn PairedDeviceStore>> {
     let store: Arc<dyn PairedDeviceStore> = secret_store(app)?;
     Ok(store)
+}
+
+/// WebTransport 配置（带证书持久化 ⇒ 桌面端监听 WebTransport）。
+///
+/// 与另外几个端口并列放在这里（而不是让 `commands/lifecycle` 自己 new 一个），理由同下：
+/// 「桌面能力从 `host` 的装配面拿」这条规则一旦破例就不再成立。
+///
+/// 证书落点见 [`webtransport_cert`]；「有证书 ⇒ 也监听」由内核的 `bind` 兑现，
+/// 不在这一层也不在 core。
+pub fn webtransport_config(
+    app: &tauri::AppHandle,
+) -> crate::AppResult<swarmdrop_net::WebTransportConfig> {
+    Ok(swarmdrop_net::WebTransportConfig::with_store(Arc::new(
+        swarmdrop_net::WebTransportFileCertificateStore::new(webtransport_cert::cert_path(app)?),
+    )))
 }
 
 /// 身份文件的绝对路径，供节点状态诊断展示给用户。

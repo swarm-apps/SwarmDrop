@@ -2838,6 +2838,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures_ringbuf"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6628abb6eb1fc74beaeb20cd0670c43d158b0150f7689b38c3eaf663f99bdec7"
+dependencies = [
+ "futures",
+ "log",
+ "ringbuf",
+ "rustc_version",
+]
+
+[[package]]
 name = "gdk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3755,6 +3767,12 @@ dependencies = [
  "log",
  "markup5ever",
 ]
+
+[[package]]
+name = "httlib-huffman"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a9fcbcc408c5526c3ab80d534e5c86e7967c1fb7aa0a8c76abd1edc27deb877"
 
 [[package]]
 name = "http"
@@ -5011,6 +5029,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "libp2p-webtransport-websys"
+version = "0.6.0"
+source = "git+https://github.com/yexiyue/rust-libp2p?rev=93fa526c6593334cfbcf3731bd3043714f5f0fa6#93fa526c6593334cfbcf3731bd3043714f5f0fa6"
+dependencies = [
+ "futures",
+ "js-sys",
+ "libp2p-core",
+ "libp2p-identity",
+ "libp2p-noise",
+ "multiaddr",
+ "multihash",
+ "send_wrapper 0.6.0",
+ "thiserror 2.0.19",
+ "tracing",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "libp2p-yamux"
 version = "0.48.0"
 source = "git+https://github.com/yexiyue/rust-libp2p?rev=93fa526c6593334cfbcf3731bd3043714f5f0fa6#93fa526c6593334cfbcf3731bd3043714f5f0fa6"
@@ -6103,6 +6141,12 @@ dependencies = [
  "objc2-javascript-core",
  "objc2-security",
 ]
+
+[[package]]
+name = "octets"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "866cb5af6f3aa3c1b44c3c2d79d22165fbb1b102e1b3fb499864bfe34736ec4b"
 
 [[package]]
 name = "oid-registry"
@@ -7395,6 +7439,15 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "ringbuf"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79abed428d1fd2a128201cec72c5f6938e2da607c6f3745f769fabea399d950a"
+dependencies = [
+ "crossbeam-utils",
 ]
 
 [[package]]
@@ -9354,20 +9407,25 @@ dependencies = [
  "futures-timer",
  "getrandom 0.3.4",
  "hickory-resolver",
+ "js-sys",
  "libp2p",
  "libp2p-stream",
+ "libp2p-webtransport-websys",
  "n0-future",
  "serde",
  "sha2 0.11.0",
  "swarmdrop-net-base",
+ "tempfile",
  "thiserror 2.0.19",
  "tokio",
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
  "webrtc-p2p",
+ "webtransport-p2p",
 ]
 
 [[package]]
@@ -10518,6 +10576,7 @@ checksum = "494815d09bf52b5548659851081238f0ca39ff638363907596da739561c62c52"
 dependencies = [
  "bytes",
  "futures-core",
+ "futures-io",
  "futures-sink",
  "futures-util",
  "libc",
@@ -11632,6 +11691,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "webtransport-p2p"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "futures-timer",
+ "futures_ringbuf",
+ "if-addrs 0.13.4",
+ "libp2p-core",
+ "libp2p-identity",
+ "libp2p-noise",
+ "rustls-pki-types",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "wtransport",
+ "x509-parser 0.18.1",
+]
+
+[[package]]
 name = "webview2-com"
 version = "0.38.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12386,6 +12467,42 @@ dependencies = [
  "windows-core 0.61.2",
  "windows-version",
  "x11-dl",
+]
+
+[[package]]
+name = "wtransport"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea4aacf790813ee1956751491800537f4e04af7557b7b370501ccbfbc85963e4"
+dependencies = [
+ "bytes",
+ "pem",
+ "quinn",
+ "rcgen 0.14.8",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
+ "sha2 0.11.0",
+ "socket2",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "wtransport-proto",
+ "x509-parser 0.18.1",
+]
+
+[[package]]
+name = "wtransport-proto"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5867c629e4252f7439d82315923daaf27f4fa442410d51b78ab93ef4c432a11"
+dependencies = [
+ "httlib-huffman",
+ "octets",
+ "thiserror 2.0.19",
+ "url",
 ]
 
 [[package]]

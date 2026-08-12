@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use swarmdrop_net::{
     AddressLookup, DhtConfig, Endpoint, Events, InfraRoles, LookupBuilderFn, RelayServerConfig,
-    Router, SecretKey, WebRtcP2pConfig, presets,
+    Router, SecretKey, WebRtcP2pConfig, WebTransportConfig, presets,
 };
 
 use crate::device::{DeviceName, OsInfo};
@@ -88,6 +88,10 @@ impl EndpointProfile {
 pub async fn start_node<F>(
     secret_key: SecretKey,
     webrtc_certificate_pem: Option<String>,
+    // WebTransport 配置。`None` = 只拨号；宿主给一个带证书端口的配置才监听
+    // （`bind` 自动补监听地址）。core 不认识证书本身 —— 判据见
+    // `WebTransportConfig` 的文档。
+    webtransport: Option<WebTransportConfig>,
     os_info: OsInfo,
     device_config: Arc<dyn DeviceConfig>,
     paired_device_store: Arc<dyn PairedDeviceStore>,
@@ -128,6 +132,7 @@ where
     let endpoint = build_endpoint(
         secret_key,
         webrtc_certificate_pem,
+        webtransport,
         agent_version,
         &network_config,
         profile,
@@ -274,6 +279,7 @@ const STUN_SERVERS: &[&str] = &[
 async fn build_endpoint(
     secret_key: SecretKey,
     webrtc_certificate_pem: Option<String>,
+    webtransport: Option<WebTransportConfig>,
     agent_version: String,
     config: &NetworkRuntimeConfig,
     profile: EndpointProfile,
@@ -315,6 +321,14 @@ async fn build_endpoint(
         ..WebRtcP2pConfig::default()
     });
 
+    // WebTransport：**拨号能力无条件开**，否则 `/quic-v1/webtransport` 地址会以
+    // `MultiaddrNotSupported` 直接失败，本端连 bootstrap 的 4004 都拨不了。
+    //
+    // 要不要**监听**由宿主决定 —— 它给了带证书端口的配置就监听，`bind` 会自动补那条
+    // 监听地址（见 `ensure_webtransport_listen`）。core 因此既不认识证书、也不判断平台：
+    // 浏览器构造不出带 store 的配置（`with_store` 是 native-only），天然只拨号。
+    builder = builder.webtransport(webtransport.unwrap_or_else(WebTransportConfig::client_only));
+
     // relay server 仅 Native + LanHelper（Browser 是纯 relay client，永不当 server）。
     // 这里判据是「端点形态是否 Native」，与 `registers_infra()`（是否注册引导设施）语义无关，
     // 只是当前恰好都对 Native 为真——直接 match，避免借用不相干的谓词把两个决策耦死。
@@ -341,6 +355,7 @@ mod tests {
         let native = build_endpoint(
             SecretKey::generate(),
             None,
+            None,
             "swarmdrop/test".to_string(),
             &config,
             EndpointProfile::Native,
@@ -351,6 +366,7 @@ mod tests {
 
         let browser = build_endpoint(
             SecretKey::generate(),
+            None,
             None,
             "swarmdrop/test".to_string(),
             &config,
@@ -381,10 +397,123 @@ mod tests {
         .expect("native profile should publish a webrtc-direct address")
     }
 
+    /// 轮询直到出现一条 WebTransport 监听地址，返回它的 certhash 段（第一个）。
+    async fn wait_for_webtransport_certhash(native: &Endpoint) -> String {
+        let mut addrs = native.watch_addrs();
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                if let Some(hash) = addrs.get().dialable().iter().find_map(|addr| {
+                    let s = addr.to_string();
+                    s.contains("/webtransport/certhash/")
+                        .then(|| s.split("/webtransport/certhash/").nth(1))
+                        .flatten()
+                        // 地址上有**两个** certhash（current + next，spec 要求同时通告），
+                        // 只取第一个。
+                        .and_then(|rest| rest.split("/certhash/").next())
+                        .map(str::to_owned)
+                }) {
+                    break hash;
+                }
+                addrs.updated().await.expect("address watch closed");
+            }
+        })
+        .await
+        .expect("注入证书端口的 Native profile 应发布 WebTransport 地址")
+    }
+
+    /// 注入证书端口后，Native profile 必须真的**监听** WebTransport。
+    ///
+    /// 没有这条，「桌面端接入」就只有装配代码而没有任何证据。
+    #[tokio::test]
+    async fn native_with_cert_store_listens_on_webtransport() {
+        let native = build_endpoint(
+            SecretKey::generate(),
+            None,
+            Some(WebTransportConfig::with_store(Arc::new(
+                swarmdrop_net::WebTransportMemoryCertificateStore::default(),
+            ))),
+            "swarmdrop/test".to_string(),
+            &NetworkRuntimeConfig::default(),
+            EndpointProfile::Native,
+        )
+        .await
+        .expect("native profile bind");
+
+        wait_for_webtransport_certhash(&native).await;
+        native.close().await;
+    }
+
+    /// 反面：不给证书端口就**不监听**（只拨号）。
+    ///
+    /// 这条挡的是「把监听判据从『有没有端口』悄悄改成『是不是 Native』」——那样移动端会
+    /// 凭空多出一个监听端口，且 certhash 每次启动都变。
+    #[tokio::test]
+    async fn native_without_cert_store_does_not_listen_on_webtransport() {
+        let native = build_endpoint(
+            SecretKey::generate(),
+            None,
+            None,
+            "swarmdrop/test".to_string(),
+            &NetworkRuntimeConfig::default(),
+            EndpointProfile::Native,
+        )
+        .await
+        .expect("native profile bind");
+
+        // 先等一条别的监听地址出现，证明监听确实起来了 —— 否则这条断言在「什么都还没
+        // 监听」的瞬间也会通过，成为一条永远为真的假绿测试。
+        wait_for_webrtc_certhash(&native).await;
+
+        assert!(
+            !native
+                .watch_addrs()
+                .get()
+                .dialable()
+                .iter()
+                .any(|a| a.to_string().contains("/webtransport")),
+            "没有证书端口时不该监听 WebTransport"
+        );
+        native.close().await;
+    }
+
+    /// **持久化的证明**：同一个 store 两次装配，certhash 必须一致。
+    ///
+    /// 它不一致的后果是静默的 —— 每次重启后对端记下的 WebTransport 地址全部拨不通，
+    /// 而本机日志里什么都看不到（对端只是换用了别的传输，或者干脆连不上）。
+    /// 与 `build_endpoint_reuses_certhash_for_same_persisted_pem` 是同一条不变量在
+    /// 另一个传输上的版本。
+    #[tokio::test]
+    async fn webtransport_certhash_survives_restart_with_same_store() {
+        let store = Arc::new(swarmdrop_net::WebTransportMemoryCertificateStore::default());
+
+        let mut hashes = Vec::new();
+        for _ in 0..2 {
+            let native = build_endpoint(
+                SecretKey::generate(),
+                None,
+                Some(WebTransportConfig::with_store(store.clone())),
+                "swarmdrop/test".to_string(),
+                &NetworkRuntimeConfig::default(),
+                EndpointProfile::Native,
+            )
+            .await
+            .expect("native profile bind");
+
+            hashes.push(wait_for_webtransport_certhash(&native).await);
+            native.close().await;
+        }
+
+        assert_eq!(
+            hashes[0], hashes[1],
+            "同一份持久化证书两次装配的 certhash 必须一致，否则重启即失效"
+        );
+    }
+
     #[tokio::test]
     async fn native_profile_publishes_webrtc_direct_address() {
         let native = build_endpoint(
             SecretKey::generate(),
+            None,
             None,
             "swarmdrop/test".to_string(),
             &NetworkRuntimeConfig::default(),
@@ -411,6 +540,7 @@ mod tests {
             let native = build_endpoint(
                 SecretKey::generate(),
                 Some(pem.clone()),
+                None,
                 "swarmdrop/test".to_string(),
                 &NetworkRuntimeConfig::default(),
                 EndpointProfile::Native,

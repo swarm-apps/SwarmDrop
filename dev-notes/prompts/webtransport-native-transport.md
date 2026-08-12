@@ -1,7 +1,47 @@
 # 任务：为本仓实现 native 侧的 libp2p WebTransport
 
-> **状态**：未开工，方案未定稿。本文件是**启动提示词**，不是设计文档。
+> **状态**：**已落地（2026-08-12）**。`crates/webtransport-p2p` 已实现并接入
+> `crates/net` + bootstrap（UDP 4004）。本文件保留为**历史记录**——它是开工前的提示词，
+> 下面若干判断已被实测修正（见「§0 落地后的更正」）。
+>
+> **现在的事实源在这三处**，改这块代码前读它们，不要读本文件的正文：
+> - [`dev-notes/knowledge/net-kernel.md`](../knowledge/net-kernel.md) 的
+>   「WebTransport native transport」一节 —— 判据、吞吐数据、已知负债
+> - `openspec/changes/webtransport-native-transport/design.md` —— 12 条决策与取舍
+> - `crates/webtransport-p2p/src/lib.rs` 的模块文档 —— 分层与边界
+>
 > **写于** 2026-08-11，随 v0.17.0 发布后的吞吐调研产出。
+
+## 0. 落地后的更正（2026-08-12）
+
+开工前的四处判断，实测后有出入：
+
+| 本文原判断 | 实测 | 影响 |
+|---|---|---|
+| §2② 选型「三条验证点都没验过」 | `wtransport` 三条全中，且 `not_before`/`not_after` 可注入 —— 证书时钟因此完全可测 | 选型成立 |
+| §2② 「wtransport 拿不到连接统计」 | **错**。开 `quinn` feature 后 `Connection::quic_connection()` 直接给底层 quinn 连接 | 选型代价比预估小 |
+| §2① 「地址每 14 天失效」 | **实际是 28 天**。spec 要求同时通告 current + next，旧地址能撑过一整轮 | 紧迫度减半 |
+| §2① 「bootstrap 拿不到新地址就连不上」 | 浏览器**不需要写死地址**：先经 webrtc-direct 连上 bootstrap，由 identify 学到带当前 certhash 的 WebTransport 地址 | 鸡生蛋问题在本场景下不存在 |
+
+另有两条本文没提到的事实：
+
+- **WebTransport 已是 Baseline 2026**（Safari 26.4 补齐），`serverCertificateHashes`
+  三家全通（Chrome 100+、Firefox 125 修好 Bugzilla 1873263、Safari 26.4）。
+  它不再是「只有 Chrome 能用」的方案。
+- 上游 [PR #4348](https://github.com/libp2p/rust-libp2p/pull/4348) 是 mxinden 本人的
+  native draft（certhash + 证书过期处理），本文 §2② 漏了它 —— 那是最直接的参考实现。
+
+### 实测吞吐（同机回环，64 MiB × 6 次中位数）
+
+| transport | 中位数 | 区间 |
+|---|---|---|
+| TCP + Noise + yamux | 933 MiB/s | 927–1149 |
+| **WebTransport** | **322 MiB/s** | 286–326 |
+| QUIC | 266 MiB/s | 248–276 |
+| WebRTC-direct | 72 MiB/s | 43.7–288 |
+
+比 §1 预估的「上限对标 270」还高，且方差比 webrtc-direct 小一个数量级。
+**但 §7① 的真机测量仍未做** —— 回环瓶颈是 CPU，跨网通常是带宽与 RTT，这组数字不能外推。
 
 ## 一句话目标
 

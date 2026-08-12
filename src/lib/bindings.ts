@@ -45,7 +45,10 @@ export const commands = {
 { kind: "noTransport" } | 
 /**  传输本端点没有装配。 */
 { kind: "unsupportedTransport"; 
-/**  地址里那个传输的 wire 名（`tcp` / `quic` / `webrtc` / `webrtcDirect`）。 */
+/**
+ *  地址里那个传输的 wire 名（`tcp` / `quic` / `webrtc` / `webrtcDirect` /
+ *  `webtransport`）。
+ */
 transport: string; 
 /**  本端点支持的传输，供 UI 直接列出来。 */
 supported: string[] } | 
@@ -70,7 +73,10 @@ supported: string[] } |
 { kind: "noTransport" } | 
 /**  传输本端点没有装配。 */
 { kind: "unsupportedTransport"; 
-/**  地址里那个传输的 wire 名（`tcp` / `quic` / `webrtc` / `webrtcDirect`）。 */
+/**
+ *  地址里那个传输的 wire 名（`tcp` / `quic` / `webrtc` / `webrtcDirect` /
+ *  `webtransport`）。
+ */
 transport: string; 
 /**  本端点支持的传输，供 UI 直接列出来。 */
 supported: string[] } | 
@@ -797,7 +803,10 @@ export type InfraAddrError =
 { kind: "noTransport" } | 
 /**  传输本端点没有装配。 */
 { kind: "unsupportedTransport"; 
-/**  地址里那个传输的 wire 名（`tcp` / `quic` / `webrtc` / `webrtcDirect`）。 */
+/**
+ *  地址里那个传输的 wire 名（`tcp` / `quic` / `webrtc` / `webrtcDirect` /
+ *  `webtransport`）。
+ */
 transport: string; 
 /**  本端点支持的传输，供 UI 直接列出来。 */
 supported: string[] } | 
@@ -1413,7 +1422,12 @@ export type TransportKind =
 /**  WebRTC 打洞：**信令**经 relay，数据面一个字节不过中继。 */
 "webrtc" | 
 /**  WebRTC Direct：certhash 免信令免域名，浏览器够到原生端的唯一入口。 */
-"webrtcDirect";
+"webrtcDirect" | 
+/**
+ *  WebTransport（HTTP/3 over QUIC）：与 WebRTC Direct 同样是「certhash 免域名」，
+ *  但数据面就是 QUIC —— 没有 ICE/DTLS/SCTP 三层的转发开销。
+ */
+"webtransport";
 
 /**
  *  托盘「打开接收文件夹」：路径由前端 `savePath` 拥有，故由前端打开。

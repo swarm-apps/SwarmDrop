@@ -80,6 +80,9 @@ pub async fn start(
     let started = swarmdrop_core::runtime::start_node(
         (*secret_key).clone(),
         Some(webrtc_certificate_pem),
+        // 带证书持久化 ⇒ 桌面端监听 WebTransport（浏览器直连本机的快通道，回环实测是
+        // webrtc-direct 的 4.5 倍）。
+        Some(crate::host::webtransport_config(&app)?),
         os_info,
         device_config,
         crate::host::paired_device_store(&app)?,

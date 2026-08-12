@@ -55,8 +55,8 @@ const MAX_LOG_FILES: usize = 7;
 /// **`rtc=warn` 是同一套栈的另一半**：`rtc` / `rtc_sctp` / `rtc_ice` / `rtc_dtls` 都不以
 /// `webrtc` 开头。driver 忙循环（rtc#159/#161）打在 `rtc_ice`，接收窗口 / 重组类问题
 /// 打在 `rtc_sctp`。
-const DEFAULT_FILTER: &str =
-    "swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info,webrtc=warn,rtc=warn";
+const DEFAULT_FILTER: &str = "swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info,webrtc=warn,rtc=warn,\
+     webtransport_p2p=info,wtransport=warn,quinn=warn";
 
 /// 文件层的级别。**刻意比平台层保守**：`swarmdrop_net` 在 P2P 场景下事件很密，
 /// 文件层若也吃 `debug`，用户存储会被快速消耗。
@@ -316,6 +316,21 @@ mod tests {
         assert_passes!(
             "rtc_sctp",
             tracing::warn!(target: "rtc_sctp::association", "probe")
+        );
+        // WebTransport 那一整层。三个 target 互不为前缀，也都不以 `swarmdrop` 开头 ——
+        // 漏掉哪条，那一层在生产构建里就**一条日志都不出现**。
+        // ⚠️ 这份常量与桌面 `src-tauri/src/logging.rs` 是**两份独立的**，要一起改。
+        assert_passes!(
+            "webtransport_p2p",
+            tracing::info!(target: "webtransport_p2p::listener", "probe")
+        );
+        assert_passes!(
+            "wtransport",
+            tracing::warn!(target: "wtransport::driver", "probe")
+        );
+        assert_passes!(
+            "quinn",
+            tracing::warn!(target: "quinn::connection", "probe")
         );
     }
 

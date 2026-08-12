@@ -273,6 +273,9 @@ impl WebNode {
         let started = start_node(
             secret.clone(),
             None,
+            // 浏览器只拨号，没有服务端证书可存 —— 它那侧的 WebTransport 启用判据是
+            // 「有没有 `WebTransport` API」，与这个端口无关。
+            None,
             os_info,
             // 设备名的事实源：IndexedDB 的 `kv` store。`start_node` 自己 load 并填进
             // `OsInfo.name`，浏览器侧不再有第二份本机 OsInfo 副本。

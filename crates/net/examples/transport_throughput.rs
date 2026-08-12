@@ -1,4 +1,4 @@
-//! 同机回环下逐 transport 对比数据面吞吐：**QUIC vs TCP vs WebRTC-direct**。
+//! 同机回环下逐 transport 对比数据面吞吐：**QUIC vs TCP vs WebRTC-direct vs WebTransport**。
 //!
 //! ```console
 //! $ cargo run -p swarmdrop-net --release --example transport_throughput
@@ -23,11 +23,13 @@
 //! 驱动 transport。既是生产路径，也消掉了那一整类误差。
 
 use std::error::Error;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::{AsyncReadExt, AsyncWriteExt};
 use swarmdrop_net::{
     AcceptError, Addr, Endpoint, NodeAddr, P2pStream, ProtocolHandler, ProtocolId, Router,
+    WebTransportConfig, WebTransportMemoryCertificateStore,
 };
 
 const SINK: ProtocolId = ProtocolId::from_static("/bench/sink/1");
@@ -86,9 +88,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
             "webrtc-direct",
             "WebRTC-direct",
         ),
+        (
+            "/ip4/127.0.0.1/udp/0/quic-v1/webtransport",
+            "webtransport",
+            "WebTransport",
+        ),
     ];
 
     eprintln!("每档传 {total_mib} MiB（同机回环 · 同一 Endpoint 应用层 · 只换 transport）\n");
+    eprintln!(
+        "⚠️  回环基准方差极大（WebRTC-direct 实测 51–203 MiB/s）。\
+         **单次数字不可比**，至少取 6 次中位数再引用。\n"
+    );
     eprintln!("{:<18}  {:>10}  {:>13}", "transport", "耗时", "吞吐");
 
     // 超时**在 `bench` 内部**施加，不在这里包 —— 从外面 `timeout` 会把 future 连同它
@@ -114,12 +125,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 /// 建一对 `Endpoint`、传 `total` 字节，返回「写完并被对端全部收到」的耗时。
 async fn bench(listen: &str, needle: &str, total: usize) -> Result<Duration, Box<dyn Error>> {
-    let server = Endpoint::builder()
-        .listen(vec![listen.parse()?])
+    // WebTransport 档两端都要装配 transport（不装就拨不出去，地址会以
+    // MultiaddrNotSupported 快速失败），但**只有监听方需要证书存储** —— 拨号方
+    // 用 `client_only()`，它不持有服务端证书。
+    let webtransport = needle.contains("webtransport");
+    let with_webtransport = |b: swarmdrop_net::Builder, listening: bool| {
+        if !webtransport {
+            return b;
+        }
+        b.webtransport(if listening {
+            WebTransportConfig::with_store(Arc::new(WebTransportMemoryCertificateStore::default()))
+        } else {
+            WebTransportConfig::client_only()
+        })
+    };
+
+    let server = with_webtransport(Endpoint::builder().listen(vec![listen.parse()?]), true)
         .bind()
         .await?;
     // 拨号方不监听：拨号不需要 listener，也排除「其实是对端拨过来的」这种解释。
-    let client = match Endpoint::builder().listen(Vec::new()).bind().await {
+    let client = match with_webtransport(Endpoint::builder().listen(Vec::new()), false)
+        .bind()
+        .await
+    {
         Ok(client) => client,
         Err(e) => {
             server.close().await;

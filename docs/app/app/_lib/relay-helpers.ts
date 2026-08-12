@@ -37,42 +37,12 @@ export const WEB_RELAY_PEER_IDS = new Set(
 );
 
 /**
- * 传输名。**是专有名词，永不翻译**（DESIGN.md 的 Device Card Contract：用户会搜它、
- * 贴进 issue、跟日志比对）。
- *
- * 与桌面 `-bootstrap-nodes-section.tsx` 的 `getTransportLabel` 有一处不同：那边把
- * `webrtc-direct` 也标成 "WebRTC"，而契约里 `WebRTC` 与 `WebRTC Direct` 是两种传输
- * （前者要打洞与信令，后者是直接拨公网裸 IP）。浏览器唯一能拨的公网入口恰恰是后者，
- * 混称会让人以为换个 relay 也能用打洞地址。
- *
- * 判定顺序按**特异性从高到低**：`/webrtc-direct` 必须排在 `/webrtc` 前面，
- * 否则前者永远匹配不到。
+ * 地址呈现（传输名 / 短形式）统一走 `@swarmdrop/shared-view` ——
+ * 桌面与本页此前各有一份逐行同构的实现，而那条「判定顺序按特异性从高到低」的不变量
+ * 没有编译期保护，却只有这一侧有测试。再导出而不是让调用点直接 import，是为了让
+ * 「浏览器侧的 bootstrap 呈现从这里拿」这条模块边界保持不变。
  */
-export function bootstrapTransport(addr: string): string {
-  if (addr.includes("/webrtc-direct")) return "WebRTC Direct";
-  if (addr.includes("/webrtc")) return "WebRTC";
-  if (addr.includes("/wss")) return "WSS";
-  if (addr.includes("/ws")) return "WebSocket";
-  if (addr.includes("/quic")) return "QUIC";
-  if (addr.includes("/tcp/")) return "TCP";
-  return "P2P";
-}
-
-/**
- * 地址的短形式：保留协议头与末尾 peer id。
- *
- * 与桌面 `-bootstrap-nodes-section.tsx` 的 `truncateAddr` 同形，**但修了它的一个缺陷**：
- * 那边在 `p2pIdx > 30` 时会不留任何提示地砍掉中段。本仓的内置地址正好命中，输出是
- * `/ip4/47.115.172.218/udp/4003/w/p2p/12D3Ko…1utep` —— certhash 整段消失、切口处没有 `…`，
- * 看起来像一条完整但写错的 multiaddr，而用户会照着它去 issue 里贴。
- * 这里在 prefix 被截时补上省略号。**桌面那份也该同修**（本次未动）。
- */
-export function truncateAddr(addr: string): string {
-  if (addr.length <= 60) return addr;
-  const p2pIdx = addr.indexOf("/p2p/");
-  if (p2pIdx === -1) return `${addr.slice(0, 30)}…${addr.slice(-20)}`;
-  const prefix = p2pIdx > 30 ? `${addr.slice(0, 30)}…` : addr.slice(0, p2pIdx);
-  const peerId = addr.slice(p2pIdx + 5);
-  const short = peerId.length > 12 ? `${peerId.slice(0, 6)}…${peerId.slice(-6)}` : peerId;
-  return `${prefix}/p2p/${short}`;
-}
+export {
+  transportFromAddr as bootstrapTransport,
+  truncateAddr,
+} from "@swarmdrop/shared-view";

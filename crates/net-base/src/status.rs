@@ -59,6 +59,29 @@ pub enum TransportKind {
     Webrtc,
     /// WebRTC Direct：certhash 免信令免域名，浏览器够到原生端的唯一入口。
     WebrtcDirect,
+    /// WebTransport（HTTP/3 over QUIC）：与 WebRTC Direct 同样是「certhash 免域名」，
+    /// 但数据面就是 QUIC —— 没有 ICE/DTLS/SCTP 三层的转发开销。
+    Webtransport,
+}
+
+impl TransportKind {
+    /// 跨 IPC / FFI 的 wire 名，**与 serde 的 camelCase 逐字一致**。
+    ///
+    /// 存在的理由是它此前有三份手抄副本（core 的地址校验、移动端 FFI 镜像、serde 本身），
+    /// 加一个传输要同时改三处：漏掉移动端那份的表现是 UI 显示一个陌生的传输名，漏掉校验
+    /// 那份是「本端支持」列表里少一项 —— 两者都编得过、都没有测试拦。
+    ///
+    /// 用 `match` 而非 `default` 分支：加变体时这里**编译失败**，那正是要的。
+    /// 与 serde 的一致性由 `wire_names_match_serde` 钉死。
+    pub const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Tcp => "tcp",
+            Self::Quic => "quic",
+            Self::Webrtc => "webrtc",
+            Self::WebrtcDirect => "webrtcDirect",
+            Self::Webtransport => "webtransport",
+        }
+    }
 }
 
 /// 地址的发现来源（AddressBook 与 `NetEvent::Discovered` 用）。
@@ -100,9 +123,39 @@ mod tests {
             "\"direct\""
         );
         assert_eq!(
+            serde_json::to_string(&TransportKind::WebrtcDirect).unwrap(),
+            "\"webrtcDirect\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TransportKind::Webtransport).unwrap(),
+            "\"webtransport\""
+        );
+        assert_eq!(
             serde_json::to_string(&PathKind::Relayed).unwrap(),
             "\"relayed\""
         );
+    }
+
+    /// [`TransportKind::wire_name`] 必须与 serde 的 camelCase 逐字一致。
+    ///
+    /// 两者是同一条 wire 契约的两个入口（serde 给 IPC，`wire_name` 给 FFI 与地址校验），
+    /// 漂移的表现是同一个传输在不同界面显示成两个名字。**加变体时这条测试会因为 match
+    /// 不穷尽而编译失败** —— 那正是它的第二个作用。
+    #[test]
+    fn wire_names_match_serde() {
+        for kind in [
+            TransportKind::Tcp,
+            TransportKind::Quic,
+            TransportKind::Webrtc,
+            TransportKind::WebrtcDirect,
+            TransportKind::Webtransport,
+        ] {
+            assert_eq!(
+                serde_json::to_string(&kind).unwrap(),
+                format!("\"{}\"", kind.wire_name()),
+                "{kind:?} 的 wire_name 与 serde 表示不一致"
+            );
+        }
         assert_eq!(
             serde_json::to_string(&DiscoverySource::Mdns).unwrap(),
             "\"mdns\""

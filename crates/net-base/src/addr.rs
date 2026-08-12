@@ -126,6 +126,28 @@ impl Addr {
             .any(|p| matches!(p, Protocol::WebRTC | Protocol::WebRTCDirect))
     }
 
+    /// 把地址里的 IP 段换成 `ip`，其余段原样保留。
+    ///
+    /// 用途是「监听地址 → 公网地址」：绑在 `0.0.0.0` 的节点通告出去的必须是公网 IP，
+    /// 而地址里除 IP 外的部分（端口、传输段、**certhash**）都得逐字保留 —— certhash
+    /// 正是那条地址的全部价值，丢一个对端就拨不通。
+    ///
+    /// 地址里没有 IP 段（如纯 `/dns4/…`）时原样返回。
+    pub fn with_ip(&self, ip: std::net::IpAddr) -> Self {
+        Self(
+            self.0
+                .iter()
+                .map(|p| match p {
+                    Protocol::Ip4(_) | Protocol::Ip6(_) => match ip {
+                        std::net::IpAddr::V4(v4) => Protocol::Ip4(v4),
+                        std::net::IpAddr::V6(v6) => Protocol::Ip6(v6),
+                    },
+                    other => other,
+                })
+                .collect(),
+        )
+    }
+
     /// 承载这条地址的传输协议。
     ///
     /// **WebRTC 两个变体必须先判**：打洞地址天生带 circuit 段（信令确实经 relay），
@@ -145,6 +167,12 @@ impl Addr {
         }
         if self.0.iter().any(|p| p == Protocol::WebRTCDirect) {
             return Some(TransportKind::WebrtcDirect);
+        }
+        // ⚠️ 必须排在 QuicV1 之前：WebTransport 地址形如 `…/udp/…/quic-v1/webtransport`，
+        // 两个段同时存在。漏了这一条它会被判成普通 QUIC，于是上层拿一条 WebTransport
+        // 地址去问 libp2p-quic 要连接 —— 判据错了但没有任何编译错误。
+        if self.0.iter().any(|p| p == Protocol::WebTransport) {
+            return Some(TransportKind::Webtransport);
         }
         self.0.iter().find_map(|p| match p {
             Protocol::QuicV1 => Some(TransportKind::Quic),
@@ -377,6 +405,39 @@ mod tests {
     }
 
     #[test]
+    fn with_ip_replaces_only_the_ip_segment() {
+        // certhash 必须逐字保留 —— 它是这条地址的全部价值。
+        let listen = addr(
+            "/ip4/192.168.1.5/udp/4004/quic-v1/webtransport\
+             /certhash/uEiDDq4_xNyDorZBH5AOG-hE3AR6-YMEYDejBWWHZbnYYCQ",
+        );
+
+        assert_eq!(
+            listen.with_ip("203.0.113.10".parse().unwrap()).to_string(),
+            "/ip4/203.0.113.10/udp/4004/quic-v1/webtransport\
+             /certhash/uEiDDq4_xNyDorZBH5AOG-hE3AR6-YMEYDejBWWHZbnYYCQ"
+        );
+    }
+
+    /// 跨地址族改写（双栈机器上很常见）：IPv6 监听 → IPv4 公网。
+    #[test]
+    fn with_ip_crosses_address_families() {
+        assert_eq!(
+            addr("/ip6/fe80::1/udp/4004/quic-v1/webtransport")
+                .with_ip("203.0.113.10".parse().unwrap())
+                .to_string(),
+            "/ip4/203.0.113.10/udp/4004/quic-v1/webtransport"
+        );
+    }
+
+    /// 没有 IP 段的地址原样返回，不该凭空插一个。
+    #[test]
+    fn with_ip_leaves_ipless_addresses_alone() {
+        let dns = addr("/dns4/relay.example.com/tcp/443/wss");
+        assert_eq!(dns.with_ip("203.0.113.10".parse().unwrap()), dns);
+    }
+
+    #[test]
     fn transport_reads_the_hop_that_actually_carries_bytes() {
         const RELAY: &str = "12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp";
         const TARGET: &str = "12D3KooWQYhTNQdmr3ArTeUHRYzFg94BKyTkoWBDWez9kSCVe2Xo";
@@ -392,6 +453,17 @@ mod tests {
         assert_eq!(
             addr("/ip4/47.115.172.218/udp/4003/webrtc-direct").transport(),
             Some(TransportKind::WebrtcDirect)
+        );
+        // WebTransport 地址同时含 `/quic-v1` 与 `/webtransport`。判据必须先看后者 ——
+        // 判成普通 QUIC 的话，上层会拿它去问 libp2p-quic 要连接，而那是永远拨不通的。
+        assert_eq!(
+            addr("/ip4/47.115.172.218/udp/4004/quic-v1/webtransport").transport(),
+            Some(TransportKind::Webtransport)
+        );
+        assert_eq!(
+            addr("/ip4/47.115.172.218/udp/4004/quic-v1/webtransport/certhash/uEiDDq4_xNyDorZBH5AOG-hE3AR6-YMEYDejBWWHZbnYYCQ")
+                .transport(),
+            Some(TransportKind::Webtransport)
         );
 
         // 纯中继：读到的是本端 ↔ relay 那条连接的传输

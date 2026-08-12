@@ -51,6 +51,13 @@ libp2p = { workspace = true, features = [
     "serde",
 ] }
 libp2p-stream = { workspace = true }
+# WebTransport 的 native 一半（listener + dialer）。放 target 表而非顶层：它是
+# native-only 的（浏览器那半用上游的 websys 版），编不到 wasm。
+webtransport-p2p = { workspace = true }
+# `WebTransportFileCertificateStore` 的原子写。四条安全属性（随机名、`O_EXCL` 创建、
+# unix `0600`、提前返回时清残留）交给它而不是自己搓——那份代码里有一半篇幅是在向读者
+# 证明 `open(2)` 的语义，而写错的后果是私钥以 umask 默认权限落盘。
+tempfile = { workspace = true }
 
 # ============ android ============
 # Android 显式公共 DNS（transport.rs）要构造 NameServerConfig，libp2p::dns 不
@@ -73,6 +80,13 @@ libp2p = { workspace = true, features = [
     "serde",
 ] }
 libp2p-stream = { workspace = true }
+# WebTransport 的浏览器一半。只能拨号（浏览器起不了监听），与 native 侧的
+# `webtransport-p2p` 按 target 二选一。
+libp2p-webtransport-websys = { workspace = true }
+# 运行时探测 `WebTransport` 这个全局对象在不在 —— 它是本仓第一个「浏览器可能没有」的
+# 传输（Safari < 18.2、Firefox < 114、老 WebView 都没有），不探测就会多报能力。
+js-sys = "0.3"
+wasm-bindgen = "0.2"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 # libp2p 依赖但不 re-export；wasm 上没有 tokio::time，底层超时靠它
 futures-timer = { version = "3", features = ["wasm-bindgen"] }

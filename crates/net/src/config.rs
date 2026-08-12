@@ -1,6 +1,10 @@
 //! 内核配置类型（Builder 的字段载体）。
 
 use std::num::NonZeroUsize;
+// 只有 native 用得到：`Arc<dyn CertificateStore>` 的三处使用都在 cfg 门控下，
+// 无条件 import 在 wasm 下是 unused —— 而那条 CI job 跑的是 `-D warnings`。
+#[cfg(not(wasm_browser))]
+use std::sync::Arc;
 use std::time::Duration;
 
 use swarmdrop_net_base::Addr;
@@ -104,6 +108,69 @@ impl Default for WebRtcP2pConfig {
     }
 }
 
+/// WebTransport 传输的配置。**native only**。
+///
+/// # 为什么「启用」与「证书持久化」是两件事
+///
+/// 拨号方不需要服务端证书 —— 它只验证对端的。上一版把两者合成一个
+/// `Option<store>`，于是纯拨号方必须伪造一个永不被读的存储，而「该持久化却没持久化」
+/// 那条警告从此永远不响：真正的错误配置变得不可检测。
+///
+/// 与 [`WebRtcP2pConfig`] 同体例：内核不把第三方 crate 的配置类型直接暴露给上层。
+///
+/// # 为什么这个类型两个 target 都在，而证书端口只在 native
+///
+/// 证书端口是 `webtransport_p2p::CertificateStore`（经 `swarmdrop_net` 转出），而那个 crate
+/// 是 native-only 依赖，wasm 下根本不在依赖树里。上层若直接持有它，就得为它写
+/// `cfg(wasm_browser)` 分支——而「业务层不写 cfg」是本仓的硬约束。
+///
+/// 边界因此划在**本类型**而不是端口上：`WebTransportConfig` 是个两 target 都存在的不透明
+/// 句柄，只有 native 宿主能用 [`with_store`](Self::with_store) 往里放东西。组合根
+/// （`swarmdrop_core::start_node`）转发它即可，既不认识证书、也不写分支。
+///
+/// 上一版是反过来的——在这里镜像一份平台中立的 trait，再用适配器转回去。那要复制 4 个
+/// 条目（trait、错误、内存实现、适配器），错误的 source chain 在转换中丢掉，而 wasm 侧
+/// 拿到的字段**根本没人读**（那边的启用判据是「有没有 `WebTransport` API」）。
+#[derive(Clone)]
+pub struct WebTransportConfig {
+    #[cfg(not(wasm_browser))]
+    store: Option<Arc<dyn webtransport_p2p::CertificateStore>>,
+}
+
+impl WebTransportConfig {
+    /// 只拨号，不监听 —— 因此没有服务端证书要持久化。**浏览器只有这一种形态。**
+    pub fn client_only() -> Self {
+        Self {
+            #[cfg(not(wasm_browser))]
+            store: None,
+        }
+    }
+
+    /// 带服务端证书持久化。**监听方必须用它**：不持久化的话每次重启 certhash 都变，
+    /// 对端记下的地址全部失效。
+    ///
+    /// 给了它，[`bind`](crate::Builder::bind) 还会自动补一条 WebTransport 监听地址
+    /// （除非调用方已经显式给了一条）—— 「有证书可存」与「要监听」是同一个意图。
+    #[cfg(not(wasm_browser))]
+    pub fn with_store(store: Arc<dyn webtransport_p2p::CertificateStore>) -> Self {
+        Self { store: Some(store) }
+    }
+
+    #[cfg(not(wasm_browser))]
+    pub(crate) fn store(&self) -> Option<&Arc<dyn webtransport_p2p::CertificateStore>> {
+        self.store.as_ref()
+    }
+}
+
+impl std::fmt::Debug for WebTransportConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = f.debug_struct("WebTransportConfig");
+        #[cfg(not(wasm_browser))]
+        s.field("store", &self.store.as_ref().map(|_| "<injected>"));
+        s.finish()
+    }
+}
+
 /// 内部装配配置（Builder 收集、bind 时消费）。
 #[derive(Clone)]
 pub(crate) struct EndpointConfig {
@@ -138,6 +205,12 @@ pub(crate) struct EndpointConfig {
     pub webrtc_cert_pem: Option<String>,
     /// WebRTC 打洞传输（`None` = 不启用）。双 target 均可用。
     pub webrtc_p2p: Option<WebRtcP2pConfig>,
+    /// WebTransport 传输（`None` = 不启用）。
+    ///
+    /// **wasm 下这个字段被忽略**：浏览器侧只拨号、无服务端证书，启用判据是
+    /// 「浏览器有没有 `WebTransport` API」。字段仍然存在，是为了让上层组合根用同一份
+    /// 无分支的代码装配两个 target。
+    pub webtransport: Option<WebTransportConfig>,
     /// 显式登记为本节点外部可达的地址。
     ///
     /// 公网 relay 通常监听 `0.0.0.0`，而 reservation 应答必须返回公网地址；
@@ -168,6 +241,7 @@ impl Default for EndpointConfig {
             relay_server: None,
             webrtc_cert_pem: None,
             webrtc_p2p: None,
+            webtransport: None,
             external_addrs: Vec::new(),
             listen: Vec::new(),
             stream_limits: StreamLimits::default(),
@@ -197,6 +271,9 @@ impl std::fmt::Debug for EndpointConfig {
                 &self.webrtc_cert_pem.as_ref().map(|_| "<redacted>"),
             )
             .field("webrtc_p2p", &self.webrtc_p2p)
+            // 委托给 `WebTransportConfig` 自己的 Debug —— 它已经打印了同一个 bit
+            // （store 有没有），在这里重新推导一遍只会多一处会漂移的格式。
+            .field("webtransport", &self.webtransport)
             .field("listen", &self.listen)
             .field("external_addrs", &self.external_addrs)
             .field("stream_limits", &self.stream_limits)

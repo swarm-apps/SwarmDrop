@@ -396,6 +396,10 @@ impl MobileCore {
         let started = swarmdrop_core::runtime::start_node(
             keypair,
             Some(webrtc_certificate_pem),
+            // 移动端**也监听 WebTransport**：局域网内浏览器直连手机是走得通的，那正是
+            // webrtc-direct 已经在这儿监听的理由，而 WebTransport 快 4.5 倍。
+            // 证书落在 Rust 侧的私有数据目录，跨 FFI 契约一个字节没动。
+            Some(self.webtransport_config()),
             os_info,
             self.device_config_arc(),
             // 已配对设备的事实源是端口本身，core 内部 load 一次，host 不再预加载快照。

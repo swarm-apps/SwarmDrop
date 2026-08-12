@@ -61,8 +61,8 @@ const MAX_LOG_FILES: usize = 7;
 ///
 /// 顺序无所谓，`EnvFilter` 取**最长匹配**：`webrtc_p2p=info` 比 `webrtc=warn` 更具体，
 /// 本仓 crate 的级别不受影响。
-const DEFAULT_FILTER: &str =
-    "swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info,webrtc=warn,rtc=warn";
+const DEFAULT_FILTER: &str = "swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info,webrtc=warn,rtc=warn,\
+     webtransport_p2p=info,wtransport=warn,quinn=warn";
 
 /// 文件层的级别，**刻意比控制台保守**。
 ///
@@ -337,6 +337,21 @@ mod tests {
         assert_passes!(
             "rtc_sctp",
             tracing::warn!(target: "rtc_sctp::association", "probe")
+        );
+        // WebTransport 那一整层。三个 target 互不为前缀，也都不以 `swarmdrop` 开头 ——
+        // 漏掉哪条，那一层在生产构建里就**一条日志都不出现**。
+        assert_passes!(
+            "webtransport_p2p",
+            tracing::info!(target: "webtransport_p2p::listener", "probe")
+        );
+        assert_passes!(
+            "wtransport",
+            tracing::warn!(target: "wtransport::driver", "probe")
+        );
+        // quinn 是 WebTransport 与 libp2p-quic 共同的底座；QUIC 层的连接问题打在这里。
+        assert_passes!(
+            "quinn",
+            tracing::warn!(target: "quinn::connection", "probe")
         );
     }
 }

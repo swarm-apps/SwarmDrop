@@ -42,6 +42,12 @@ pub struct BuildSwarmError(String);
 const WEBRTC_MAX_MESSAGE_SIZE: NonZeroUsize =
     NonZeroUsize::new(8 * 1024).expect("8 KiB is non-zero");
 
+/// libp2p 的 transport 组合类型天然很长，起个别名比到处 `#[expect(type_complexity)]` 干净。
+///
+/// 两个 target 都用得上（wasm 的 `build_webtransport` 也返回它），故不加 cfg 门控。
+type BoxedTransport =
+    libp2p::core::transport::Boxed<(libp2p::PeerId, libp2p::core::muxing::StreamMuxerBox)>;
+
 /// 按配置创建 WebRTC 打洞传输的**两个平面**，未启用时返回一对 `None`。
 ///
 /// ⚠️ 两者必须来自同一次 [`webrtc_p2p::new`] 且注册进同一个 Swarm——transport 的 dial
@@ -115,21 +121,12 @@ fn build_webrtc_p2p(
 ///
 /// js-libp2p 没有这个问题——它的 circuit transport filter 显式排除了带 `/webrtc` 的地址。
 /// rust-libp2p 缺这道排除，因为上游还没有 private-to-private 的 WebRTC 传输。
-#[expect(
-    clippy::type_complexity,
-    reason = "libp2p 的 transport 组合类型天然如此"
-)]
 fn webrtc_and_relay(
     key: &Keypair,
     webrtc: webrtc_p2p::Transport,
+    webtransport: Option<BoxedTransport>,
     relay_client: bool,
-) -> Result<
-    (
-        libp2p::core::transport::Boxed<(libp2p::PeerId, libp2p::core::muxing::StreamMuxerBox)>,
-        Option<libp2p::relay::client::Behaviour>,
-    ),
-    libp2p::noise::Error,
-> {
+) -> Result<(BoxedTransport, Option<libp2p::relay::client::Behaviour>), libp2p::noise::Error> {
     use libp2p::core::muxing::StreamMuxerBox;
     use libp2p::core::transport::Transport as _;
     use libp2p::core::upgrade::Version;
@@ -150,7 +147,92 @@ fn webrtc_and_relay(
         .or_transport(relay)
         .map(|either, _| either.into_inner())
         .boxed();
+
+    // WebTransport 排最前。它只认含 `/webtransport` 段的地址，不会误吃别的。
+    //
+    // ⚠️ 反过来 **libp2p-quic 也不会吃它**：`multiaddr_to_socketaddr` 对 `/quic-v1`
+    // 之后的任何非 `/p2p` 段一律 `return None`（上游 `transports/quic/src/transport.rs`）。
+    // 这条判据是「WebTransport 地址不必排在 quic 之前」的全部依据 ——
+    // **升 libp2p rev 时要重新确认它**，破了的话表现是 WebTransport 地址被 quic 认领、
+    // 然后永远拨不通，且没有任何错误指向真正的原因。
+    let transport = match webtransport {
+        Some(wt) => wt
+            .or_transport(transport)
+            .map(|either, _| either.into_inner())
+            .boxed(),
+        None => transport,
+    };
     Ok((transport, relay_client.then_some(relay_behaviour)))
+}
+
+/// 装配 WebTransport（native）。
+///
+/// 未注入证书端口 = 不启用，返回 `None` —— 于是 `/quic-v1/webtransport` 地址走到
+/// `MultiaddrNotSupported` 快速失败，而不是挂着等超时。
+#[cfg(not(wasm_browser))]
+fn build_webtransport(
+    key: &Keypair,
+    config: &EndpointConfig,
+) -> Result<Option<BoxedTransport>, Box<dyn std::error::Error + Send + Sync>> {
+    use libp2p::core::muxing::StreamMuxerBox;
+    use libp2p::core::transport::Transport as _;
+
+    let Some(webtransport) = config.webtransport.as_ref() else {
+        return Ok(None);
+    };
+
+    let mut cfg = webtransport_p2p::Config::new(key.clone());
+    // 纯拨号方没有服务端证书要存 —— 见 `WebTransportConfig` 的文档。
+    if let Some(store) = webtransport.store() {
+        cfg = cfg.with_certificate_store(std::sync::Arc::clone(store));
+    }
+    let transport = webtransport_p2p::Transport::new(cfg)?;
+
+    Ok(Some(
+        transport
+            .map(|(peer, muxer), _| (peer, StreamMuxerBox::new(muxer)))
+            .boxed(),
+    ))
+}
+
+/// 当前浏览器有没有 `WebTransport`。
+///
+/// **这是本仓第一个「浏览器可能没有」的传输** —— WebRTC 在所有目标浏览器上都在，所以此前
+/// 没踩到这一类。Safari 直到 18.2、Firefox 直到 114 才有它，老 WebView 至今没有。
+///
+/// 不探测的后果正是 [`supported_transports`] 文档里那条禁忌：**多报**。用户在老浏览器上
+/// 粘一条 `/quic-v1/webtransport` 引导节点，校验会通过、UI 会说「本端支持 webtransport」，
+/// 而实际拨号在 `Connection::new` 处报的是 `TransportError::Other`（**不是**
+/// `MultiaddrNotSupported`），因此也不会 fall through 给别的 transport —— 只留一句 JS 异常。
+#[cfg(wasm_browser)]
+fn browser_supports_webtransport() -> bool {
+    js_sys::Reflect::has(
+        &js_sys::global(),
+        &wasm_bindgen::JsValue::from_str("WebTransport"),
+    )
+    .unwrap_or(false)
+}
+
+/// 装配 WebTransport（浏览器）。
+///
+/// 上游现成的 `libp2p-webtransport-websys`，**只能拨号** —— 浏览器起不了监听。
+/// 无需配置也无开关，但要**探测浏览器有没有这个 API**：装配与能力申报必须用同一个判据，
+/// 否则又变成多报或少报。
+#[cfg(wasm_browser)]
+fn build_webtransport(key: &Keypair) -> Option<BoxedTransport> {
+    use libp2p::core::muxing::StreamMuxerBox;
+    use libp2p::core::transport::Transport as _;
+
+    if !browser_supports_webtransport() {
+        tracing::info!("当前浏览器没有 WebTransport API，跳过该传输");
+        return None;
+    }
+
+    Some(
+        libp2p_webtransport_websys::Transport::new(libp2p_webtransport_websys::Config::new(key))
+            .map(|(peer, conn), _| (peer, StreamMuxerBox::new(conn)))
+            .boxed(),
+    )
 }
 
 /// 本 target 实际装配的可拨传输种类。
@@ -178,6 +260,16 @@ pub(crate) fn supported_transports(config: &EndpointConfig) -> Vec<TransportKind
     // 打洞按配置：关闭时 behaviour 不注册，拨 `/webrtc` 会以 BehaviourDetached 快速失败。
     if config.webrtc_p2p.is_some() {
         kinds.push(TransportKind::Webrtc);
+    }
+
+    // WebTransport：浏览器**按 API 是否存在**（与装配同一个判据），native 跟着启用开关走。
+    #[cfg(wasm_browser)]
+    if browser_supports_webtransport() {
+        kinds.push(TransportKind::Webtransport);
+    }
+    #[cfg(not(wasm_browser))]
+    if config.webtransport.is_some() {
+        kinds.push(TransportKind::Webtransport);
     }
 
     kinds
@@ -214,8 +306,9 @@ pub(crate) fn build_swarm(
         // 两者都基于 webrtc-rs，但版本不同（0.20 vs 0.17），并存等于把整套
         // ICE/DTLS/SCTP 编译两遍。
         .with_other_transport(|key| {
+            let webtransport = build_webtransport(key, config)?;
             let (transport, relay) =
-                webrtc_and_relay(key, webrtc_p2p_transport, config.relay_client)?;
+                webrtc_and_relay(key, webrtc_p2p_transport, webtransport, config.relay_client)?;
             relay_behaviour = relay;
             Ok(transport)
         })
@@ -291,8 +384,12 @@ pub(crate) fn build_swarm(
         // ⚠️ 顺序仍是语义的一部分：再引入任何「按前缀吞地址」的 transport 时，必须
         // 排在这条**之后**（WebSocket 历史上就吞过 circuit 地址，实测报 `WrongPeerId`）。
         .with_other_transport(|key| {
-            let (transport, relay) =
-                webrtc_and_relay(key, webrtc_p2p_transport, config.relay_client)?;
+            let (transport, relay) = webrtc_and_relay(
+                key,
+                webrtc_p2p_transport,
+                build_webtransport(key),
+                config.relay_client,
+            )?;
             relay_behaviour = relay;
             Ok(transport)
         })
@@ -327,6 +424,27 @@ mod tests {
         let has_socket = cfg!(not(wasm_browser));
         assert_eq!(kinds.contains(&TransportKind::Tcp), has_socket);
         assert_eq!(kinds.contains(&TransportKind::Quic), has_socket);
+
+        // native 未启用时不该声称支持 —— 多报会让用户配下一条永远连不上的引导节点，
+        // 且没有任何提示。（浏览器侧跟着 API 探测走，不在这条断言的范围内。）
+        #[cfg(not(wasm_browser))]
+        assert!(!kinds.contains(&TransportKind::Webtransport));
+    }
+
+    /// native 侧 WebTransport 跟着「有没有启用」走，**不跟证书端口走** ——
+    /// 纯拨号方（`client_only`）同样支持它。
+    ///
+    /// 「有」和「无」两侧都要查 —— 只查其一会放过多报或少报（见 `supported_transports`
+    /// 的文档）。
+    #[cfg(not(wasm_browser))]
+    #[test]
+    fn webtransport_appears_once_enabled_regardless_of_store() {
+        let mut config = EndpointConfig::default();
+        assert!(!supported_transports(&config).contains(&TransportKind::Webtransport));
+
+        // 纯拨号也算支持：它拨得动 `/quic-v1/webtransport`。
+        config.webtransport = Some(crate::config::WebTransportConfig::client_only());
+        assert!(supported_transports(&config).contains(&TransportKind::Webtransport));
     }
 
     #[test]

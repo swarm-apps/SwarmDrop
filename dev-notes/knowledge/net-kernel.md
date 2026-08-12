@@ -1684,6 +1684,329 @@ wasm-clean crate `swarmdrop-invite`（依赖 net-base，不依赖 core——core
 > `decode(&s.to_ascii_uppercase()).is_err()`——契约是对的，漏的是三端调用侧的同步。
 > 前缀长度变化同理：它既是判别码也是误匹配的唯一屏障。
 
+## WebTransport native transport（`crates/webtransport-p2p`，2026-08-12）
+
+rust-libp2p 只有 `transports/webtransport-websys`（浏览器侧拨号，wasm），**没有 native
+listener** —— 浏览器能拨、没人能接。上游 [PR #4348](https://github.com/libp2p/rust-libp2p/pull/4348)
+（维护者 mxinden 的 native draft）自 2023-10 停在 draft。本 crate 补的是这个缺口。
+
+底层库是 crates.io 的 **`wtransport` 0.7.1**（quinn 0.11 + rustls 0.23，与 libp2p-quic 同源）。
+选它而非 `web-transport-quinn` 的决定性理由是 `Endpoint::reload_config(cfg, rebind=false)`
+—— 换服务端证书**不断既有连接**，那是证书轮换的硬前提，对方没有对应 API。
+
+### 回环吞吐：比 webrtc-direct 快 4.5 倍，且方差小一个数量级
+
+同机回环、同一 `Endpoint` 应用层、只换 transport，64 MiB × **6 次取中位数**
+（`crates/net/examples/transport_throughput.rs`）：
+
+| transport | 中位数 | 区间 |
+|---|---|---|
+| TCP + Noise + yamux | 933 MiB/s | 927–1149 |
+| **WebTransport** | **322 MiB/s** | 286–326（±7%） |
+| QUIC | 266 MiB/s | 248–276 |
+| WebRTC-direct | 72 MiB/s | **43.7–288（6.6 倍）** |
+
+两条结论各自独立成立：
+
+1. **吞吐**：WebTransport ≈ 4.5× webrtc-direct。差距来自用户态栈的深度 —— QUIC 一层做完
+   可靠传输 + 多路复用 + TLS，WebRTC 要 ICE + DTLS + SCTP 三层各遍历一次数据。
+2. **稳定性**：webrtc-direct 的区间横跨 6.6 倍，WebTransport 只有 ±7%。对「传大文件要多久」
+   这类用户可感知的指标，方差比中位数更重要。
+
+⚠️ **WebTransport 比裸 QUIC 还快 21%，这一点尚未查清**（理论上它是 QUIC + HTTP/3 一层，
+应该更慢）。可能是 quinn 配置差异（buffer、拥塞控制）或 libp2p-quic 的 stream 包装层开销。
+**别把它当成已知结论去引用**。
+
+⚠️ 回环瓶颈是 CPU，跨网瓶颈通常是带宽与 RTT。**这组数字不能外推到真机** —— 真机测量仍是
+未做的前置（见下方"已知负债"）。
+
+### 架构：重心在证书生命周期，不在传输层
+
+与 `webrtc-p2p` 逐条对比，只有最后一行变复杂：
+
+| 维度 | `webrtc-p2p` | `webtransport-p2p` |
+|---|---|---|
+| 模式数 | 2（打洞 + direct） | 1 —— WebTransport 没有 NAT 穿透 |
+| 建连协商 | SDP、ICE、DTLS 角色、ufrag | 无，QUIC 握手是库的事 |
+| socket 复用 | 自写 1121 行 `UdpMux` | 无，独占端口 |
+| 子流 | DataChannel + 自做 framing + `init` 通道陷阱 | QUIC 流**本身就是流**，muxer 极薄 |
+| 后端抽象 | 必须（native / wasm 两套栈） | 不需要，浏览器侧用上游 websys |
+| 证书 | 一张，**永不改变** | **两张，会过期，14 天轮换** |
+
+那一行引入了 `webrtc-p2p` 里完全不存在的维度：**时间**。全 crate 约 1500 行，其中
+`certificate/rotation.rs` 是唯一有状态、有时钟、驱动外部可见行为（通告地址）的部分。
+
+分层：`addr` / `certificate`（纯逻辑，零 IO）→ `noise` / `muxer`（libp2p 语义）→
+`listener` / `dialer` / `transport`（wtransport 绑定）。
+
+⚠️ **「只有 L2 认识 wtransport」这句话不成立，别照抄。** 9 个源文件里 6 个 import 它：
+`certificate` 借 `wtransport::Identity` 当证书容器，`muxer` 直接绑它的流类型（为唯一一个
+实现造 trait 是 YAGNI）。真正成立的是——**换库时决定「行为」的部分一行不用动**：轮换状态机
+（456 行，全 crate 最复杂）、地址解析、Noise 语义都不认识 wtransport。这条差别很重要：
+第一版文档写的是前者，而 design.md 拿它兜底了三处论证，属于「先写断言、实现没跟上」。
+
+### ⚠️ 与 webrtc-direct 的 Noise **机制互斥**，照抄必失败
+
+| | webrtc-direct | WebTransport |
+|---|---|---|
+| 身份与信道绑定 | `libp2p-webrtc-noise:` + 双方 DTLS 指纹作 **prologue** | **`webtransport_certhashes` Noise 扩展**，**不设 prologue** |
+
+两者是同一目的的两种机制。照抄隔壁 crate 会让握手在第一条消息就失败，而症状看起来像
+「Noise 实现有 bug」，极难归因。`libp2p-noise` 的 `Config::with_webtransport_certhashes`
+两侧都现成（responder 上报 / initiator 验证），spec 里最难的一块不用自己写。
+
+### 通告地址的实际寿命是 28 天，不是 14
+
+spec 要求通告地址同时携带 `current` 与 `next` 两个 certhash。把时间轴画开：
+
+```
+第 0 天    通告 [A, B]  ← 客户端记下
+第 14 天   A 过期 → 通告 [B, C]
+           客户端持旧地址拨 → 服务端用 B → B ∈ {A,B} → 连得上
+第 28 天   B 过期 → 通告 [C, D]
+           客户端持旧地址拨 → 服务端用 C → C ∉ {A,B} → 断
+```
+
+即一条通告地址能撑过**一整轮**轮换。这条推论直接决定上层「多久刷新一次 bootstrap 清单」，
+由 `advertised_addr_survives_one_rotation` 钉死。
+
+**由此还得到一条不显然的必需品**：服务端的 Noise 扩展**必须带上刚退役的 certhash**。
+上表第 14 天那行，TLS 层过了（服务端出示 B，B 在客户端集合内），但 Noise 层若只上报
+`{B, C}`，`{A,B} ⊄ {B,C}` 就会失败 —— **TLS 过了 Noise 仍会挂**。spec 那句「近期过期的
+也建议带」不是可选优化。
+
+### 判据：libp2p-quic 不会抢走 WebTransport 地址
+
+WebTransport 地址形如 `/ip4/…/udp/…/quic-v1/webtransport/certhash/…`，同时含 `/quic-v1`。
+它没被 libp2p-quic 认领，唯一依据是上游 `multiaddr_to_socketaddr` 对 `/quic-v1` 之后的任何
+非 `/p2p` 段一律 `return None`（`transports/quic/src/transport.rs`）。
+
+**升 libp2p rev 时要重新确认这一条**。破了的话表现是 WebTransport 地址被 quic 认领、然后
+永远拨不通，且没有任何错误指向真正的原因。
+
+`Addr::transport()` 里同理：`/webtransport` 的判别**必须排在 `QuicV1` 之前**，否则会判成
+普通 QUIC —— 判据错了但没有编译错误。
+
+### 证书生命周期的四条判据（都是 code-review 抓出来的真 bug）
+
+第一版实现全绿、clippy 干净、61 条测试通过，仍然错了四处。四条各自独立，且**都不会在
+任何测试里表现为红**，只会在 14 天后、或某次重启后、或某台机器上悄悄发作：
+
+1. **两张证书必须重叠，不能首尾相接。** 轮换由 poll 里一个 60s 的定时器驱动，「该换了」与
+   「真的换了」之间必然有滞后。若判据是「`current` **已经过期**才换」，那段滞后里服务端
+   出示的是过期证书 —— 浏览器与 `wtransport` 客户端都直接判 `Expired`，**期间所有新连接
+   一律 TLS 失败**，每 14 天来一次。现在 `next` 提前 1 小时生效，切换点落在两张都有效的
+   重叠区里。
+2. **退役 certhash 必须跟着 PEM 一起持久化。** 它只活在内存里的话，**一次重启就把「旧地址
+   能撑过一整轮」打掉**：对端拿旧地址来拨，TLS 过得去（服务端出示的 current 在它的接受
+   集合内），Noise 却失败（判据是「期望 ⊆ 收到」，而重启后服务端不再上报退役的那个）。
+   解法是 `retired` 存整张证书而非只存 hash，`to_pem` 一并写出。
+3. **`store.load()` 报 IO 错时绝不能回写。** 读失败不等于数据坏了 —— 文件可能被杀软临时
+   锁住、权限被改、一次 EIO。覆盖它等于把一次瞬时故障变成**永久**的身份丢失。
+   CLAUDE.md 为设备身份文件写死过同一条判据（「读取失败不降级」），这里是同一个坑的第二次。
+4. **私钥的编码变体要挡在门口。** `wtransport::PrivateKey::from_der_pkcs8` 只是**贴标签**
+   不解析，而起监听走的是 rustls 的 `.expect("已经验证过")`。一份 SEC1 私钥
+   （`-----BEGIN EC PRIVATE KEY-----`，openssl 默认输出）会一路通过构造、在第一次
+   `listen_on` 时把整个 Swarm 线程 panic 掉。
+
+> 通用判据：**「有状态 + 有时钟 + 有持久化」的子系统，测试全绿不代表对。** 上面四条对应的
+> 是四个不同的时间尺度（一个检查周期 / 一次重启 / 一次 IO 抖动 / 一次手工换文件），任何一条都不在
+> 常规测试的观察窗口内。写这类代码时要专门列举「哪些时刻会发生什么」，而不是等测试告诉你。
+
+### 抗 DoS：`mpsc::channel(n)` 的容量不是 n
+
+`futures::channel::mpsc::channel(n)` 的真实容量是 **`n + Sender 个数`** —— 每 clone 一个
+Sender 就多一个保证槽位。accept 循环若给每条连接 clone 一个 Sender，那个数字就形同虚设，
+「靠通道容量做背压」整句话不成立。
+
+WebTransport 的 listener 因此改用**信号量限住在途握手数**（拿不到许可直接丢弃 incoming，
+不排队 —— 排队本身就是要防的那个堆积），并给 QUIC+CONNECT 那一段单独加了超时（`Config`
+里那个握手超时只盖交付给 Swarm **之后**的 Noise，管不到这段）。公网 relay 上这是可被远程
+触发的内存增长路径。
+
+### 部署形态
+
+- bootstrap 独占 **UDP 4004**，与 webrtc-direct 的 4003 **并存**（两条浏览器入口同时提供，
+  可对比吞吐后再决定是否下线前者）。
+- **WebTransport 的公网地址不能静态登记。** TCP/QUIC 的公网地址只由「IP + 端口」决定，
+  恒定不变；WebTransport 的地址带 certhash，静态算出来的那条会在第一次轮换后失效。
+  bootstrap 因此有一个后台任务盯着内核的监听地址视图，把 WebTransport 地址改写 IP 后
+  **连同静态那几条整份声明**给内核（`crates/bootstrap/src/lib.rs`）。整份声明这一点不是
+  风格选择，见下面「地址集合只增不删」。
+- **桌面与移动端都监听 WebTransport（2026-08-12 起）**，端口由系统分配。启用判据是**宿主
+  给没给证书端口**，不是「是不是原生端」（后者会让浏览器也被算进去，而它起不了任何监听，
+  `bind` 会直接失败）。浏览器传 `None`，只拨号。
+  > 移动端一度被判为「不该监听」，两条理由都不成立，值得记住怎么错的：
+  > ①「要动 uniffi 跨 FFI 契约」—— 那是把证书端口错挂在 `KeychainProvider` 上才有的代价，
+  > 它本来就不该挂在那儿（见下节）；落在 Rust 侧的文件里，跨 FFI 面一个字节没动。
+  > ②「手机在 NAT 后，浏览器直连走不通」—— 只对**公网**成立。局域网内浏览器直连手机是走
+  > 得通的，而那正是移动端**早就**在监听 webrtc-direct 的理由（`presets::Native` 里那条地址
+  > 的注释写的就是「浏览器到原生端的局域网直连入口」）。同一个场景，没有理由只开慢的那条。
+- **浏览器不需要写死 WebTransport 地址**：它先用 webrtc-direct 连上 bootstrap，经 identify
+  学到带**当前** certhash 的 WebTransport 地址。这天然绕开了「清单里的地址会过期」的问题，
+  也是 `docs/app/app/_lib/relay-helpers.ts` 不必改的原因。
+- 日志三个 target（`webtransport_p2p` / `wtransport` / `quinn`）互不为前缀，也都不以
+  `swarmdrop` 开头，**桌面与移动两份 `DEFAULT_FILTER` 要一起改**，各有一条断言看守。
+
+### 测试纪律：三条「假绿」，都是变异测试抓出来的
+
+变异测试（把实现改回缺陷形态，确认测试真的变红）在本轮抓出三条自以为有效的护栏。
+**写完护栏就变异一次**，成本是一分钟，而假绿护栏比没有护栏更糟 —— 它会让人以为那条
+判据有人看着。
+
+第三条在 `crates/net`（地址簿淘汰），前两条在 `crates/webtransport-p2p`：
+
+0. **`still_advertised_address_survives_a_flood_of_new_ones` 第一版是假绿的。** 它让那条
+   「仍在被上报」的地址每轮都 `touch` 一次，可 `touch` 对**已被淘汰**的地址等于重新插入
+   到簿首 —— 于是把淘汰逻辑换成「按物理位置截断」（即缺陷形态），测试照样通过：它验的
+   是「被重新插入」而不是「被保护」。修正的关键是先用新地址把它**推到物理最末位**，再
+   只刷新一次序号 —— 两种实现在这里才会分道扬镳。
+   **同类陷阱**：测「X 不该被删掉」时，要确认 X 没有在别处被悄悄重建。
+
+1. **`rejects_non_sha256_certhash` 原本是假绿的。** 它用 sha1（20 字节摘要）构造非法
+   certhash，而实现里挡住它的是**长度检查**不是 code 检查 —— 把 `hash.code() != SHA2_256`
+   整段删掉，测试照样通过。改用 blake3-256（摘要同为 32 字节）才真正验到 code 那条判据。
+   **同类陷阱**：用「哪儿都不对」的输入测一个多条件判据，只能验到最先失败的那条。
+2. **`rotation_keeps_existing_connections_alive` 原本会挂死而不是失败。** 把
+   `reload_config` 的 `rebind` 改成 `true`，reload 失败 → 不发任何事件 → `next_event`
+   永久 `Pending`。CI 里的表现是「job 超时」，看不出是谁挂的。现在所有等事件/等 IO 的
+   helper 都套了 10s 超时。**凡是等 `Poll::Pending` 的测试都要有超时**，否则「本该发生的
+   事没发生」这类 bug 的失败形态是不可读的。
+
+### ⚠️ `Watcher::get()` 不推进版本标记（写 watch 相关测试必踩）
+
+`Watcher::get()` 走的是 `borrow()`，**只有 `updated()` 里的 `borrow_and_update()` 会推进
+版本**。而 `Endpoint` 持有的那个 receiver 从来没被读过，于是 `watch_addrs()` 每次 clone
+出来的 `Watcher` 一开始就带着「有未读变更」—— **首次 `updated()` 必定立刻返回**。
+
+写「重复操作不该触发更新」这类测试时，拿 `get()` 当消费手段会得到一条永远失败的测试
+（测的是那个继承来的标记，与被测行为无关）。要消费积压只能用 `updated()`。
+
+另一个同源的坑：`watch_addrs` 覆盖**整个** `AddrsInfo`，监听地址到达同样会唤醒它。
+测「外部地址是否变化」时若还开着 listen，测的就成了「`NewListenAddr` 有没有恰好在这
+几百毫秒里到」——一条会随机变红的测试。两条都记在
+`crates/net/tests/lifecycle.rs` 的 `redeclaring_the_same_addresses_is_idempotent` 上。
+
+### 两个由 `/simplify` 审出来的真 bug（都不是风格问题）
+
+1. **「这对证书是不是刚生成的」在错误的地方二次派生。** `load_or_bootstrap` 明明知道自己
+   走了哪条路径，却把这个事实丢掉，让调用方再 `store.load()` 一次去反推。两处对「fresh」
+   的定义因此**对不上**：存量 PEM 损坏时，加载走的是「重新生成」，而反推看到
+   `Ok(Some(垃圾))` 判成「不是新的」→ **不落盘** → 下次启动再坏一次、再生成一次，
+   **certhash 每次重启都变**，而那正是这个持久化端口存在的唯一理由。
+   一条 warn，没有任何东西指向「文件坏了但没人修它」。
+   > 通用判据：**信息要在产生它的地方回报，不要在消费它的地方猜回来。** 猜得到的前提是
+   > 「输入没变过」，而这里恰恰变了。
+
+2. **Rust 侧加了传输种类，JS 侧两份镜像没跟上。** `TransportKind::Webtransport` 加进
+   `Addr::transport()` 时特意写了「必须排在 `QuicV1` 之前」的注释（WebTransport 地址
+   **同时含**两个段），但 `src/routes/_app/settings/-bootstrap-nodes-section.tsx` 与
+   `docs/app/app/_lib/relay-helpers.ts` 各有一份从 multiaddr 字符串猜传输的 if 链，
+   两处都把 `/quic` 排在前面 —— 地址被标成 "QUIC"，而同一屏的校验又以
+   `unsupportedTransport` 拒掉它并列出「本端支持 TCP · QUIC · WebRTC Direct」。
+   用户看到两句互相矛盾的话，无从判断错在哪。
+   > 通用判据：**顺序敏感的 if 链是"加一个变体就会静默出错"的结构**，而它们没有编译期
+   > 保护。仓里现在有三处（桌面 / Web / 后端），Web 那份已补了护栏测试
+   > （`docs/app/app/_lib/relay-helpers.test.ts`）。真正的解法是三处都改成消费后端下发的
+   > wire 名，别再猜 —— 后端已经有权威判据了。
+
+## 地址集合只增不删：同一个 bug 的两面（2026-08-12 修）
+
+带 `certhash` 的传输（WebTransport 14 天轮换、webrtc-direct 换证书时）让一个此前无害的
+形态变成了真缺陷：**内核里保存地址的集合都只去重、不淘汰**。它有对称的两面，当时只看见
+了一面。
+
+### 面一：本机通告出去的外部地址（`Endpoint::set_external_addrs`）
+
+后果分两级，**第二级最初漏评估了**：
+
+- **立即**：identify 发出的地址集 = external ∪ listen。对端学到的 WebTransport 候选里只有
+  1 条是活的；libp2p 的并发拨号预算默认 8 条，约 3 个月（6 次轮换）后死地址占满预算，
+  连接成功率随进程运行时长线性下降。
+- **最终**：identify 的 payload 走 `prost_codec::Codec::new(4096)`，而**编码端不检查长度、
+  解码端检查** —— 超限时不是本机报错，是**每一个对端**都静默地解不出这条 identify。
+  一条 WebTransport 地址约 89 字节，扣掉约 1.2KB 底噪后约 32 次轮换（≈15 个月）到顶。
+  bootstrap 正是那种会连续跑几个月的进程。
+
+**修法不是补一个 `remove_external_addr`，而是把 API 换成声明式的整份替换。** 命令式的
+add/remove 会把一份易错的记账纪律推给每一个调用方：自己维护「已登记集合」、部分失败时只
+回滚失败的那些、还要保证「先调用后记账」这个顺序不写反（写反的后果是一次瞬时失败让某条
+地址**永久**不再重试，而日志只有一行 warn）。声明式把这些全部消掉 —— 调用方每轮把「现在
+应该通告什么」整份发过来，重试就是把同一份声明再发一次，差量由内核算且只有一份实现。
+它还天生对**漏采样**免疫：`watch` 是 last-value-wins，轮换瞬间的中间态大概率被跳过，而
+每轮重新声明全集的话，跳过与否都不影响最终收敛。
+
+两条判据不能破：
+
+1. **声明的与自动确认的分开存。** 内核持 `declared_external`（宿主声明）与
+   `confirmed_external`（AutoNAT / identify 观测），视图是二者并集。合成一个集合的话，
+   宿主每声明一次就会抹掉 AutoNAT 刚确认的地址，下一轮 AutoNAT 又加回来，视图永久抖动。
+2. **差量以视图为基准，不以 Swarm 的 external 集合为基准。** LanHelper 会把私网监听地址
+   直接登记进 Swarm 却**刻意不进视图**（视图是给上层看的公网地址诊断）。改成「以 Swarm
+   为准全量重算」会把那条当多余的删掉，relay 的 reservation 应答随即失去可拨地址，
+   客户端报 `NoAddressesInReservation`。
+
+### 面二：地址簿里对端的地址（`Actor::address_book`）
+
+同一枚硬币的背面，而且更隐蔽：`record_addr` 只去重不淘汰，而 `address_book.remove` **只在
+注销基础设施节点时**调用 —— 普通对端的条目在进程生命周期内永不清除。进簿的四条路径
+（mDNS / DHT presence record / identify / 显式注入）都会随时间产出新地址：对端换 Wi-Fi 或
+DHCP 续租就是一批新 IP，带 certhash 的地址更是每次轮换必变一条。这边撑爆的不是 identify
+payload，而是**拨号预算**。
+
+修法是上限 32 + LRU，但**淘汰判据必须是「最久没被提及」而不是「进簿最早」**：
+
+- 一条一直可用的公网地址进簿最早、物理上排在最后，但只要对端还在 identify / DHT 里持续
+  上报它，它就不该被淘汰。按物理位置淘汰的话，恰恰是那条唯一还能用的地址被新涌入的私网
+  地址挤掉。
+- 「最近提及」用**逻辑计数器**而不是时间戳：这里要回答的只是「谁更久没被提及」这个相对
+  问题，而 wasm target 下没有可靠的单调时钟（kad 的 `Instant` 就为此分叉过）。
+- **物理顺序（= 拨号优先级）与淘汰序号是两件事**：重报只刷新序号、不挪位置，否则拨号
+  顺序会随 mDNS 的广播节奏抖动。
+
+护栏是 `still_advertised_address_survives_a_flood_of_new_ones`，它**第一版是假绿的** ——
+见下面「测试纪律」。
+
+### 证书端口为什么不挂在 `KeychainProvider` 上
+
+接桌面端时最初判断「要给 `KeychainProvider` 加三个方法，牵动 uniffi 跨 FFI 契约与 4 个
+入库的生成文件」，因此把它推迟成独立工作。**那个判断是错的**：那个 trait 的三组方法都是
+「读一次就完」的形态（身份与 webrtc 证书永不改变，宿主启动时交出去就不再过问），而
+WebTransport 的证书要轮换并**回写** —— 它需要的是长期持有的可写端口，本就不该挂上去。
+
+真正要解决的是另一件事：`webtransport_p2p::CertificateStore` 是 **native-only 依赖的类型**，
+wasm target 下根本不在依赖树里，直接用会逼着 `swarmdrop_core` 的组合根给参数和字段加
+`cfg(wasm_browser)` 分支 —— 而「业务层不写 cfg」是本仓的硬约束。做法是在 `crates/net` 定义
+一个平台中立的同名端口（native 侧 12 行 adapter 转回去），组合根于是零分支。
+
+**监听判据是「宿主给没给证书端口」，不是「是不是 Native」。** 后者把浏览器也算了进去，
+而它起不了任何监听 —— 多给一条监听地址会让 `bind` 直接失败。正反两条 core 测试看守它。
+
+**文件实现两端共用一份**（`crates/net` 的 `WebTransportFileCertificateStore`，各宿主只给
+路径），与 `JsonFileDeviceConfig` 同一体例。这里刻意不走「端口三端各写一份」的常规体例，
+判据是**实现里有没有容易写错、且错了没有反馈回路的不变量**：原子写（半截 PEM → 下次启动
+重新生成 → certhash 变，而日志一切正常）、`0600`（里面有私钥）、读失败不降级。三条各写
+两遍就是两次写错的机会。设备名那份用裸 `fs::write` 反而是对的 —— 丢了可以重设。
+
+## 浏览器手测怎么做（2026-08-12 实测流程）
+
+`serverCertificateHashes` 的准入只能在真浏览器里验，但**不需要人工点**：
+
+1. 起本地 bootstrap：`--listen-ip 127.0.0.1 --external-ip 127.0.0.1`。
+   **拨 `127.0.0.1` 能绕开 Chrome 的 LNA（Local Network Access）拦截** —— 拨局域网 IP 则
+   未必，那是另一个变量，别混在一起测。
+2. Chrome 走完整链路：`agent-browser` 打开 `/app/settings` → 「添加自定义引导节点」→ 粘贴
+   `/ip4/127.0.0.1/udp/4004/quic-v1/webtransport/certhash/<h1>/certhash/<h2>/p2p/<id>`。
+   判据看**服务端** debug 日志：入站连接的 `endpoint=Listener{ local_addr: …/webtransport/… }`
+   且带 `peer_id`（有 peer_id ⇒ Noise 已完成），随后 `ReservationReqAccepted`。
+3. Safari / Firefox 无法用 CDP 驱动。用一个最小页面拨 `wt.ready` 并把结论写进
+   `document.title`，再用 `osascript -e 'tell application "Safari" to get name of document 1'`
+   读回来 —— 不需要 safaridriver，也不需要 `do JavaScript` 权限。
+4. **每个浏览器都要做负面对照**（喂一个全零 certhash，期望 `Opening handshake failed`）。
+   没有它，「WT-OK」可能只是说明那个浏览器压根没校验 certhash。
+
+顺带可验证书持久化：重启 bootstrap 后 certhash 应**逐字不变**，浏览器经同一条地址重连成功。
+
 ## 已知负债（勿当 bug 重报）
 
 - mdns/autonat/dcutr 的 native 运行时行为未经自动化测试（依赖真机/多机冒烟）。
@@ -1693,3 +2016,24 @@ wasm-clean crate `swarmdrop-invite`（依赖 net-base，不依赖 core——core
   ws/webrtc-direct dial、circuit 被动接收、双向 RPC 五格全通，记录见
   `spike/net-web-smoke/README.md`。wasm 产物 598KB gzip（iroh spike 为 849KB）。
   未测：跨机器、Safari/Firefox、https 页面组合。
+
+**WebTransport（2026-08-12 落地）：**
+
+- **真机测量未做。** 回环 322 vs 72 MiB/s 的差距不能外推：回环瓶颈是 CPU，跨网通常是
+  带宽与 RTT，而真机上那条 0.36–0.96 MB/s 走的还是**打洞**路径而非 direct。
+  「打洞 vs webrtc-direct」这个变量至今没分离过。收益预期要以真机数据为准。
+- ~~桌面端未接入~~ **已接入（2026-08-12）**，且没有动 `KeychainProvider` —— 判据见下方
+  「地址集合只增不删」那节后面的「证书端口为什么不挂在 KeychainProvider 上」。
+- ~~旧的公网地址不会被撤销~~ **已修（2026-08-12）**，见下节。
+- ~~浏览器端到端未手测~~ **Chrome 完整链路 + Safari/Edge 准入层已实测**（2026-08-12）。
+  **Firefox（Gecko）仍未测** —— 本机没装。复现只需一条 URL，见下方「浏览器手测怎么做」。
+- **`connection closed by peer: 0` 被记成 WARN。** 浏览器每次刷新/关页都会在服务端刷一条
+  `connection closed with error … 建立 WebTransport 会话失败：接受入站子流失败`。
+  功能无碍，但正常操作产生 WARN 会淹掉真告警。**没有就地改**：libp2p 的 `StreamMuxer`
+  没有「正常结束」的表达位（连接终止一律经 Error 传播），把它在 muxer 层吞成 EOF 有
+  连带吞掉真实错误的风险，要改得先确认 quic / webrtc-direct 在同一场景下的表现，
+  不能只看 WebTransport 这一条。
+- **浏览器端到端未手测**（Chrome / Firefox / Safari 各拨通一次）。native↔native 的 9 条
+  集成测试已覆盖握手链路，但浏览器侧的 `serverCertificateHashes` 准入只能手测 ——
+  `wtransport` 客户端用的是同一套判据（有效期 ≤14 天、ECDSA P-256、窗口内），
+  所以 native 拨得通的东西浏览器**应该**也拨得通，但那是推论不是实测。

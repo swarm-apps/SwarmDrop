@@ -236,6 +236,7 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 |---|---|
 | `crates/net-base` | 网络类型底座。`NodeId` / `Addr` / `NodeAddr` / `ProtocolId` / `NatStatus` —— libp2p 类型在此收口成 newtype，**不向上穿透** |
 | `crates/net` | 网络内核 `swarmdrop-net`。iroh 风格 `Endpoint` 门面 + 后台 actor，隐藏事件循环、连接管理、协议路由、地址选择 |
+| `crates/webtransport-p2p` | libp2p **WebTransport** 传输的 native 一半（listener + dialer）——上游只有浏览器侧的 `webtransport-websys`。底层 `wtransport` 0.7.1。同样不带 swarmdrop 前缀、零 swarmdrop 依赖，将来 subtree split。**重心在证书生命周期不在传输层**（14 天两张证书轮换 + 通告地址随之变化） |
 | `crates/webrtc-p2p` | libp2p WebRTC 传输，**两种模式**：打洞（`/webrtc`，spec `/webrtc-signaling/0.0.1`，三端默认开启——打洞要两端都支持，只开一边等于没开）+ direct（`/webrtc-direct`，**已完全取代官方 `libp2p-webrtc` 与 `libp2p-webrtc-websys`**，native 监听 + 拨号、浏览器拨号均已实测跑通）。刻意不带 swarmdrop 前缀、不依赖任何 swarmdrop crate，将来要 subtree split 出去独立发布 |
 | `crates/host` | 宿主端口层（platform-neutral ports + DTO + error + device 类型），供 core 与 transfer 共同依赖。现有 6 个端口：`KeychainProvider` / `PairedDeviceStore` / `DeviceConfig` / `FileAccess` / `Notifier` / `UpdateInstaller`（`AppPaths` 已删，零实现零消费）。设备名归一化的唯一入口 `DeviceName::parse` 也在这里 |
 | `crates/invite` | PairInvite 编解码 + 一次性状态表 + 二维码。**wasm-clean，不依赖 core** |
@@ -384,15 +385,31 @@ src-tauri/src/
 5. 事件经 tauri-specta typed events 转发前端
 
 **Tracing:** 默认 filter
-`swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info,webrtc=warn,rtc=warn`，`RUST_LOG` 可覆盖。
-后三条**必须单列**——`EnvFilter` 按字符串前缀匹配，它们都不以 `swarmdrop` 开头，
-而 `webrtc_p2p`（本仓传输 crate）与 `webrtc` / `rtc*`（webrtc-rs 全家桶）又互不为前缀。
-漏掉哪条，那一层的日志在生产里就**一条都不出现**（已经踩过两次：udp_mux 丢包、
-driver 丢弃可靠消息）。桌面与移动是两份独立常量，**要一起改**。
+`swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info,webrtc=warn,rtc=warn,webtransport_p2p=info,wtransport=warn,quinn=warn`，
+`RUST_LOG` 可覆盖。后六条**必须单列**——`EnvFilter` 按字符串前缀匹配，它们都不以
+`swarmdrop` 开头，而 `webrtc_p2p`（本仓传输 crate）与 `webrtc` / `rtc*`（webrtc-rs 全家桶）、
+`webtransport_p2p`（本仓传输 crate）与 `wtransport` / `quinn`（WebTransport 全家桶）又各自
+互不为前缀。漏掉哪条，那一层的日志在生产里就**一条都不出现**（已经踩过两次：udp_mux 丢包、
+driver 丢弃可靠消息）。桌面与移动是两份独立常量，**要一起改**，两边各有一条断言测试看守。
 
 **Bootstrap / relay node:** 自建，`47.115.172.218`——TCP 4001、QUIC 4001、
-**WebRTC Direct 4003**（后者是浏览器唯一入口：https 页面拨公网裸 IP 的 `ws://` 会被
-mixed content 拦，`wss://` 又要域名 + CA）。
+**WebRTC Direct 4003**、**WebTransport 4004**（后两者是浏览器入口：https 页面拨公网裸 IP
+的 `ws://` 会被 mixed content 拦，`wss://` 又要域名 + CA）。
+
+> **两条浏览器入口并存是刻意的**（2026-08-12）。WebTransport 回环吞吐是 webrtc-direct 的
+> 4.5 倍（322 vs 72 MiB/s，6 次中位数）且方差小一个数量级，但**真机未测**，所以在验证收益
+> 之前不动 4003。浏览器**不需要写死** WebTransport 地址：先用 webrtc-direct 连上 bootstrap，
+> 经 identify 学到带当前 certhash 的那条 —— 这天然绕开了「证书 14 天一换、清单里的地址会
+> 过期」的问题。判据与已知负债见 [`net-kernel.md`](dev-notes/knowledge/net-kernel.md)。
+>
+> **桌面与移动端都监听 WebTransport（2026-08-12 起）**，端口由系统分配 —— 浏览器直连原生端
+> 走它，局域网内比 webrtc-direct 快 4.5 倍（回环数）。启用判据是**宿主给没给证书端口**
+> （`WebTransportCertificateStore`），不是「是不是原生端」：桌面写 `app_local_data_dir/`、
+> 移动端写 `data_dir/`（同名 `webtransport-cert.pem`），浏览器传 `None` 只拨号。
+> 读写实现是 `crates/net` 里两端共用的 `WebTransportFileCertificateStore`（原子写 + 0600 +
+> **读失败不降级**），各端只给路径 —— 与 `JsonFileDeviceConfig` 同一体例。
+> 那个端口**刻意不挂在 `KeychainProvider` 上**：那个 trait 的方法都是「读一次就完」，而这份
+> 证书要 14 天轮换并回写；顺带也就不必动 uniffi 跨 FFI 契约。判据与护栏测试见 net-kernel.md。
 
 客户端清单按端分两份，各自只列本端用得上的 transport（部署配置，不属于 P2P 内核）：
 `src/lib/bootstrap-nodes.ts` + `mobile/src/core/bootstrap-nodes.ts`（原生端：tcp + quic）、
@@ -631,6 +648,7 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | Tauri Builder 装配 / 命令注册 | `src-tauri/src/setup.rs` |
 | 自动生成的 IPC bindings | `src/lib/bindings.ts`（**勿手改**） |
 | 网络内核 | `crates/net/`、`crates/net-base/` |
+| WebTransport 传输（native） | `crates/webtransport-p2p/`（`certificate/rotation.rs` 是重心；`addr.rs` 零依赖纯函数） |
 | 传输域 | `crates/transfer/` |
 | 宿主端口层 | `crates/host/` |
 | 配对邀请（PairInvite） | `crates/invite/` |

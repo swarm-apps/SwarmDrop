@@ -27,7 +27,11 @@
 //! - libp2p 类型不出本 crate，上层只见 [`base`] 的 newtype。
 
 mod actor;
+mod addrset;
 mod behaviour;
+// 文件持久化只在 native 有意义（浏览器不监听 WebTransport，也没有文件系统）。
+#[cfg(not(wasm_browser))]
+mod cert_store;
 mod config;
 mod dht;
 mod endpoint;
@@ -91,3 +95,21 @@ pub fn webrtc_direct_addr_from_pem(
     );
     Ok(Addr::from_multiaddr(address))
 }
+
+/// WebTransport 配置。**两个 target 都在**——它是上层唯一需要认识的类型，
+/// 证书端口藏在它后面（判据见该类型的文档）。
+pub use config::WebTransportConfig;
+
+/// WebTransport 的证书持久化端口与其两个实现。**native only**：浏览器不监听、
+/// 没有服务端证书可存，`webtransport_p2p` 在那边也不在依赖树里。
+///
+/// 直接转出上游的 trait 而不做镜像 —— `crates/net` 正是本仓允许写 cfg 的平台边界层，
+/// 在这里挡住比在上层每个组合根挡一次便宜。
+#[cfg(not(wasm_browser))]
+pub use cert_store::WebTransportFileCertificateStore;
+#[cfg(not(wasm_browser))]
+pub use webtransport_p2p::{
+    CertificateStore as WebTransportCertificateStore,
+    MemoryCertificateStore as WebTransportMemoryCertificateStore,
+    StoreError as WebTransportStoreError,
+};

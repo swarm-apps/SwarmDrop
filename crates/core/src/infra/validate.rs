@@ -41,7 +41,8 @@ pub enum InfraAddrError {
     /// 传输本端点没有装配。
     #[serde(rename_all = "camelCase")]
     UnsupportedTransport {
-        /// 地址里那个传输的 wire 名（`tcp` / `quic` / `webrtc` / `webrtcDirect`）。
+        /// 地址里那个传输的 wire 名（`tcp` / `quic` / `webrtc` / `webrtcDirect` /
+        /// `webtransport`）。
         transport: String,
         /// 本端点支持的传输，供 UI 直接列出来。
         supported: Vec<String>,
@@ -57,15 +58,6 @@ pub enum InfraAddrError {
 /// 刻意不直接返回 `NodeAddr`：调用方需要知道「这条本来就在表里」与「这是新的」的
 /// 区别——前者不该报错（幂等 upsert 会合并地址），但 UI 要给的反馈不同。
 pub type InfraAddrResult = Result<NodeAddr, InfraAddrError>;
-
-fn transport_wire_name(kind: TransportKind) -> &'static str {
-    match kind {
-        TransportKind::Tcp => "tcp",
-        TransportKind::Quic => "quic",
-        TransportKind::Webrtc => "webrtc",
-        TransportKind::WebrtcDirect => "webrtcDirect",
-    }
-}
 
 /// 校验一条用户输入的引导节点地址。
 ///
@@ -115,10 +107,10 @@ pub fn validate_against(
     let transport = addr.transport().ok_or(InfraAddrError::NoTransport)?;
     if !supported.contains(&transport) {
         return Err(InfraAddrError::UnsupportedTransport {
-            transport: transport_wire_name(transport).to_owned(),
+            transport: TransportKind::wire_name(transport).to_owned(),
             supported: supported
                 .iter()
-                .map(|k| transport_wire_name(*k).to_owned())
+                .map(|k| TransportKind::wire_name(*k).to_owned())
                 .collect(),
         });
     }
@@ -148,7 +140,7 @@ pub fn supported_transport_names(endpoint: &Endpoint) -> BTreeSet<String> {
     endpoint
         .supported_transports()
         .iter()
-        .map(|k| transport_wire_name(*k).to_owned())
+        .map(|k| TransportKind::wire_name(*k).to_owned())
         .collect()
 }
 

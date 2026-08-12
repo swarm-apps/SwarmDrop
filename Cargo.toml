@@ -11,6 +11,7 @@ members = [
     "crates/net-base",
     "crates/net",
     "crates/webrtc-p2p",
+    "crates/webtransport-p2p",
     "crates/bootstrap",
     "src-tauri",
     "mobile/packages/swarmdrop-core/rust/mobile-core",
@@ -94,6 +95,18 @@ libp2p-swarm = { git = "https://github.com/yexiyue/rust-libp2p", rev = "93fa526c
 # 由 `webrtc-p2p` 接了过来。留着它等于把 webrtc-rs 0.17 与 0.20 两套 ICE/DTLS/SCTP
 # 同时编进二进制。`libp2p-webrtc-utils` 是另一个 crate，仍然要用。
 libp2p-webrtc-utils = { git = "https://github.com/yexiyue/rust-libp2p", rev = "93fa526c6593334cfbcf3731bd3043714f5f0fa6" }
+# Noise 握手。webtransport-p2p 只用它做**身份认证**（不加密——QUIC-TLS 已经加密），
+# 并借它现成的 `webtransport_certhashes` 扩展编解码（responder 上报 / initiator 验证两侧都有）。
+# **必须与 libp2p-core 同 git rev**：扩展的 protobuf 定义住在这个 crate 里，版本分叉会让
+# 同名类型变成两个。
+libp2p-noise = { git = "https://github.com/yexiyue/rust-libp2p", rev = "93fa526c6593334cfbcf3731bd3043714f5f0fa6" }
+# 自研 WebTransport 传输（native listener + dialer）。rust-libp2p 只有浏览器侧的
+# `webtransport-websys`，native 那半是缺口。只有 crates/net 依赖它。
+webtransport-p2p = { path = "crates/webtransport-p2p" }
+# WebTransport 的**浏览器**那一半（wasm，只能拨号）。与自研的 native 侧配对：
+# crates/net 按 target 二选一。它是上游现成的，没有理由自己再写一份 ——
+# 浏览器的 WebTransport 本来就是原生 API，包装层没有可优化的余地。
+libp2p-webtransport-websys = { git = "https://github.com/yexiyue/rust-libp2p", rev = "93fa526c6593334cfbcf3731bd3043714f5f0fa6" }
 # 自研 WebRTC 传输，**同时提供打洞（`/webrtc`）与 direct（`/webrtc-direct`）两种模式**，
 # 已完全取代官方 `libp2p-webrtc`。只有 crates/net 依赖它；打洞按 `Builder::webrtc_p2p`
 # 开关，direct 始终启用（它是浏览器拨公网/同网裸 IP 的入口）。
@@ -113,6 +126,7 @@ serde_json = "1"
 futures = "0.3.31"
 unsigned-varint = { version = "0.8.0", features = ["futures"] }
 strum = { version = "0.28", features = ["derive"] }
+tempfile = "3"
 thiserror = "2"
 tokio = "1.49.0"
 tokio-util = "0.7"

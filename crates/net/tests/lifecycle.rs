@@ -148,8 +148,31 @@ async fn connect_timeout_aborts_orphaned_dial() {
     client.close().await;
 }
 
+/// 等到外部地址视图满足 `predicate`，超时即失败。
+async fn await_external<F>(
+    endpoint: &Endpoint,
+    what: &str,
+    predicate: F,
+) -> Vec<swarmdrop_net::Addr>
+where
+    F: Fn(&[swarmdrop_net::Addr]) -> bool,
+{
+    let mut watcher = endpoint.watch_addrs();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let external = watcher.get().external;
+            if predicate(&external) {
+                return external;
+            }
+            watcher.updated().await.expect("watch closed");
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("外部地址视图始终未满足：{what}"))
+}
+
 #[tokio::test]
-async fn explicitly_registered_external_addresses_are_published() {
+async fn declared_external_addresses_are_published() {
     let configured: swarmdrop_net::Addr = "/ip4/203.0.113.10/tcp/4001".parse().unwrap();
     let endpoint = Endpoint::builder()
         .listen(vec!["/ip4/127.0.0.1/tcp/0".parse().expect("valid")])
@@ -160,24 +183,98 @@ async fn explicitly_registered_external_addresses_are_published() {
 
     let dynamic: swarmdrop_net::Addr = "/ip4/203.0.113.10/udp/4003/quic-v1".parse().unwrap();
     endpoint
-        .add_external_addr(dynamic.clone())
+        .set_external_addrs(vec![configured.clone(), dynamic.clone()])
         .await
-        .expect("register dynamic address");
+        .expect("declare external addresses");
 
-    let mut watcher = endpoint.watch_addrs();
-    let external = tokio::time::timeout(Duration::from_secs(5), async {
-        loop {
-            let external = watcher.get().external;
-            if external.contains(&configured) && external.contains(&dynamic) {
-                return external;
-            }
-            watcher.updated().await.expect("watch closed");
-        }
+    let external = await_external(&endpoint, "两条声明的地址都出现", |ext| {
+        ext.contains(&configured) && ext.contains(&dynamic)
     })
-    .await
-    .expect("external addresses should be published");
+    .await;
     assert!(external.contains(&configured));
     assert!(external.contains(&dynamic));
+    endpoint.close().await;
+}
+
+/// **本次改动的核心护栏**：整份声明里被去掉的地址必须真的从通告集合里消失。
+///
+/// 没有它，带 `certhash` 的地址（WebTransport / WebRTC Direct）每轮换一次就多留一条死
+/// 地址，最终撑爆 identify 的 4096 字节上限——而那个上限只在**解码端**检查，本机永远
+/// 不会报错，症状是每个对端都突然读不到本节点的 identify。
+#[tokio::test]
+async fn redeclaring_external_addresses_retracts_the_ones_left_out() {
+    let keep: swarmdrop_net::Addr = "/ip4/203.0.113.10/tcp/4001".parse().unwrap();
+    let stale: swarmdrop_net::Addr = "/ip4/203.0.113.10/udp/4004/quic-v1".parse().unwrap();
+
+    let endpoint = Endpoint::builder()
+        .listen(vec!["/ip4/127.0.0.1/tcp/0".parse().expect("valid")])
+        .bind()
+        .await
+        .expect("bind");
+
+    endpoint
+        .set_external_addrs(vec![keep.clone(), stale.clone()])
+        .await
+        .expect("declare both");
+    await_external(&endpoint, "两条都先出现", |ext| {
+        ext.contains(&keep) && ext.contains(&stale)
+    })
+    .await;
+
+    // 第二次声明去掉 `stale` —— 等价于「证书轮换后旧地址失效」。
+    endpoint
+        .set_external_addrs(vec![keep.clone()])
+        .await
+        .expect("redeclare without stale");
+
+    let external = await_external(&endpoint, "被去掉的那条消失", |ext| {
+        !ext.contains(&stale)
+    })
+    .await;
+    assert!(
+        external.contains(&keep),
+        "仍在声明中的地址不该被连带撤销：{external:?}"
+    );
+    endpoint.close().await;
+}
+
+/// 声明是**幂等**的：同一份内容重复声明不应让视图产生新版本。
+///
+/// 这条看守的是调用方的重试路径 —— bootstrap 的地址跟踪任务每次 watch 醒来都会重发
+/// 一次全集。若每次都判为「变了」，就会向所有订阅者与 lookup 白广播一轮。
+#[tokio::test]
+async fn redeclaring_the_same_addresses_is_idempotent() {
+    let addr: swarmdrop_net::Addr = "/ip4/203.0.113.10/tcp/4001".parse().unwrap();
+    // **刻意不监听任何地址**：`watch_addrs` 覆盖整个 `AddrsInfo`，监听地址到达同样会
+    // 唤醒它。留着 listen 的话这条断言测的就不是「声明幂等」，而是「NewListenAddr 有没有
+    // 恰好在这 300ms 里到」——一条会随机变红的测试。
+    let endpoint = Endpoint::builder().bind().await.expect("bind");
+
+    endpoint
+        .set_external_addrs(vec![addr.clone()])
+        .await
+        .expect("declare");
+    await_external(&endpoint, "地址出现", |ext| ext.contains(&addr)).await;
+
+    let mut watcher = endpoint.watch_addrs();
+    // ⚠️ 必须用 `updated()` 消费积压，不能用 `get()`：`get()` 走的是 `borrow()`，**不推进
+    // 版本标记**。而新建的 `Watcher` 是从 Endpoint 那个从未被读过的 receiver clone 来的，
+    // 它一开始就带着「有未读变更」，于是首次 `updated()` 必定立刻返回 —— 拿 `get()` 当
+    // 消费手段的话，下面那条断言测的是这个继承来的标记，跟幂等性无关。
+    let _ = tokio::time::timeout(Duration::from_millis(200), watcher.updated()).await;
+
+    for _ in 0..3 {
+        endpoint
+            .set_external_addrs(vec![addr.clone()])
+            .await
+            .expect("redeclare");
+    }
+
+    // 重复声明不该产生新版本；给一点时间让「若真发了」的通知抵达。
+    let woke = tokio::time::timeout(Duration::from_millis(300), watcher.updated())
+        .await
+        .is_ok();
+    assert!(!woke, "内容相同的重复声明不应触发视图更新");
     endpoint.close().await;
 }
 

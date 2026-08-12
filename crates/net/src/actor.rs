@@ -46,6 +46,24 @@ use self::queries::{PendingQueries, PendingQuery};
 /// 订阅者事件队列深度。满时丢弃并计数（presence 有 watch_conns 差分兜底）。
 const SUBSCRIBER_QUEUE: usize = 256;
 
+/// 单个 peer 在地址簿里保留的地址上限。
+///
+/// # 为什么必须有上限
+///
+/// 地址簿是拨号候选的来源，而进簿的四条路径（mDNS / DHT presence record / identify /
+/// 显式注入）**都会随时间产出新地址**：对端换 Wi-Fi 或 DHCP 续租就是一批新 IP，而带
+/// `certhash` 的地址（webrtc-direct、WebTransport）更是每次证书轮换必变一条。只去重不
+/// 淘汰的话，一个长期在线的对端会在簿里累积到几十上百条，其中绝大多数早已拨不通。
+///
+/// 后果与「本机通告的外部地址只增不删」是同一枚硬币的两面（见
+/// [`Endpoint::set_external_addrs`](crate::Endpoint::set_external_addrs)）：那边撑爆的是
+/// identify payload，这边占满的是拨号预算——libp2p 默认并发拨 8 条，死地址排在前面就
+/// 意味着每次连接都要先超时几轮。
+///
+/// 32 的取法：一台设备的合理地址数在 10 条上下（TCP/QUIC 各 v4+v6、webrtc-direct、
+/// WebTransport、多网卡，外加每个 relay 一条 circuit），留 3 倍余量。
+const MAX_ADDRS_PER_PEER: usize = 32;
+
 /// 一次 LAN 升级里，**每种传输**最多带几个候选地址。
 ///
 /// **必须按传输分组，不能简单取前 N 个。** 原生端的 preset 同时监听
@@ -108,9 +126,9 @@ pub(crate) enum ActorMessage {
         addrs: Vec<Addr>,
         reply: oneshot::Sender<Result<(), Error>>,
     },
-    /// 显式登记本节点的外部可达地址（公网 relay / 动态 WebRTC 地址）。
-    AddExternalAddr {
-        addr: Addr,
+    /// 整份声明宿主认定的外部可达地址（幂等替换）。
+    SetExternalAddrs {
+        addrs: Vec<Addr>,
         reply: oneshot::Sender<Result<(), Error>>,
     },
     /// 运行期改写 identify 的 agent_version，并立刻向已连接对端主动 push。
@@ -188,7 +206,10 @@ pub(crate) struct Actor {
     /// 广播给各 behaviour——没有 behaviour 存储它就没有任何效果；dial 的候选
     /// 地址来自 behaviour 的 `handle_pending_outbound_connection`。内核不依赖
     /// 特定 behaviour 兼职地址簿（旧栈靠 kad 路由表兼职），自己维护。
-    address_book: HashMap<PeerId, Vec<libp2p::Multiaddr>>,
+    address_book: HashMap<PeerId, Vec<AddrEntry>>,
+    /// 地址簿的逻辑时钟：每次地址被上报或连通时递增一格，用来判断「谁更久没被提及」。
+    /// 见 [`AddrEntry`] 关于「为什么不是时间戳」。
+    addr_clock: u64,
     /// 活跃连接明细（一个 peer 可能同时有 TCP+QUIC / relay+direct 多条连接）。
     conns: HashMap<PeerId, Vec<(ConnectionId, ConnInfo)>>,
     subscribers: Vec<mpsc::Sender<NetEvent>>,
@@ -226,6 +247,25 @@ pub(crate) struct Actor {
     /// 新事实到达不必等退避走完——而新进簿的 circuit 地址不算新事实，它对这两个失败原因
     /// 的答案与上一轮完全相同。
     relay_retry: HashMap<PeerId, RelayRetry>,
+    /// **宿主声明的**外部可达地址（`SetExternalAddrs` 整份替换）。
+    ///
+    /// 与 [`confirmed_external`](Self::confirmed_external) 分开存，是为了让「声明」这个
+    /// 动作可以是幂等的整份替换而不误伤自动发现的结果——合成一个集合的话，宿主每声明
+    /// 一次就会把 AutoNAT 刚确认的地址抹掉，而下一轮 AutoNAT 再把它加回来，视图于是
+    /// 永久抖动。
+    declared_external: Vec<Addr>,
+    /// **自动确认的**外部可达地址（AutoNAT / identify 观测，由 Swarm 事件驱动）。
+    confirmed_external: Vec<Addr>,
+    /// LanHelper 模式下作为 external 登记的**私网/回环监听地址**。
+    ///
+    /// 单独一份而不并进 `declared_external`：它们不属于「公网地址诊断」，不该出现在
+    /// 视图里（那会让 UI 显示一串 192.168.x.x），但**必须**进 Swarm —— relay 的
+    /// reservation 应答就靠它给客户端可拨地址，没有会被判 `NoAddressesInReservation`。
+    lan_announced: Vec<Addr>,
+    /// 当前**实际推给 Swarm** 的 external 集合 = 视图那份 ∪ [`lan_announced`]。
+    ///
+    /// 差量的基准是它而不是视图，理由见 [`resync_external`](Self::resync_external)。
+    swarm_external: Vec<Addr>,
     /// pull 型地址解析源（bind 尾声注入）。
     lookups: Arc<Vec<Box<dyn AddressLookup>>>,
     /// 自发端（lookup 任务解析完回注用）。
@@ -249,6 +289,7 @@ impl Actor {
             dials: HashMap::new(),
             resolving_connects: HashSet::new(),
             address_book: HashMap::new(),
+            addr_clock: 0,
             conns: HashMap::new(),
             subscribers: Vec::new(),
             dropped_events: 0,
@@ -260,10 +301,70 @@ impl Actor {
             upgrading_direct: HashSet::new(),
             infra_relay_peers: HashSet::new(),
             relay_retry: HashMap::new(),
+            // 组合根声明的初值。Swarm 侧在 `bind` 里已登记过（reservation 应答要在
+            // actor 起前就能带上公网地址），视图初值同样在那里给，故此处只建账本、
+            // 不重复下发——`resync_external` 的差集因此从零开始就是空的。
+            declared_external: config.external_addrs.clone(),
+            confirmed_external: Vec::new(),
+            lan_announced: Vec::new(),
+            // 与 `bind` 里给的视图初值一致：那里已经把 `external_addrs` 推给 Swarm 了。
+            swarm_external: crate::addrset::dedup_preserving_order(&config.external_addrs),
             lookups: Arc::new(Vec::new()),
             self_tx,
             config,
             node_id,
+        }
+    }
+
+    /// 重算外部地址视图 = 声明的 ∪ 自动确认的，并把差量下发给 Swarm。
+    ///
+    /// **视图自身就是「上次同步了什么」的账本**，不另存第三份——多存一份就多一个会与
+    /// 视图漂移的真值。
+    ///
+    /// ⚠️ **差量以 `swarm_external`（本 actor 自己的账本）为基准，不能拿视图代替。**
+    /// 视图只装「公网地址诊断」那一部分（声明的 ∪ 自动确认的），而推给 Swarm 的集合还多
+    /// 一类：LanHelper 把私网监听地址也登记为 external（`NewListenAddr` 分支），那是
+    /// relay reservation 应答的可拨地址来源，刻意不进视图——混入私网地址会让 UI 显示得
+    /// 莫名其妙。
+    ///
+    /// 拿视图当账本时那类地址**谁都撤不掉**：它从没进过视图，差量算不到它。以前无害
+    /// （tcp/quic/webrtc-direct 的监听地址恒定），但 WebTransport 的地址带 certhash、
+    /// 每 14 天变一次 —— 于是每轮换一次就多留一条死地址，随 identify 广播给每个对端。
+    fn resync_external(&mut self) {
+        let view_external = crate::addrset::union_preserving_order(
+            &self.declared_external,
+            &self.confirmed_external,
+        );
+        // Swarm 侧还要带上 LanHelper 那部分。
+        let desired = crate::addrset::union_preserving_order(&view_external, &self.lan_announced);
+
+        for stale in self
+            .swarm_external
+            .iter()
+            .filter(|a| !desired.contains(a))
+            .cloned()
+            .collect::<Vec<_>>()
+        {
+            self.swarm.remove_external_address(stale.as_multiaddr());
+        }
+        for fresh in desired.iter().filter(|a| !self.swarm_external.contains(a)) {
+            self.swarm
+                .add_external_address(fresh.as_multiaddr().clone());
+        }
+        self.swarm_external = desired;
+
+        // 视图只在内容真变时才广播 —— 「没变」是常态（bootstrap 每次 watch 醒来都会把
+        // 同一份声明重发一遍），白广播会连带触发一轮 DHT publish。
+        let changed = self.watches.addrs.send_if_modified(|info| {
+            if info.external == view_external {
+                false
+            } else {
+                info.external = view_external;
+                true
+            }
+        });
+        if changed {
+            self.publish_addrs();
         }
     }
 
@@ -307,21 +408,11 @@ impl Actor {
                 }
                 let _ = reply.send(Ok(()));
             }
-            ActorMessage::AddExternalAddr { addr, reply } => {
-                self.swarm.add_external_address(addr.as_multiaddr().clone());
-                // 显式地址是组合根提供的可自证配置；Swarm 不保证为它回发
-                // ExternalAddrConfirmed，因此此处同步到唯一状态视图。
-                let changed = self.watches.addrs.send_if_modified(|info| {
-                    if info.external.contains(&addr) {
-                        false
-                    } else {
-                        info.external.push(addr);
-                        true
-                    }
-                });
-                if changed {
-                    self.publish_addrs();
-                }
+            ActorMessage::SetExternalAddrs { addrs, reply } => {
+                // 账本原样记「宿主声明了什么」，规范化（去重/排序）留给 `resync_external`
+                // 的输出——两处都做等于有两份规范。
+                self.declared_external = addrs;
+                self.resync_external();
                 let _ = reply.send(Ok(()));
             }
             ActorMessage::SetAgentVersion {
@@ -392,7 +483,7 @@ impl Actor {
                     self.ensure_relay(peer_id);
                 } else {
                     // 非 relay 角色也主动建连（kad server 的路由表活性）
-                    let candidates = self.address_book.get(&peer_id).cloned().unwrap_or_default();
+                    let candidates = self.peer_addrs(&peer_id);
                     if !candidates.is_empty()
                         && let Err(e) = self
                             .swarm
@@ -539,7 +630,7 @@ impl Actor {
             self.request_relay_reservation(peer_id);
             return;
         }
-        let candidates = self.address_book.get(&peer_id).cloned().unwrap_or_default();
+        let candidates = self.peer_addrs(&peer_id);
         if candidates.is_empty() {
             warn!(%peer_id, "no addresses for relay, cannot connect");
             self.set_relay_failed(peer_id, "no addresses for relay");
@@ -645,7 +736,11 @@ impl Actor {
     /// 中转可达时就会进来一条），`first()` 撞上那条就会拼出双层 circuit——判据与后果见
     /// [`circuit_base`]。
     fn circuit_base_for(&self, relay: PeerId) -> Option<libp2p::Multiaddr> {
-        first_circuit_base(self.address_book.get(&relay)?, relay)
+        // 借着找，不物化整本簿 —— 它只要第一条能当基址的。
+        first_circuit_base(
+            self.address_book.get(&relay)?.iter().map(|e| &e.addr),
+            relay,
+        )
     }
 
     /// 本机经某 relay 的完整 circuit 可达地址（`<relay>/p2p-circuit/p2p/<本机>`）。
@@ -988,7 +1083,7 @@ impl Actor {
 
         // 候选 = 显式传入 + 地址簿既有；behaviour 侧（kad 路由表等）的候选经
         // DialOpts 默认的 extend_addresses_through_behaviour 自动补充。
-        let candidates = self.address_book.get(&peer).cloned().unwrap_or_default();
+        let candidates = self.peer_addrs(&peer);
 
         // 无候选且配置了 pull 型 lookup：先解析再回注（ConnectResolved）
         if candidates.is_empty() && !self.lookups.is_empty() {
@@ -1050,6 +1145,14 @@ impl Actor {
             } => {
                 let addr = Addr::from_multiaddr(endpoint.get_remote_address().clone());
                 let path = classify_path(&addr, endpoint.is_relayed());
+
+                // 这条地址刚被证明可用——刷新它的「最近提及」序号，免得日后被新涌入的
+                // 地址淘汰掉。**仅出站**：入站连接的远端地址是对端的临时源端口
+                //（TCP 随机高位端口），它连可拨地址都不是，进簿只会挤掉真候选。
+                if endpoint.is_dialer() {
+                    self.refresh_addr(peer_id, endpoint.get_remote_address());
+                }
+
                 let info = ConnInfo {
                     path,
                     addr,
@@ -1188,7 +1291,13 @@ impl Actor {
                     .is_some_and(|s| s.announce_private_addrs)
                     && (addr.is_private_lan() || addr.is_loopback())
                 {
-                    self.swarm.add_external_address(addr.as_multiaddr().clone());
+                    // 经账本登记而不是直接推给 Swarm —— 直接推的话它就成了「视图不知道、
+                    // 因而永远撤不掉」的那一类。WebTransport 的监听地址带 certhash、
+                    // 每 14 天变一次，撤不掉就会一直累积。
+                    if !self.lan_announced.contains(&addr) {
+                        self.lan_announced.push(addr.clone());
+                        self.resync_external();
+                    }
                 }
                 self.watches
                     .addrs
@@ -1230,25 +1339,24 @@ impl Actor {
             }
             SwarmEvent::ExternalAddrConfirmed { address } => {
                 let addr = Addr::from_multiaddr(address);
-                // 去重：已收录则不触发 watch / lookup 重发（send_if_modified 返回是否真变）
-                let changed = self.watches.addrs.send_if_modified(|info| {
-                    if info.external.contains(&addr) {
-                        false
-                    } else {
-                        info.external.push(addr);
-                        true
-                    }
-                });
-                if changed {
-                    self.publish_addrs();
+                if !self.confirmed_external.contains(&addr) {
+                    self.confirmed_external.push(addr);
+                    self.resync_external();
                 }
             }
             SwarmEvent::ExternalAddrExpired { address } => {
                 let addr = Addr::from_multiaddr(address);
-                self.watches
-                    .addrs
-                    .send_modify(|info| info.external.retain(|a| *a != addr));
-                self.publish_addrs();
+                self.confirmed_external.retain(|a| *a != addr);
+                // ⚠️ **账本里也要摘掉**：上游发这个事件之前**已经**自己
+                // `remove_external_address` 了（`swarm/src/lib.rs` 的
+                // `ToSwarm::ExternalAddrExpired` 分支无条件执行），Swarm 里此刻已经没有它。
+                //
+                // 不摘的话账本就与 Swarm 不一致，而差量是按账本算的：若这条地址同时还被
+                // 宿主声明着（`declared_external`），`resync_external` 会认为「desired 有、
+                // 账本也有 ⇒ 无需动作」而**跳过重新登记** —— 于是 Swarm 永久不再通告它，
+                // 视图与 UI 却仍然说它可达。摘掉之后差量才会把它重新 add 回去。
+                self.swarm_external.retain(|a| *a != addr);
+                self.resync_external();
             }
             SwarmEvent::Behaviour(ev) => self.handle_behaviour_event(ev),
             other => debug!(?other, "swarm event"),
@@ -1435,6 +1543,16 @@ impl Actor {
     /// 从 listen 视图移除一批地址，有变化时 republish（ListenerClosed /
     /// ExpiredListenAddr 共用——两处失效路径同一套规则）。
     fn remove_listen_addrs(&mut self, removed: &[libp2p::Multiaddr]) {
+        // LanHelper 登记过的那几条要跟着撤：上游的 `ExpiredListenAddr` **不动**
+        // external 集合（`swarm/src/lib.rs` 只从 `listened_addrs` 摘），所以撤销只能由
+        // 这里发起。漏了它，证书轮换后的旧 WebTransport 地址会永久留在通告集合里。
+        let before = self.lan_announced.len();
+        self.lan_announced
+            .retain(|a| !removed.contains(a.as_multiaddr()));
+        if self.lan_announced.len() != before {
+            self.resync_external();
+        }
+
         let changed = self.watches.addrs.send_if_modified(|info| {
             let before = info.listen.len();
             info.listen.retain(|a| !removed.contains(a.as_multiaddr()));
@@ -1445,7 +1563,37 @@ impl Actor {
         }
     }
 
-    /// 地址进簿（去重）+ 广播给 behaviour（kad 等各自决定是否收录）。
+    /// 取下一个地址簿逻辑时刻。**自增与使用绑在一起**，调用方不必记住「先自增」这个约定。
+    fn next_addr_clock(&mut self) -> u64 {
+        self.addr_clock += 1;
+        self.addr_clock
+    }
+
+    /// 刷新一条**已在簿中**地址的「最近提及」序号；不在簿里则什么都不做。
+    ///
+    /// 与 [`record_addr`](Self::record_addr) 的区别：这里不新增。用于「这条地址刚被证明
+    /// 可用」——把一条从没进过簿的临时源地址塞进去只会挤掉真候选。
+    fn refresh_addr(&mut self, peer: PeerId, addr: &libp2p::Multiaddr) {
+        let clock = self.next_addr_clock();
+        if let Some(book) = self.address_book.get_mut(&peer)
+            && let Some(entry) = book.iter_mut().find(|e| same_dial_target(&e.addr, addr))
+        {
+            entry.touched = clock;
+        }
+    }
+
+    /// 某对端的候选地址（按进簿顺序，最新的在前）。
+    ///
+    /// 顺序即 libp2p 的拨号优先级，故**不**按 [`AddrEntry::touched`] 重排——那个序号只
+    /// 决定淘汰谁，让它同时决定拨号顺序的话，顺序会随 mDNS 的广播节奏抖动。
+    fn peer_addrs(&self, peer: &PeerId) -> Vec<libp2p::Multiaddr> {
+        self.address_book
+            .get(peer)
+            .map(|book| book.iter().map(|e| e.addr.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    /// 地址进簿（去重 + 有界）+ 广播给 behaviour（kad 等各自决定是否收录）。
     ///
     /// **以本机为中转的 circuit 地址一律丢弃。** 它是四条进簿路径（`AddAddrs` /
     /// `AddInfraPeer` / `Connect` 显式候选 / mDNS）的共同下游，故过滤收在这一处。
@@ -1457,9 +1605,9 @@ impl Actor {
             trace!(%peer, %addr, "skip circuit address relayed by self");
             return;
         }
+        let clock = self.next_addr_clock();
         let entry = self.address_book.entry(peer).or_default();
-        if !entry.contains(&addr) {
-            entry.push(addr.clone());
+        if touch_addr(entry, addr.clone(), clock) {
             // 新的**可用基址** = 新事实：reservation 的同步失败闸门立刻解除，不必等退避
             // 走完（与 `InfraSupervisor` 在候选 `last_seen` 刷新时重置退避同构）。
             //
@@ -1602,8 +1750,13 @@ fn circuit_base(addr: libp2p::Multiaddr, relay: PeerId) -> Option<libp2p::Multia
 /// 拆成自由函数是为了让护栏测试打在**真正被调用的那份挑选逻辑**上：它只需要一组地址，
 /// 而 `circuit_base_for` 要一整个 `Actor`（进而要一个 Swarm），测试够不到，于是原先在
 /// 测试里另抄了一份 `find_map`——那样一来「改回 `first()`」这类回归它一条都拦不住。
-fn first_circuit_base(addrs: &[libp2p::Multiaddr], relay: PeerId) -> Option<libp2p::Multiaddr> {
-    addrs.iter().find_map(|a| circuit_base(a.clone(), relay))
+fn first_circuit_base<'a>(
+    addrs: impl IntoIterator<Item = &'a libp2p::Multiaddr>,
+    relay: PeerId,
+) -> Option<libp2p::Multiaddr> {
+    addrs
+        .into_iter()
+        .find_map(|a| circuit_base(a.clone(), relay))
 }
 
 /// 这条地址的中转跳是不是 `node`。
@@ -1619,6 +1772,85 @@ fn first_circuit_base(addrs: &[libp2p::Multiaddr], relay: PeerId) -> Option<libp
 /// 漏的正是中间这一跳。
 fn is_relayed_by(addr: &libp2p::Multiaddr, node: NodeId) -> bool {
     Addr::from_multiaddr(addr.clone()).relay_node_id() == Some(node)
+}
+
+/// 两条地址是不是同一个拨号目标 —— 忽略末位的 `/p2p/<id>` 差异。
+///
+/// # 为什么需要它
+///
+/// `Swarm::dial` 会把每条候选地址做一次 `with_p2p(peer)` 之后才交给 transport，而
+/// `ConnectedPoint::Dialer{ address }` 回报的正是**加过 `/p2p/` 的那一份**。地址簿里的
+/// 条目却未必带这个后缀：mDNS 与硬编码 bootstrap 清单带，而 **DHT presence record 来的
+/// 不带**（那是对端的 `dialable()`，libp2p 的监听地址天然没有 `/p2p/`）。
+///
+/// 直接 `==` 比较的后果很隐蔽：跨网对端经 presence 发现、拨通，这条「刚被证明可用」的
+/// 地址**永远拿不到刷新**，于是恰恰是它先被地址簿上限淘汰掉 —— 而那正是
+/// [`touch_addr`] 的 LRU 想保护的东西。
+fn same_dial_target(a: &libp2p::Multiaddr, b: &libp2p::Multiaddr) -> bool {
+    a == b || strip_trailing_p2p(a) == strip_trailing_p2p(b)
+}
+
+/// 去掉末位的 `/p2p/<id>` 段（没有就原样返回）。
+///
+/// **只去末位**：circuit 地址中间那个 `/p2p/<relay>` 是中转身份，去掉它会把两条经不同
+/// relay 的地址判成同一条。
+fn strip_trailing_p2p(addr: &libp2p::Multiaddr) -> libp2p::Multiaddr {
+    let mut out = addr.clone();
+    if matches!(out.iter().last(), Some(libp2p::multiaddr::Protocol::P2p(_))) {
+        out.pop();
+    }
+    out
+}
+
+/// 地址簿条目：地址 + 最近一次被「提及」的逻辑序号。
+///
+/// **序号是计数器而不是时间戳**，因为这里要回答的只是「谁更久没被提及」这个相对问题，
+/// 而绝对时间在本内核里恰恰是最不该依赖的东西：wasm target 下没有可靠的单调时钟
+/// （kad 的 `Instant` 就为此在两个 target 上分叉过）。计数器在两处都是同一份代码。
+#[derive(Debug, Clone)]
+struct AddrEntry {
+    addr: libp2p::Multiaddr,
+    touched: u64,
+}
+
+/// 新地址进簿，或刷新已有地址的「最近提及」序号。返回是否**新增**（而非刷新）。
+///
+/// 三条判据：
+///
+/// - **物理顺序 = 进簿顺序，最新的排最前。** 候选顺序决定 libp2p 的拨号优先级，
+///   对端刚换的 IP、刚轮换出的 certhash 地址比簿里躺了很久的那条更可能拨得通。
+/// - **重报只刷新序号、不挪位置。** mDNS 秒级重报同一条，挪位置会让拨号顺序随广播
+///   节奏抖动，而重报并不代表这条比别的更该先试。
+/// - **超限时淘汰序号最小的，而不是排最后的。** 这两者的区别就是这个函数的全部价值：
+///   一条一直可用的公网地址进簿最早、物理上排最后，但只要对端还在 identify / DHT 里
+///   持续上报它，它的序号就一直是新的 —— 被淘汰的于是是那些「既不新、也再没人提起」
+///   的死地址。按物理位置淘汰的话，恰恰是那条唯一还能用的地址被新涌入的私网地址挤掉。
+fn touch_addr(book: &mut Vec<AddrEntry>, addr: libp2p::Multiaddr, clock: u64) -> bool {
+    if let Some(entry) = book.iter_mut().find(|e| e.addr == addr) {
+        entry.touched = clock;
+        return false;
+    }
+
+    book.insert(
+        0,
+        AddrEntry {
+            addr,
+            touched: clock,
+        },
+    );
+
+    if book.len() > MAX_ADDRS_PER_PEER {
+        // 淘汰最久没被提及的那条。簿最大 32 条，线性扫比维护堆简单得多。
+        if let Some(pos) = book
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, e)| e.touched)
+            .map(|(i, _)| i)
+        {
+            book.remove(pos);
+        }
+    }
+    true
 }
 
 /// 由连接的远端地址与端点信息推断路径分类。
@@ -1880,6 +2112,154 @@ mod tests {
             picked.to_string(),
             format!("/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit")
         );
+    }
+
+    fn maddr(n: usize) -> libp2p::Multiaddr {
+        format!("/ip4/10.0.0.{}/tcp/4001", n % 256)
+            .parse()
+            .expect("valid multiaddr")
+    }
+
+    fn addrs_of(book: &[AddrEntry]) -> Vec<libp2p::Multiaddr> {
+        book.iter().map(|e| e.addr.clone()).collect()
+    }
+
+    /// 地址簿必须有界：只去重不淘汰的话，长期在线的对端会累积几十条早已拨不通的地址，
+    /// 占满 libp2p 默认 8 条的并发拨号预算。
+    #[test]
+    fn address_book_is_bounded() {
+        let mut book = Vec::new();
+        for n in 0..(MAX_ADDRS_PER_PEER + 10) {
+            touch_addr(&mut book, maddr(n), n as u64);
+        }
+
+        assert_eq!(book.len(), MAX_ADDRS_PER_PEER);
+        // 最新的排最前 —— 物理顺序即拨号优先级。
+        assert_eq!(book[0].addr, maddr(MAX_ADDRS_PER_PEER + 9));
+        assert!(
+            !addrs_of(&book).contains(&maddr(0)),
+            "最久没被提及的应被淘汰"
+        );
+    }
+
+    /// 重复上报同一条地址不增长、不挪位置，但**要刷新序号** —— mDNS 是秒级重报的，
+    /// 而「还在被重报」正是这条地址仍然活着的证据。
+    #[test]
+    fn re_recording_a_known_address_refreshes_without_reordering() {
+        let mut book = Vec::new();
+        touch_addr(&mut book, maddr(1), 1);
+        touch_addr(&mut book, maddr(2), 2);
+        let order_before = addrs_of(&book);
+
+        assert!(!touch_addr(&mut book, maddr(1), 99), "已知地址不算新增");
+
+        assert_eq!(addrs_of(&book), order_before, "重报不得改变拨号顺序");
+        let refreshed = book.iter().find(|e| e.addr == maddr(1)).expect("仍在簿中");
+        assert_eq!(
+            refreshed.touched, 99,
+            "重报必须刷新序号，否则它会被当成死地址淘汰"
+        );
+    }
+
+    /// **本次修复的核心护栏。**
+    ///
+    /// 场景：对端在局域网里频繁换 IP（每次 mDNS 报一条新地址），而真正一直可用的是那条
+    /// 最早进簿、物理上排在最后的公网地址 —— 它仍在被 identify 持续上报。
+    ///
+    /// 按物理位置淘汰的话，被挤掉的恰恰是它，对端从此再也拨不通；按「最近被提及」淘汰，
+    /// 被挤掉的才是那些既不新、也再没人提起的死地址。
+    #[test]
+    fn still_advertised_address_survives_a_flood_of_new_ones() {
+        let live = maddr(200);
+        let mut clock = 0u64;
+        let mut tick = || {
+            clock += 1;
+            clock
+        };
+
+        let mut book = Vec::new();
+        touch_addr(&mut book, live.clone(), tick());
+
+        // 用新地址把簿填满，`live` 因此被推到**物理最末位** —— 这一步是本测试的关键：
+        // 若让它留在前面，按物理位置淘汰的实现也能让它存活，测试就测不出区别了。
+        for n in 0..(MAX_ADDRS_PER_PEER - 1) {
+            touch_addr(&mut book, maddr(n), tick());
+        }
+        assert_eq!(book.len(), MAX_ADDRS_PER_PEER);
+        assert_eq!(book[MAX_ADDRS_PER_PEER - 1].addr, live, "live 应在最末位");
+
+        // 对端的 identify 仍在上报它 —— 只刷新序号，不改变物理位置。
+        touch_addr(&mut book, live.clone(), tick());
+
+        // 随后又涌入一批新地址。
+        for n in 100..110 {
+            touch_addr(&mut book, maddr(n), tick());
+        }
+
+        assert!(
+            addrs_of(&book).contains(&live),
+            "仍在被上报的地址不该被淘汰（按物理位置淘汰就会挤掉它）：{:?}",
+            addrs_of(&book)
+        );
+        assert_eq!(book.len(), MAX_ADDRS_PER_PEER);
+    }
+
+    /// 反面：不再被上报的地址**应该**被淘汰掉，否则上限就形同虚设。
+    #[test]
+    fn silent_address_is_evicted_under_pressure() {
+        let stale = maddr(200);
+        let mut book = Vec::new();
+        touch_addr(&mut book, stale.clone(), 0);
+
+        for n in 0..(MAX_ADDRS_PER_PEER * 2) {
+            touch_addr(&mut book, maddr(n), (n + 1) as u64);
+        }
+
+        assert!(
+            !addrs_of(&book).contains(&stale),
+            "再没被提及过的地址应被淘汰"
+        );
+    }
+
+    /// **护栏：`/p2p/` 后缀的有无不影响「是不是同一个拨号目标」。**
+    ///
+    /// `Swarm::dial` 会给候选地址补 `with_p2p(peer)` 再交给 transport，而回报的
+    /// `ConnectedPoint::Dialer{address}` 是补过的那份。地址簿里 DHT presence 来的条目
+    /// 却不带后缀 —— 直接 `==` 比的话，跨网对端那条刚拨通的地址永远刷新不到序号，
+    /// 于是恰恰是它先被上限淘汰（正是 LRU 想保护的东西）。
+    #[test]
+    fn dial_target_matching_ignores_trailing_p2p() {
+        let bare: libp2p::Multiaddr = "/ip4/1.2.3.4/udp/4001/quic-v1".parse().unwrap();
+        let with_p2p: libp2p::Multiaddr = format!("/ip4/1.2.3.4/udp/4001/quic-v1/p2p/{PEER}")
+            .parse()
+            .unwrap();
+
+        assert!(same_dial_target(&bare, &with_p2p));
+        assert!(same_dial_target(&with_p2p, &bare));
+        assert!(same_dial_target(&bare, &bare));
+    }
+
+    /// 反面：**只去末位**的 `/p2p/`。circuit 地址中间那个是中转身份，两条经不同 relay
+    /// 的地址不是同一个拨号目标。
+    #[test]
+    fn dial_target_matching_keeps_relay_identity() {
+        let via_a: libp2p::Multiaddr = format!("/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit")
+            .parse()
+            .unwrap();
+        let via_b: libp2p::Multiaddr = format!("/ip4/1.2.3.4/tcp/4001/p2p/{PEER}/p2p-circuit")
+            .parse()
+            .unwrap();
+
+        assert!(!same_dial_target(&via_a, &via_b));
+    }
+
+    /// 不同端口仍是不同目标 —— 别把它写成「只比 IP」。
+    #[test]
+    fn dial_target_matching_still_distinguishes_addresses() {
+        let a: libp2p::Multiaddr = "/ip4/1.2.3.4/udp/4001/quic-v1".parse().unwrap();
+        let b: libp2p::Multiaddr = "/ip4/1.2.3.4/udp/4002/quic-v1".parse().unwrap();
+
+        assert!(!same_dial_target(&a, &b));
     }
 
     /// 闸门档位随连续失败递增并封顶，且与 core `InfraSupervisor::rebuild_backoff` 同一套。

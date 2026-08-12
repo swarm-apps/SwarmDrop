@@ -39,6 +39,11 @@ import {
   InfraLinkAttribution,
   InfraLinkError,
 } from "@/components/network/infra-link-parts";
+import {
+  transportFromAddr,
+  transportLabel,
+  truncateAddr,
+} from "@swarmdrop/shared-view";
 import { DESKTOP_BOOTSTRAP_NODES } from "@/lib/bootstrap-nodes";
 import { copyText } from "@/lib/clipboard";
 import { getErrorMessage } from "@/lib/errors";
@@ -46,57 +51,6 @@ import { cn } from "@/lib/utils";
 import { commands, type InfraAddrError, type InfraLink } from "@/lib/bindings";
 import { toast } from "sonner";
 import { SettingsCard, SettingsSection } from "./-settings-primitives";
-
-/**
- * 截断 Multiaddr 用于显示。与 Web 端 `docs/app/app/_lib/relay-helpers.ts` 的同名函数同形。
- *
- * `p2pIdx > 30` 时**必须补省略号**：本仓的内置地址正好命中，不补的话输出是
- * `/ip4/47.115.172.218/udp/4003/w/p2p/12D3Ko…1utep` —— certhash 整段消失、切口处毫无提示，
- * 看起来像一条完整但写错的 multiaddr，而用户会照着它去 issue 里贴。
- */
-function truncateAddr(addr: string): string {
-  if (addr.length <= 60) return addr;
-  // 保留协议头和末尾 peer id
-  const p2pIdx = addr.indexOf("/p2p/");
-  if (p2pIdx === -1) return `${addr.slice(0, 30)}…${addr.slice(-20)}`;
-  const prefix = p2pIdx > 30 ? `${addr.slice(0, 30)}…` : addr.slice(0, p2pIdx);
-  const peerId = addr.slice(p2pIdx + 5);
-  const shortPeerId =
-    peerId.length > 12 ? `${peerId.slice(0, 6)}…${peerId.slice(-6)}` : peerId;
-  return `${prefix}/p2p/${shortPeerId}`;
-}
-
-/**
- * 传输名。**是专有名词，永不翻译**（DESIGN.md 的 Device Card Contract）。
- *
- * `webrtc-direct` 标成 `WebRTC Direct` 而不是 `WebRTC`：契约里这是两种传输
- * （前者要打洞与信令，后者直接拨公网裸 IP），混称会让人以为换个节点也能用打洞地址。
- * 判定按**特异性从高到低**——`/webrtc-direct` 必须排在 `/webrtc` 前面，否则永远匹配不到。
- */
-function getTransportLabel(addr: string): string {
-  if (addr.includes("/webrtc-direct")) return "WebRTC Direct";
-  if (addr.includes("/webrtc")) return "WebRTC";
-  if (addr.includes("/quic")) return "QUIC";
-  if (addr.includes("/tcp/")) return "TCP";
-  return "P2P";
-}
-
-/**
- * 后端下发的 transport wire 名 → 展示名。
- *
- * 键是 Rust 那侧 `transport_wire_name` 写出来的串，不是 TS 类型，所以这里给不了
- * 编译期穷尽——认不出来就原样显示，比显示一个空格好。
- */
-const TRANSPORT_DISPLAY: Record<string, string> = {
-  tcp: "TCP",
-  quic: "QUIC",
-  webrtc: "WebRTC",
-  webrtcDirect: "WebRTC Direct",
-};
-
-function transportDisplay(wire: string): string {
-  return TRANSPORT_DISPLAY[wire] ?? wire;
-}
 
 /** 内置地址里出现过这个 peer id ⇒ 它是默认入口。 */
 function isBuiltIn(peerId: string): boolean {
@@ -292,7 +246,7 @@ export function BootstrapNodesSection() {
             {supported.length > 0 && !rejection && (
               <span className="text-[11px] leading-5 text-muted-foreground">
                 <Trans>
-                  本端支持的传输：{supported.map(transportDisplay).join(" · ")}
+                  本端支持的传输：{supported.map((t) => transportLabel(t) ?? t).join(" · ")}
                 </Trans>
               </span>
             )}
@@ -401,7 +355,7 @@ function LiveLinkList({
               <span className="flex shrink-0 items-center gap-1">
                 {addr && (
                   <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-brand">
-                    {getTransportLabel(addr)}
+                    {transportFromAddr(addr)}
                   </span>
                 )}
               </span>
@@ -539,8 +493,8 @@ function RejectionNotice({ rejection }: { rejection: InfraAddrError }) {
       {rejection.kind === "unsupportedTransport" && (
         <span className="mt-1 block text-[11px] leading-5 text-muted-foreground">
           <Trans>
-            地址用的是 {transportDisplay(rejection.transport)}，本端支持的是{" "}
-            {rejection.supported.map(transportDisplay).join(" · ")}。
+            地址用的是 {transportLabel(rejection.transport) ?? rejection.transport}，本端支持的是{" "}
+            {rejection.supported.map((t) => transportLabel(t) ?? t).join(" · ")}。
           </Trans>
         </span>
       )}

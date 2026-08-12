@@ -82,11 +82,13 @@ impl Builder {
         self
     }
 
-    /// 显式登记已知的外部可达地址。
+    /// 声明启动时已知的外部可达地址（等价于 bind 后立刻
+    /// [`Endpoint::set_external_addrs`] 一次，但赶得上启动早期的 reservation 应答）。
     ///
-    /// 典型场景是公网 relay 的 TCP/QUIC/WebSocket 地址。WebRTC Direct 的
-    /// certhash 可用 [`crate::webrtc_direct_addr_from_pem`] 从同一持久化证书
-    /// 预先派生；运行期发现的地址则使用 [`Endpoint::add_external_addr`] 登记。
+    /// 典型场景是公网 relay 的 TCP/QUIC 地址。WebRTC Direct 的 certhash 可用
+    /// [`crate::webrtc_direct_addr_from_pem`] 从同一持久化证书预先派生；地址会随证书轮换
+    /// 变化的传输（WebTransport）则要在运行期用 [`Endpoint::set_external_addrs`] 持续声明
+    /// ——那条**必须**跟着轮换更新，理由见该方法的文档。
     pub fn external_addrs(mut self, addrs: Vec<Addr>) -> Self {
         self.config.external_addrs = addrs;
         self
@@ -141,6 +143,24 @@ impl Builder {
         self
     }
 
+    /// 启用 WebTransport（native listener + dialer）。
+    ///
+    /// 「启用」与「服务端证书持久化」是两件事，由 [`WebTransportConfig`] 区分：
+    /// 纯拨号方用 `client_only()`，监听方用 `with_store(..)`。后者不像 webrtc-direct
+    /// 那样给一份 PEM 就完事 —— WebTransport 的证书 spec 强制 ≤ 14 天有效期，本机会自行
+    /// 轮换并**回写**，宿主必须提供可写的存储。
+    ///
+    /// **native**：不调用它 = 不启用，`/quic-v1/webtransport` 地址会以
+    /// `MultiaddrNotSupported` 快速失败，而不是挂着等超时。
+    ///
+    /// **浏览器：调用与否都一样。** 那边的启用判据是「有没有 `WebTransport` API」，这个
+    /// 配置整个被忽略（它也没有 store 可放）。方法在两个 target 下都存在，是为了让上层
+    /// 组合根用同一份无分支的代码装配三端。
+    pub fn webtransport(mut self, config: crate::config::WebTransportConfig) -> Self {
+        self.config.webtransport = Some(config);
+        self
+    }
+
     /// 启用 WebRTC 打洞传输（内核层面默认关；core 的组合根对三端一律开启）。
     ///
     /// 与 webrtc-direct 正交：后者要求目标地址已可达，前者让双方都不可达的节点
@@ -183,7 +203,8 @@ impl Builder {
     pub async fn bind(self) -> Result<Endpoint, BindError> {
         let secret = self.secret.unwrap_or_else(SecretKey::generate);
         let node_id = secret.node_id();
-        let config = self.config;
+        let mut config = self.config;
+        ensure_webtransport_listen(&mut config);
 
         let mut swarm = build_swarm(secret.as_keypair().clone(), &config)?;
 
@@ -213,9 +234,11 @@ impl Builder {
         // watch：actor 是唯一写者，Endpoint 持读端
         // `Swarm::add_external_address` 不会保证回发 ExternalAddrConfirmed；
         // 显式配置的公网地址由组合根负责正确性，故在状态视图中同步作为初值。
+        // 经同一个规范化函数，与 actor 的 `resync_external` 算出的形状一致——否则
+        // 配置里若有重复地址，第一次重算就会判为「变了」而白广播一轮。
         let (addrs_tx, addrs_rx) = watch::channel(AddrsInfo {
             listen: Vec::new(),
-            external: config.external_addrs.clone(),
+            external: crate::addrset::dedup_preserving_order(&config.external_addrs),
         });
         let (nat_tx, nat_rx) = watch::channel(NatStatus::default());
         let (conns_tx, conns_rx) = watch::channel(BTreeMap::new());
@@ -268,3 +291,41 @@ impl Builder {
         Ok(endpoint)
     }
 }
+
+/// 注入了证书端口却没给监听地址时，自动补一条 WebTransport 监听。
+///
+/// 「有服务端证书可存」与「要监听 WebTransport」是同一个意图 —— 拨号方不需要证书
+/// （它只验对端的）。让调用方两处各表达一次，就会出现「给了 store 却没监听」这种
+/// 半配置状态：证书照常生成、轮换、落盘，唯独没人能连进来，而且**没有任何报错**。
+///
+/// 端口给 `0` 由系统分配，certhash 在 transport 层补进最终监听地址。已经显式给了
+/// WebTransport 监听地址的调用方（bootstrap 要固定 4004）不受影响。
+///
+/// wasm 下 `store` 字段根本不存在（`with_store` 是 native-only），因此浏览器永远走不到
+/// 这里 —— 那正对：它起不了任何监听，凭空多一条会让 `bind` 直接失败。
+#[cfg(not(wasm_browser))]
+fn ensure_webtransport_listen(config: &mut EndpointConfig) {
+    let wants_listen = config
+        .webtransport
+        .as_ref()
+        .is_some_and(|wt| wt.store().is_some());
+    if !wants_listen {
+        return;
+    }
+    let already = config
+        .listen
+        .iter()
+        .any(|a| a.transport() == Some(swarmdrop_net_base::TransportKind::Webtransport));
+    if already {
+        return;
+    }
+    config.listen.push(
+        "/ip4/0.0.0.0/udp/0/quic-v1/webtransport"
+            .parse()
+            .expect("valid multiaddr"),
+    );
+}
+
+/// 浏览器起不了监听，这里无事可做。
+#[cfg(wasm_browser)]
+fn ensure_webtransport_listen(_config: &mut EndpointConfig) {}
