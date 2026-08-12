@@ -423,7 +423,7 @@ impl WebNode {
     }
 
     /// 拨任意 multiaddr（`.../ws` 或 `.../webrtc-direct/certhash/...`，须带 `/p2p/<id>`）。
-    /// 返回结构化的连接信息（`{ path: "local"|"direct"|"relayed", addr }`）。
+    /// 返回结构化的连接信息（`{ path: "local"|"direct"|"holePunched"|"relayed", addr }`）。
     ///
     /// `signal`（可选）：标准 `AbortSignal`——超时组合用平台原语表达
     /// （`AbortSignal.timeout(5000)` / `AbortSignal.any([...])`）。abort 时 Promise

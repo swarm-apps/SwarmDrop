@@ -184,8 +184,7 @@ msgid "个文件"
 msgstr "個檔案"
 
 #: src/lib/node-status.ts
-#: src/routes/_app/devices/-components/connection-badge.tsx
-#: src/routes/_app/send/share-target.lazy.tsx
+#: src/routes/_app/devices/-components/connection-labels.ts
 msgid "中继"
 msgstr "中繼"
 
@@ -770,8 +769,8 @@ msgstr "在線"
 msgid "在线设备优先显示，可直接进入发送流程。"
 msgstr "在線裝置優先顯示，可直接進入傳送流程。"
 
-#. placeholder {0}: transportDisplay(rejection.transport)
-#. placeholder {1}: rejection.supported.map(transportDisplay).join(" · ")
+#. placeholder {0}: transportLabel(rejection.transport) ?? rejection.transport
+#. placeholder {1}: rejection.supported.map((t) => transportLabel(t) ?? t).join(" · ")
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "地址用的是 {0}，本端支持的是 {1}。"
 msgstr "位址用的是 {0}，本端支援的是 {1}。"
@@ -933,8 +932,7 @@ msgid "将在 {0} 后过期"
 msgstr "將在 {0} 後過期"
 
 #: src/lib/node-status.ts
-#: src/routes/_app/devices/-components/connection-badge.tsx
-#: src/routes/_app/send/share-target.lazy.tsx
+#: src/routes/_app/devices/-components/connection-labels.ts
 msgid "局域网"
 msgstr "區域網路"
 
@@ -1242,10 +1240,9 @@ msgstr "開啟日誌資料夾"
 msgid "打开日志文件夹失败"
 msgstr "開啟日誌資料夾失敗"
 
-#: src/routes/_app/devices/-components/connection-badge.tsx
-#: src/routes/_app/send/share-target.lazy.tsx
+#: src/routes/_app/devices/-components/connection-labels.ts
 msgid "打洞"
-msgstr "直連"
+msgstr "打洞"
 
 #: src/components/close-behavior-manager.tsx
 msgid "托盘"
@@ -1540,7 +1537,7 @@ msgstr "本機檔案刪除後無法透過清空活動記錄還原。"
 msgid "本机弹出确认请求，你同意后配对完成"
 msgstr "本機跳出確認請求，你同意後配對完成"
 
-#. placeholder {0}: supported.map(transportDisplay).join(" · ")
+#. placeholder {0}: supported.map((t) => transportLabel(t) ?? t).join(" · ")
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "本端支持的传输：{0}"
 msgstr "本端支援的傳輸：{0}"
@@ -1769,6 +1766,10 @@ msgstr "監聽位址: {0}"
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "监听端口"
 msgstr "監聽埠號"
+
+#: src/routes/_app/devices/-components/connection-labels.ts
+msgid "直连"
+msgstr "直連"
 
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "确定要取消与「{deviceName}」的配对吗？取消后需要重新配对才能传输文件。"

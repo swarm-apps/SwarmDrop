@@ -1,12 +1,19 @@
 import { type ComponentType, useEffect, useRef, useState } from "react";
-import { Check, Copy, RadioTower, TriangleAlert, Wifi, Zap } from "lucide-react";
-import { msg } from "@lingui/core/macro";
-import type { MessageDescriptor } from "@lingui/core";
+import {
+  ArrowLeftRight,
+  Check,
+  Copy,
+  RadioTower,
+  TriangleAlert,
+  Wifi,
+  Zap,
+} from "lucide-react";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { transportLabel } from "@swarmdrop/shared-view";
 import { toast } from "sonner";
 import type { ConnectionType, Device } from "@/lib/bindings";
 import { copyText } from "@/lib/clipboard";
+import { CONNECTION_LABEL } from "./connection-labels";
 import { formatLatency } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -53,26 +60,29 @@ const connectionConfig: Record<
   ConnectionType,
   {
     icon: ComponentType<{ className?: string }>;
-    label: MessageDescriptor;
     bgColor: string;
     textColor: string;
   }
 > = {
   lan: {
     icon: Wifi,
-    label: msg`局域网`,
     bgColor: "bg-success/12",
     textColor: "text-success-ink",
   },
+  // 直连与打洞共用 info 色、只靠图标与词区分——理由见 DESIGN.md 的 Slot 6 vocabulary
+  // （One Accent Rule 只为这一组开了三色的例外，四色会破掉它）。
+  direct: {
+    icon: ArrowLeftRight,
+    bgColor: "bg-info/12",
+    textColor: "text-info-ink",
+  },
   dcutr: {
     icon: Zap,
-    label: msg`打洞`,
     bgColor: "bg-info/12",
     textColor: "text-info-ink",
   },
   relay: {
     icon: RadioTower,
-    label: msg`中继`,
     bgColor: "bg-warning/15",
     textColor: "text-warning-ink",
   },
@@ -80,11 +90,12 @@ const connectionConfig: Record<
 
 export function ConnectionBadge({ device }: { device: Device }) {
   const { t } = useLingui();
-  const config = device.connection ? connectionConfig[device.connection] : null;
+  const { connection } = device;
   const details = device.connectionDetails;
 
-  if (!config) return null;
+  if (!connection) return null;
 
+  const config = connectionConfig[connection];
   const latency = device.latency != null ? formatLatency(device.latency) : null;
   const transport = transportLabel(details?.transport);
 
@@ -97,7 +108,7 @@ export function ConnectionBadge({ device }: { device: Device }) {
     >
       <config.icon className={cn("size-2.5", config.textColor)} />
       <span className={cn("text-[10px] font-medium", config.textColor)}>
-        {t(config.label)}
+        {t(CONNECTION_LABEL[connection])}
       </span>
       {latency && (
         <span className={cn("text-[10px] font-medium", config.textColor)}>

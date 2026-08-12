@@ -1998,7 +1998,7 @@ fn classify_path(addr: &Addr, relayed: bool) -> PathKind {
     // 一个字节都不过中继。故必须排在 `relayed` 之前判：否则打洞成功反而被记成
     // Relayed，既让 UI 显示与实情相反，也让 path_rank 把真直连排在中转之下。
     if is_hole_punched(addr) {
-        return PathKind::Direct;
+        return PathKind::HolePunched;
     }
     if relayed {
         return PathKind::Relayed;
@@ -2006,6 +2006,9 @@ fn classify_path(addr: &Addr, relayed: bool) -> PathKind {
     if addr.is_private_lan() || addr.is_loopback() {
         PathKind::Local
     } else {
+        // 剩下的是「拨通了对端自报的地址」：公网 IP，或 Tailscale 之类 mesh VPN 的隧道。
+        // **不是打洞** —— 上面那个分支才是，且它只认得出 webrtc-p2p 那条路径
+        // （libp2p DCUtR 的产物在地址上认不出来，见 `PathKind` 文档的已知缺口）。
         PathKind::Direct
     }
 }
@@ -2110,10 +2113,15 @@ fn is_hole_punched(addr: &Addr) -> bool {
     webrtc_p2p::protocol::addr::is_webrtc(addr.as_multiaddr())
 }
 
+/// `best_conn` 挑「最好的那条连接」用的序。
+///
+/// **`Direct` 与 `HolePunched` 同分是刻意的**：两者的数据面质量相同（都不过中继），
+/// 分列只为在 UI 上说清来路。给打洞更高的分等于让 `max_by_key` 在两条等价的连接之间
+/// 偏心，而今天多条 `Direct` 之间本来就是任意打破平局。
 fn path_rank(path: PathKind) -> u8 {
     match path {
         PathKind::Local => 3,
-        PathKind::Direct => 2,
+        PathKind::Direct | PathKind::HolePunched => 2,
         PathKind::Relayed => 1,
     }
 }
@@ -2157,11 +2165,40 @@ mod tests {
             "/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit/p2p/{PEER}"
         ));
 
-        assert_eq!(classify_path(&punched, true), PathKind::Direct);
+        assert_eq!(classify_path(&punched, true), PathKind::HolePunched);
         assert_eq!(classify_path(&relayed, true), PathKind::Relayed);
         assert!(
             path_rank(classify_path(&punched, true)) > path_rank(classify_path(&relayed, true)),
             "打洞成功后必须优于中转，否则最优连接会选错"
+        );
+    }
+
+    /// **打洞与直拨是两档，但同分。**
+    ///
+    /// 分档是因为排查方向相反（穿透成功 vs 压根没穿透）；同分是因为数据面质量相同，
+    /// 给谁加分都会让 `best_conn` 在两条等价连接之间偏心。
+    ///
+    /// 这条同时钉死「拨通对端地址 ≠ 打洞」：修复前 `classify_path` 把两者都返回
+    /// `Direct`，产品层于是把 Tailscale 隧道上的 WebTransport 直连标成了「打洞」。
+    #[test]
+    fn dialed_address_is_direct_not_hole_punched() {
+        // 现场抓到的那条：Tailscale 的 100.64/10 隧道地址 + WebTransport。
+        let tunneled = addr(&format!(
+            "/ip4/100.112.160.47/udp/62829/quic-v1/webtransport/certhash/{H1}/certhash/{H2}/p2p/{PEER}"
+        ));
+        let public = addr(&format!("/ip4/47.115.172.218/udp/4001/quic-v1/p2p/{PEER}"));
+        let punched = addr(&format!(
+            "/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit/webrtc/p2p/{PEER}"
+        ));
+
+        assert_eq!(classify_path(&tunneled, false), PathKind::Direct);
+        assert_eq!(classify_path(&public, false), PathKind::Direct);
+        assert_eq!(classify_path(&punched, true), PathKind::HolePunched);
+
+        assert_eq!(
+            path_rank(PathKind::Direct),
+            path_rank(PathKind::HolePunched),
+            "两者数据面等价，排序上不该分高下"
         );
     }
 

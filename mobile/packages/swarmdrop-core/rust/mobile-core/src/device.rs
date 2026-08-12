@@ -4,8 +4,8 @@
 //! 域里唯一与列表无关的一对,落盘交给 [`crate::device_config`] 的端口实现。
 
 use swarmdrop_core::device::{
-    ConnectionDetails, ConnectionType, Device, DeviceName, DeviceReceivePolicy, DeviceStatus,
-    DeviceTrustLevel, PairedDeviceInfo, ReceiveSaveBehavior,
+    ConnectionDetails, Device, DeviceName, DeviceReceivePolicy, DeviceStatus, DeviceTrustLevel,
+    PairedDeviceInfo, ReceiveSaveBehavior,
 };
 use swarmdrop_core::device_manager::DeviceFilter;
 
@@ -234,11 +234,10 @@ impl From<Device> for MobileDevice {
                 DeviceStatus::Online => "online".to_string(),
                 DeviceStatus::Offline => "offline".to_string(),
             },
-            connection: connection.map(|connection| match connection {
-                ConnectionType::Lan => "lan".to_string(),
-                ConnectionType::Dcutr => "dcutr".to_string(),
-                ConnectionType::Relay => "relay".to_string(),
-            }),
+            // wire 名的事实源是 `ConnectionType::wire_name`（与 serde 由测试钉在一起），
+            // 同上面 transport 那行的体例。此前这里手抄了一份四臂 match——JS 侧
+            // `normalizeConnectionKind` 按这些字符串查表，对不上就静默丢掉整枚徽标。
+            connection: connection.map(|c| c.wire_name().to_string()),
             connection_details: connection_details.map(Into::into),
             lan_upgrade_failed,
             latency_ms: latency,

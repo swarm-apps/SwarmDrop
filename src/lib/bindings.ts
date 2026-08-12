@@ -461,8 +461,38 @@ export type ConnectionDetails = {
 	relay: string | null,
 };
 
-/**  连接类型。 */
-export type ConnectionType = "lan" | "dcutr" | "relay";
+/**
+ *  连接类型：给所有人看的一句话结论。**与 [`PathKind`] 一一对应**，本层不做推断。
+ * 
+ *  # [`Direct`](Self::Direct) 与 [`Dcutr`](Self::Dcutr) 是两件事，不能合并
+ * 
+ *  两者的数据面质量相同（一个字节都不过中继），分开只为回答「怎么建起来的」，
+ *  而这两条的排查方向相反：「打洞」意味着 NAT 穿透成功、该去看 ICE 与信令；
+ *  「直连」意味着压根没打洞，该去看那条地址是谁给的、隧道底下又是什么。
+ * 
+ *  此前 [`PathKind::Direct`] 一档同时装着这两种来路，且被一对一映射成 `Dcutr`，
+ *  于是任何非私网非中继的连接都被 UI 标成「打洞」——一条
+ *  `/ip4/100.x/udp/…/webtransport` 的 Tailscale 直拨会显示成「打洞 + WebTransport」。
+ *  现在区分由内核给出（[`PathKind::HolePunched`]），本枚举照搬。
+ * 
+ *  ⚠️ 那次修复中途走过一条弯路，别再走回去：**不要用「传输是不是 WebRTC」反推打洞**。
+ *  原生端 libp2p 自己的 `dcutr` behaviour 是开着的，它打出的是 TCP/QUIC 直连，
+ *  按传输反推会把真打洞判成「没打洞」。判据的唯一归属是 [`PathKind`]，
+ *  它当前的识别范围与缺口写在那个枚举的文档里。
+ * 
+ *  [`PathKind`]: swarmdrop_net_base::PathKind
+ *  [`PathKind::Direct`]: swarmdrop_net_base::PathKind::Direct
+ *  [`PathKind::HolePunched`]: swarmdrop_net_base::PathKind::HolePunched
+ */
+export type ConnectionType = 
+/**  局域网直连（私网地址或 loopback）。 */
+"lan" | 
+/**  直连，但不是打洞来的：公网地址直拨，或经 mesh VPN 隧道（Tailscale 等）。 */
+"direct" | 
+/**  WebRTC 打洞建立的直连：**信令**经 relay，数据面一个字节不过中继。 */
+"dcutr" | 
+/**  经 circuit relay 中继：数据面整条经第三方转发。 */
+"relay";
 
 /**
  *  接收端保存位置（host-agnostic）。

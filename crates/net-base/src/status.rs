@@ -27,13 +27,37 @@ pub enum NatStatus {
 /// 到某个对端的连接路径（产品层只需理解的少数稳定状态，
 /// `why-libp2p-not-iroh.md` 的连接路径模型；`Offline` 是 presence 层
 /// 状态而非连接路径，不在此枚举）。
+///
+/// # [`Direct`](Self::Direct) 与 [`HolePunched`](Self::HolePunched) 分列，因为**只有内核看得见**
+///
+/// 两者的数据面质量相同（一个字节都不过中继），分开只为回答「怎么建起来的」——
+/// 而这两条的排查方向相反：打洞说明 NAT 穿透成功，该去看 ICE 与信令；直连说明压根
+/// 没打洞，该去看那条地址是谁给的、隧道底下又是什么。
+///
+/// 这一位曾被折叠：`classify_path` 先用 `is_hole_punched` 判出打洞，再把结果和公网直拨
+/// 一起塞进 `Direct`，于是产品层只能从**正交的**传输轴上反推（`TransportKind == Webrtc`
+/// ⇒ 打洞）。那条反推依赖一条无人看守的谓词等价关系，且看不见下面那个缺口。现在结论
+/// 由内核直接给出，产品层一对一映射。
+///
+/// ⚠️ **已知缺口：libp2p 自己的 DCUtR 打洞目前归 [`Direct`](Self::Direct)。**
+/// 原生端 `dcutr` behaviour 是开着的（`presets.rs` 的 `Native`），它走 TCP/QUIC 直连，
+/// 与 webrtc-p2p 的 ICE 覆盖不同的 NAT 类型、互为补充。但它成功后产出的地址是一条普通
+/// `/ip4/<公网>/udp/<port>/quic-v1`，地址上认不出来 —— 要认出它得接
+/// `dcutr::Event::DirectConnectionUpgradeSucceeded`（actor 目前把它落进
+/// `other => debug!`）。所以本枚举当前只识别 webrtc-p2p 那一条打洞路径。
+/// **这是缺口不是判据**：不要据此写下「打洞只可能跑在 WebRTC 上」——那句话是错的。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PathKind {
     /// 局域网直连。
     Local,
-    /// 跨网络直连（打洞成功或公网直拨）。
+    /// 跨网络直连，且**不是打洞来的**：拨通了对端自报的地址（公网 IP，或
+    /// Tailscale 之类 mesh VPN 的隧道地址）。
     Direct,
+    /// 打洞建立的直连：**信令**经 relay，数据面一个字节不过中继。
+    ///
+    /// 判据是 `is_hole_punched`（地址里 circuit 段之后还有 `/webrtc`），见枚举文档的缺口说明。
+    HolePunched,
     /// 经 circuit relay 中继。
     Relayed,
 }

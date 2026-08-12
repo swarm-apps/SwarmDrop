@@ -18,7 +18,7 @@ import {
   Send,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Trans } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import type { Device } from "@/lib/bindings";
 import { commands } from "@/lib/bindings";
@@ -34,6 +34,7 @@ import { useFileSelection } from "./-use-file-selection";
 import { getErrorMessage } from "@/lib/errors";
 import { deviceDisplayName } from "@/lib/device-name";
 import { formatLatency } from "@/lib/format";
+import { CONNECTION_LABEL } from "../devices/-components/connection-labels";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import { FileBrowser } from "@swarmdrop/file-browser";
 import { PrepareProgressBar } from "./-components/prepare-progress-bar";
@@ -406,20 +407,17 @@ function DeviceOption({
 }
 
 function ConnectionHint({ device }: { device: Device }) {
-  if (!device.connection || device.latency == null) return null;
-  const label =
-    device.connection === "lan" ? (
-      <Trans>局域网</Trans>
-    ) : device.connection === "dcutr" ? (
-      <Trans>打洞</Trans>
-    ) : (
-      <Trans>中继</Trans>
-    );
+  const { t: translate } = useLingui();
+  const { connection } = device;
+  if (!connection || device.latency == null) return null;
+  // 查表而非三元链：连接方式此前写成 `lan ? … : dcutr ? … : 中继`，于是新增的
+  // `direct` 落进了最后那个"其余"分支，一条直连被显示成「中继」。
+  // `CONNECTION_LABEL` 是 `Record<ConnectionType, …>`，漏一个变体编译期就报。
   const latency = formatLatency(device.latency);
   return (
     <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
       <span aria-hidden>·</span>
-      {label}
+      {translate(CONNECTION_LABEL[connection])}
       {latency && <span className="font-mono tabular-nums">{latency}</span>}
     </span>
   );

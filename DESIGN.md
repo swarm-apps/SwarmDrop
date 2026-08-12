@@ -314,8 +314,34 @@ codegens, so every field below is available everywhere.
 No build may drop a slot because "the layout is tight". Wrap, truncate, or move it to a secondary
 disclosure — do not discard information the user needs to judge a transfer.
 
+**Slot 6 vocabulary — four connection types, and `direct` is not `dcutr`** (2026-08-12). The badge
+word comes from `ConnectionType` (`crates/host/src/device.rs`), which has four values: `lan` ·
+`direct` · `dcutr` · `relay`. **The last two MUST NOT be collapsed into one word.** Both mean "no
+byte goes through a relay", but they answer different questions and send a reader in opposite
+directions: `dcutr` says NAT traversal succeeded — go look at ICE and signalling; `direct` says no
+hole punching happened at all, the peer's address was simply dialable (a public IP, or a mesh-VPN
+tunnel such as Tailscale).
+
+**The distinction is the kernel's to make, never the UI's.** `PathKind` carries it directly
+(`Local` / `Direct` / `HolePunched` / `Relayed`) and `path_to_connection` is a one-to-one map — no
+build, and no layer above the kernel, may re-derive "was this hole punched?" from anything else.
+In particular **do not infer it from the transport**: the native `dcutr` behaviour is enabled
+(`presets.rs`, `Native`) and its successful punches come out as ordinary TCP/QUIC, so a
+transport-based rule reports real hole punching as "direct". `crates/net-base`'s `PathKind` doc
+records exactly which punches the kernel can currently name and which it cannot.
+
+All three builds shipped the collapsed mapping until this date, which labelled a Tailscale
+`…/quic-v1/webtransport` link "hole punched", sitting right above a disclosure row reading
+`WebTransport`. `webrtc-direct` belongs to `direct`, not `dcutr`: it dials a bare IP with no
+signalling and no traversal, which is the same distinction the transports clause below draws.
+
+The two share one hue (`info`) and separate by icon and word — `direct` takes a bidirectional-arrow
+glyph, `dcutr` keeps the bolt. A fourth hue would break the One Accent Rule, which opens its
+exception to three.
+
 **Slot 6 disclosure — link details.** The connection badge SHALL be expandable into the link
-evidence behind it: transport (`TCP` / `QUIC` / `WebRTC` / `WebRTC Direct`), the remote multiaddr,
+evidence behind it: transport (`TCP` / `QUIC` / `WebRTC` / `WebRTC Direct` / `WebTransport`),
+the remote multiaddr,
 and the relay's PeerId when one is in the path. That evidence is noise for an ordinary user and the
 whole answer for anyone debugging, so it lives *behind* the badge, never beside it. The badge itself
 may carry the transport name inline where the layout has room — it is one short token.
@@ -629,9 +655,22 @@ which is how the same screen ends up describing two things that are one thing:
 | The circuit path through an infrastructure peer | 中继 | Relay | 转发 · 中转 |
 | A paired peer with a live connection | 已连接设备 | Connected device | 已连节点 |
 | Others can open a connection to this machine | 可达 | Reachable | 在线 · 可访问 |
+| Connection type — same local network | 局域网 | LAN | 本地 · 内网 |
+| Connection type — the peer's address was dialable (public IP, or a mesh-VPN tunnel) | 直连 | Direct | 公网直连 · P2P · 点对点 |
+| Connection type — NAT traversal succeeded | 打洞 | Hole-punched | 打洞直连 · Hole punching · **Direct** (collapses it into the row above) |
 
-Transport names (`TCP` / `QUIC` / `WebRTC` / `WebRTC Direct`) stay proper nouns and are not
-translated — same rule as the Device Card Contract's slot 6.
+**The four connection types are one set and must stay four distinct words in every locale**
+(2026-08-12). This is the clause the Slot 6 vocabulary rule leans on: splitting `direct` from
+`dcutr` in the source language buys nothing if a translator collapses them again. Desktop's `en`
+and `zh-TW` did exactly that — `打洞` was translated "Direct" / 「直連」, byte-identical to the new
+`直连` row, so an English user saw one word for both a Tailscale tunnel and a real punch. Web said
+"Hole-punched direct" and mobile said "Hole punching" at the same time, for the same badge.
+Catalogs are independent by design (CLAUDE.md), so nothing mechanical enforces this — when you
+touch one, diff all three.
+
+Transport names (`TCP` / `QUIC` / `WebRTC` / `WebRTC Direct` / `WebTransport`) stay proper nouns
+and are not translated — same rule as the Device Card Contract's slot 6. The list is whatever
+`TransportKind` currently has; `@swarmdrop/shared-view`'s `transportLabel` is its single renderer.
 
 ### Transfer Progress Contract (cross-platform)
 

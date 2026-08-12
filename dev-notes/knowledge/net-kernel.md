@@ -1109,6 +1109,90 @@ listen 成功，但对端解析不出目标节点，拨不动。
 也反了。`actor.rs` 的 `classify_path` 因此对含 `/webrtc` 的 circuit 地址返回 `Direct`
 （`is_hole_punched`），单测钉死。
 
+### 「是不是打洞」这一位归 `PathKind`，产品层不许反推（2026-08-12 修）
+
+`PathKind` 曾只有三档，`Direct` 一档里同时躺着**打洞建立的直连**与**直接拨通对端地址的
+直连**（公网 IP、Tailscale 之类的 mesh VPN 隧道）。而 `crates/core` 的
+`path_to_connection` 把这一档一对一映射成 `ConnectionType::Dcutr`（DCUtR = 打洞），于是
+**任何非私网非中继的连接在三端 UI 上都写着「打洞」**。真机形态：一条
+`/ip4/100.112.160.47/udp/62829/quic-v1/webtransport/…` 的 Tailscale 直拨，徽标显示「打洞」，
+点开的链路详情里写着 `WebTransport`。
+
+现在 `PathKind` 有四档，`HolePunched` 单列，`classify_path` 里那个**本来就存在**的
+`is_hole_punched` 分支直接返回它，`path_to_connection` 退回纯一对一。
+
+#### ⚠️ 中途走过的弯路：用「传输是不是 WebRTC」反推打洞 —— 别再走回去
+
+第一版修法是在 `path_to_connection` 里判 `TransportKind == Webrtc`。它当天是准的，
+但**错在两处**：
+
+1. **它依赖一条无人看守的谓词等价关系。** `is_hole_punched`（`net`）与
+   `Addr::transport() == Webrtc`（`net-base`）今天恒等，但它们问的不是同一件事——前者问
+   「这条链路是不是穿透来的」，后者问「字节跑在哪种传输上」。旁边还有个语义更宽的同名
+   `Addr::is_webrtc`（含 `WebRTCDirect`）等着被人「统一」进来。真漂移了两侧都编得过、
+   各自的测试都绿，只有 UI 自相矛盾。
+2. **它看不见 libp2p 自己的 DCUtR。** `presets.rs` 的 `Native` 写着 `.dcutr(true)`，
+   `runtime.rs` 的注释明说两套并存、「dcutr 走 TCP/QUIC 直连，ICE 走 UDP + STUN 候选，
+   覆盖的 NAT 类型不同、互为补充」。一次成功的 DCUtR 打洞产出的是普通
+   `/ip4/<公网>/udp/<port>/quic-v1`，按传输反推会把**真打洞判成「压根没打洞」**——
+   与修复前的错误方向正好相反。
+
+所以「**打洞只可能跑在 WebRTC 上**」这句话是**错的**，不要写进任何文档或注释（它一度进过
+三处 rustdoc 与 DESIGN.md）。判据的唯一归属是内核的 `PathKind`。
+
+#### 已知缺口：libp2p DCUtR 的打洞目前仍归 `Direct`
+
+`classify_path` 只认地址（circuit 段之后有没有 `/webrtc`），而 DCUtR 的产物在地址上认不
+出来。要认出它得接 `dcutr::Event::DirectConnectionUpgradeSucceeded` —— actor 目前把它落进
+`other => debug!("behaviour event")`。这是**缺口不是判据**：修它是给那个事件加一个分支、
+把对应连接标成 `HolePunched`，而不是回到按传输反推。
+
+#### 其余不变量
+
+- **`WebrtcDirect` 归 `Direct` 不归 `Dcutr`** —— 它拨裸 IP、免信令免穿透，与 `/webrtc`
+  是两个传输（DESIGN.md 明令不得合并）。
+- **`path_rank` 里 `Direct` 与 `HolePunched` 同分** —— 数据面质量相同，分档只为说清来路；
+  给谁加分都会让 `best_conn` 在两条等价连接之间偏心。
+- `infer_connection_type`（断连宽限期的地址回退推断）**永远推不出 `Dcutr`**，这是判据决定
+  的不是疏漏：打洞地址含 circuit 段，在第一个分支就归了中继。要认出它得看「最后一个 circuit
+  段之后还有没有传输段」（`dial_tier` 那套），而回退推断不值得重造一份易错的地址解析。
+
+### Tailscale 的 `100.64.0.0/10` 在三个谓词里两否一是
+
+`is_private_lan()` **false**（只认 RFC1918 + IPv6 ULA）、`is_public_routable()` **false**
+（显式排除共享地址空间）、`is_shared_address_space()` **true**。漏掉第三条的地方，隧道地址
+会**一档都不占**然后静默消失 —— `infer_connection_type` 此前就是这样，宽限期内 Tailscale
+连接的徽标凭空不见。写任何「按地址性质分类」的分支时三条一起判。
+
+#### ⚠️ 这只覆盖 IPv4 一半：Tailscale 的 IPv6 仍会被判成「局域网」
+
+Tailscale 的 v6 段 `fd7a:115c:a1e0::/48` 落在 ULA（`fc00::/7`）里，`is_private_lan()` 对它
+**为真** —— 于是同一条隧道走 v6 时 UI 显示「局域网」，与「隧道归 `Direct`」这条契约相反。
+
+**没有跟着修，是因为 IPv4 那半有通用判据而 v6 那半没有**：`100.64/10` 是 CGNAT 标准段，
+「不是真 LAN」这件事与用哪家 VPN 无关；而 ULA 本来就是给任何私有网络用的合法地址，
+Tailscale 只是自选了其中一个 /48，从地址上无法与真局域网区分。要认它只能把那个产品前缀
+写死进内核。
+
+**并且改这条不只是改一个徽标**：`is_private_lan` 是 `is_lan_discovered` 的输入，而后者是
+`PairingMethod::Direct` 的**唯一授权依据**（该模式没有配对码）。把 Tailscale v6 移出 LAN
+等于同时改掉「谁能免码配对」，那是安全判据，要单独评估——可能是想要的（隧道确实不是同一
+广播域），也可能打断现有用法。故留作待评估项，不夹带在一次 UI 修复里。
+
+⚠️ 另一处**尚未处理**的后果：`dial_tier` 只看传输段不看 IP，所以隧道上的 WebTransport 和
+真 LAN 的 WebTransport 同为 `DirectFast`。一旦连接落在隧道那条，`lan_candidates` 的
+`*tier < current` 恒 false、`wants_upgrade_to(_, DirectSlow)` 也 false —— **LAN 升级与打洞
+双双再也不会发起**，且 `prune_inferior_conns` 会把其它路径主动关掉。实测同网 20 MB/s 的
+链路因此停在 3 MB/s。修它要给 `DialTier` 加一档，而那一档排在 `DirectSlow` 前还是后取决于
+「Tailscale 走的是 direct 还是 DERP」——SwarmDrop 看不见这个状态，需要实测定档，故未动。
+
+### 移动端加 `ConnectionType` 变体不会编译报错，另两端会
+
+桌面与 Web 吃 specta/wasm-bindgen 生成的联合类型，`Record<ConnectionType, …>` 缺 key 当场
+编译失败；移动端隔着 uniffi 的**字符串**，`normalizeConnectionKind` 的 `default` 分支把未知
+值收成 `null`，表现是那种连接的设备卡上**整枚徽标消失**，静默。加变体时同改
+`mobile-core/src/device.rs` 的字符串化、`CONNECTION_META` 与那个 `switch`。
+
 ### `OptionalTransport` 只有 `From<T>`，没有 `From<Option<T>>`
 
 `OptionalTransport::from(opt)` 会包成 `OptionalTransport<Option<_>>`——那不是 `Transport`，
@@ -1758,16 +1842,77 @@ wasm-clean crate `swarmdrop-invite`（依赖 net-base，不依赖 core——core
   react-native-svg），**深模块 + 白底不随暗色反色**。
   `decode` 对 `SD` 二维码前缀和 Base32 payload 大小写不敏感；带 `:` 的 Base64URL 链接则必须
   保持原样，补有两类回归断言。
-- **地址瘦身**：每类网络分别只留 TCP（无则 QUIC，native）和 WebRTC（浏览器）各一条；
-  两类路径从该网络分类的全部地址中独立挑选，避免 TCP-only 网卡排在前面时误删 WebRTC。
-  Auto 最多保留 100.64/10 overlay（Tailscale）、LAN、公网与 relay 的 native/WebRTC
-  各一条；198.18/15 仅在没有 overlay 时回退。LocalOnly 只保留 LAN 的 native/WebRTC。
+- **地址瘦身**：每类网络分别只留 TCP（无则 QUIC，native）、**WebTransport** 和 WebRTC
+  （后两者都是浏览器可拨的直连传输）各一条；三类路径从该网络分类的全部地址中独立挑选，
+  避免 TCP-only 网卡排在前面时误删 WebRTC。Auto 最多保留 100.64/10 overlay（Tailscale）、
+  LAN、公网与 relay 的三类各一条；198.18/15 仅在没有 overlay 时回退。LocalOnly 只保留 LAN 那桶。
+  挑完还要过一道 **QR 密度闸**（下一节），地址多到扫不动时按价值反序回收。
 - **三端接线**：桌面命令 `generate_pair_invite`/`decode_pair_invite`/`invite_qr_svg`/
   `consume_pair_invite`；mobile uniffi 同名 + `pair_direct`（补回 Direct）+ `invite_qr_matrix`；
   web `WebNode::connect_invite`（decode 纯函数只需 net-base）。剪贴板感知（`hasStringAsync`
   探测亮 chip）与移动扫码（expo-camera `CameraView`：`barcodeTypes:["qr"]` + 前缀校验 +
   `lockRef` 一次性闸 + 权限三态 + AppState 回前台重拉）均已落地（`mobile/src/app/pairing/scan.tsx`）；
   原生 `CameraView` 需 `expo prebuild` 重编。
+
+### 邀请地址有 QR 密度上限，而它在 2026-08-12 之前就已经卡线（2026-08-12 加）
+
+**WebTransport 地址补进邀请**时才发现的：`select_invite_addrs` 是「每桶挑几条 × 桶数」，
+而**桶数没有上界** —— 一台同时有 CGNAT 覆盖网、局域网、公网直连的机器就是 3 个桶。
+补 WebTransport 之前，那种满配桌面的码面已经是 **97 模块**，距上限 98 只剩一格。
+
+上限从码面尺寸反推，不是拍的：三端最小码面 **196px**（移动端白卡内沿 `220-2×12`、
+Web 端 `QR_SIZE`；桌面 260px 更宽松），px/模块跌破 2 摄像头就读不出来 ⇒ 含 quiet zone
+≤ 98 模块。**容量从来不是约束**（ECL::M 下 2079 字节才到顶），先出事的永远是密度。
+
+一条 WebTransport 地址约 **+85B wire**（两个 certhash 占大头，轮换期两张证书都要在场），
+折成 base32 是 ~140 字符，比普通地址贵 3 倍。实测模块数（`INJECTED_NAME` 作设备名）：
+
+| 配置 | 不带 WT | 带上但不裁 | 现在（带 + 裁） |
+|---|---|---|---|
+| 家用 lan + circuit | 85 | 93 | **93**（5 条，一条没裁） |
+| 公网 lan + public + circuit | 89 | 105 ❌ | **97**（8 → 7，保住 WT） |
+| CGNAT shared + lan + circuit | 89 | 105 ❌ | **97**（8 → 7，保住 WT） |
+| 满配 四类齐全 | 97 | 117 ❌ | **97**（11 → 8，WT 全裁） |
+
+所以 `fit_invite_to_scannable`（`crates/core/src/pairing/manager.rs`）**逐次重编码 + 量码面**
+往回裁，判据就是最终码面本身、零推导误差。丢弃顺序 = 价值反序：
+
+1. **WebTransport** —— 纯增益。丢了浏览器仍能靠同桶的 webrtc-direct 拨通；配对一旦成功，
+   identify 会把完整监听地址交回来，**后续传输照样走 WebTransport**。所以邀请里的它只影响
+   「首次拨号那一下」，代价是慢不是连不上。同类里从后往前丢（公网 → 局域网 → 覆盖网）：
+   越靠前的桶越可能与扫码方同网，而同网正是 WT 唯一比 webrtc-direct 快一个数量级的场景。
+2. 其余直连地址，同样从后往前。
+3. **circuit 一条都不丢。** 跨网时它是唯一可达路径，而扫码方在哪个网络，生成邀请的这端
+   并不知道。
+
+回归钉是 `invite_stays_scannable_at_every_scale`，四档配置齐上。⚠️ 它必须用**固定
+capability**：`generate` 那份是随机的，而 base32 payload 里数字连段的长短会改变最优分段
+的取舍，码面因此浮动一档（`qr.rs` 的 `fixed_invite` 记着同一件事）。
+
+两条**必须留住**的下界，少任何一条都会产出比「扫不动」更糟的东西：
+
+- **circuit 一条都不丢**（跨网唯一可达路径）；
+- **最后一条地址也不丢，哪怕它不是 circuit**。零地址的邀请**编得出、扫得动、复制得走，
+  唯独没有任何东西可拨**，两端都不报错。这条不能只靠上一条兜：`LocalOnly` 邀请**根本
+  没有 circuit 地址**（只放私网那一桶），设备名长一点（`DeviceName::MAX_CHARS = 40`，
+  CJK 下约 120 字节）就会一路裁到空。
+
+所以这个函数给的是**尽力而为**，不是保证：真裁不下去时返回一条密度超标但语义完好的邀请
+—— 用户还能改用粘贴链接。
+
+⚠️ 丢 WebTransport 时 **`lan` 那条留到最后**，不是天真的「从后往前」。桶序是
+shared → lan → public，`rposition` 从尾部删等于「公网 → **局域网** → 覆盖网」，正好把最该
+留的排在中间：真正同网的是 RFC1918，不是 100.64/10 覆盖网，而那 4.5 倍只在真正同网时兑现。
+挂着 Tailscale 的笔记本（shared 桶有东西 ⇒ 密度压力最常见的来源）恰恰会踩中这个次序。
+
+> **下次往邀请里加东西之前先跑这条测试。** 越线不会有任何编译错误、QR 照样生成、链接照样
+> 能用 —— 只有真机扫码那一下失败，而那是最难归因的失败形态。
+
+**一条有意接受的代价**：裁剪跑在 `encode_invite` 里，于是**链接分享也被裁**——而链接根本
+没有密度上限。这不是疏漏：邀请只有**一种**对外文本形态（openspec: invite-url-canonical），
+链接与二维码是同一个字符串。给两者各签一份会让「已复制」「撤销」「消费」全部要分辨手上
+是哪一份，换来的只是纯链接用户多几条 WebTransport 提示，而那些提示在配对成功后由 identify
+补齐。**要改这条，先改的是「单一形态」那条约束，不是这里。**
 
 ### ⚠️ 客户端不要对邀请串做大小写归一（2026-07-29 修）
 

@@ -184,8 +184,7 @@ msgid "个文件"
 msgstr " files"
 
 #: src/lib/node-status.ts
-#: src/routes/_app/devices/-components/connection-badge.tsx
-#: src/routes/_app/send/share-target.lazy.tsx
+#: src/routes/_app/devices/-components/connection-labels.ts
 msgid "中继"
 msgstr "Relay"
 
@@ -770,8 +769,8 @@ msgstr "Online"
 msgid "在线设备优先显示，可直接进入发送流程。"
 msgstr "Online devices are shown first, so you can start sending right away."
 
-#. placeholder {0}: transportDisplay(rejection.transport)
-#. placeholder {1}: rejection.supported.map(transportDisplay).join(" · ")
+#. placeholder {0}: transportLabel(rejection.transport) ?? rejection.transport
+#. placeholder {1}: rejection.supported.map((t) => transportLabel(t) ?? t).join(" · ")
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "地址用的是 {0}，本端支持的是 {1}。"
 msgstr "The address uses {0}; this build supports {1}."
@@ -933,8 +932,7 @@ msgid "将在 {0} 后过期"
 msgstr "Expires in {0}"
 
 #: src/lib/node-status.ts
-#: src/routes/_app/devices/-components/connection-badge.tsx
-#: src/routes/_app/send/share-target.lazy.tsx
+#: src/routes/_app/devices/-components/connection-labels.ts
 msgid "局域网"
 msgstr "LAN"
 
@@ -1242,10 +1240,9 @@ msgstr "Open log folder"
 msgid "打开日志文件夹失败"
 msgstr "Couldn't open the log folder"
 
-#: src/routes/_app/devices/-components/connection-badge.tsx
-#: src/routes/_app/send/share-target.lazy.tsx
+#: src/routes/_app/devices/-components/connection-labels.ts
 msgid "打洞"
-msgstr "Direct"
+msgstr "Hole-punched"
 
 #: src/components/close-behavior-manager.tsx
 msgid "托盘"
@@ -1540,7 +1537,7 @@ msgstr "Once local files are deleted, clearing activity can't restore them."
 msgid "本机弹出确认请求，你同意后配对完成"
 msgstr "This device shows a confirmation request — approve it and pairing is done"
 
-#. placeholder {0}: supported.map(transportDisplay).join(" · ")
+#. placeholder {0}: supported.map((t) => transportLabel(t) ?? t).join(" · ")
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "本端支持的传输：{0}"
 msgstr "Transports this build supports: {0}"
@@ -1769,6 +1766,10 @@ msgstr "Listening address: {0}"
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "监听端口"
 msgstr "Listening Port"
+
+#: src/routes/_app/devices/-components/connection-labels.ts
+msgid "直连"
+msgstr "Direct"
 
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "确定要取消与「{deviceName}」的配对吗？取消后需要重新配对才能传输文件。"

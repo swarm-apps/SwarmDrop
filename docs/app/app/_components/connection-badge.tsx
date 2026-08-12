@@ -40,14 +40,15 @@ import { cn } from "@/lib/cn";
 import { CONNECTION_META } from "../_lib/device-presentation";
 import { useCopyToClipboard } from "../_lib/use-copy";
 import type { Device } from "../_lib/view-types";
+import { CONNECTION_LABEL } from "./transfer-labels";
 
 export function ConnectionBadge({ device }: { device: Device }) {
   const { t } = useLingui();
 
-  const isOnline = device.status === "online";
-  const meta = isOnline && device.connection ? CONNECTION_META[device.connection] : null;
-  if (!meta) return null;
+  const { connection } = device;
+  if (device.status !== "online" || !connection) return null;
 
+  const meta = CONNECTION_META[connection];
   const details = device.connectionDetails;
   const latency = formatLatency(device.latency);
   const transport = transportLabel(details?.transport);
@@ -66,7 +67,7 @@ export function ConnectionBadge({ device }: { device: Device }) {
       className={cn("gap-1 border-transparent transition-colors group-hover:border-current/30", meta.className)}
     >
       <meta.Icon className="size-3" aria-hidden />
-      <ConnectionLabel connection={device.connection} />
+      {t(CONNECTION_LABEL[connection])}
       {latency && <span className="font-mono tabular-nums">{latency}</span>}
     </Badge>
   );
@@ -210,15 +211,3 @@ function DetailRow({
   );
 }
 
-function ConnectionLabel({ connection }: { connection: Device["connection"] }) {
-  switch (connection) {
-    case "lan":
-      return <Trans>局域网</Trans>;
-    case "dcutr":
-      return <Trans>打洞</Trans>;
-    case "relay":
-      return <Trans>中继</Trans>;
-    default:
-      return null;
-  }
-}

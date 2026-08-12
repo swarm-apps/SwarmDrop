@@ -6,9 +6,19 @@
 // 呈现留在各端——这条分工写在该包的 README「归属判据」里。
 //
 // 文案也不在这里：徽标的字要翻译，而翻译宏只在组件里展开。本模块只返回图标与 class，
-// 文案由 `device-card.tsx` 按同一个枚举值 switch 出 `<Trans>`。
+// 文案在 `_components/transfer-labels.ts` 的 `CONNECTION_LABEL`（`msg` 描述符），
+// 由组件 `t(...)` 展开。
 
-import { Laptop, Monitor, RadioTower, Smartphone, Wifi, Zap, type LucideIcon } from "lucide-react";
+import {
+  ArrowLeftRight,
+  Laptop,
+  Monitor,
+  RadioTower,
+  Smartphone,
+  Wifi,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
 import { shortPeerId, type TrustLevel } from "@swarmdrop/shared-view";
 import type { Device } from "./view-types";
 
@@ -52,12 +62,18 @@ export function deviceIcon(os: string): LucideIcon {
   return OS_ICONS[os.toLowerCase()] ?? Monitor;
 }
 
-/** 连接方式（局域网 / 打洞 / 中继）的图标与配色。`null` 连接方式没有徽标。 */
+/**
+ * 连接方式（局域网 / 直连 / 打洞 / 中继）的图标与配色。`null` 连接方式没有徽标。
+ *
+ * `direct` 与 `dcutr` 共用 info 色、只靠图标与词区分——理由见 DESIGN.md 的
+ * Slot 6 vocabulary（One Accent Rule 只为这一组开了三色的例外，四色会破掉它）。
+ */
 export const CONNECTION_META: Record<
   NonNullable<Device["connection"]>,
   { Icon: LucideIcon; className: string }
 > = {
   lan: { Icon: Wifi, className: "bg-success/12 text-success-ink" },
+  direct: { Icon: ArrowLeftRight, className: "bg-info/12 text-info-ink" },
   dcutr: { Icon: Zap, className: "bg-info/12 text-info-ink" },
   relay: { Icon: RadioTower, className: "bg-warning/15 text-warning-ink" },
 };

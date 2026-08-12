@@ -110,6 +110,31 @@ describe("DeviceCard connection badge", () => {
     expect(await screen.findByText("QUIC")).toBeTruthy();
   });
 
+  // `direct` 与 `dcutr` 是两个词，不是一个词的两种说法（DESIGN.md 的 Slot 6 vocabulary）。
+  // 修复前 `PathKind::Direct` 一对一映射到 `dcutr`，于是这条 Tailscale 隧道上的
+  // WebTransport 直连在徽标上写着「打洞」、在详情里写着 WebTransport —— 一个内核
+  // 产不出来的组合（打洞只可能跑在 WebRTC 上）。
+  it("says 直连 for a dialed link and reserves 打洞 for hole punching", () => {
+    const tunneled: Device = {
+      ...onlineDevice,
+      connection: "direct",
+      connectionDetails: {
+        transport: "webtransport",
+        remoteAddr: "/ip4/100.112.160.47/udp/62829/quic-v1/webtransport",
+        relay: null,
+      },
+    };
+    render(
+      <I18nProvider i18n={i18n}>
+        <DeviceCard device={tunneled} displayName="Remote Mac" />
+      </I18nProvider>,
+    );
+
+    const badge = screen.getByTestId("connection-badge").textContent;
+    expect(badge).toContain("直连");
+    expect(badge).not.toContain("打洞");
+  });
+
   it("degrades to a plain badge when the kernel has not reported a link yet", () => {
     render(
       <I18nProvider i18n={i18n}>

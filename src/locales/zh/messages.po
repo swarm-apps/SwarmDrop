@@ -183,8 +183,7 @@ msgid "个文件"
 msgstr "个文件"
 
 #: src/lib/node-status.ts
-#: src/routes/_app/devices/-components/connection-badge.tsx
-#: src/routes/_app/send/share-target.lazy.tsx
+#: src/routes/_app/devices/-components/connection-labels.ts
 msgid "中继"
 msgstr "中继"
 
@@ -769,8 +768,8 @@ msgstr "在线"
 msgid "在线设备优先显示，可直接进入发送流程。"
 msgstr "在线设备优先显示，可直接进入发送流程。"
 
-#. placeholder {0}: transportDisplay(rejection.transport)
-#. placeholder {1}: rejection.supported.map(transportDisplay).join(" · ")
+#. placeholder {0}: transportLabel(rejection.transport) ?? rejection.transport
+#. placeholder {1}: rejection.supported.map((t) => transportLabel(t) ?? t).join(" · ")
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "地址用的是 {0}，本端支持的是 {1}。"
 msgstr "地址用的是 {0}，本端支持的是 {1}。"
@@ -932,8 +931,7 @@ msgid "将在 {0} 后过期"
 msgstr "将在 {0} 后过期"
 
 #: src/lib/node-status.ts
-#: src/routes/_app/devices/-components/connection-badge.tsx
-#: src/routes/_app/send/share-target.lazy.tsx
+#: src/routes/_app/devices/-components/connection-labels.ts
 msgid "局域网"
 msgstr "局域网"
 
@@ -1241,8 +1239,7 @@ msgstr "打开日志文件夹"
 msgid "打开日志文件夹失败"
 msgstr "打开日志文件夹失败"
 
-#: src/routes/_app/devices/-components/connection-badge.tsx
-#: src/routes/_app/send/share-target.lazy.tsx
+#: src/routes/_app/devices/-components/connection-labels.ts
 msgid "打洞"
 msgstr "打洞"
 
@@ -1539,7 +1536,7 @@ msgstr "本地文件删除后无法通过清空活动记录恢复。"
 msgid "本机弹出确认请求，你同意后配对完成"
 msgstr "本机弹出确认请求，你同意后配对完成"
 
-#. placeholder {0}: supported.map(transportDisplay).join(" · ")
+#. placeholder {0}: supported.map((t) => transportLabel(t) ?? t).join(" · ")
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
 msgid "本端支持的传输：{0}"
 msgstr "本端支持的传输：{0}"
@@ -1768,6 +1765,10 @@ msgstr "监听地址: {0}"
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "监听端口"
 msgstr "监听端口"
+
+#: src/routes/_app/devices/-components/connection-labels.ts
+msgid "直连"
+msgstr "直连"
 
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "确定要取消与「{deviceName}」的配对吗？取消后需要重新配对才能传输文件。"

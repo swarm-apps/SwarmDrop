@@ -51,9 +51,14 @@ export const DIRECTION_LABEL: Record<TransferProjection["direction"], MessageDes
   receive: msg`接收`,
 };
 
+/**
+ * 连接方式的一句话结论。`direct` 与 `dcutr` 为什么必须是两个词、四个词为什么必须
+ * 三端逐字一致：见 DESIGN.md 的 Slot 6 vocabulary 与 `crates/host` 的 `ConnectionType`。
+ */
 export const CONNECTION_LABEL: Record<NonNullable<Device["connection"]>, MessageDescriptor> = {
   lan: msg`局域网`,
-  dcutr: msg`打洞直连`,
+  direct: msg`直连`,
+  dcutr: msg`打洞`,
   relay: msg`中继`,
 };
 
