@@ -2043,9 +2043,21 @@ wasm target 下根本不在依赖树里，直接用会逼着 `swarmdrop_core` �
 
 **WebTransport（2026-08-12 落地）：**
 
-- **真机测量未做。** 回环 322 vs 72 MiB/s 的差距不能外推：回环瓶颈是 CPU，跨网通常是
-  带宽与 RTT，而真机上那条 0.36–0.96 MB/s 走的还是**打洞**路径而非 direct。
-  「打洞 vs webrtc-direct」这个变量至今没分离过。收益预期要以真机数据为准。
+- ~~真机测量未做~~ **局域网已测（2026-08-12，v0.18.0）**：Android ↔ 桌面 Chrome，2 GB
+  单文件，手机发 **20 MB/s**、浏览器发 **9 MB/s**。前者落进 native↔native QUIC 的区间
+  （12–23 MB/s）——浏览器在**接收**方向上已不是瓶颈。
+  ⚠️ **不要拿它除 0.36–0.96 MB/s 得出倍数**：那个分母来自 `opt-level = "z"` 的旧构建
+  （`-Oz` 关掉内联后 WebRTC 的纯 Rust AES-GCM 慢一个数量级，正是改回 `3` 的理由），
+  改完之后 WebRTC 那条**没有在真机上重测过**。要倍数就得做同构建同链路的 A/B。
+  **跨网仍未测**——局域网数说明不了中转/打洞路径，「打洞 vs webrtc-direct」这个变量
+  至今没分离过。
+- **发送方向慢 2.2 倍（20 vs 9 MB/s）是已知未解。** 已由代码事实排除三条：prepare
+  （Web 端单独追踪 `activePrepare`，9 MB/s 是纯数据面速率）、OPFS 写盘（收才写，收反而快）、
+  wasm blake3（两个方向工作量同量级）。剩下的嫌疑是 `write_block` 严格串行且浏览器侧
+  `read_source_chunk` 每块多两次跨 JS↔wasm 拷贝——**但那是推理不是实测**。
+  量它不用改代码：`SendProbe` 的 read/proof/write/ack 分解已经打在浏览器 console 上
+  （`swarmdrop_transfer` 在 Web 端是 DEBUG，探针发 `info!`）。完整推导与判读表见
+  [`2026-08-12-webtransport-field-test.md`](../research/2026-08-12-webtransport-field-test.md)。
 - ~~桌面端未接入~~ **已接入（2026-08-12）**，且没有动 `KeychainProvider` —— 判据见下方
   「地址集合只增不删」那节后面的「证书端口为什么不挂在 KeychainProvider 上」。
 - ~~旧的公网地址不会被撤销~~ **已修（2026-08-12）**，见下节。

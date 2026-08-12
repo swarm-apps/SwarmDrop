@@ -397,10 +397,19 @@ driver 丢弃可靠消息）。桌面与移动是两份独立常量，**要一�
 的 `ws://` 会被 mixed content 拦，`wss://` 又要域名 + CA）。
 
 > **两条浏览器入口并存是刻意的**（2026-08-12）。WebTransport 回环吞吐是 webrtc-direct 的
-> 4.5 倍（322 vs 72 MiB/s，6 次中位数）且方差小一个数量级，但**真机未测**，所以在验证收益
-> 之前不动 4003。浏览器**不需要写死** WebTransport 地址：先用 webrtc-direct 连上 bootstrap，
-> 经 identify 学到带当前 certhash 的那条 —— 这天然绕开了「证书 14 天一换、清单里的地址会
-> 过期」的问题。判据与已知负债见 [`net-kernel.md`](dev-notes/knowledge/net-kernel.md)。
+> 4.5 倍（322 vs 72 MiB/s，6 次中位数）且方差小一个数量级；**局域网真机已测**（Android ↔
+> 桌面 Chrome，2 GB）：手机发 **20 MB/s**、浏览器发 **9 MB/s** —— 前者落进了 native↔native
+> QUIC 的区间（12–23 MB/s），**浏览器在接收方向上已不是瓶颈**。
+>
+> **但 4003 不能下线，理由与吞吐无关**：① bootstrap 上它是**发现路径**——浏览器不写死
+> WebTransport 地址，先用 webrtc-direct 连上 bootstrap、经 identify 学到带当前 certhash 的
+> 那条，天然绕开「证书 14 天一换、清单里的地址会过期」；② **打洞只有 WebRTC 有**，跨网
+> 那格 WebTransport 至今没有对应机制、也还没测。
+>
+> 20 vs 9 的方向不对称是**已知未解**（发送路径串行且多两次跨 JS↔wasm 拷贝是首要嫌疑，
+> 但未实测）。量它不用改代码——`SendProbe` 的 read/proof/write/ack 分解本来就打在浏览器
+> console 上。判据、已排除项与量法见
+> [`2026-08-12-webtransport-field-test.md`](dev-notes/research/2026-08-12-webtransport-field-test.md)。
 >
 > **桌面与移动端都监听 WebTransport（2026-08-12 起）**，端口由系统分配 —— 浏览器直连原生端
 > 走它，局域网内比 webrtc-direct 快 4.5 倍（回环数）。启用判据是**宿主给没给证书端口**
