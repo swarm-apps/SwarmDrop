@@ -29,7 +29,9 @@ use libp2p::{PeerId, Swarm, identify, kad, ping};
 use n0_future::time::Instant;
 #[cfg(not(wasm_browser))]
 use swarmdrop_net_base::DiscoverySource;
-use swarmdrop_net_base::{Addr, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId, TransportKind};
+use swarmdrop_net_base::{
+    Addr, DialTier, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId, TransportKind,
+};
 use tokio::sync::{mpsc, oneshot, watch};
 use tracing::{debug, info, trace, warn};
 
@@ -854,10 +856,23 @@ impl Actor {
     }
 
     /// 该 peer 当前是否只挂在中转上——两条升级路径共同的前提。
-    fn only_relayed(&self, peer: PeerId) -> bool {
+    /// 当前与该 peer 的所有连接里**最好的那一档**。没连接时 `None`。
+    ///
+    /// 这是所有「要不要升级」判断的唯一依据。它取代了此前的 `only_relayed`——那条判据
+    /// 问的是「有没有直连」，而不是「有没有**更快的**直连」，于是一旦落到 webrtc-direct
+    /// （`DirectSlow`）就再也不会往 `DirectFast` 升，永久锁死在慢传输上。
+    fn best_tier(&self, peer: PeerId) -> Option<DialTier> {
         self.conns
             .get(&peer)
-            .is_some_and(|c| !c.is_empty() && c.iter().all(|(_, i)| i.path == PathKind::Relayed))
+            .filter(|c| !c.is_empty())
+            .and_then(|c| c.iter().map(|(_, i)| i.addr.dial_tier()).min())
+    }
+
+    /// 升级到 `target` 档是否有意义：当前已连上，且 `target` 严格更优。
+    ///
+    /// 未连接时返回 `false`——那时该走正常拨号，不是升级。
+    fn wants_upgrade_to(&self, peer: PeerId, target: DialTier) -> bool {
+        self.best_tier(peer).is_some_and(|current| target < current)
     }
 
     /// 清掉该 peer 的两个升级在途标记（连接建立 / 拨号失败时调）。
@@ -893,10 +908,20 @@ impl Actor {
     /// （`PairingMethod::Direct` 的唯一授权依据）读的仍然只有 mDNS 来源的地址，
     /// 本函数一个字节都不往那张表里写。
     fn try_upgrade_to_lan(&mut self, peer: PeerId, candidates: &[libp2p::Multiaddr]) {
-        if self.upgrading_lan.contains(&peer) || !self.only_relayed(peer) {
+        if self.upgrading_lan.contains(&peer) {
             return;
         }
-        let lan = lan_candidates(candidates);
+        let Some(current) = self.best_tier(peer) else {
+            return;
+        };
+        // **只拨比现状更好的那一档，且只拨最好的那一档。**
+        //
+        // 「只拨更好的」把中继→直连与 webrtc-direct→WebTransport 收敛成同一条规则；
+        // 「只拨一档」是因为 libp2p 并发拨号是延迟竞速——把 webrtc-direct 和
+        // WebTransport 一起发出去，赢的多半是前者（后者要多一次 QUIC 握手），
+        // 于是升级"成功"了，却落在慢的那一档上，而且从此 `current` 不再劣于任何候选，
+        // 再也不会有第二次机会。
+        let lan = lan_candidates(candidates, current);
         if lan.is_empty() {
             return;
         }
@@ -936,7 +961,10 @@ impl Actor {
         };
         // 走到这里说明「本可以打洞」，后面每个否决点都留痕——否则「为什么没打洞」
         // 在一条有五个否决条件的链上根本无从查起（实测吃过这个亏）。
-        if !self.only_relayed(peer) {
+        //
+        // 打洞落在 `DirectSlow`，所以这条等价于旧的 `only_relayed`：已有任何直连时
+        // 不再打洞。换成统一判据只是让「升级」这件事全域只有一处定义。
+        if !self.wants_upgrade_to(peer, DialTier::DirectSlow) {
             debug!(%peer, "skip webrtc upgrade: already has a non-relayed path");
             return;
         }
@@ -1945,23 +1973,57 @@ fn should_initiate(local: &PeerId, remote: &PeerId, local_reachable: bool) -> bo
     !local_reachable || local < remote
 }
 
-/// 从对端自报的地址里挑出 LAN 升级候选。
+/// 从对端自报的地址里挑出 LAN 升级候选：**严格优于 `current` 的那一档里最好的一档**。
 ///
-/// **每种传输各留几个**（`LAN_UPGRADE_MAX_PER_TRANSPORT`），而不是笼统取前 N 个——
-/// 理由见那个常量：截掉 webrtc-direct 等于把浏览器那一格整个关掉。
-fn lan_candidates(addrs: &[libp2p::Multiaddr]) -> Vec<libp2p::Multiaddr> {
-    let mut taken: HashMap<Option<TransportKind>, usize> = HashMap::new();
-    addrs
+/// 两条筛选各有各的理由，缺一条都会退回原来的毛病：
+///
+/// - **只要严格更优的档**：等于现状或更差的地址拨了也白拨（成功了也不算升级，还占一条连接）。
+/// - **只取其中最好的一档**：libp2p 并发拨号是延迟竞速，同时发出 webrtc-direct 与
+///   WebTransport，赢的多半是前者；而升级成功后就不再有第二次机会。**层内竞速、层间有序**
+///   这条规则就落在这一行。
+///
+/// 档内仍然**每种传输各留几个**（`LAN_UPGRADE_MAX_PER_TRANSPORT`）而不是笼统取前 N 个——
+/// 同一档里 IPv4/IPv6、多网卡会挤掉彼此，理由见那个常量。
+fn lan_candidates(addrs: &[libp2p::Multiaddr], current: DialTier) -> Vec<libp2p::Multiaddr> {
+    lan_candidates_by(addrs, current, crate::transport::can_dial)
+}
+
+/// [`lan_candidates`] 的纯逻辑内核，「本端拨得动吗」由参数注入。
+///
+/// 注入而不是直接调 [`crate::transport::can_dial`]，是为了让**浏览器那一格能在 native 上测**
+/// ——本 crate 的测试只跑 native，而那一格恰恰是唯一会出错的一格（见
+/// `dialable_filter_runs_before_tier_selection`）。
+fn lan_candidates_by(
+    addrs: &[libp2p::Multiaddr],
+    current: DialTier,
+    can_dial: impl Fn(&Addr) -> bool,
+) -> Vec<libp2p::Multiaddr> {
+    let better: Vec<(DialTier, &libp2p::Multiaddr)> = addrs
         .iter()
-        .filter(|a| is_lan_candidate(a))
-        .filter(|a| {
+        .map(|a| (Addr::from_multiaddr(a.clone()), a))
+        // **筛「拨得动」必须排在挑档之前。** 浏览器最快的一档恰好是它唯一拨不动的
+        // （对端自报的 `/tcp` / `/quic-v1`），先挑档再筛就会永远挑中拨不动的那条。
+        .filter(|(addr, _)| is_lan_candidate(addr) && can_dial(addr))
+        .map(|(addr, raw)| (addr.dial_tier(), raw))
+        .filter(|(tier, _)| *tier < current)
+        .collect();
+
+    let Some(best) = better.iter().map(|(tier, _)| *tier).min() else {
+        return Vec::new();
+    };
+
+    let mut taken: HashMap<Option<TransportKind>, usize> = HashMap::new();
+    better
+        .into_iter()
+        .filter(|(tier, _)| *tier == best)
+        .filter(|(_, a)| {
             let slot = taken
                 .entry(Addr::from_multiaddr((*a).clone()).transport())
                 .or_default();
             *slot += 1;
             *slot <= LAN_UPGRADE_MAX_PER_TRANSPORT
         })
-        .cloned()
+        .map(|(_, a)| a.clone())
         .collect()
 }
 
@@ -1970,8 +2032,7 @@ fn lan_candidates(addrs: &[libp2p::Multiaddr]) -> Vec<libp2p::Multiaddr> {
 /// 排除 circuit 那半边不是多余的——LAN helper（局域网内的中继）自己就监听在
 /// 私网地址上，它派发的 circuit 地址前半段同样 `is_private_lan()`，不排除就会
 /// 把「换一条中继」当成「升级为直连」。
-fn is_lan_candidate(addr: &libp2p::Multiaddr) -> bool {
-    let addr = Addr::from_multiaddr(addr.clone());
+fn is_lan_candidate(addr: &Addr) -> bool {
     addr.is_private_lan() && !addr.is_circuit()
 }
 
@@ -1999,6 +2060,23 @@ mod tests {
 
     const RELAY: &str = "12D3KooWCkajTewJhupefZpVK7LwYfjG8bDJyXNtCgQYxiH1utep";
     const PEER: &str = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
+    /// 真实 certhash：占位串不是合法 multibase multihash，地址会解析失败。
+    const H1: &str = "uEiBuBPteUjlXiXM9izTtEdpg3C0QHFZ0A2m6aSjsbv2oeA";
+    const H2: &str = "uEiDSOtFQBoepe-LRH2mZPMLHGoMcxnmaM8a02_72my1v9Q";
+
+    fn multiaddrs(items: &[&str]) -> Vec<libp2p::Multiaddr> {
+        items
+            .iter()
+            .map(|s| s.parse().expect("valid multiaddr"))
+            .collect()
+    }
+
+    fn transports(addrs: &[libp2p::Multiaddr]) -> Vec<Option<TransportKind>> {
+        addrs
+            .iter()
+            .map(|a| Addr::from_multiaddr(a.clone()).transport())
+            .collect()
+    }
 
     fn addr(s: &str) -> Addr {
         Addr::from_multiaddr(s.parse().expect("valid multiaddr"))
@@ -2337,7 +2415,8 @@ mod tests {
     /// circuit 地址（前半段也是私网）会被当成直连候选——那只是换了条中继。
     #[test]
     fn lan_upgrade_candidates_exclude_circuit_and_unreachable() {
-        let lan = |s: &str| is_lan_candidate(&s.parse().expect("valid multiaddr"));
+        let lan =
+            |s: &str| is_lan_candidate(&Addr::from_multiaddr(s.parse().expect("valid multiaddr")));
 
         assert!(lan("/ip4/192.168.1.5/tcp/4001"));
         assert!(lan("/ip4/10.0.0.7/udp/4001/quic-v1"));
@@ -2354,38 +2433,82 @@ mod tests {
         );
     }
 
-    /// **浏览器那一格全靠这条**：浏览器拨不了裸 TCP/QUIC，webrtc-direct 是它够到
-    /// 局域网内原生端的唯一路径；而 webrtc-direct 是 native preset 里最后注册的
-    /// listener，对端自报的地址表里它排在最后。笼统「取前 N 个」正好把它截掉，
-    /// 于是「浏览器 ↔ 同网段的手机」永远停在中继——症状是纯粹的「就是不升级」，
-    /// 没有任何报错可查。
+    /// **升级只拨「本端拨得动的、严格更好的那一档」，且只拨那一档。**
+    ///
+    /// 层内竞速没问题（同档差别不大），层间必须有序：libp2p 并发拨号是**延迟**竞速，
+    /// webrtc-direct 与 WebTransport 一起发出去赢的多半是前者，而升级成功后
+    /// `current` 就不再劣于任何候选，**再没有第二次机会**。
     #[test]
-    fn lan_candidates_keep_one_of_every_transport() {
-        // 一张网卡上的典型自报：三种传输 × IPv4/IPv6 ULA
-        let addrs: Vec<libp2p::Multiaddr> = [
-            "/ip4/192.168.1.5/tcp/54321",
-            "/ip6/fd00::5/tcp/54321",
-            "/ip4/192.168.1.5/udp/54322/quic-v1",
-            "/ip6/fd00::5/udp/54322/quic-v1",
+    fn lan_candidates_take_only_the_best_dialable_tier() {
+        let addrs = multiaddrs(&[
             "/ip4/192.168.1.5/udp/54323/webrtc-direct",
-            "/ip6/fd00::5/udp/54323/webrtc-direct",
-        ]
-        .iter()
-        .map(|s| s.parse().expect("valid multiaddr"))
-        .collect();
+            &format!("/ip4/192.168.1.5/udp/54324/quic-v1/webtransport/certhash/{H1}/certhash/{H2}"),
+        ]);
 
-        let picked = lan_candidates(&addrs);
-        let kinds: Vec<_> = picked
-            .iter()
-            .map(|a| Addr::from_multiaddr(a.clone()).transport())
-            .collect();
+        let picked = lan_candidates(&addrs, DialTier::Relayed);
+        let kinds = transports(&picked);
+
+        assert_eq!(
+            kinds,
+            vec![Some(TransportKind::Webtransport)],
+            "两档同时可拨时只能拨快的那一档，否则竞速会落到 webrtc-direct：{picked:?}"
+        );
+    }
+
+    /// **浏览器那一格全靠这条。** 浏览器拨不了裸 TCP/QUIC——而那恰好是对端自报里
+    /// 最快的一档。先挑档再筛「拨不拨得动」，浏览器会永远挑中拨不动的那条：
+    /// 拨号立刻失败 → 在途标记清掉 → 5 分钟后 identify 再来一轮挑同一条，
+    /// **永远升不上去**，且每一步看起来都在正常工作。
+    #[test]
+    fn dialable_filter_runs_before_tier_selection() {
+        // 对端是原生端的典型自报：最快的一档（TCP/QUIC）浏览器一条都拨不动，
+        // 而它同时还给了 webrtc-direct。
+        let addrs = multiaddrs(&[
+            "/ip4/192.168.1.5/tcp/54321",
+            "/ip4/192.168.1.5/udp/54322/quic-v1",
+            "/ip4/192.168.1.5/udp/54323/webrtc-direct",
+        ]);
+        // 浏览器：拨不了 TCP/QUIC。
+        let browser = |a: &Addr| {
+            !matches!(
+                a.transport(),
+                Some(TransportKind::Tcp) | Some(TransportKind::Quic)
+            )
+        };
+
+        let picked = lan_candidates_by(&addrs, DialTier::Relayed, browser);
+        assert_eq!(
+            transports(&picked),
+            vec![Some(TransportKind::WebrtcDirect)],
+            "浏览器只能拿到它拨得动的那一档；挑中 TCP/QUIC 等于永远升不上去：{picked:?}"
+        );
+
+        // 原生端在同一份地址上应当挑到更快的那一档。
+        let native = |_: &Addr| true;
+        let picked = lan_candidates_by(&addrs, DialTier::Relayed, native);
+        assert!(
+            !transports(&picked).contains(&Some(TransportKind::WebrtcDirect)),
+            "原生端拨得动 TCP/QUIC，就不该退到 webrtc-direct：{picked:?}"
+        );
+    }
+
+    /// 已经在最好的一档上时不再拨——拨了也不是升级，只会白占一条连接。
+    #[test]
+    fn lan_candidates_never_sidegrade_or_downgrade() {
+        let addrs = multiaddrs(&["/ip4/192.168.1.5/udp/54323/webrtc-direct"]);
 
         assert!(
-            kinds.contains(&Some(TransportKind::WebrtcDirect)),
-            "webrtc-direct 被截掉 = 浏览器再也升级不了：{picked:?}"
+            lan_candidates(&addrs, DialTier::DirectSlow).is_empty(),
+            "同档不算升级"
         );
-        assert!(kinds.contains(&Some(TransportKind::Tcp)));
-        assert!(kinds.contains(&Some(TransportKind::Quic)));
+        assert!(
+            lan_candidates(&addrs, DialTier::DirectFast).is_empty(),
+            "更差的一档更不该拨"
+        );
+        assert!(
+            !lan_candidates(&addrs, DialTier::Relayed).is_empty(),
+            "中继 → 直连仍然要拨"
+        );
     }
 
     /// 分组取仍要挡住「对端报一长串地址 → 一次升级变成对内网批量探测」。
@@ -2399,7 +2522,10 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(lan_candidates(&addrs).len(), LAN_UPGRADE_MAX_PER_TRANSPORT);
+        assert_eq!(
+            lan_candidates(&addrs, DialTier::Relayed).len(),
+            LAN_UPGRADE_MAX_PER_TRANSPORT
+        );
     }
 
     fn peer(seed: u8) -> PeerId {

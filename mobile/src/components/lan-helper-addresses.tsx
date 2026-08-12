@@ -5,37 +5,8 @@ import { Copy, RadioTower } from "lucide-react-native";
 import { Pressable, View } from "react-native";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { lanHelperAddresses } from "@swarmdrop/shared-view";
 import { toast } from "@/lib/toast";
-
-type LanHelperAddress = {
-  address: string;
-  transport: "ws" | "webrtc-direct";
-};
-
-function browserDialAddresses(
-  addresses: string[],
-  peerId?: string,
-): LanHelperAddress[] {
-  if (!peerId) return [];
-
-  return addresses.flatMap((address) => {
-    const transport = address.includes("/webrtc-direct/")
-      ? "webrtc-direct"
-      : address.includes("/ws")
-        ? "ws"
-        : null;
-    if (!transport) return [];
-
-    return [
-      {
-        address: address.includes("/p2p/")
-          ? address
-          : `${address}/p2p/${peerId}`,
-        transport,
-      },
-    ];
-  });
-}
 
 export function LanHelperAddresses({
   addresses,
@@ -46,7 +17,9 @@ export function LanHelperAddresses({
 }) {
   const { t } = useLingui();
   const colors = useThemeColors();
-  const dialAddresses = browserDialAddresses(addresses, peerId);
+  // 筛选与排序全在 shared-view：此前这里是一份与桌面逐行同构的白名单三元链，
+  // WebTransport 上线后被静默丢掉。返回顺序即推荐顺序，第一条最快。
+  const dialAddresses = lanHelperAddresses(addresses, peerId);
 
   if (dialAddresses.length === 0) return null;
 
@@ -81,7 +54,8 @@ export function LanHelperAddresses({
             onPress={() => void copyAddress(address)}
             accessibilityRole="button"
             accessibilityLabel={t`复制协助地址`}
-            testID={`lan-helper-address-${transport}`}
+            // 传输名是带空格的专有名词（"WebRTC Direct"），testID 里转成 slug。
+            testID={`lan-helper-address-${transport.toLowerCase().replace(/\s+/g, "-")}`}
             className={
               index === 0
                 ? "flex-row items-center gap-3 px-3.5 py-3 active:bg-muted"
@@ -91,9 +65,7 @@ export function LanHelperAddresses({
             <View className="min-w-0 flex-1 gap-1">
               <View className="self-start rounded-md bg-muted px-1.5 py-0.5">
                 <Text className="text-[10px] font-medium text-muted-foreground">
-                  {transport === "webrtc-direct"
-                    ? "WebRTC Direct"
-                    : "WebSocket"}
+                  {transport}
                 </Text>
               </View>
               <Text className="font-mono text-[11px] leading-4 text-muted-foreground">

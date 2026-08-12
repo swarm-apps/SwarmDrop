@@ -15,7 +15,7 @@ mod node_id;
 mod protocol_id;
 mod status;
 
-pub use addr::{Addr, AddrParseError, NodeAddr};
+pub use addr::{Addr, AddrParseError, DialTier, NodeAddr};
 pub use node_id::{IdParseError, NodeId, SecretKey};
 pub use protocol_id::{InvalidProtocolId, ProtocolId};
 pub use status::{DiscoverySource, NatStatus, PathKind, TransportKind};

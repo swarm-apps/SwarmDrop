@@ -42,6 +42,37 @@ pub struct BuildSwarmError(String);
 const WEBRTC_MAX_MESSAGE_SIZE: NonZeroUsize =
     NonZeroUsize::new(8 * 1024).expect("8 KiB is non-zero");
 
+/// 本 target 能不能**拨**这条地址所用的传输。
+///
+/// # 为什么要有它
+///
+/// 「按档位挑最好的地址」这件事（`actor::lan_candidates`）必须先知道哪些地址本端拨得动，
+/// 否则浏览器会挑中对端自报的 `/tcp` 或 `/quic-v1`——那是它最快的一档，也是它**唯一
+/// 拨不动**的一档。症状是升级拨号立刻失败、在途标记随即清掉，5 分钟后 identify 再来一轮
+/// 又挑同一条，**永远升不上去**，而每一步看起来都在正常工作。
+///
+/// 事实源是 `build_swarm` 注册的那几个拨号器，两处分叉没有编译期保护，
+/// 故判据只此一份、由 `dialable_kind` 表达。
+pub(crate) fn can_dial(addr: &swarmdrop_net_base::Addr) -> bool {
+    addr.transport()
+        .is_some_and(|kind| dialable_kind(kind, cfg!(wasm_browser)))
+}
+
+/// `can_dial` 的纯逻辑内核：把 target 差异变成参数，于是**两个 target 的判据都能在
+/// native 上测**（本 crate 的测试只跑 native）。
+///
+/// **用穷尽 `match` 而非 `_` 分支**：加一种传输时这里编译失败，那正是要的——漏改的
+/// 后果是新传输被静默判成"拨不动"，升级路径少一档而毫无痕迹。
+fn dialable_kind(kind: TransportKind, browser: bool) -> bool {
+    match kind {
+        // 浏览器与原生端都拨得动：webrtc 两种 + WebTransport（wasm 侧用上游
+        // `libp2p-webtransport-websys`，见 `build_webtransport` 的 wasm 分支）。
+        TransportKind::Webrtc | TransportKind::WebrtcDirect | TransportKind::Webtransport => true,
+        // 浏览器没有 TCP/QUIC 拨号器（也起不了 socket）。
+        TransportKind::Tcp | TransportKind::Quic => !browser,
+    }
+}
+
 /// libp2p 的 transport 组合类型天然很长，起个别名比到处 `#[expect(type_complexity)]` 干净。
 ///
 /// 两个 target 都用得上（wasm 的 `build_webtransport` 也返回它），故不加 cfg 门控。
@@ -406,6 +437,32 @@ pub(crate) fn build_swarm(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 「本端拨得动哪些传输」的真值表。两个 target 的判据都在这里过一遍——
+    /// 本 crate 的测试只跑 native，而**出错的恰恰是浏览器那一格**。
+    ///
+    /// 这张表与 `build_swarm` 注册的拨号器没有编译期关联，只能靠它对齐：
+    /// 少报一档的后果是升级路径永远少一条（且毫无痕迹），多报一档的后果是
+    /// 升级拨号立刻失败、5 分钟后原样重来。
+    #[test]
+    fn dialable_kinds_match_each_target_dialers() {
+        // certhash 免域名的三种：两端都拨得动。**WebTransport 尤其不能漏**——
+        // wasm 侧用的是上游 `libp2p-webtransport-websys`（见 `build_webtransport`）。
+        for kind in [
+            TransportKind::Webrtc,
+            TransportKind::WebrtcDirect,
+            TransportKind::Webtransport,
+        ] {
+            assert!(dialable_kind(kind, true), "{kind:?}：浏览器应当拨得动");
+            assert!(dialable_kind(kind, false), "{kind:?}：原生端应当拨得动");
+        }
+
+        // 浏览器起不了 socket，也就没有 TCP/QUIC 拨号器。
+        for kind in [TransportKind::Tcp, TransportKind::Quic] {
+            assert!(!dialable_kind(kind, true), "{kind:?}：浏览器拨不动");
+            assert!(dialable_kind(kind, false), "{kind:?}：原生端拨得动");
+        }
+    }
 
     /// 护栏：清单与本 target 的 `build_swarm` 同步。
     ///

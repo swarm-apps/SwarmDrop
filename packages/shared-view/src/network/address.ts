@@ -30,8 +30,6 @@ export function transportFromAddr(addr: string): string {
   if (addr.includes("/webrtc-direct")) return "WebRTC Direct";
   if (addr.includes("/webrtc")) return "WebRTC";
   if (addr.includes("/webtransport")) return "WebTransport";
-  if (addr.includes("/wss")) return "WSS";
-  if (addr.includes("/ws")) return "WebSocket";
   if (addr.includes("/quic")) return "QUIC";
   if (addr.includes("/tcp/")) return "TCP";
   return "P2P";

@@ -17,6 +17,64 @@ use crate::{NodeId, TransportKind};
 #[error("invalid multiaddr: {0}")]
 pub struct AddrParseError(String);
 
+/// 一条地址值不值得拨——**唯一的传输优劣定义**。
+///
+/// # 为什么需要它
+///
+/// libp2p 是**并发拨号**：候选地址一起发出去，谁先建连谁赢。那是一场**延迟**竞赛，
+/// 而我们在意的是**吞吐**——两者恰好反向：中继复用一条已建立的连接，建连最快，
+/// 吞吐却最差；打洞要等 ICE 收敛数秒，几乎必然输掉竞速。
+///
+/// 于是「谁赢」这件事必须由**层级**决定，不能交给竞速。层内可以继续竞速（同级之间
+/// 差别不大，先连上的就是好的），层间必须有序。
+///
+/// # 分档依据
+///
+/// 回环实测（64 MiB × 6 次中位数）：TCP 933 · **WebTransport 322** · QUIC 266 ·
+/// **webrtc-direct 72** MiB/s，且 webrtc-direct 的方差大一个数量级（43.7–288）。
+/// 前三者同量级、最后一个差 4.5 倍，故切在那里。中继单列——它多一跳，还要吃
+/// 中继节点的带宽与 CPU。
+///
+/// **`Ord` 的方向是「越小越好」**，可以直接 `min()`/排序。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DialTier {
+    /// 直连 + 高吞吐：TCP / QUIC / WebTransport。
+    DirectFast,
+    /// 直连 + 低吞吐：webrtc-direct 与 WebRTC 打洞。
+    ///
+    /// 打洞归这一档而不是中继档：它的 circuit 段只用于**信令**，数据面一个字节不过中继。
+    DirectSlow,
+    /// 中继：数据面整条经第三方转发。
+    Relayed,
+}
+
+/// 该段是否是「数据面传输」段。用于判断 `/p2p-circuit` 之后还有没有真正的传输。
+fn is_transport_segment(p: &Protocol<'_>) -> bool {
+    matches!(
+        p,
+        Protocol::Tcp(_)
+            | Protocol::QuicV1
+            | Protocol::Quic
+            | Protocol::WebTransport
+            | Protocol::WebRTC
+            | Protocol::WebRTCDirect
+            | Protocol::Ws(_)
+            | Protocol::Wss(_)
+    )
+}
+
+/// 一串段落里的传输档位。**判定顺序按特异性从高到低**，与 [`Addr::transport`] 同源：
+/// WebTransport 地址同时含 `/quic-v1`，判反了会把最快的一档降级。
+fn tier_of(segments: &[Protocol<'_>]) -> DialTier {
+    if segments
+        .iter()
+        .any(|p| matches!(p, Protocol::WebRTC | Protocol::WebRTCDirect))
+    {
+        return DialTier::DirectSlow;
+    }
+    DialTier::DirectFast
+}
+
 /// 网络地址（Multiaddr newtype）。
 ///
 /// 字符串表示即 multiaddr 文本格式（`/ip4/192.168.1.2/tcp/4001`），
@@ -107,6 +165,40 @@ impl Addr {
     /// 是否为中继地址（含 p2p-circuit 段）。
     pub fn is_circuit(&self) -> bool {
         self.circuit_hops() > 0
+    }
+
+    /// 这条地址属于哪一档「值不值得拨」。判据见 [`DialTier`]。
+    ///
+    /// # 判定必须看 `/p2p-circuit` 的**位置**，不能只看有没有
+    ///
+    /// 三种地址都同时含 `/p2p-circuit` 与一个 WebRTC 段，靠「有没有」区分不开：
+    ///
+    /// | 地址 | 真实身份 | 档位 |
+    /// |---|---|---|
+    /// | `…/webrtc-direct/certhash/…/p2p/R/p2p-circuit/p2p/T` | **中继**，第一跳恰好是 webrtc-direct | [`Relayed`](DialTier::Relayed) |
+    /// | `…/p2p/R/p2p-circuit/webrtc/p2p/T` | **打洞**，circuit 只用于信令，数据面不过中继 | [`DirectSlow`](DialTier::DirectSlow) |
+    /// | `…/udp/…/webrtc-direct/certhash/…/p2p/T` | 直连 | [`DirectSlow`](DialTier::DirectSlow) |
+    ///
+    /// 所以判据是「**最后一个 `/p2p-circuit` 之后**还有没有传输段」：有 ⇒ 那才是真正的
+    /// 数据面传输；没有 ⇒ 这条地址就是中继本身。
+    ///
+    /// 把第一行判成 `DirectSlow` 的后果尤其隐蔽：浏览器的中继地址第一跳正是
+    /// webrtc-direct，于是「升级到直连」会把**换一条中继**当成升级完成，从此不再尝试真直连。
+    pub fn dial_tier(&self) -> DialTier {
+        let segments: Vec<Protocol<'_>> = self.0.iter().collect();
+        let after_circuit = segments
+            .iter()
+            .rposition(|p| matches!(p, Protocol::P2pCircuit))
+            .map(|i| &segments[i + 1..]);
+
+        match after_circuit {
+            // 非 circuit 地址：整条都是数据面。
+            None => tier_of(&segments),
+            // circuit 之后还有传输段 = 打洞，数据面是直连的。
+            Some(rest) if rest.iter().any(is_transport_segment) => tier_of(rest),
+            // circuit 之后只剩 `/p2p/<target>`：这条地址就是中继。
+            Some(_) => DialTier::Relayed,
+        }
     }
 
     /// 该地址是否包含 QUIC v1 传输段。
@@ -327,6 +419,81 @@ mod tests {
 
     fn addr(s: &str) -> Addr {
         s.parse().unwrap()
+    }
+
+    const RELAY: &str = "12D3KooWCkajTewJhupefZpVK7LwYfjG8bDJyXNtCgQYxiH1utep";
+    const TARGET: &str = "12D3KooWMYnFbMsU1dwnPTRcsCHhMHA9MBFxFrCv4puyuiURBaCY";
+    // 真实 certhash（取自实测日志）——占位串不是合法 multibase multihash，解析会直接失败。
+    const H1: &str = "uEiBuBPteUjlXiXM9izTtEdpg3C0QHFZ0A2m6aSjsbv2oeA";
+    const H2: &str = "uEiDSOtFQBoepe-LRH2mZPMLHGoMcxnmaM8a02_72my1v9Q";
+
+    /// 直连地址的分档：只看传输，webrtc 系比其余慢一档。
+    #[test]
+    fn direct_addrs_split_on_the_webrtc_boundary() {
+        for fast in [
+            "/ip4/192.168.1.5/tcp/4001".to_string(),
+            "/ip4/192.168.1.5/udp/4001/quic-v1".to_string(),
+            format!("/ip4/192.168.1.5/udp/4004/quic-v1/webtransport/certhash/{H1}/certhash/{H2}"),
+        ] {
+            assert_eq!(addr(&fast).dial_tier(), DialTier::DirectFast, "{fast}");
+        }
+        assert_eq!(
+            addr(&format!(
+                "/ip4/192.168.1.5/udp/4003/webrtc-direct/certhash/{H1}"
+            ))
+            .dial_tier(),
+            DialTier::DirectSlow
+        );
+    }
+
+    /// **本组是 `dial_tier` 存在的全部理由。** 三条地址都同时含 `/p2p-circuit` 与一个
+    /// WebRTC 段，靠「有没有」区分不开，只能看位置。
+    #[test]
+    fn circuit_is_judged_by_position_not_presence() {
+        // ① 浏览器连 bootstrap 的真实形态：第一跳是 webrtc-direct，但这条**是中继**。
+        //    判成 DirectSlow 的后果：「升级到直连」会把换一条中继当成升级成功。
+        let via_webrtc_direct = format!(
+            "/ip4/47.115.172.218/udp/4003/webrtc-direct/certhash/{H1}/p2p/{RELAY}/p2p-circuit/p2p/{TARGET}"
+        );
+        assert_eq!(addr(&via_webrtc_direct).dial_tier(), DialTier::Relayed);
+
+        // ② 打洞：circuit 只用于信令，数据面一个字节不过中继 ⇒ 直连档。
+        let hole_punch =
+            format!("/ip4/47.115.172.218/tcp/4001/p2p/{RELAY}/p2p-circuit/webrtc/p2p/{TARGET}");
+        assert_eq!(addr(&hole_punch).dial_tier(), DialTier::DirectSlow);
+
+        // ③ 朴素中继：circuit 之后只剩 /p2p/<target>。
+        let plain = format!("/ip4/47.115.172.218/tcp/4001/p2p/{RELAY}/p2p-circuit/p2p/{TARGET}");
+        assert_eq!(addr(&plain).dial_tier(), DialTier::Relayed);
+    }
+
+    /// 档位的序必须是「越小越好」——上层直接拿它 `min()` 求当前最优路径。
+    #[test]
+    fn tiers_order_best_first() {
+        assert!(DialTier::DirectFast < DialTier::DirectSlow);
+        assert!(DialTier::DirectSlow < DialTier::Relayed);
+        assert_eq!(
+            [
+                DialTier::Relayed,
+                DialTier::DirectFast,
+                DialTier::DirectSlow
+            ]
+            .into_iter()
+            .min(),
+            Some(DialTier::DirectFast)
+        );
+    }
+
+    /// WebTransport 地址同时含 `/quic-v1` 与 `/webtransport`，两者都在 DirectFast，
+    /// 所以这条不会因判定顺序出错——但它与 `transport()` 共用「特异性从高到低」这条
+    /// 不变量，一起钉住，免得将来把 WebTransport 单独提档时漏改一处。
+    #[test]
+    fn webtransport_and_quic_agree_between_tier_and_transport() {
+        let wt = addr(&format!(
+            "/ip4/1.2.3.4/udp/4004/quic-v1/webtransport/certhash/{H1}/certhash/{H2}"
+        ));
+        assert_eq!(wt.transport(), Some(TransportKind::Webtransport));
+        assert_eq!(wt.dial_tier(), DialTier::DirectFast);
     }
 
     // 迁自 libs/core/src/addr.rs 的分类矩阵，语义必须逐条保持

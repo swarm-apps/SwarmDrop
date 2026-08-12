@@ -140,6 +140,73 @@ Web 端那颗「测试连通性」按钮就是这么变成一个不可能失败�
 
 **相关文件**：`crates/net/src/transport.rs`、`crates/core/src/infra/validate.rs`
 
+### 并发拨号是**延迟**竞速，会系统性选出最慢的传输（2026-08-12 定）
+
+`dial_concurrency_factor` 没设（libp2p 默认 8），而候选地址通常 ≤5 —— 等于**全部并发发出，
+谁先建连谁赢**。问题是我们在意的是吞吐，而两者恰好反向：
+
+| | 建连延迟 | 吞吐 |
+|---|---|---|
+| 中继 | **最低**（复用一条已建立的连接） | **最差** |
+| webrtc-direct | 中（ICE + DTLS） | 72 MiB/s |
+| WebTransport | 略高（多一次 QUIC 握手） | 322 MiB/s |
+| 打洞 | **最高**（等 ICE 收敛数秒） | 好 |
+
+所以「谁赢」必须由**层级**决定，不能交给竞速。判据收在 `Addr::dial_tier()`
+（`crates/net-base`），三档：`DirectFast`（TCP/QUIC/WebTransport）→ `DirectSlow`
+（webrtc-direct/打洞）→ `Relayed`，`Ord` 方向是**越小越好**。
+
+**判定必须看 `/p2p-circuit` 的位置，不是有没有。** 三种地址都同时含 circuit 段与 WebRTC 段：
+
+| 地址 | 真身 | 档 |
+|---|---|---|
+| `…/webrtc-direct/certhash/…/p2p/R/p2p-circuit/p2p/T` | **中继**，第一跳恰好是 webrtc-direct | `Relayed` |
+| `…/p2p/R/p2p-circuit/webrtc/p2p/T` | **打洞**，circuit 只用于信令 | `DirectSlow` |
+| `…/udp/…/webrtc-direct/certhash/…/p2p/T` | 直连 | `DirectSlow` |
+
+第一行判错的后果最隐蔽：**浏览器的中继地址第一跳正是 webrtc-direct**，判成直连就会把
+「换一条中继」当成升级完成。护栏是 `circuit_is_judged_by_position_not_presence`。
+
+### 升级的判据是「有没有**更快的**直连」，不是「有没有直连」（2026-08-12 修）
+
+`try_upgrade_to_lan` / `try_upgrade_to_direct` 此前的前置条件是 `only_relayed(peer)`。
+后果：一旦升级到 webrtc-direct，`only_relayed` 变 false，**两条升级路径永久关闭**，
+从此锁死在慢传输上——而 WebTransport 上线后这恰好成了常态。
+
+现在统一走 `best_tier(peer)`（所有连接里最好的一档）+ `wants_upgrade_to(peer, target)`，
+两条特例收敛成一条规则。`lan_candidates` 随之改成**只拨严格更优的那一档，且只拨那一档**：
+层内可以继续竞速（同档差别不大），层间必须有序。
+
+⚠️ **筛「本端拨得动吗」必须排在挑档之前。** 浏览器最快的一档（对端自报的 `/tcp`、
+`/quic-v1`）恰好是它**唯一拨不动**的一档；先挑档再筛，浏览器会永远挑中拨不动的那条：
+拨号立刻失败 → 在途标记清掉 → 5 分钟后 identify 再来一轮挑同一条，**永远升不上去**，
+而每一步看起来都在正常工作。判据是 `transport::dialable_kind(kind, browser)`，
+纯函数以便两个 target 都能在 native 上测。
+
+### ⚠️ 未修：升级建出第二条连接，但数据流**随机**挑连接（2026-08-12 发现）
+
+`libp2p-stream` 的 `Shared::sender()` 是这一行：
+
+```rust
+.choose(&mut rand::thread_rng())
+```
+
+**在该 peer 的所有连接里均匀随机挑一条。** 而升级成功后**旧连接不会被关闭**
+（`ConnectionEstablished` 分支只清升级标记、发 `PathChanged`），于是：
+
+> 升级只把「走慢连接」的概率从 100% 降到 50%，没有消除它。
+
+这条**早于本次改动就存在**（中继 → 打洞升级同样如此），而且 UI 会显示「直连」——
+`best_conn` 按 `path_rank` 取最好的那条报给前端，于是**界面说直连、一半的流在走中继**。
+它属于本仓最不喜欢的那类形态：一半诚实一半撒谎。
+
+修法只有一个方向：**升级成功后关掉劣档连接**。没有就地做，是因为它会杀掉正在那条连接上
+传输的流（转 Interrupted 走恢复路径）——识别「这条连接上有没有活跃数据流」需要按 connection
+记账，而现有 registry 是按 (peer, protocol) 记的。动它之前先想清楚这一点。
+
+**相关文件**：`crates/net-base/src/addr.rs`（`DialTier`）、`crates/net/src/actor.rs`
+（`best_tier` / `lan_candidates`）、`crates/net/src/transport.rs`（`dialable_kind`）
+
 ### 集成测试里的「没有传输层」：`impl IncomingTransferRuntime for ()`
 
 `run_event_loop` 的泛型约束是 `IncomingTransferRuntime`，而 `NetManager<()>` 本来就是

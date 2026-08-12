@@ -26,8 +26,6 @@ describe("transportFromAddr", () => {
       ],
       // CA 签名证书那条路径没有 /certhash，同样要认出来
       ["/dns4/relay.example.com/udp/443/quic-v1/webtransport", "WebTransport"],
-      // /wss 含 /ws
-      ["/dns4/relay.example.com/tcp/443/wss/p2p/12D3KooW", "WSS"],
     ];
 
     for (const [addr, expected] of cases) {
@@ -38,9 +36,15 @@ describe("transportFromAddr", () => {
   it("单一传输段原样识别", () => {
     expect(transportFromAddr("/ip4/1.2.3.4/udp/4001/quic-v1")).toBe("QUIC");
     expect(transportFromAddr("/ip4/1.2.3.4/tcp/4001")).toBe("TCP");
-    expect(transportFromAddr("/dns4/x.example.com/tcp/80/ws")).toBe(
-      "WebSocket",
-    );
+  });
+
+  /**
+   * WebSocket 已于 2026-07-28 整体移除（transport / 桌面 listener / bootstrap 端口），
+   * 表里因此没有它 —— 一条永远匹配不到的分支只会让人以为这条路还在。
+   * 万一真收到这种地址，回落成 TCP 是准确的（`/ws` 就跑在 `/tcp/` 上）。
+   */
+  it("不再单独识别已移除的 WebSocket", () => {
+    expect(transportFromAddr("/dns4/x.example.com/tcp/80/ws")).toBe("TCP");
   });
 
   it("认不出来时回落到中性词，而不是空字符串", () => {
