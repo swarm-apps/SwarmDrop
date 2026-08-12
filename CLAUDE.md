@@ -406,9 +406,12 @@ driver 丢弃可靠消息）。桌面与移动是两份独立常量，**要一�
 > 那条，天然绕开「证书 14 天一换、清单里的地址会过期」；② **打洞只有 WebRTC 有**，跨网
 > 那格 WebTransport 至今没有对应机制、也还没测。
 >
-> 20 vs 9 的方向不对称是**已知未解**（发送路径串行且多两次跨 JS↔wasm 拷贝是首要嫌疑，
-> 但未实测）。量它不用改代码——`SendProbe` 的 read/proof/write/ack 分解本来就打在浏览器
-> console 上。判据、已排除项与量法见
+> 20 vs 9 的方向不对称，归因是**接收端流水线化了、发送端没有**；发送端已于 2026-08-12
+> 补上（备块 ‖ 发帧 + 有界队列 + `join`，openspec: `pipeline-send-path`）。
+> ⚠️ **天花板是 `proof`**：`join` 给的是并发不是并行，而 `encode_proof` 是 wasm 主线程上的
+> 同步 CPU，收益取决于它的占比，**至今未实测**。（此前写的「多两次跨 JS↔wasm 拷贝」是错的
+> ——两向都跨两次，不对称的是重叠。）量它不用改代码：探针已拆成 `send`（read/proof/enqueue）
+> 与 `send-frame`（queue/write/ack/rest）两条，都打在浏览器 console 上。判读表见
 > [`2026-08-12-webtransport-field-test.md`](dev-notes/research/2026-08-12-webtransport-field-test.md)。
 >
 > **桌面与移动端都监听 WebTransport（2026-08-12 起）**，端口由系统分配 —— 浏览器直连原生端

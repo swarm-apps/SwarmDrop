@@ -1943,10 +1943,27 @@ Web 端是 `crates/web/src/lib.rs` 的 `Targets`）。
 
 ## 传输吞吐探针：常开、`info!`、汇总由 `Drop` 打（2026-08-10）
 
-`crates/transfer/src/probe.rs` 把每块的壁钟时间摊到若干阶段上，按块数节流地报告
-（发送 `read`/`proof`/`write`/`ack`，接收 `wait`/`verify`/`write`/`ckpt`/`rest`）。
+`crates/transfer/src/probe.rs` 把每块的壁钟时间摊到若干阶段上，按块数节流地报告。
 读法与四个实测案例写在
 [`dev-notes/research/2026-08-10-transfer-throughput-diagnosis.md`](../research/2026-08-10-transfer-throughput-diagnosis.md) §7。
+
+**收发两侧各有两条探针，不是各一条**（2026-08-12 起两侧都是并发双路径）：
+
+| role | 阶段 | 独占流？ |
+|---|---|---|
+| `send` | `read` · `proof` · `enqueue` | 否（备块） |
+| `send-frame` | `queue` · `write` · `ack` · `rest` | 是（发帧） |
+| `recv-frame` | `wait` · `enqueue` | 是（收帧） |
+| `recv` | `queue` · `verify` · `write` · `ckpt` · `rest` · `publish` | 否（消化） |
+
+命名规则：**`*-frame` 是独占流的那条，裸名是干活的那条。**
+
+**一个探针绝不能横跨两条并发路径**——那会破掉「各阶段之和 = 壁钟」这个判读前提
+（两条路径的耗时会重叠，加总必然超过壁钟，「差值 = 未计入开销」这条读法随之失效）。
+
+判读入口永远是那对互斥的桶：`enqueue` 大 = 下游顶住了（队列常满），`queue` 大 =
+上游跟不上（队列常空），两者都小 = 流水线满。**先用它们定出瓶颈在哪一侧，再往那侧的
+分阶段里看**——反过来先看 `read`/`verify` 的绝对值会误导，流水线满的时候它们本来就该大。
 
 三条设计判据，改它之前先读：
 
@@ -1967,6 +1984,41 @@ Web 端是 `crates/web/src/lib.rs` 的 `Targets`）。
 
 **相关文件**：`crates/transfer/src/probe.rs`、`crates/transfer/src/actor/sender.rs`、
 `crates/transfer/src/actor/receiver.rs`
+
+## 数据面的两侧都是「独占流的一条 ‖ 干活的一条」（2026-08-12）
+
+收发两端现在同构：一条循环**独占整条流**（收帧 / 发帧），另一条做重活（消化 / 备块），
+中间一条有界 `mpsc`，同任务 `futures::future::join` 驱动。**不 spawn、不 split 流**——
+`AsyncReadExt::split` 的 BiLock reader half 在 wasm 下不唤醒读端，那是整条数据面绕不开的
+硬约束，「一条流 + 一条队列」正是为了不碰它。
+
+四条判据，改任一侧之前都要过一遍：
+
+- **队列深度的判据两侧不同，别互抄。** 接收端 `DIGEST_QUEUE_CHUNKS = WINDOW_CHUNKS`
+  是硬要求（装得下整窗，收帧循环才能立即回 `Window` 放行下一窗）；发送端
+  `PREPARE_QUEUE_CHUNKS = 2` 只需盖住抖动（窗口节奏由本端 pacer 决定，**不经队列**）。
+  抄一个 16 到发送端会白占 4 MiB，还会让下一个人以为那个数有依据。
+- **`join` 不是 `try_join`。** 接收端：`try_join` 会在 `publish_file` 中途 drop 消化循环，
+  留下「文件已落到用户目录、`mark_file_completed` 却没执行」⇒ 恢复时重复发布。
+  发送端：会 drop 正在 `write_frame` 的发帧循环，流上留半截帧，随后写出的 `Abort`
+  被对端读成垃圾 ⇒ **真因当场丢失**。两侧都是正确性要求。
+- **终止帧只能在 join 之后写。** 队列关闭只说明对方收敛了，不代表「干完了」——
+  接收端的 `ensure_files_complete` + Finish 确认、发送端的 `Finish`，都必须等两条 result
+  都 `Ok`。发送端若在循环内部自己写 Finish，备块端失败时对端会被告知「传完了」。
+- **抛那条不是在观察对方退场的。** 接收端抛消化端、发送端抛发帧端。另一条此时只会报
+  「对端已退出」这类次生文案，先抛它会把归因整个盖掉。
+
+**并发结构的测试要构造死锁，不要断言字节。** 流水线化前后**流上的字节完全一样**，
+既有断言（帧计数、窗口边界、错误归因）串行实现全都能过——把两条循环合回一条，CI 全绿而
+吞吐减半，**「慢一倍」在 CI 里没有形状**。发送端那条守卫
+（`pipelines_reading_ahead_of_writing`）的做法是：**造一个把写按住不放、直到源文件被读过
+第二次的对端替身**。串行实现必然死锁（要等写完才读下一块，而写在等下一次读），流水线
+实现会把门推开。失败形态是超时。
+⚠️ 这类测试**自己也会假绿**：门槛写得够不着时它照样过。落之前把门槛调到永远开不了，
+确认它变红——发送端那条真跑过这一步。
+
+**相关文件**：`crates/transfer/src/actor/sender.rs`、`crates/transfer/src/actor/receiver.rs`、
+`openspec/changes/pipeline-send-path/design.md`
 
 ## 进度事件是**纯事件驱动**的，传输域里没有任何自走的 tick（2026-08-10）
 

@@ -42,23 +42,42 @@ use uuid::Uuid;
 /// 小于一个窗口的会话一条窗口报告都不会有，那正是 [`StageProbe::finish`] 存在的理由。
 const REPORT_EVERY: u64 = 256;
 
-/// 发送端的四个阶段。**顺序即热路径顺序**，与 [`SEND_READ`] 等下标常量绑定。
-pub(crate) const SEND_LABELS: [&str; 4] = ["read", "proof", "write", "ack"];
+/// 发送端**备块循环**的三个阶段。**顺序即热路径顺序**，与 [`SEND_READ`] 等下标常量绑定。
+///
+/// 收发两侧都是「独占流的那条 ‖ 干活的那条」，判读方式因此是同一套，见
+/// [`FRAME_LABELS`] 那段。发送侧的对应关系：
+///
+/// - 备块线的 `enqueue` 占大头 → **网络顶住了**（队列常满，背压在起作用）
+/// - 发帧线的 `queue` 占大头 → **备块跟不上**（队列常空，瓶颈在读源或 blake3）
+pub(crate) const SEND_LABELS: [&str; 3] = ["read", "proof", "enqueue"];
 /// 从宿主读源文件的一块。
 pub(crate) const SEND_READ: usize = 0;
-/// 算这一块的 bao proof。
+/// 算这一块的 bao proof。**wasm 单线程下它谁也压不住**——同步 CPU，是流水线的天花板。
 pub(crate) const SEND_PROOF: usize = 1;
+/// 入队阻塞——**被发帧端顶住的时间**，即背压。
+pub(crate) const SEND_ENQUEUE: usize = 2;
+
+/// 发送端**发帧循环**的四个阶段。**顺序即热路径顺序**，与 [`SEND_FRAME_QUEUE`] 等下标绑定。
+pub(crate) const SEND_FRAME_LABELS: [&str; 4] = ["queue", "write", "ack", "rest"];
+/// 等队列里出现下一块——**被备块端饿着的时间**。
+pub(crate) const SEND_FRAME_QUEUE: usize = 0;
 /// 把帧写进流——**含传输层背压等待**，症状 A 的头号观测点。
-pub(crate) const SEND_WRITE: usize = 2;
+pub(crate) const SEND_FRAME_WRITE: usize = 1;
 /// 满窗后等对端回 `Window`（停等流控的 RTT + 对端消化时间）。
-pub(crate) const SEND_ACK: usize = 3;
+pub(crate) const SEND_FRAME_ACK: usize = 2;
+/// 其余（进度簿记、`update_file_chunk`、事件投递）。
+///
+/// 流水线化之前这一段**不在任何桶里**，只表现为「占比之和 < 100%」。与接收端的
+/// [`DIGEST_REST`] 对称。
+pub(crate) const SEND_FRAME_REST: usize = 3;
 
 /// 接收端**收帧循环**的两个阶段。
 ///
-/// # 为什么接收端是两个探针而不是一个
+/// # 为什么收发两侧都是两个探针而不是一个
 ///
-/// 收帧与消化自 2026-08-10 起是**并发**的两条路径（有界队列相连，见
-/// `actor::receiver`）。用一个探针横跨它们会直接破掉这个模块的判读前提——
+/// 收帧与消化自 2026-08-10 起是**并发**的两条路径，发送端的备块与发帧自
+/// 2026-08-12 起同样如此（各由一条有界队列相连，见 `actor::receiver` /
+/// `actor::sender`）。用一个探针横跨它们会直接破掉这个模块的判读前提——
 /// [`StageProbe::lap`] 的各阶段之和恒等于壁钟，那只在**单条串行路径**上成立；
 /// 两条并发路径的耗时会重叠，加总必然超过壁钟，占比之和越过 100% 之后
 /// 「差值 = 未计入的开销」这条读法就彻底失效了。
@@ -69,6 +88,11 @@ pub(crate) const SEND_ACK: usize = 3;
 /// - 消化线的 `queue` 占大头 → **链路喂不饱**（队列常空，瓶颈在对端或网络）
 ///
 /// 两者同时很小才说明流水线是满的。
+///
+/// # role 的命名规则
+///
+/// `*-frame` 是**独占流**的那条，裸名是干活的那条：`recv-frame` / `recv`、
+/// `send-frame` / `send`。四条日志行因此是一套读法。
 pub(crate) const FRAME_LABELS: [&str; 2] = ["wait", "enqueue"];
 /// 等下一帧到达——**被链路饿着的时间**。
 pub(crate) const FRAME_WAIT: usize = 0;
@@ -96,8 +120,10 @@ pub(crate) const DIGEST_REST: usize = 4;
 /// 排在 `rest` **之后**：热路径上是先 `lap(DIGEST_REST)` 把簿记与进度事件结掉，再发布。
 pub(crate) const DIGEST_PUBLISH: usize = 5;
 
-/// 发送端探针。
-pub(crate) type SendProbe = StageProbe<4>;
+/// 发送端备块探针。
+pub(crate) type SendProbe = StageProbe<3>;
+/// 发送端发帧探针。
+pub(crate) type SendFrameProbe = StageProbe<4>;
 /// 接收端收帧探针。
 pub(crate) type FrameProbe = StageProbe<2>;
 /// 接收端消化探针。
@@ -287,8 +313,11 @@ mod tests {
         assert_eq!(DIGEST_LABELS[DIGEST_PUBLISH], "publish");
         assert_eq!(SEND_LABELS[SEND_READ], "read");
         assert_eq!(SEND_LABELS[SEND_PROOF], "proof");
-        assert_eq!(SEND_LABELS[SEND_WRITE], "write");
-        assert_eq!(SEND_LABELS[SEND_ACK], "ack");
+        assert_eq!(SEND_LABELS[SEND_ENQUEUE], "enqueue");
+        assert_eq!(SEND_FRAME_LABELS[SEND_FRAME_QUEUE], "queue");
+        assert_eq!(SEND_FRAME_LABELS[SEND_FRAME_WRITE], "write");
+        assert_eq!(SEND_FRAME_LABELS[SEND_FRAME_ACK], "ack");
+        assert_eq!(SEND_FRAME_LABELS[SEND_FRAME_REST], "rest");
     }
 
     #[test]
@@ -320,10 +349,10 @@ mod tests {
     fn window_report_resets_only_the_window() {
         // 翻页必须只清窗口、不动累计——否则 Drop 打出的 total 行会只覆盖最后一个
         // 不满 256 块的残窗，整场传输的汇总就没了。
-        let mut probe = SendProbe::new("send", Uuid::nil(), SEND_LABELS);
+        let mut probe = SendFrameProbe::new("send-frame", Uuid::nil(), SEND_FRAME_LABELS);
         for _ in 0..REPORT_EVERY {
             probe.mark();
-            probe.lap(SEND_WRITE);
+            probe.lap(SEND_FRAME_WRITE);
             probe.block_done(1024);
         }
         assert_eq!(probe.window_blocks, 0, "窗口应已翻页");

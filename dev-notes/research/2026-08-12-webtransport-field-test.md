@@ -76,11 +76,11 @@ profile 改回 `opt-level = 3` 的理由，见 `toolchain.md`）。改完之后 
   两次边界（收 = 读帧 + 写 OPFS，发 = 读 File + 写流）。拷贝次数对称。照着「减少拷贝」
   去优化会走偏。
 
-### 剩下的：**接收端流水线化了，发送端没有**
+### 归因：**接收端流水线化了，发送端没有**（已修）
 
-| | 接收端 | 发送端 |
+| | 接收端 | 发送端（改之前） |
 |---|---|---|
-| 形态 | `receiver.rs:374`：收帧 ‖ 消化两条并发路径，中间一条有界队列（`DIGEST_QUEUE_CHUNKS`），窗口确认**就地回、不等消化** | `sender.rs` 无 `join` / `spawn` / 队列；`write_block` 严格 `read_source_chunk().await → encode_proof() → write_frame().await` |
+| 形态 | 收帧 ‖ 消化两条并发路径，中间一条有界队列（`DIGEST_QUEUE_CHUNKS`），窗口确认**就地回、不等消化** | 无 `join` / `spawn` / 队列；`write_block` 严格 `read_source_chunk().await → encode_proof() → write_frame().await` |
 | 来源 | 2026-08-10 那轮流水线化（[`03-both-sides-waiting.md`](../blogs/transfer-throughput/03-both-sides-waiting.md)，拿回 50%） | **那轮没动它** |
 
 这正好解释了「为什么偏偏是浏览器发送慢」——串行本身是两端都有的，但它的**代价**只在
@@ -91,19 +91,40 @@ profile 改回 `opt-level = 3` 的理由，见 `toolchain.md`）。改完之后 
 - **浏览器发**：「读 + 算」是 `File.slice().array_buffer()` 的 promise 往返 + wasm 里
   无 SIMD 的 blake3，**这段时间完全不与网络发送重叠**。
 
-**量级估算**：256 KiB/块，9 MB/s ⇒ 29 ms/块；另一方向 20 MB/s ⇒ 13 ms/块。若网络写就是
-那 13 ms，剩下 ~16 ms 是白白串行掉的读+算。流水线化后应落到 `max(13, 16) ≈ 16 ms`
-⇒ **~16 MB/s，约 +80%**。这与 blog 03 在接收侧「拿回 50%」是同一个量级。
+**已落地（2026-08-12，openspec: `pipeline-send-path`）**：发送端拆成**备块 ‖ 发帧**两条
+并发路径，与接收端互为镜像。备块循环（读源 + 建 proof）是自由函数，签名里没有流、没有
+进度、没有事件总线；发帧循环独占流，窗口簿记是它的局部变量。
 
-⚠️ **这是最可能的原因，不是实测结论。** 上面那个估算依赖「20 MB/s 那向是写受限」这个
-未验证前提。别照着它直接开工——先读探针（下一节）。这个系列的
+### 天花板是 `proof`，这条别忘
+
+`join` 给的是**并发不是并行**，而 wasm 是单线程。真正能重叠的只有「已经交出去、在我们
+线程之外跑的事」：
+
+| 阶段 | 在哪跑 | 能否与我们的 CPU 重叠 |
+|---|---|---|
+| `read`（`File.slice().array_buffer()`） | 浏览器线程池 | ✅ |
+| `write`（WebTransport 写流） | 浏览器网络栈 | ✅ |
+| `proof`（blake3 + 拼 bao 切片） | **wasm 主线程，同步** | ❌ |
+
+每块壁钟从 `read + proof + write` 降到约 `proof + max(read, write)`：
+
+- `read≈8 / proof≈8 / write≈13`（ms）⇒ 29 → ~21 ⇒ 9 → **~12.4 MB/s**
+- `read≈16 / proof≈2 / write≈11` ⇒ 29 → ~18 ⇒ **~14.5 MB/s**
+- `proof` 独占 ⇒ 收益接近 0，该动的是 wasm blake3（本仓 wasm 构建没开 `+simd128`，纯标量）
+
+⚠️ **这是估算不是实测。** 这个系列的
 [`00-probe-over-elimination.md`](../blogs/transfer-throughput/00-probe-over-elimination.md)
-整篇就在讲上一轮怎么把「我没找到」当成了「它不存在」。
+整篇就在讲上一轮怎么把「我没找到」当成了「它不存在」——别把上面的区间当成结果。
 
-### 怎么量：探针已经在那儿，不用改代码
+### 怎么量：探针已拆成两条，不用改代码
 
-`SendProbe`（`crates/transfer/src/probe.rs`）已经把每块的壁钟时间摊到四个阶段上：
-**read / proof / write / ack**。
+`crates/transfer/src/probe.rs` 现在为发送端的两条路径各维护一个探针（一个探针横跨两条
+并发路径会破掉「各阶段之和 = 壁钟」这个判读前提）：
+
+| role | 阶段 |
+|---|---|
+| `send`（备块） | `read` · `proof` · `enqueue` |
+| `send-frame`（发帧，独占流） | `queue` · `write` · `ack` · `rest` |
 
 - 每 `REPORT_EVERY = 256` 块（= 64 MiB）打一条，会话结束时由 `Drop` 打一条汇总
   （失败路径也漏不掉）。
@@ -115,13 +136,18 @@ profile 改回 `opt-level = 3` 的理由，见 `toolchain.md`）。改完之后 
 
 | 读到什么 | 结论 |
 |---|---|
-| `read` 占大头 | 上面那条成立：瓶颈是 `File` 读 + 两次跨边界拷贝。解法是预取（读下一块与发当前块重叠），而不是把块调大 |
-| `write` 占大头 | 瓶颈是传输层背压（浏览器 WebTransport 的 `WritableStream`），与文件读无关 |
-| `proof` 占大头 | 上面对 blake3 的排除错了，回去查 wasm 侧的 bao/blake3（考虑 `simd128`） |
+| `send.enqueue` 占大头 | **网络顶住了**（队列常满，背压在起作用）。瓶颈在传输层，与文件读无关 |
+| `send-frame.queue` 占大头 | **备块跟不上**（队列常空）。再看 `send` 内部 `read` 与 `proof` 谁大 |
+| 两者都小 | 流水线已经满了，瓶颈在别处 |
+| `send.proof` 占大头 | 上面对 blake3 的排除错了，回去查 wasm 侧的 bao/blake3（`simd128`；以及 `encode_ranges_validated` 每块重算叶子哈希这件事） |
 | 各阶段之和 ≪ 100% | 有没被计入的等待，在循环之外——探针的文档明确说这个差值本身是信息 |
 
 移动端发送时同一条日志也会打（Android logcat），**两边对比**就能把「浏览器特有」与
 「本来就这样」分开。
+
+> 判读顺序有讲究：`enqueue` 与 `queue` 是**互斥**的两种形态（队列不可能既常满又常空），
+> 先用它们定出瓶颈在哪一侧，再往那一侧的分阶段里看。反过来先看 `read`/`proof` 的绝对值
+> 会误导——流水线满的时候它们本来就该"大"，那正是它们被藏起来的证据。
 
 ## 对既有决策的影响
 

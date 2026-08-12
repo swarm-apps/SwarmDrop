@@ -105,6 +105,33 @@ pub fn calc_total_chunks(file_size: u64) -> u32 {
     file_size.div_ceil(CHUNK_SIZE as u64) as u32
 }
 
+/// 把一条 `fetch_plan` range 展开成逐个传输块的 `(offset, length)`。
+///
+/// **`length == 0` 产出恰好一个空块**，那是零字节文件唯一的块（`full_fetch_plan` 会为
+/// `size == 0` 的文件给出一条长度为 0 的 range，对端据此建 sink 并发布）。
+///
+/// 这条规则在整个定义域上成立，**前提是非空文件的零长 range 已在协商阶段被拒**——
+/// 收发两侧的 `validate_fetch_plan` 各有一条 `file.size > 0 && length == 0` ⇒ 拒。
+/// 少了那道关，这里就会为一个非空文件产出一个空块，接收端收到后既写不进东西也推不动
+/// bitmap，会话卡在「对端说发完了、位图却不完整」上。
+///
+/// `offset + length` 不得溢出（同样由协商阶段的校验保证）——**故意不 `pub`**：
+/// 前置条件与它的守卫都住在本 crate 内，暴露出去就成了一条只能靠文档维系的约定。
+pub(crate) fn blocks_in_range(offset: u64, length: u64) -> impl Iterator<Item = (u64, usize)> {
+    let chunk = CHUNK_SIZE as u64;
+    // 零长 ⇒ `div_ceil` 给 0，而那正是必须产出一个空块的情形，单列。
+    let count = if length == 0 {
+        1
+    } else {
+        length.div_ceil(chunk)
+    };
+    (0..count).map(move |index| {
+        let consumed = index * chunk;
+        let len = (length - consumed).min(chunk) as usize;
+        (offset + consumed, len)
+    })
+}
+
 /// 尽力清理过期回收会话遗留的 `.part` 文件。
 ///
 /// 重启后原 `ReceiverActor`（及其 `created_sinks`）已不存在，故按 DB 文件元数据
@@ -146,4 +173,79 @@ pub struct HostEnumeratedFile {
     pub name: String,
     pub relative_path: String,
     pub size: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn blocks(offset: u64, length: u64) -> Vec<(u64, usize)> {
+        blocks_in_range(offset, length).collect()
+    }
+
+    #[test]
+    fn splits_a_range_on_chunk_boundaries() {
+        let chunk = CHUNK_SIZE as u64;
+        assert_eq!(blocks(0, chunk), vec![(0, CHUNK_SIZE)]);
+        assert_eq!(
+            blocks(0, chunk * 3),
+            vec![
+                (0, CHUNK_SIZE),
+                (chunk, CHUNK_SIZE),
+                (chunk * 2, CHUNK_SIZE)
+            ]
+        );
+        // 续传的 range 不从 0 起：块边界跟着 range 的起点走。
+        assert_eq!(
+            blocks(chunk * 2, chunk * 2),
+            vec![(chunk * 2, CHUNK_SIZE), (chunk * 3, CHUNK_SIZE)]
+        );
+    }
+
+    #[test]
+    fn last_block_may_be_short() {
+        let chunk = CHUNK_SIZE as u64;
+        assert_eq!(
+            blocks(0, chunk + 777),
+            vec![(0, CHUNK_SIZE), (chunk, 777)],
+            "尾块短于 CHUNK_SIZE 是合法的（文件末尾）"
+        );
+        assert_eq!(blocks(0, 1), vec![(0, 1)]);
+    }
+
+    /// 零长 range 产出**恰好一个**空块，而不是零个。
+    ///
+    /// 零个的后果是零字节文件永远等不到自己的块：接收端不会为它建 sink、也不会
+    /// 发布，而 `ensure_files_complete` 对 `size == 0` 直接放行 —— 会话报完成，
+    /// 文件却从未落地。
+    #[test]
+    fn zero_length_range_yields_exactly_one_empty_block() {
+        assert_eq!(blocks(0, 0), vec![(0, 0)]);
+    }
+
+    /// 非零长 range 绝不产出空块。
+    ///
+    /// 空块会让接收端的 bitmap 推不动，而对端已经把这一块算作发过了。
+    #[test]
+    fn non_empty_range_never_yields_an_empty_block() {
+        let chunk = CHUNK_SIZE as u64;
+        for length in [1, chunk - 1, chunk, chunk + 1, chunk * 4 + 3] {
+            assert!(
+                blocks(0, length).iter().all(|(_, len)| *len > 0),
+                "length={length} 产出了空块"
+            );
+        }
+    }
+
+    #[test]
+    fn block_lengths_sum_back_to_the_range() {
+        let chunk = CHUNK_SIZE as u64;
+        for length in [1, chunk, chunk * 5 + 12_345] {
+            let total: u64 = blocks(chunk * 7, length)
+                .iter()
+                .map(|(_, l)| *l as u64)
+                .sum();
+            assert_eq!(total, length, "切分不得增删字节");
+        }
+    }
 }
