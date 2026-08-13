@@ -51,9 +51,9 @@ mod store;
 pub use node::WebNode;
 pub use types::{
     ConnectionJson, Device, InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary,
-    InboxSearchHit, InviteListItemJson, OfferJson, PairInvitePreviewJson, PairingOutcomeJson,
-    PairingRefusedJson, PendingPairingJson, RelayInfoJson, RelayStateKind, WebError,
-    WebTransferEvent,
+    InboxSearchHit, InfraAddrError, InfraExclusion, InfraLink, InviteListItemJson, OfferJson,
+    PairInvitePreviewJson, PairingOutcomeJson, PairingRefusedJson, PendingPairingJson,
+    RelayLinkState, WebError, WebTransferEvent,
 };
 
 /// wasm 模块加载即初始化 panic hook + tracing（浏览器 console）。

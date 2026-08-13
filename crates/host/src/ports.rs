@@ -27,19 +27,19 @@ impl std::fmt::Debug for DeviceIdentityBytes {
     }
 }
 
-/// 身份存储迁移状态。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub enum IdentityMigrationState {
-    NotStarted,
-    Completed,
-}
-
-/// 宿主提供的安全身份存储。
+/// 宿主提供的设备身份存储。
 ///
 /// **只管密钥材料**（设备 Ed25519 身份 + WebRTC Direct 证书）。已配对设备列表不在这里，
 /// 见 [`PairedDeviceStore`]。
+///
+/// **名字描述的是角色，不是实现——别照它推断桌面走系统钥匙串。** 移动端确实是系统
+/// keychain（iOS Keychain / Android EncryptedSharedPreferences）；桌面端自 2026-08-11
+/// 起是 `app_local_data_dir` 下权限 0600 的明文文件（`src-tauri/src/host/identity_store.rs`，
+/// 根因与安全边界见那里的模块文档）。
+///
+/// **改名的触发条件：当没有任何一端还是 keychain 时。** 现在改是把一个对移动端准确的名字
+/// 换成一个更笼统的，而代价是 uniffi 那侧 `ForeignKeychainProvider` 的跨 FFI 契约与 4 个
+/// 入库的生成文件（cpp / ts）——不值。
 #[async_trait]
 pub trait KeychainProvider: Send + Sync {
     async fn load_identity(&self) -> AppResult<Option<DeviceIdentityBytes>>;
@@ -53,17 +53,14 @@ pub trait KeychainProvider: Send + Sync {
     async fn load_webrtc_certificate_pem(&self) -> AppResult<Option<String>>;
     async fn save_webrtc_certificate_pem(&self, pem: String) -> AppResult<()>;
     async fn delete_webrtc_certificate_pem(&self) -> AppResult<()>;
-
-    async fn load_migration_state(&self) -> AppResult<IdentityMigrationState>;
-    async fn save_migration_state(&self, state: IdentityMigrationState) -> AppResult<()>;
 }
 
 /// 已配对设备列表的持久化端口（整份快照读写）。
 ///
 /// **为什么它不属于 [`KeychainProvider`]。** 两者存的东西性质相反：密钥材料是不出进程的
-/// 秘密（宿主实现只负责把它交给系统钥匙串，任何人能读到都算泄露），而已配对设备列表是
+/// 秘密（宿主实现只负责把它交给平台的安全存储或受限文件，任何人能读到都算泄露），而已配对设备列表是
 /// 可导出、会被整份覆写、将来还可能供用户备份的**业务数据**。合成一个 trait 的代价由
-/// 没有钥匙串的那一端付：浏览器为了存一份设备列表得实现六个永远不该被调用的密钥方法，
+/// 没有密钥存储的那一端付：浏览器为了存一份设备列表得实现六个永远不该被调用的密钥方法，
 /// 而 `load_identity()` 返回 `Ok(None)` 这种「实现了但不能用」的方法是最容易被误用的
 /// 形态——调用方编译通过、运行期静默无效。拆开之后 Web 端只实现这两个方法，也就没有
 /// 理由再在自己那侧长一套平行实现。
@@ -145,7 +142,12 @@ pub struct FinalizedSink {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum CoreSaveLocation {
-    /// 文件系统绝对路径（桌面）或 `Paths.document` 子路径（移动端）。
+    /// 宿主自己解释的保存位置串，**core 视其为不透明**。
+    ///
+    /// 桌面是文件系统绝对路径；移动端是 expo-file-system 的 URI，**可能是 `file://`，
+    /// 也可能是 Android SAF 的 `content://` tree**（用户在设置里选了系统公共目录时）；
+    /// Web 是 OPFS 的相对路径。名字叫 `Path` 是历史，别据此假设它一定是文件系统路径——
+    /// 移动端的发布路径正是靠嗅探 `content://` 前缀来分派的。
     Path { path: String },
 }
 
@@ -184,6 +186,32 @@ pub struct HostFileMetadata {
 }
 
 /// 宿主文件访问能力。
+///
+/// # 接收侧是「暂存 → 发布」两个阶段
+///
+/// `create_sink`/`open_or_create_sink` 开的是**暂存**，不是最终文件；
+/// `finalize_sink` 才把它发布到用户选定的位置并回报它最终在哪。
+/// 实现方必须满足下面四条——它们不是建议，core 的恢复逻辑直接依赖：
+///
+/// 1. **暂存位置的文件描述符必须由本进程完全拥有。** 接收期间的随机写
+///    （定位偏移 + 写）只能施加于这样的 fd。由外部文档提供方授予的描述符
+///    （Android SAF 经 `ContentResolver` 拿到的那种）**不满足**：它可能在本进程
+///    无从感知的情况下失效，使已打开的文件通道在自身仍报告为「打开」的状态下、
+///    于下一次定位操作失败。外部位置只能在发布阶段被**顺序**写一次。
+/// 2. **暂存位置必须是 [`HostFileMetadata`] 的确定性函数**（`save_dir` + `relative_path`）。
+///    续传只拿得到元信息——里面**没有会话标识**——却必须重新接上同一份暂存。
+/// 3. **`finalize_sink` 只发布、不校验。** 完整性由 bao 逐块验签在落盘前保证
+///    （`root == 整文件 blake3` 是它的不变量），再读一遍整个文件是纯冗余。
+/// 4. **发布失败意味着「数据完好、只是搬不过去」**（空间不足 / 权限被撤 / fd 失效），
+///    不意味着数据损坏。实现方 SHALL 保留暂存，使调用方能原地重试而不必让对端
+///    重传任何字节；core 据此**不会**重置该文件的分块进度。
+///
+/// 完整推导见 `openspec/changes/receive-staging-publish/`。
+///
+/// **Web 实现目前不满足第 1、4 条**（`crates/web/src/file_access.rs`）：它直接把
+/// OPFS 的最终路径当暂存写，`finalize_sink` 只是 `close()`。OPFS 的句柄归本进程所有，
+/// 所以第 1 条的**风险**在那里不存在；但「发布失败后可原地重试」在那边是未定义的。
+/// 这是已知缺口，不是可以照抄的先例。
 #[async_trait]
 pub trait FileAccess: Send + Sync {
     async fn source_metadata(&self, source: &FileSourceId) -> AppResult<HostFileMetadata>;
@@ -196,9 +224,10 @@ pub trait FileAccess: Send + Sync {
     /// - `offset` 越过 EOF → 返回空 `Vec`（不报错）；尾部不足 `length` → 截断到 EOF；
     /// - 禁止返回超过 `length` 的数据（内核视为违约、响错拒收）。
     ///
-    /// 调用方包括按 16KiB 粒度、非对齐 offset 读的 bao outboard 构建——
-    /// 不要假设 offset/length 与任何 chunk 尺寸对齐。参考实现（含契约单测）：
-    /// 桌面 `src-tauri/src/host/file_source/path_ops.rs::read_at_sync`。
+    /// 调用方包括 bao outboard 构建（顺序读、粒度 ≤ 一个 chunk group）与 sender 的
+    /// 逐块推送。**不要假设 offset/length 与任何 chunk 尺寸对齐**——2026-08 之前那两条
+    /// 路的粒度差 16 倍（16KiB vs 256KiB），现在恰好相同，但对齐从来不是契约的一部分。
+    /// 参考实现（含契约单测）：桌面 `src-tauri/src/host/file_source/path_ops.rs::read_at_sync`。
     async fn read_source_chunk(
         &self,
         source: &FileSourceId,
@@ -206,19 +235,30 @@ pub trait FileAccess: Send + Sync {
         length: usize,
     ) -> AppResult<Vec<u8>>;
 
+    /// 开一条**新**暂存：同名残留一律清空。用于首次传输。
     async fn create_sink(&self, metadata: HostFileMetadata) -> AppResult<FileSinkId>;
-    async fn open_or_create_sink(&self, metadata: HostFileMetadata) -> AppResult<FileSinkId> {
-        self.create_sink(metadata).await
-    }
+
+    /// 接上一条**已有**暂存，没有才新建；已有内容必须**保留**。用于续传。
+    ///
+    /// **没有默认实现是刻意的**——曾经的默认是转调 `create_sink`，那会在续传时把暂存
+    /// 截断，随后只补拉缺失的块，产出一个长度正确、内容有洞的文件。而 core 这一侧再也
+    /// 拦不住它：发布不做整文件校验了（第 3 条），完整性判定只看分块位图。
+    /// 漏实现必须在编译期红，同 [`delete_finalized_file`](Self::delete_finalized_file)。
+    async fn open_or_create_sink(&self, metadata: HostFileMetadata) -> AppResult<FileSinkId>;
+
     async fn write_sink_chunk(
         &self,
         sink: &FileSinkId,
         offset: u64,
         data: Vec<u8>,
     ) -> AppResult<()>;
-    /// 校验并最终化 sink，返回文件的**最终落盘位置及其父目录**（桌面端为 .part
-    /// 重命名后的绝对路径 + 其 dirname，移动端为 expo-file-system 的 file:// /
-    /// SAF document URI + 对应目录 URI）。
+
+    /// **发布**这条暂存到用户选定的位置，返回文件的**最终落盘位置及其父目录**
+    /// （桌面端为 `.part` 重命名后的绝对路径 + 其 dirname，移动端为 expo-file-system 的
+    /// `file://` / SAF document URI + 对应目录 URI）。
+    ///
+    /// **不做完整性校验**（trait 文档第 3 条）。**失败表示搬不过去、而非数据损坏**
+    /// （第 4 条）：实现方 SHALL 保留暂存，并尽力删除目标位置上的不完整产物。
     ///
     /// 返回值是 host 对「文件实际在哪」唯一诚实的事实源——保存目录 + 相对路径的
     /// 字符串拼接推导不出它（SAF URI 有独立的 document 段编码，重名冲突还会被

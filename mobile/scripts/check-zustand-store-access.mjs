@@ -14,9 +14,31 @@ const allowlist = [
     reason: "native core event bridge",
   },
   {
+    file: "src/core/foreign-file-access.ts",
+    pattern: /useTransferStore\s*\.\s*getState\s*\(/,
+    reason:
+      "native file-access callback: publish byte reporting, called from Rust not React",
+  },
+  {
     file: "src/core/paths.ts",
     pattern: /usePreferencesStore\s*\.\s*getState\s*\(/,
     reason: "synchronous receive-path utility",
+  },
+  {
+    file: "src/core/receive-location.ts",
+    pattern: /usePreferencesStore\s*\.\s*getState\s*\(/,
+    reason: "synchronous receive-location resolver, called from Rust publish path",
+  },
+  {
+    file: "src/core/onboarding-flow.ts",
+    pattern: /usePreferencesStore\s*\.\s*getState\s*\(/,
+    reason: "synchronous onboarding-step derivation outside React",
+  },
+  {
+    file: "src/components/device-organization-sheets.tsx",
+    pattern: /usePreferencesStore\s*\.\s*getState\s*\(/,
+    reason:
+      "imperative present(): snapshot seeds local edit state; subscribing would clobber in-progress edits",
   },
   {
     file: "src/lib/device-name.ts",
@@ -24,8 +46,13 @@ const allowlist = [
     reason: "synchronous device-name utility outside React",
   },
   {
+    // ⚠️ store 名进了正则，所以**改 store 名要回来改这里**：这条原本写的是
+    // `PairingCode`Store，6 位分享码换成 PairInvite 之后没跟着改，于是同一段
+    // orchestration 代码一夜之间变成两条「违规」，而这个脚本当时零 CI 覆盖，
+    // 谁都没看见。
     file: "src/stores/mobile-core-store.ts",
-    pattern: /use(Preferences|PairingCode)Store\s*\.\s*getState\s*\(/,
+    pattern:
+      /use(Preferences|PairingInvite)Store\s*\.\s*(getState|setState)\s*\(/,
     reason: "mobile core lifecycle orchestration",
   },
   {

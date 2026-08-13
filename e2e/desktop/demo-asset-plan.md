@@ -69,12 +69,12 @@ flowchart LR
 - **`SWARMDROP_DATA_DIR`**（`src-tauri/src/host/paths.rs`，**仅 debug build 生效**）：设置后 identity /
   device_config / SQLite 全落到该目录，真实用户 profile 零接触；未设置时走平台默认目录，release 永不启用。
 - **`seed_demo_profile`**（`crates/core/examples/seed_demo_profile.rs`）：复用 app 的 `PairedDeviceInfo`
-  结构 + libp2p 生成**合法假 PeerId**（否则 `file_keychain` 反序列化会因非法 PeerId 整份退化为空），
+  结构 + libp2p 生成**合法假 PeerId**（否则 `paired-devices.json` 解析失败，`load_paired_devices` 会整份退化为空——报错的只有 `identity.json`），
   写入一组通用名设备（本人设备 / 协作者 / 待确认 / 临时）。
 
 > **订正（openspec `device-config-port`）：上面这条覆盖此前从未生效过。** `paths.rs` 写好了，
 > 但 `src-tauri/src/host.rs` 里**没有 `pub mod paths;`** —— 模块从未被编译进 app，三个调用方
-> （`file_keychain` / `device_config` / `database`）直读 Tauri 的 `app_data_dir()` /
+> （`identity_store` / `device_config` / `database`）直读 Tauri 的 `app_data_dir()` /
 > `app_local_data_dir()`。于是实际发生的是：seeder 认这个变量、往 fixture 目录写假身份，app
 > 不认、照旧从**真实 profile** 读。**本 change 之前录出的素材带的是真实设备名与 peer ID，
 > §6 的隐私前提并不成立**；已产出的素材需按 §6 重新核对（必要时重录）。
@@ -131,12 +131,12 @@ P2P 状态、无法 seed，故此路唯一可行。隐私门槛放宽：**只需
 - **待补的编排点**：① 移动侧 Appium 需 **WebDriverAgent**（未构建；首个 Appium 会话会自动构建）；
   ② orchestrator 的 `SWARMDROP_E2E_DEVICE_NAME` 兼作"找名为该值的 sim"，我的 sim 名是 "iPhone 17"，
   需 `SWARMDROP_IOS_UDID=<udid>` 覆盖；③ 桌面走 fixture 需传 `SWARMDROP_DATA_DIR` +
-  `SWARMDROP_DESKTOP_IDENTITY_FILE` 指向 fixture；④ 移动 spec 默认 reset 重装（会自行 onboarding）。
+  `SWARMDROP_DESKTOP_PAIRED_DEVICES_FILE` 指向 fixture；④ 移动 spec 默认 reset 重装（会自行 onboarding）。
 
 ```bash
 SWARMDROP_IOS_UDID=<sim-udid> \
 SWARMDROP_DATA_DIR=e2e/desktop/build/demo-profile \
-SWARMDROP_DESKTOP_IDENTITY_FILE=e2e/desktop/build/demo-profile/dev-identity.json \
+SWARMDROP_DESKTOP_PAIRED_DEVICES_FILE=e2e/desktop/build/demo-profile/paired-devices.json \
 node e2e/desktop/scripts/record-transfer-demo.mjs --skip-build
 ```
 

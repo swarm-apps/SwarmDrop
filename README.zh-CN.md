@@ -22,15 +22,23 @@
 
 把 LocalSend 的体验从局域网里解放出来：在你的**任意**设备之间、跨任意网络传文件，且只有收发双方能解密。不用注册，中间也没有任何中央服务器。
 
+桌面、Android，以及[无需安装的浏览器端](https://swarm-apps.github.io/SwarmDrop/app)都能用。三端都是真正的传输端点，由同一份 Rust 内核驱动，而不是「一个完整客户端 + 一个配套网页」。
+
 它还内置一个本地 MCP Server，AI Agent 因此可以跨设备投递文件、检索你收到过的东西。
+
+> **项目状态。** 核心功能已经完成并稳定运行了一段时间：跨网络传输、配对、断点续传、
+> 三端客户端、MCP。当前工作集中在收尾打磨——三端交互对齐、边界状态文案，以及真机链路的
+> 收敛（尤其是跨网络那条）。这个阶段最有价值的反馈就是 bug 与用起来别扭的地方。
 
 ## 特性
 
 - **跨网络** —— 局域网或公网都行。mDNS、Kademlia DHT、中继与 DCUtR 打洞自动选路。
 - **端到端加密** —— 每条连接都经 Noise 或 TLS 1.3 加密并双向鉴权，中继只转发它没有密钥的密文。
 - **无账号、无服务器** —— 用一次性签名邀请（链接或二维码）配对，或让局域网自动发现设备。
-  Ed25519 设备身份存放在系统钥匙串里。
+  设备身份是一对 Ed25519 密钥，只存在本地。
 - **断点续传** —— BLAKE3 + bao-tree 逐块验签，每块收到即验。掉线、重启、弱网都能扛。
+- **浏览器里也能跑** —— 同一份内核编译成 wasm，配对、传输、续传与 OPFS 落盘一应俱全，
+  走 WebRTC 与 WebTransport。不装插件，不装应用。
 - **可被 Agent 驱动** —— 内置 MCP Server 把传输与收件箱检索开放给 AI Agent。
 
 ## 下载
@@ -95,7 +103,7 @@ graph TB
         D["mDNS · 局域网发现"]
         E["Kademlia DHT · presence 记录"]
         F["Relay + DCUtR · NAT 穿透"]
-        H["TCP · QUIC · WebRTC-Direct"]
+        H["TCP · QUIC · WebRTC · WebTransport"]
     end
     Shells -- "typed IPC / uniffi / wasm-bindgen" --> Core
     Core -- "Endpoint API" --> Net
@@ -103,7 +111,9 @@ graph TB
 
 **安全模型**
 
-- **设备身份** —— Ed25519 密钥对，私钥交给系统钥匙串（Keychain / 凭据管理器 / Secret Service）。
+- **设备身份** —— Ed25519 密钥对。移动端私钥交给系统安全存储（iOS Keychain / Android
+  EncryptedSharedPreferences）；桌面端存在应用数据目录下仅本人可读的文件里（unix 权限 0600），
+  形态与无口令的 SSH 私钥一致——它防的是「同机的其他用户」，不防「以你的身份运行的其他进程」。
 - **配对** —— 一次性签名邀请：Ed25519 签名 + 128 位凭证 + 24 小时有效期。凭证放在 URL fragment
   里，因此永远不会到达服务器。
 - **传输加密** —— Noise（TCP / WebRTC）或 TLS 1.3（QUIC）。每条连接各自握手、使用全新临时密钥，
@@ -124,8 +134,9 @@ graph TB
 | 状态 / 路由 | Zustand 5 · TanStack Router |
 | 国际化 | Lingui 6（zh · zh-TW · en）+ rust-i18n（原生串） |
 | 后端 | Rust 2024 · Tauri 2 · SeaORM + SQLite |
-| P2P | 自研 `swarmdrop-net` —— libp2p 之上的 iroh 风格 `Endpoint` API（mDNS · Kademlia · Relay · DCUtR · WebRTC-Direct），native + wasm 双 target |
-| 安全 | 系统钥匙串 · Ed25519 · Noise / TLS 1.3 · BLAKE3 + bao-tree |
+| P2P | 自研 `swarmdrop-net` —— libp2p 之上的 iroh 风格 `Endpoint` API（mDNS · Kademlia · Relay · DCUtR），native + wasm 双 target |
+| 传输层 | TCP · QUIC · WebRTC（打洞 + direct）· WebTransport —— 后两者是自研的 libp2p transport，上游在这两处都有缺口 |
+| 安全 | Ed25519 身份 · Noise / TLS 1.3 · BLAKE3 + bao-tree |
 | AI | 内置 MCP Server（rmcp + axum，仅 `127.0.0.1`） |
 | IPC 类型 | tauri-specta —— 命令与事件全类型化 |
 
@@ -155,7 +166,9 @@ pnpm tauri build    # 打包
 - [x] 文件传输 —— 实时进度、历史、断点续传
 - [x] MCP Server —— Agent 可发文件、检索收件箱
 - [x] 移动端
-- [ ] 浏览器端（wasm）—— [`/app`](https://swarm-apps.github.io/SwarmDrop/app) 已可用，仍在收敛
+- [x] 浏览器端（wasm）—— [`/app`](https://swarm-apps.github.io/SwarmDrop/app) 是一个完整节点：配对、传输、续传
+- [ ] **收尾打磨** —— 三端交互对齐、边界状态、真机链路收敛
+- [ ] 跨网络吞吐的真机实测（局域网已测，中继与打洞两条路径还没有）
 - [ ] MCP 覆盖完整传输生命周期 —— 状态 · 取消 · 暂停 · 恢复
 - [ ] 端上内容提取，让收件箱检索更强
 
@@ -173,11 +186,20 @@ pnpm tauri build    # 打包
 
 ## 相关项目
 
-- **SwarmNote** —— 去中心化的加密笔记。
-  [桌面端](https://github.com/swarm-apps/SwarmNote) · [移动端](https://github.com/swarm-apps/SwarmNote-RN)
 - **SwarmHive** —— 面向 Tauri 与 React Native 应用的可自托管开源发布与更新服务。
   SwarmDrop 自己的每次更新都走它，你也可以。
   [仓库](https://github.com/swarm-apps/SwarmHive)
+- **SwarmNote** —— 去中心化的加密笔记。**已停止维护**：笔记这个赛道做的人足够多了，
+  精力集中到这里更值得。
+  [桌面端](https://github.com/swarm-apps/SwarmNote) · [移动端](https://github.com/swarm-apps/SwarmNote-RN)
+
+## 相关文章
+
+- [浏览器不能监听端口、没有文件系统，凭什么能点对点传文件？](https://juejin.cn/post/7673332898415263785)
+  —— WebRTC、WebTransport 与 OPFS，以及把浏览器变成一个真正节点的过程。
+  原文在 [`dev-notes/blogs/three-clients-web/`](dev-notes/blogs/three-clients-web/README.md)。
+- [一套 Rust 核心，跑通 Tauri + React Native](https://juejin.cn/post/7639930076302770216)
+  —— 本项目所基于的架构。
 
 ## 许可证
 

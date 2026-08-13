@@ -346,11 +346,18 @@ impl DeviceManager {
     }
 }
 
-/// 内核连接路径映射到产品层连接类型。
+/// 内核连接路径映射到产品层连接类型。**一对一，本层不做任何推断。**
+///
+/// 「这条连接是不是打洞来的」只有内核看得见（`classify_path` 的 `is_hole_punched`，
+/// 以及它还没接上的 `dcutr::Event`），所以那个区分住在 `PathKind` 里。本函数一度靠
+/// `TransportKind == Webrtc` 把 `PathKind::Direct` 反推成两档，那是错的两次：既依赖
+/// 一条无人看守的谓词等价关系，又看不见 libp2p DCUtR 打出的 TCP/QUIC 直连
+/// （原生端 `dcutr` behaviour 开着，见 `PathKind` 文档的已知缺口）。
 fn path_to_connection(path: PathKind) -> ConnectionType {
     match path {
         PathKind::Local => ConnectionType::Lan,
-        PathKind::Direct => ConnectionType::Dcutr,
+        PathKind::Direct => ConnectionType::Direct,
+        PathKind::HolePunched => ConnectionType::Dcutr,
         PathKind::Relayed => ConnectionType::Relay,
     }
 }
@@ -410,7 +417,7 @@ impl ConnectionSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use swarmdrop_net::{ProtocolId, SecretKey};
+    use swarmdrop_net::{ProtocolId, SecretKey, TransportKind};
 
     fn manager() -> DeviceManager {
         DeviceManager::new(Arc::new(DashMap::new()), Arc::new(DashMap::new()))
@@ -505,6 +512,57 @@ mod tests {
         assert!(
             !mgr.is_lan_discovered(&peer_id),
             "identify 自报地址不可信，不得据此授予局域网身份"
+        );
+    }
+
+    /// **产品层是纯搬运：四档一对一，本层不做任何推断。**
+    ///
+    /// 这条同时钉住 `Direct → Dcutr` 那个错标不会复发（它曾让每一条非私网非中继的
+    /// 连接都显示「打洞」），以及**不许再靠 `TransportKind` 反推打洞**——那条弯路
+    /// 看不见 libp2p DCUtR 打出的 TCP/QUIC 直连，会把真打洞判成「没打洞」。
+    #[test]
+    fn connection_type_maps_one_to_one_from_path_kind() {
+        assert_eq!(path_to_connection(PathKind::Local), ConnectionType::Lan);
+        assert_eq!(path_to_connection(PathKind::Direct), ConnectionType::Direct);
+        assert_eq!(
+            path_to_connection(PathKind::HolePunched),
+            ConnectionType::Dcutr
+        );
+        assert_eq!(path_to_connection(PathKind::Relayed), ConnectionType::Relay);
+    }
+
+    /// 现场那条 Tailscale 链路走完整条快照，徽标与链路详情不得自相矛盾。
+    ///
+    /// 修复前它的徽标是「打洞」、详情里写着 `WebTransport`——一个内核产不出来的组合。
+    /// 内核判据（`classify_path` 为什么给 `Direct` 而不是 `HolePunched`）由
+    /// `crates/net` 的 `dialed_address_is_direct_not_hole_punched` 看守，这里只钉产品层。
+    #[test]
+    fn badge_and_link_details_agree_on_the_transport() {
+        let mgr = manager();
+        let peer_id = peer();
+        // 现场抓到的那条：Tailscale 的 100.64/10 地址 + WebTransport。
+        let addr = "/ip4/100.112.160.47/udp/62829/quic-v1/webtransport/certhash/uEiBuBPteUjlXiXM9izTtEdpg3C0QHFZ0A2m6aSjsbv2oeA/certhash/uEiDSOtFQBoepe-LRH2mZPMLHGoMcxnmaM8a02_72my1v9Q";
+
+        mgr.handle_event(&NetEvent::PeerConnected {
+            node: peer_id,
+            path: PathKind::Direct,
+            addr: addr.parse().unwrap(),
+        });
+
+        let snapshot = mgr
+            .peers
+            .get(&peer_id)
+            .map(|p| ConnectionSnapshot::from_peer(p.value()))
+            .expect("peer 已连接");
+
+        assert_eq!(
+            snapshot.details.and_then(|d| d.transport),
+            Some(TransportKind::Webtransport)
+        );
+        assert_eq!(
+            snapshot.connection,
+            Some(ConnectionType::Direct),
+            "WebTransport 直连不是打洞"
         );
     }
 }

@@ -18,7 +18,11 @@ import {
 import type { Device, TransferProjection } from "../_lib/view-types";
 
 /**
- * 会话筛选。与桌面 `_app/transfer/index.lazy.tsx` 的四档同名同义。
+ * 会话筛选。四档与桌面 `_app/transfer/index.lazy.tsx` **同名，但判据尚未同义**——
+ * 桌面的 `active` 是 offered/waiting/active（不含 suspended）、`ended` 还收编了
+ * 「不可恢复的中断」，本端两者都只看 `phase === "terminal"` 这条线。于是一条不可恢复
+ * 的中断会话在桌面归「已结束」、在这里归「进行中」。这是与「桌面按 startedAt、另两端按
+ * updatedAt」同型的漂移，记在 `DESIGN.md` 契约的 open gaps 里，收敛要先裁决哪个对。
  *
  * `recoverable` 单独成一档而不是并进 `active`：它是**要用户做点什么**的那一类
  * （点续传），而 active 是「不用管，它自己在跑」。桌面把这条分得很清楚。
@@ -47,9 +51,14 @@ export const DIRECTION_LABEL: Record<TransferProjection["direction"], MessageDes
   receive: msg`接收`,
 };
 
+/**
+ * 连接方式的一句话结论。`direct` 与 `dcutr` 为什么必须是两个词、四个词为什么必须
+ * 三端逐字一致：见 DESIGN.md 的 Slot 6 vocabulary 与 `crates/host` 的 `ConnectionType`。
+ */
 export const CONNECTION_LABEL: Record<NonNullable<Device["connection"]>, MessageDescriptor> = {
   lan: msg`局域网`,
-  dcutr: msg`打洞直连`,
+  direct: msg`直连`,
+  dcutr: msg`打洞`,
   relay: msg`中继`,
 };
 
@@ -72,8 +81,14 @@ export const TERMINAL_LABEL: Record<NonNullable<TransferProjection["terminalReas
 };
 
 /**
- * 按筛选分组。入参已排好序——排序只依赖 projections，别和只影响分组的参数挤进同一个 memo，
- * 否则每换一次筛选都要重跑一次全量排序。
+ * 单条会话是否命中某一档筛选。
+ *
+ * ## 列表是一条纯时间线（2026-08-12）
+ *
+ * 此前这里是 `groupSessions`，把结果切成 active / history 两段、「已结束」一段带自己的
+ * 小标题。分段读起来像是帮用户分好了类，实际代价是「最近发生了什么」读不出来：一条刚
+ * 失败的会话会排在一堆几天前的完成记录之后，因为它在下半段。现在只筛不分，顺序全交给
+ * `sortByTimelineDesc`——判据见 `DESIGN.md` 的 **Transfer List Order Contract**。
  *
  * ## 历史不再截断（2026-08-04）
  *
@@ -85,23 +100,20 @@ export const TERMINAL_LABEL: Record<NonNullable<TransferProjection["terminalReas
  * 普通列表，几百条会话的 DOM 量级完全撑得住（每行是三行文字 + 一条进度条），真到需要分页
  * 的规模时该做的是分页，而不是悄悄丢掉。
  */
-export function groupSessions(sorted: TransferProjection[], filter: SessionFilter) {
-  const active: TransferProjection[] = [];
-  const history: TransferProjection[] = [];
-
-  for (const projection of sorted) {
-    const live = isActiveSession(projection);
-    const matches =
-      filter === "all" ||
-      (filter === "active" && live) ||
-      (filter === "recoverable" && isRecoverableSession(projection)) ||
-      (filter === "ended" && projection.phase === "terminal");
-    if (!matches) continue;
-    if (live) active.push(projection);
-    else history.push(projection);
+export function matchesSessionFilter(
+  projection: TransferProjection,
+  filter: SessionFilter,
+): boolean {
+  switch (filter) {
+    case "all":
+      return true;
+    case "active":
+      return isActiveSession(projection);
+    case "recoverable":
+      return isRecoverableSession(projection);
+    case "ended":
+      return !isActiveSession(projection);
   }
-
-  return { active, history, total: active.length + history.length };
 }
 
 export function connectionByPeer(devices: Device[]) {
@@ -109,25 +121,23 @@ export function connectionByPeer(devices: Device[]) {
 }
 
 /**
- * 未知连接方式的兜底标签。**必须是模块级常量**：`msg` 宏每次求值都新建一个对象，写在
- * `connectionLabel` 的返回位上会让它每次调用返回新引用——而这个值是 `TransferActivityItem`
- * 的 prop，那个组件靠 `memo` 让「每秒十余次的进度事件只重渲染它自己那一行」。
- * 新引用会把整张表的 memo 打穿。
- */
-export const UNKNOWN_CONNECTION_LABEL = msg`连接类型未知`;
-
-/**
  * 下面两个返回**描述符**而非字符串：它们是模块级纯函数，翻译宏在这里只能定义、不能展开
  * （展开要 `useLingui()`，那是组件的事）。调用点拿到描述符自己 `t(...)`。
  *
- * 两者的返回值都必须是**稳定引用**（见上），所以只从模块级的映射表里取，不现造。
+ * 返回值必须是**稳定引用**：`msg` 宏每次求值都新建一个对象，写在返回位上会让每次调用都
+ * 换引用，而这个值是 `TransferActivityItem` 的 prop，那个组件靠 `memo` 让「每秒十余次的
+ * 进度事件只重渲染它自己那一行」。所以只从模块级的映射表里取，不现造。
  */
 export function connectionLabel(
   projection: TransferProjection,
   connections: Map<string, Device["connection"]>,
-): MessageDescriptor {
+): MessageDescriptor | null {
+  // 查不到连接方式时返回 `null` 而不是一句「连接类型未知」：那句话在**每一条**历史会话上
+  // 都成立（对端早就不在连接表里了），于是列表里每行都挂着同一句不携带任何信息的话，
+  // 详情侧的摘要行也被它占掉三分之一。`null` 让调用点整段省掉——同 `TransferMetrics`
+  // 「算不出来就不摆这一格」的取舍。
   const connection = connections.get(projection.peerId);
-  return connection ? CONNECTION_LABEL[connection] : UNKNOWN_CONNECTION_LABEL;
+  return connection ? CONNECTION_LABEL[connection] : null;
 }
 
 export function phaseLabel(projection: TransferProjection): MessageDescriptor {

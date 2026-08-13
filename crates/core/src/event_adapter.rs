@@ -40,6 +40,7 @@ impl From<TransferEvent> for CoreEvent {
                 CoreEvent::TransferProjection { projection }
             }
             TransferEvent::PrepareProgress { event } => CoreEvent::PrepareProgress { event },
+            TransferEvent::FilePublish { event } => CoreEvent::FilePublish { event },
         }
     }
 }

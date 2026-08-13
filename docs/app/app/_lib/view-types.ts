@@ -14,13 +14,21 @@ export type {
   TransferRejectedEvent,
   TransferProgressEvent,
   PrepareProgressEvent,
+  // 文件级发布事件（暂存 → 用户可见位置）。**不是会话级**：一个会话收齐一个文件就发布一次，
+  // 所以一条 100 文件的会话会发 100 次，散布在整条传输里。
+  FilePublishEvent,
+  FilePublishPhase,
   PendingPairingJson,
   PairInvitePreviewJson,
   ConnectionJson,
   OfferRejectReason,
   PathKindJson,
-  RelayInfoJson,
-  RelayStateKind,
+  InfraLink,
+  RelayLinkState,
+  InfraExclusion,
+  InfraAddrError,
+  BootstrapCandidateSource,
+  CandidateScope,
   Device,
   DeviceTrustLevel,
   DeviceReceivePolicy,
@@ -38,6 +46,8 @@ import type { MessageDescriptor } from "@lingui/core";
 // 上面那段是**纯再导出**（`export type {...}`），本模块自己用不到那些名字——
 // 下面的标签映射要按枚举取值建 Record，所以另 import 一次。
 import type {
+  InboxItemDetail,
+  InboxItemFileEntry,
   InboxItemSummary,
   OfferRejectReason,
   PairingRefusedJson,
@@ -97,14 +107,14 @@ export function failureCodeLabel(
 ): MessageDescriptor | null {
   if (!failure) return null;
   switch (failure.code) {
-    case "fileFinalizeFailed":
-      return msg`「${failure.fileName}」没能完整保存，请重新接收`;
     case "sessionExpired":
       return msg`超过 ${failure.retentionDays} 天未恢复，已自动清理`;
     case "resumeRejected":
       return RESUME_REJECT_LABEL[failure.reason.type];
     case "offerFailed":
       return msg`发送请求没能送达对方，请确认对方在线后重试`;
+    case "peerProtocolUnsupported":
+      return msg`对方的 SwarmDrop 版本太旧，无法接收这次传输，请让对方升级后重试`;
     case "legacy":
       // 判别码引入之前落库的自由文本，原样展示（多为简体中文）。
       return { id: failure.message, message: failure.message };
@@ -149,16 +159,79 @@ export const OFFER_REJECT_REASON_LABEL: Record<OfferRejectReason["type"], Messag
 };
 
 /**
- * 「全部下载」这个批量动作自己的 keyed-action 键后缀（完整键是 `${itemId}:all`）。
+ * 收件箱下载的 keyed-action 键 —— 三种目标共用一个 `useKeyedAsyncAction`，靠形态区分。
  *
- * 它与逐文件的键（`${itemId}:${fileId}`）共用同一个 `useKeyedAsyncAction`，靠这个后缀区分，
- * 于是「批量在不在跑」与「某一行在不在跑」是两个独立可查的事实。
- * **不会与任何文件键相撞**：`fileId` 是自增主键，`toString()` 后恒为数字串。
+ * | 目标 | 键 | 会不会与别的撞 |
+ * |---|---|---|
+ * | 某个文件 | `${itemId}:${fileId}` | `fileId` 是自增主键，`toString()` 后恒为数字串 |
+ * | 某个目录 | `${itemId}:dir:${relativePath}` | `dir:` 前缀既不是数字串也不是 `all` |
+ * | 整条记录 | `${itemId}:all` | 同上 |
  *
- * 住在 `_lib/` 而不是任一组件里：写它的是 `receive-panel`（编排），读它的是 `inbox-views`
- * （呈现），而前者已经 import 后者——常量放在任一端都会成环。
+ * 三者独立可查，于是「批量在不在跑」与「某一行在不在跑」不会互相冒充——用逐文件 pending
+ * 的并集去判批量，单点一行也会把头部按钮变成「下载中…」。
+ *
+ * 住在 `_lib/` 而不是任一组件里：写键的是 `receive-panel`（编排），读键的是 `inbox-views`
+ * （呈现），而前者已经 import 后者——放在任一端都会成环。
+ *
+ * **两个后缀常量不导出**：外部只该经下面四个函数编解码，拿到裸字符串自己拼就等于把
+ * 这套编码复制了一份。
  */
-export const DOWNLOAD_ALL_KEY = "all";
+const DOWNLOAD_ALL_KEY = "all";
+const DOWNLOAD_DIR_PREFIX = "dir:";
+
+export const fileDownloadKey = (itemId: string, fileId: number) =>
+  `${itemId}:${fileId}`;
+
+export const directoryDownloadKey = (itemId: string, relativePath: string) =>
+  `${itemId}:${DOWNLOAD_DIR_PREFIX}${relativePath}`;
+
+export const allDownloadKey = (itemId: string) =>
+  `${itemId}:${DOWNLOAD_ALL_KEY}`;
+
+/**
+ * 一条收件箱记录里**还取得回来**的文件。
+ *
+ * 「全部下载」「目录下载」「发送到设备」共用这一条谓词——三者的判据本就相同，而
+ * `missing` 将来会由 OPFS 驱逐检测真正置起来（今天恒 `false`，见调用点的说明）。
+ * 散在各处的话，那一天要改三个地方，而漏掉的那处会悄悄把取不回的文件打进压缩包。
+ */
+export function usableInboxFiles(
+  item: InboxItemDetail,
+): InboxItemFileEntry[] {
+  return item.files.filter((file) => !file.missing);
+}
+
+/** 一把下载键指向什么。`parseDownloadKey` 的产物。 */
+export type DownloadTarget =
+  | { kind: "all" }
+  | { kind: "directory"; relativePath: string }
+  | { kind: "file"; fileId: number };
+
+/**
+ * 下载键 → 它作用在什么上；**不属于本条目**的键给 `null`。
+ *
+ * 后半句不是防御性判断：一个 `useKeyedAsyncAction` 实例服务收件箱里的所有条目，
+ * 键集合是全局的，读的人必须自己筛——而按前缀筛是 O(1)，不必先把 `item.files` 扫一遍
+ * 才发现这条根本不是自己的。
+ *
+ * 它与上面四个构造函数成对。**解码集中在这一处**，调用方就不必各自认识 `dir:` / `all`
+ * 这些字面量：pending 与失败提示两条路径都问同一个函数「这是谁」。
+ */
+export function parseDownloadKey(
+  itemId: string,
+  key: string,
+): DownloadTarget | null {
+  const prefix = `${itemId}:`;
+  if (!key.startsWith(prefix)) return null;
+  const rest = key.slice(prefix.length);
+  if (rest === DOWNLOAD_ALL_KEY) return { kind: "all" };
+  if (rest.startsWith(DOWNLOAD_DIR_PREFIX)) {
+    return { kind: "directory", relativePath: rest.slice(DOWNLOAD_DIR_PREFIX.length) };
+  }
+  // **只认纯数字串**，不用 `Number.isInteger(Number(rest))`：`Number("")` 是 0，于是
+  // 任何形如 `${itemId}:` 的键都会被认成「0 号文件」；`"1e3"` 与 `" 7 "` 同样会蒙混过关。
+  return /^\d+$/.test(rest) ? { kind: "file", fileId: Number(rest) } : null;
+}
 
 /**
  * 收件箱条目的**来源身份**与**内容类型**。两者都是 DTO 里一直有、Web 端此前从没读过的字段。

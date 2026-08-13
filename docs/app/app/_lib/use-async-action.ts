@@ -13,8 +13,16 @@ export function useAsyncAction() {
   /**
    * `onSuccess` 可省：动作的全部结果已经由 store 表达（如节点启停）时，调用方没有额外要做的
    * ——此时传一个空函数只是噪音。绝大多数调用点仍然需要它（把返回值落进 store）。
+   *
+   * `onSettled` 是「无论成败都要收的尾」，成功与失败**两条路都会调**（成功时在 `onSuccess`
+   * 之后）。需要它是因为把清理写进 `onSuccess` 会漏掉失败路径，而那正是清理最要紧的时候
+   * ——发送准备失败后不收掉进度行，它会永久停在半路。
    */
-  function run<T>(fn: () => Promise<T>, onSuccess?: (value: T) => void) {
+  function run<T>(
+    fn: () => Promise<T>,
+    onSuccess?: (value: T) => void,
+    onSettled?: () => void,
+  ) {
     const mySeq = ++seq.current;
     setPending(true);
     setError(null);
@@ -22,11 +30,13 @@ export function useAsyncAction() {
       (value) => {
         if (mySeq !== seq.current) return;
         onSuccess?.(value);
+        onSettled?.();
         setPending(false);
       },
       (e) => {
         if (mySeq !== seq.current) return;
         setError(toWebError(e));
+        onSettled?.();
         setPending(false);
       },
     );

@@ -1,5 +1,5 @@
 diff --git a/android/src/main/java/expo/modules/filesystem/FileSystemFileHandle.kt b/android/src/main/java/expo/modules/filesystem/FileSystemFileHandle.kt
-index c66d1b2..1fae188 100644
+index a39dfeb96731d8c75afa084742573ae0cebb0bc7..f6fe576f8071802b27038a48cfe294ae6c936dc1 100644
 --- a/android/src/main/java/expo/modules/filesystem/FileSystemFileHandle.kt
 +++ b/android/src/main/java/expo/modules/filesystem/FileSystemFileHandle.kt
 @@ -2,6 +2,7 @@ package expo.modules.filesystem
@@ -10,7 +10,7 @@ index c66d1b2..1fae188 100644
  import expo.modules.kotlin.exception.Exceptions
  import expo.modules.kotlin.sharedobjects.SharedRef
  import expo.modules.kotlin.types.Enumerable
-@@ -47,7 +48,8 @@ enum class FileMode(val descriptor: String) : Enumerable {
+@@ -51,7 +52,8 @@ enum class FileMode(val descriptor: String) : Enumerable {
  
  class FileSystemFileHandle private constructor(
    channel: FileChannel,
@@ -20,12 +20,16 @@ index c66d1b2..1fae188 100644
  ) : SharedRef<FileChannel>(channel), AutoCloseable {
    companion object {
      fun forJavaFile(file: File, mode: FileMode): FileSystemFileHandle {
-@@ -76,10 +78,10 @@ class FileSystemFileHandle private constructor(
+@@ -78,10 +80,15 @@ class FileSystemFileHandle private constructor(
        val channel = when (mode) {
          FileMode.READ -> FileInputStream(pfd.fileDescriptor).channel
          FileMode.WRITE, FileMode.APPEND, FileMode.TRUNCATE -> FileOutputStream(pfd.fileDescriptor).channel
--        else -> throw Exceptions.IllegalArgument("Unsupported file mode: '$mode'")
-+        FileMode.READ_WRITE -> FileOutputStream(pfd.fileDescriptor).channel
++        // SwarmDrop：SAF 的 ReadWrite 保持上游的拒绝。`FileOutputStream.getChannel()` 返回的是
++        // readable=false 的 channel，拿它冒充 "rw" 会让 readBytes 抛 NonReadableChannelException
++        // ——一个签名说能读、实际不能读的句柄。
++        // 接收侧不再需要它：staging 已恒为应用私有目录（走 forJavaFile 的 RandomAccessFile），
++        // SAF 只在 publish 时被顺序写一次。见 openspec/changes/receive-staging-publish。
+         else -> throw Exceptions.IllegalArgument("Unsupported file mode: '$mode'")
        }
  
 -      return FileSystemFileHandle(channel, mode)
@@ -33,7 +37,7 @@ index c66d1b2..1fae188 100644
      }
    }
  
-@@ -96,7 +98,11 @@ class FileSystemFileHandle private constructor(
+@@ -98,7 +105,11 @@ class FileSystemFileHandle private constructor(
    }
  
    override fun close() {
@@ -46,3 +50,53 @@ index c66d1b2..1fae188 100644
    }
  
    fun read(length: Long): ByteArray {
+@@ -125,7 +136,8 @@ class FileSystemFileHandle private constructor(
+ 
+       return buffer.array()
+     } catch (e: Exception) {
+-      throw UnableToReadHandleException(e.message ?: "unknown error")
++      // SwarmDrop：同 write，带上异常类名。
++      throw UnableToReadHandleException(describe(e))
+     }
+   }
+ 
+@@ -139,10 +151,21 @@ class FileSystemFileHandle private constructor(
+         fileChannel.write(buffer)
+       }
+     } catch (e: Exception) {
+-      throw UnableToWriteHandleException(e.message ?: "unknown error")
++      // SwarmDrop：带上**异常类名**。上游只取 `e.message`，而写失败最要紧的那几种恰好
++      // message 为 null 或空——`IOException`（fd 被 provider 回收）、`ClosedChannelException`、
++      // 以及空间不足时的 `IOException: ENOSPC`。丢了类名就只剩一句 "unknown error"，
++      // 三次重试的日志长得一模一样，什么都推不出来（2026-08-09 实际踩到）。
++      throw UnableToWriteHandleException(describe(e))
+     }
+   }
+ 
++  /** `<类名>: <消息>`；消息为空时只留类名，绝不退化成 "unknown error"。 */
++  private fun describe(e: Exception): String {
++    val name = e::class.java.simpleName
++    val message = e.message
++    return if (message.isNullOrBlank()) name else "$name: $message"
++  }
++
+   var offset: Long?
+     get() {
+       return try {
+@@ -153,6 +176,16 @@ class FileSystemFileHandle private constructor(
+     }
+     set(value) {
+       if (value == null) return
++      // SwarmDrop：与 read/write 对齐补上 ensureIsOpen()。上游漏了这里，于是「句柄已关闭」
++      // 这种最常见的误用不会报成 UnableToReadHandleException("file handle is closed")，
++      // 而是把底层的裸 IOException 连同整段 Java 栈冒到 JS 侧（我们实测把它一路带进了 UI toast）。
++      //
++      // 它**拦不住**「channel 仍报告 open、底层 fd 已被外部回收」那一类。那不是 SAF 的固有
++      // 属性——「SAF 的 fd 由 DocumentsProvider 持有、失效必抛 EBADF」是 2026-08-10 推翻的误诊
++      // （它解释不了失败点每次都不同：311MB 崩在 45MB、2GB 崩在 16MB 和 54MB，只有 GC 时机
++      // 解释得通）。真因是 forContentURI 不持有 ParcelFileDescriptor、GC finalizer 关掉了 fd，
++      // 修它的是本 patch 顶部那处「构造函数持有 pfd、close() 里一并关」。
++      ensureIsOpen()
+       fileChannel.position(value)
+     }
+ 

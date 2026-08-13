@@ -2,10 +2,10 @@ import { useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
 import {
   ChevronRight,
-  Globe,
   Info,
   Languages,
   type LucideIcon,
+  Network,
   Palette,
   Settings as SettingsIcon,
 } from "lucide-react-native";
@@ -50,7 +50,7 @@ export default function MainSettingsScreen() {
         />
         <SettingDivider />
         <NavRow
-          icon={Globe}
+          icon={Network}
           label={t`网络`}
           testID="settings-network-row"
           onPress={() => router.push("/settings/network" as never)}
@@ -94,3 +94,6 @@ function NavRow({
     </Pressable>
   );
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,tab 栏保持可用(为什么不挂 layout 见 `(main)/_layout.tsx`)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

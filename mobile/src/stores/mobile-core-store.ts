@@ -20,6 +20,7 @@ import {
 import { initMobileCore } from "@/core/mobile-core";
 import { buildNetworkRuntimeConfig } from "@/core/network-discovery";
 import { ensureNotificationPermission } from "@/core/notifier";
+import { syncReceiveLocationToCore } from "@/core/receive-location";
 import { getErrorMessage } from "@/lib/errors";
 import { usePairingInviteStore } from "@/stores/pairing-invite-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
@@ -236,7 +237,6 @@ export const useMobileCoreStore = create<MobileCoreState>()(
           await core.startNode(
             buildNetworkRuntimeConfig({
               customBootstrapNodes: prefs.customBootstrapNodes,
-              discoveryMode: prefs.discoveryMode,
               autoDiscoverLanHelpers: prefs.autoDiscoverLanHelpers,
               provideLanHelper: prefs.provideLanHelper,
               publicReachability: prefs.publicReachability,
@@ -252,6 +252,8 @@ export const useMobileCoreStore = create<MobileCoreState>()(
             startedAt: nextRuntimeState === "running" ? Date.now() : null,
           });
           if (nextRuntimeState === "running") {
+            // 自动接收在内核侧求值，需要知道宿主此刻的默认落点——节点刚起来时它还是空的。
+            void syncReceiveLocationToCore();
             // 上线即预热通知权限(比事件到达时惰性申请更早,不打断配对当下),
             // 并拉起前台服务保活(Android;iOS 内部 no-op)。
             void ensureNotificationPermission();

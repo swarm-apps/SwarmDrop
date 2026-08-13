@@ -9,6 +9,7 @@ use n0_future::time::Instant;
 use swarmdrop_net::{Addr, Endpoint, InfraRoles, NetEvent, NodeAddr, NodeId};
 
 use crate::device::OsInfo;
+use crate::infra::InfraExclusion;
 use crate::network::candidates::{
     BootstrapCandidate, BootstrapCandidateManager, BootstrapCandidateSource, CandidateRoles,
     CandidateScope,
@@ -28,9 +29,12 @@ fn rebuild_backoff(attempts: u32) -> Duration {
     }
 }
 
-/// 某个 relay 候选的收敛状态
+/// 某个 relay 候选的收敛状态（策略层内账）。
+///
+/// 刻意**不叫** `RelayLinkState`——那个名字属于 `infra::link` 里跨 IPC 的三态投影。
+/// 两个同名类型住在同一个模块树下，读代码时会指到错的那个。
 #[derive(Debug, Clone, Copy)]
-struct RelayLinkState {
+struct RelayConvergenceState {
     /// 当前是否持有活跃 reservation
     reservation_active: bool,
     next_attempt_at: Instant,
@@ -38,6 +42,13 @@ struct RelayLinkState {
     /// 上次看到的候选 last_seen：候选被重新发现（地址刷新）时重置退避，
     /// 避免"挂起期间退避涨满、恢复后干等一分钟"
     candidate_seen: chrono::DateTime<chrono::Utc>,
+    /// 本次节点会话内是否曾建立过 reservation。
+    ///
+    /// **这是宽限期的唯一开关**，也是本结构里唯一对外下发的位：从未成功过 →
+    /// UI 安静地显示「正在连接…」；成功过一次再掉下来 → 立刻报警 + 给原因。
+    /// 它与 `attempts` / `next_attempt_at` 的区别是「有明确清除条件的布尔事实」
+    /// 而非策略层记账，所以下发它不违反「机制层不产生轮数」那条约定。
+    ever_active: bool,
 }
 
 /// 基础设施收敛大脑。
@@ -50,7 +61,7 @@ pub struct InfraSupervisor {
     /// 公网可达性设置：false 时不对 Public 范围候选做 reservation
     public_reachability: bool,
     /// relay 候选的收敛状态（key = 候选 peer）
-    links: DashMap<NodeId, RelayLinkState>,
+    links: DashMap<NodeId, RelayConvergenceState>,
 }
 
 impl InfraSupervisor {
@@ -67,10 +78,40 @@ impl InfraSupervisor {
         }
     }
 
+    /// 该候选**为什么**不参与 relay 收敛；`None` = 参与。
+    ///
+    /// 这是收敛闸门的**唯一定义处**。`build_infra_links` 下发给三端的
+    /// [`InfraExclusion`](crate::infra::InfraExclusion) 直接取自这里——两边各写一份
+    /// 互为反义的判据是最容易漂的形态：新增一条门槛时收敛环立刻生效，而读模型仍报
+    /// `None`，UI 就显示一个永远「正在连接…」且给不出原因的条目，正是这套读模型
+    /// 要消灭的失败模式。
+    pub(crate) fn exclusion_for(&self, candidate: &BootstrapCandidate) -> Option<InfraExclusion> {
+        // 纯 kad 候选返回 `None`，**不是**某个 `NotARelay` 变体：「不承担该角色」与
+        // 「承担但被拦下」是两回事。前者在读模型里由 `relay: None` + `roles.relay_server
+        // == false` 表达（shared-view 的 `deriveInfraLinkState` 据此判 `seedOnly`，那一档
+        // 没有失败态），加一个判别码只会让三端多一个渲染不出差异的分支。
+        //
+        // 这里曾经写着 `debug_assert!(candidate.roles.relay_server)`，理由是「所有写入点都
+        // 给 kad_and_relay」。**该前提已被本轮打破**：`NetManager::ensure_infra_intent` 现在
+        // 把 roles 开成参数，任何调用方传 `{ kad_server: true, relay_server: false }` 都会让
+        // debug build 当场 panic——一个私有不变量被抬成公开 API 的入参却没跟着松绑。
+        if !candidate.roles.relay_server {
+            return None;
+        }
+        // 读 `scope` 而不是在这里另写一遍地址判据：同一个位还被读模型下发给三端，
+        // 是 `nodeHealth.configuredLanOnly`（「你关掉了公网可达性」那句中性提示）的
+        // 判据。闸门与呈现各算各的，就会出现「被拦下了但 UI 说不出为什么」——
+        // 用户看到红色的「找不到任何节点」，而真相是他自己关的开关。
+        // `CandidateScope::infer` 的语义已改成「持有公网地址」，正是闸门要问的问题。
+        if matches!(candidate.scope, CandidateScope::Public) && !self.public_reachability {
+            return Some(InfraExclusion::PublicReachabilityDisabled);
+        }
+        None
+    }
+
     /// 该候选是否应维持 reservation
     fn wants_reservation(&self, candidate: &BootstrapCandidate) -> bool {
-        candidate.roles.relay_server
-            && (matches!(candidate.scope, CandidateScope::Lan) || self.public_reachability)
+        candidate.roles.relay_server && self.exclusion_for(candidate).is_none()
     }
 
     /// 注销一个基础设施节点的收敛状态（候选条目由调用方一并清除）。
@@ -81,20 +122,38 @@ impl InfraSupervisor {
         self.links.remove(&peer_id);
     }
 
+    /// 该 relay link 在本次节点会话内是否曾建立过 reservation。
+    ///
+    /// 这是策略层**唯一**外露的位，供 `InfraLink` 判宽限期用：从未成功过就安静地
+    /// 显示「正在连接…」，成功过一次再掉下来就立刻报警。`attempts` /
+    /// `next_attempt_at` 仍然私有——「第 N 次重试、还有 T 秒」不跨 IPC。
+    pub fn ever_active(&self, peer_id: NodeId) -> bool {
+        self.links.get(&peer_id).is_some_and(|l| l.ever_active)
+    }
+
     // === 事件折叠（core 事件循环调用） ===
 
     pub fn handle_event(&self, event: &NetEvent) {
         match event {
             NetEvent::RelayReservationAccepted { relay, .. } => {
-                self.links.insert(
-                    *relay,
-                    RelayLinkState {
+                // ever_active 单调置位：本次会话内曾经成功过。
+                // 用 entry 而非 insert，避免把已有的 ever_active 覆盖成新构造的默认值。
+                self.links
+                    .entry(*relay)
+                    .and_modify(|link| {
+                        link.reservation_active = true;
+                        link.next_attempt_at = Instant::now();
+                        link.attempts = 0;
+                        link.candidate_seen = chrono::Utc::now();
+                        link.ever_active = true;
+                    })
+                    .or_insert(RelayConvergenceState {
                         reservation_active: true,
                         next_attempt_at: Instant::now(),
                         attempts: 0,
                         candidate_seen: chrono::Utc::now(),
-                    },
-                );
+                        ever_active: true,
+                    });
             }
             NetEvent::RelayReservationLost { relay } => {
                 // 轮数只在策略层内账（RelayState 不再携带），诊断走日志
@@ -103,15 +162,16 @@ impl InfraSupervisor {
                 // 只翻可用位，保留既有退避进度——reservation 被 relay 拒绝时
                 // 每次尝试都会产生一次 Lost，无条件清零会退化成 1-2s 重试风暴。
                 // attempts 仅由 Accepted（健康恢复）与候选 last_seen 刷新（重新发现）归零。
+                //
+                // **不 `or_insert`**：没有条目就说明这个 relay 不在收敛清单里（刚被
+                // `remove_infra_intent` 撤销，而一条 Lost 还在路上）。插回去会造出一个
+                // 孤儿——正向 tick 看不到它（不在候选快照里），反向收敛也够不着它
+                // （只清 `watch_relays` 里还有条目的 peer，而它已经从那里消失），
+                // 于是这条记录活到节点停止为止，`ever_active` 还继续替一个不存在的
+                // 节点作答。真需要条目时下一轮 tick 的 `or_insert` 会建。
                 self.links
                     .entry(*relay)
-                    .and_modify(|link| link.reservation_active = false)
-                    .or_insert(RelayLinkState {
-                        reservation_active: false,
-                        next_attempt_at: Instant::now(),
-                        attempts: 0,
-                        candidate_seen: chrono::Utc::now(),
-                    });
+                    .and_modify(|link| link.reservation_active = false);
             }
             // 学习型候选：识别基础设施 agent 自动纳管
             NetEvent::PeerIdentified {
@@ -141,7 +201,6 @@ impl InfraSupervisor {
             addrs.clone(),
             BootstrapCandidateSource::Learned,
             CandidateRoles::kad_and_relay(),
-            CandidateScope::Public,
         );
         drop(candidates);
 
@@ -198,11 +257,12 @@ impl InfraSupervisor {
             let mut link = self
                 .links
                 .entry(candidate.peer_id)
-                .or_insert(RelayLinkState {
+                .or_insert(RelayConvergenceState {
                     reservation_active: false,
                     next_attempt_at: now,
                     attempts: 0,
                     candidate_seen: candidate.last_seen,
+                    ever_active: false,
                 });
             // 候选被重新发现（如 helper 重启后 mDNS 刷新地址）→ 重置退避立即收敛
             if candidate.last_seen > link.candidate_seen {
@@ -260,7 +320,7 @@ impl InfraSupervisor {
 fn usable_public_addrs(addrs: &[Addr]) -> Vec<Addr> {
     addrs
         .iter()
-        .filter(|addr| addr.circuit_hops() == 0 && addr.is_public_routable())
+        .filter(|addr| CandidateScope::is_infra_public_addr(addr))
         .cloned()
         .collect()
 }
@@ -268,7 +328,6 @@ fn usable_public_addrs(addrs: &[Addr]) -> Vec<Addr> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::network::DiscoveryMode;
     use swarmdrop_net::{ProtocolId, SecretKey};
 
     async fn test_endpoint() -> Endpoint {
@@ -283,10 +342,7 @@ mod tests {
         public_reachability: bool,
     ) -> (InfraSupervisor, Arc<RwLock<BootstrapCandidateManager>>) {
         let endpoint = test_endpoint().await;
-        let candidates = Arc::new(RwLock::new(BootstrapCandidateManager::new(
-            DiscoveryMode::Auto,
-            true,
-        )));
+        let candidates = Arc::new(RwLock::new(BootstrapCandidateManager::new(true)));
         let supervisor = InfraSupervisor::new(endpoint, candidates.clone(), public_reachability);
         (supervisor, candidates)
     }
@@ -295,22 +351,30 @@ mod tests {
         SecretKey::generate().node_id()
     }
 
+    /// 造一个具备 relay 角色的候选。
+    ///
+    /// scope 由候选表按地址推断（不再由调用方传），所以这里按想要的 scope 挑地址：
+    /// `203.0.113.x` 是 TEST-NET-3 公网段，`192.168.x.x` 是私网段。
     fn relay_candidate(
         candidates: &Arc<RwLock<BootstrapCandidateManager>>,
         scope: CandidateScope,
     ) -> NodeId {
+        let addr = match scope {
+            CandidateScope::Public => "/ip4/203.0.113.7/tcp/4001",
+            CandidateScope::Lan => "/ip4/192.168.7.7/tcp/4001",
+        };
         let p = peer();
         candidates.write().unwrap().upsert(
             p,
-            vec!["/ip4/203.0.113.7/tcp/4001".parse().unwrap()],
+            vec![addr.parse().unwrap()],
             BootstrapCandidateSource::HostConfigured,
             CandidateRoles::kad_and_relay(),
-            scope,
         );
+        debug_assert_eq!(candidates.read().unwrap().get(p).unwrap().scope, scope);
         p
     }
 
-    fn link_of(s: &InfraSupervisor, p: &NodeId) -> Option<RelayLinkState> {
+    fn link_of(s: &InfraSupervisor, p: &NodeId) -> Option<RelayConvergenceState> {
         s.links.get(p).map(|e| *e.value())
     }
 
@@ -459,6 +523,81 @@ mod tests {
         assert!(
             link_of(&s, &lan_peer).is_some(),
             "LAN 候选不受 public_reachability 约束"
+        );
+    }
+
+    /// 混合地址候选（既有内网又有公网地址）必须被公网闸门拦下。
+    ///
+    /// 这是 `scope` 判据翻转前的漏洞形态：自建 bootstrap 跑在同一局域网、用户按内网
+    /// 地址把它加进来，identify 再并入它的公网地址——旧判据「任一私网即 Lan」让 scope
+    /// 永久停在 `Lan`，`exclusion_for` 恒放行，于是关掉「公网可达性」的用户照样在一台
+    /// 公网中继上建了 reservation，被跨网直达。开关静默失效。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn public_reachability_off_also_stops_a_mixed_addr_relay() {
+        let (s, candidates) = ctx(false).await;
+        let p = peer();
+        candidates.write().unwrap().upsert(
+            p,
+            vec!["/ip4/192.168.7.7/tcp/4001".parse().unwrap()],
+            BootstrapCandidateSource::HostConfigured,
+            CandidateRoles::kad_and_relay(),
+        );
+        candidates.write().unwrap().upsert(
+            p,
+            vec!["/ip4/203.0.113.7/tcp/4001".parse().unwrap()],
+            BootstrapCandidateSource::Learned,
+            CandidateRoles::kad_and_relay(),
+        );
+
+        s.tick(Instant::now());
+
+        assert!(
+            link_of(&s, &p).is_none(),
+            "持有公网地址的候选必须受 public_reachability 约束，哪怕它同时有内网地址"
+        );
+        let candidate = candidates.read().unwrap().get(p).expect("候选应在表中");
+        assert_eq!(
+            s.exclusion_for(&candidate),
+            Some(InfraExclusion::PublicReachabilityDisabled),
+            "读模型要能说出被拦下的原因，否则 UI 只剩一句无归因的『连不上』"
+        );
+    }
+
+    /// 纯 kad 候选不进 relay 收敛，**且不带 `excluded`**。
+    ///
+    /// 「不承担该角色」与「承担但被闸门拦下」是两回事：给它一个
+    /// `PublicReachabilityDisabled` 会让 UI 说「你关闭了公网可达性」，而这条 link
+    /// 根本没想要中继——用户被指向一个改了也没用的开关。
+    ///
+    /// 这条路径本轮才真的可达：`ensure_infra_intent` 把 roles 开成了参数。
+    #[tokio::test]
+    async fn kad_only_candidate_is_neither_converged_nor_excluded() {
+        let (supervisor, candidates) = ctx(false).await;
+        let peer = peer();
+        candidates.write().unwrap().upsert(
+            peer,
+            vec!["/ip4/203.0.113.9/tcp/4001".parse().unwrap()],
+            BootstrapCandidateSource::HostConfigured,
+            CandidateRoles {
+                kad_server: true,
+                relay_server: false,
+            },
+        );
+        let candidate = candidates
+            .read()
+            .unwrap()
+            .snapshot()
+            .into_iter()
+            .find(|c| c.peer_id == peer)
+            .expect("候选应在表中");
+
+        assert!(
+            supervisor.exclusion_for(&candidate).is_none(),
+            "纯 kad 候选不该带 excluded —— 它压根不参与 relay 收敛"
+        );
+        assert!(
+            !supervisor.wants_reservation(&candidate),
+            "纯 kad 候选不得建 reservation"
         );
     }
 

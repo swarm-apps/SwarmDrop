@@ -3,7 +3,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import {
   AlertTriangle,
   ArchiveRestore,
-  FileArchive,
+  Clock,
   HardDrive,
   Inbox,
   RefreshCw,
@@ -11,7 +11,6 @@ import {
 } from "lucide-react-native";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { useShallow } from "zustand/react/shallow";
 import {
   FilterRail,
@@ -22,6 +21,7 @@ import {
 } from "@/components/inbox/inbox-list";
 import {
   AppHeader,
+  AppScreen,
   EmptyState,
   HeaderIconButton,
   LIST_CONTENT_PADDING,
@@ -161,7 +161,7 @@ export default function InboxScreen() {
       <InboxListSkeleton />
     ) : items.length === 0 ? (
       <EmptyState
-        icon={FileArchive}
+        icon={Inbox}
         title={<Trans>收件箱还是空的</Trans>}
         description={
           <Trans>
@@ -174,7 +174,7 @@ export default function InboxScreen() {
       />
     ) : (
       <EmptyState
-        icon={FileArchive}
+        icon={Inbox}
         title={<Trans>当前筛选下没有内容</Trans>}
         description={
           <Trans>切换上方筛选范围，或进入搜索页查找历史内容。</Trans>
@@ -187,12 +187,10 @@ export default function InboxScreen() {
     );
 
   return (
-    <SafeAreaView
-      style={{ flex: 1 }}
-      className="bg-background"
-      edges={["top"]}
-      testID="inbox-screen"
-    >
+    // 这里没有 header 槽:tab 根页的 AppHeader 是 iOS large-title 语义,本就该跟着列表滚
+    // (见 knowledge/theme-and-styling.md 的两类 header 表)。用 AppScreen 只是为了屏根
+    // 只有一种原语 —— `bare` 把内边距让给列表自己的 contentContainerStyle。
+    <AppScreen bare testID="inbox-screen">
       <FlatList
         data={visibleItems}
         keyExtractor={inboxKeyExtractor}
@@ -204,7 +202,7 @@ export default function InboxScreen() {
         ListEmptyComponent={emptyComponent}
         testID="inbox-list"
       />
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 
@@ -332,7 +330,7 @@ function InboxToolbar({
           value={formatBytes(totalBytes)}
         />
         <StatPill
-          icon={RefreshCw}
+          icon={Clock}
           label={<Trans>最近</Trans>}
           value={
             latest === null ? <Trans>暂无</Trans> : formatRelativeTime(latest)
@@ -392,3 +390,6 @@ function StatPill({
     </View>
   );
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,tab 栏保持可用(为什么不挂 layout 见 `(main)/_layout.tsx`)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

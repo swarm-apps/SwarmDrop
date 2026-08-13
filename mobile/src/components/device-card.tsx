@@ -1,5 +1,5 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { SendHorizontal } from "lucide-react-native";
+import { Send } from "lucide-react-native";
 import { memo } from "react";
 import { Pressable, View } from "react-native";
 import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
@@ -139,7 +139,7 @@ function DeviceCardComponent({
           accessibilityLabel={t`发送文件给 ${displayName}`}
           className="size-11 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:bg-muted"
         >
-          <SendHorizontal
+          <Send
             color={sendable ? colors.primaryForeground : colors.mutedForeground}
             size={17}
           />
@@ -224,7 +224,7 @@ function DeviceCardComponent({
           accessibilityLabel={t`发送文件给 ${displayName}`}
           className="size-11 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:bg-muted"
         >
-          <SendHorizontal
+          <Send
             color={sendable ? colors.primaryForeground : colors.mutedForeground}
             size={17}
           />

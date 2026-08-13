@@ -6,6 +6,14 @@
 //! serde_json）逐字段一致。
 
 use serde::Serialize;
+// 基础设施关系的读模型同理**不做 Web 专属投影**：`InfraLink` 是 core 的
+// `crates/core/src/infra/link.rs` 那一份，三端经各自的 codegen 拿到同一个形状
+// （桌面 tauri-specta / 移动 uniffi 手写镜像 / 这里 specta 导出）。此前 Web 独有的
+// `RelayInfoJson` 只覆盖 relay 一个角色、且不带来源与地址，是同一个概念的第四份表示。
+//
+// `InfraAddrError` 同样直接抬上来：提交前校验的判据住在 core（它要认识内核装配了哪些
+// transport），三端不各写一份，见 `crates/core/src/infra/validate.rs` 的模块文档。
+pub use swarmdrop_core::infra::{InfraAddrError, InfraExclusion, InfraLink, RelayLinkState};
 // `paired_devices()` 的 JS 返回类型：直接复用桌面同款读模型（已 Serialize + specta::Type），
 // 不再手写一份 Web 专属投影——字段（含在线状态/连接类型）语义与桌面一致，没有理由分叉。
 pub use swarmdrop_host::device::Device;
@@ -17,9 +25,9 @@ pub use swarmdrop_transfer::inbox::{
 };
 use swarmdrop_transfer::incoming::TransferOfferEvent;
 use swarmdrop_transfer::progress::{
-    PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent, TransferDbErrorEvent,
-    TransferFailedEvent, TransferPausedEvent, TransferProgressEvent, TransferRejectedEvent,
-    TransferResumedEvent,
+    FilePublishEvent, PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent,
+    TransferDbErrorEvent, TransferFailedEvent, TransferPausedEvent, TransferProgressEvent,
+    TransferRejectedEvent, TransferResumedEvent,
 };
 use swarmdrop_transfer::protocol::FileInfo;
 use swarmdrop_transfer::store::TransferProjection;
@@ -43,6 +51,7 @@ pub enum WebTransferEvent {
     TransferDbError { event: TransferDbErrorEvent },
     TransferProjection { projection: TransferProjection },
     PrepareProgress { event: PrepareProgressEvent },
+    FilePublish { event: FilePublishEvent },
 }
 
 impl WebTransferEvent {
@@ -60,6 +69,7 @@ impl WebTransferEvent {
             Self::TransferDbError { .. } => "transferDbError",
             Self::TransferProjection { .. } => "transferProjection",
             Self::PrepareProgress { .. } => "prepareProgress",
+            Self::FilePublish { .. } => "filePublish",
         }
     }
 }
@@ -80,6 +90,7 @@ impl From<TransferEvent> for WebTransferEvent {
                 Self::TransferProjection { projection }
             }
             TransferEvent::PrepareProgress { event } => Self::PrepareProgress { event },
+            TransferEvent::FilePublish { event } => Self::FilePublish { event },
         }
     }
 }
@@ -192,12 +203,17 @@ pub struct PairInvitePreviewJson {
 }
 
 /// 连接路径类别（[`swarmdrop_net_base::PathKind`] 的 JS 投影，TS 侧是字符串联合）。
+///
+/// `camelCase` 而非 `lowercase`：要与被投影的 `PathKind` 逐字一致，否则双词变体两边
+/// 对不上（`holePunched` vs `holepunched`），而单词变体又看不出差别——正是那种在加进
+/// 第一个双词变体时才暴露、且没有任何编译错误的错位。
 #[derive(Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum PathKindJson {
     Local,
     Direct,
+    HolePunched,
     Relayed,
 }
 
@@ -206,6 +222,7 @@ impl From<swarmdrop_net_base::PathKind> for PathKindJson {
         match p {
             swarmdrop_net_base::PathKind::Local => Self::Local,
             swarmdrop_net_base::PathKind::Direct => Self::Direct,
+            swarmdrop_net_base::PathKind::HolePunched => Self::HolePunched,
             swarmdrop_net_base::PathKind::Relayed => Self::Relayed,
         }
     }
@@ -218,31 +235,6 @@ impl From<swarmdrop_net_base::PathKind> for PathKindJson {
 pub struct ConnectionJson {
     pub path: PathKindJson,
     pub addr: String,
-}
-
-/// relay reservation 状态类别（[`swarmdrop_net::RelayState`] 的 JS 投影，TS 侧字符串联合）。
-#[derive(Debug, Clone, Copy, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "lowercase")]
-pub enum RelayStateKind {
-    Connecting,
-    Active,
-    Failed,
-}
-
-/// 单个 relay 意图的状态快照（`relays_state()` 元素 / `relays_changed()` 流的产出单元）。
-#[derive(Debug, Clone, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct RelayInfoJson {
-    /// relay 节点身份（base58 NodeId）。
-    pub id: String,
-    pub state: RelayStateKind,
-    /// `active` 时为本机经该 relay 的完整可达地址（内核拼装下发），其余为 null。
-    pub circuit_addr: Option<String>,
-    /// `failed` 时的末次错误描述，其余为 null。重试轮数不下发——那是
-    /// 策略层内账（supervisor 唯一持有），诊断走日志。
-    pub last_error: Option<String>,
 }
 
 /// Web 壳对外错误。`kind` 供 JS 分支，`message` 供展示。

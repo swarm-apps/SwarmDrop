@@ -78,18 +78,25 @@ pub async fn start(
         Arc::new(crate::host::notifier::DesktopNotifier::new(app.clone()));
 
     let started = swarmdrop_core::runtime::start_node(
-        (*secret_key).clone(),
-        Some(webrtc_certificate_pem),
+        swarmdrop_core::runtime::NodeCredentials {
+            secret_key: (*secret_key).clone(),
+            webrtc_certificate_pem: Some(webrtc_certificate_pem),
+            // 带证书持久化 ⇒ 桌面端监听 WebTransport（浏览器直连本机的快通道，回环实测是
+            // webrtc-direct 的 4.5 倍）。
+            webtransport: Some(crate::host::webtransport_config(&app)?),
+        },
         os_info,
-        device_config,
-        crate::host::paired_device_store(&app)?,
         network_config,
         swarmdrop_core::runtime::EndpointProfile::Native,
-        event_bus.clone(),
-        Some(notifier),
-        // 邀请注册表落盘：24h TTL 下「发条链接给同事、自己顺手重启 App」是常态，
-        // 内存态会让那条链接直接失效（openspec: invite-persistence）。
-        Arc::new(swarmdrop_storage_sql::SqlInviteStore::new((*db).clone())),
+        swarmdrop_core::runtime::HostPorts {
+            device_config,
+            paired_device_store: crate::host::paired_device_store(&app)?,
+            event_bus: event_bus.clone(),
+            notifier: Some(notifier),
+            // 邀请注册表落盘：24h TTL 下「发条链接给同事、自己顺手重启 App」是常态，
+            // 内存态会让那条链接直接失效（openspec: invite-persistence）。
+            invite_store: Arc::new(swarmdrop_storage_sql::SqlInviteStore::new((*db).clone())),
+        },
         move |endpoint| {
             TransferManager::new(
                 endpoint,

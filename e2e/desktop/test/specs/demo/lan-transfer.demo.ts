@@ -140,35 +140,38 @@ async function removePairedDeviceViaTauri(peerId: string) {
   );
 }
 
-function desktopIdentityFilePath() {
+/**
+ * 已配对设备列表的落点。
+ *
+ * 桌面身份存储于 2026-08 从系统 keychain 改为文件后端，同时把密钥与设备列表拆成两个
+ * 文件——这里要动的只是后者（`paired-devices.json`，顶层就是设备数组）。
+ */
+function desktopPairedDevicesFilePath() {
   return (
-    process.env.SWARMDROP_DESKTOP_IDENTITY_FILE ??
+    process.env.SWARMDROP_DESKTOP_PAIRED_DEVICES_FILE ??
     join(
       homedir(),
-      "Library/Application Support/com.yexiyue.swarmdrop/dev-identity.json",
+      "Library/Application Support/com.yexiyue.swarmdrop/paired-devices.json",
     )
   );
 }
 
 function removePeersFromDesktopIdentity(peerIds: string[]) {
-  const identityPath = desktopIdentityFilePath();
-  if (!existsSync(identityPath)) return;
+  const devicesPath = desktopPairedDevicesFilePath();
+  if (!existsSync(devicesPath)) return;
 
-  const identity = JSON.parse(readFileSync(identityPath, "utf8")) as {
-    pairedDevices?: Array<{ peerId?: string }>;
-  };
-  if (!Array.isArray(identity.pairedDevices)) return;
+  const devices = JSON.parse(readFileSync(devicesPath, "utf8")) as Array<{
+    peerId?: string;
+  }>;
+  if (!Array.isArray(devices)) return;
 
   const peerSet = new Set(peerIds);
-  const nextDevices = identity.pairedDevices.filter(
+  const nextDevices = devices.filter(
     (device) => !device.peerId || !peerSet.has(device.peerId),
   );
-  if (nextDevices.length === identity.pairedDevices.length) return;
+  if (nextDevices.length === devices.length) return;
 
-  writeFileSync(
-    identityPath,
-    `${JSON.stringify({ ...identity, pairedDevices: nextDevices }, null, 2)}\n`,
-  );
+  writeFileSync(devicesPath, `${JSON.stringify(nextDevices, null, 2)}\n`);
 }
 
 async function removeExistingDemoPairing() {

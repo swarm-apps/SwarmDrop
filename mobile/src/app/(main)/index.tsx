@@ -1,5 +1,6 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import {
+  compareByTimelineDesc,
   type DeviceOrganization,
   deviceGroupNames,
   deviceIdentityHint,
@@ -9,6 +10,7 @@ import {
 import { useRouter } from "expo-router";
 import {
   ArrowLeftRight,
+  MonitorSmartphone,
   OctagonAlert,
   Plus,
   Power,
@@ -16,7 +18,6 @@ import {
   Radio,
   RefreshCcw,
   SearchX,
-  Smartphone,
   Tags,
 } from "lucide-react-native";
 import {
@@ -35,7 +36,6 @@ import { DeviceCard } from "@/components/device-card";
 import {
   AppHeader,
   AppScreen,
-  BottomActionArea,
   EmptyState,
   InlineEmptyState,
   SegmentedControl,
@@ -55,10 +55,8 @@ import {
 import { Text } from "@/components/ui/text";
 import { canSendToDevice } from "@/core/device-trust";
 import { getMobileCore } from "@/core/mobile-core";
-import {
-  compareProjectionsByUpdatedAtDesc,
-  isProjectionActive,
-} from "@/core/transfer-types";
+import { isProjectionActive } from "@/core/transfer-types";
+import { useNodeHealth } from "@/hooks/use-node-health";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { devicePlatformIcon } from "@/lib/device-platform";
 import { getErrorMessage } from "@/lib/errors";
@@ -105,8 +103,11 @@ export default function DevicesScreen() {
     })),
   );
 
+  const nodeHealth = useNodeHealth();
+
   const projections = useTransferStore((s) => s.projections);
   const progressBySession = useTransferStore((s) => s.progressBySession);
+  const publishingBySession = useTransferStore((s) => s.publishingBySession);
   const loadProjections = useTransferStore((s) => s.loadProjections);
 
   // store 的 error 是瞬时 toast 通道(下面的 effect 里读到就立刻清空)，
@@ -185,7 +186,7 @@ export default function DevicesScreen() {
     () =>
       Object.values(projections)
         .filter(isProjectionActive)
-        .sort(compareProjectionsByUpdatedAtDesc)
+        .sort(compareByTimelineDesc)
         .slice(0, 3),
     [projections],
   );
@@ -264,6 +265,7 @@ export default function DevicesScreen() {
         right={
           <StatusPill
             state={runtimeState}
+            health={nodeHealth.summary}
             onPress={() => nodeSheetRef.current?.present()}
             testID="devices-manage-node-button"
           />
@@ -310,7 +312,7 @@ export default function DevicesScreen() {
 
         {pairedDevices.length === 0 ? (
           <EmptyState
-            icon={Smartphone}
+            icon={MonitorSmartphone}
             title={<Trans>还没有配对设备</Trans>}
             description={
               <Trans>点下方「添加设备」，把你的电脑或另一台手机接进来。</Trans>
@@ -319,7 +321,7 @@ export default function DevicesScreen() {
           />
         ) : visiblePairedDevices.length === 0 ? (
           <InlineEmptyState
-            icon={Smartphone}
+            icon={MonitorSmartphone}
             title={<Trans>该分组还没有设备</Trans>}
             description={<Trans>在设备详情里可以把设备加入分组</Trans>}
             testID="devices-empty-group"
@@ -357,6 +359,7 @@ export default function DevicesScreen() {
                 key={projection.sessionId}
                 projection={projection}
                 progress={progressBySession[projection.sessionId]}
+                publishing={publishingBySession[projection.sessionId]}
                 onPress={openTransfer}
               />
             ))}
@@ -478,7 +481,17 @@ function HomeDock({
   const isError = runtimeState === "error";
 
   return (
-    <BottomActionArea>
+    // tab 屏专用 dock —— 走 AppScreen 的 footer 槽。它不带背景、也不自己吃安全区,
+    // 因为这两件事在 tab 屏各有别的出处:
+    // - 背景:屏根那层 SafeAreaView 已经是 `bg-background`,而上方内容是会裁剪的
+    //   ScrollView(`AppScreen scroll`),穿不过来 —— 不需要再涂一层。
+    // - 底部安全区:**iOS 由 `AppScreen` 的 iOS 专属 bottom edge 提供**(它就地测量
+    //   自身 inset,在 tab 容器内含 iOS 26 浮动 tab 胶囊的高度,见 screen.tsx 的注释);
+    //   Android 不需要 —— NativeTabs 是实体占位条、手势条在它之下,由 tab 栏自己吃掉。
+    //   所以这里不是「NativeTabs 两件事全包了」,少了 iOS 那条分支就会贴到胶囊上。
+    // **stack 屏一律用 BottomActionBar** —— 那份自带不透明背景与 `useBottomSafePadding()`。
+    // 这段曾是共享组件 BottomActionArea,被设备详情页误用后造成功能不可达,故内联到唯一调用点。
+    <View className="gap-2 border-t border-border px-5 py-4">
       <Pressable
         onPress={isRunning ? onAddDevice : onStart}
         disabled={isStarting}
@@ -518,7 +531,7 @@ function HomeDock({
           </Text>
         ) : null}
       </Pressable>
-    </BottomActionArea>
+    </View>
   );
 }
 
@@ -1000,3 +1013,6 @@ function GroupFilterChip({
     </Pressable>
   );
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,tab 栏保持可用(为什么不挂 layout 见 `(main)/_layout.tsx`)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

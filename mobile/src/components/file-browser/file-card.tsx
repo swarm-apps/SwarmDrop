@@ -1,6 +1,6 @@
 import { useLingui } from "@lingui/react/macro";
 import { Image } from "expo-image";
-import { Check, Play, RotateCcw, Share2, X } from "lucide-react-native";
+import { Check, Play, RotateCcw, Send, Share2, X } from "lucide-react-native";
 import { memo, useCallback, useState } from "react";
 import { type GestureResponderEvent, Pressable, View } from "react-native";
 import { formatBytes, ProgressBar } from "@/components/transfer/shared";
@@ -55,6 +55,13 @@ function FileCardComponent({ item, actions, testID }: FileCardProps) {
     },
     [actions, item],
   );
+  const send = useCallback(
+    (event: GestureResponderEvent) => {
+      event.stopPropagation();
+      actions?.sendItem?.(item);
+    },
+    [actions, item],
+  );
 
   const progress = Math.round(item.progress ?? 0);
   return (
@@ -105,12 +112,22 @@ function FileCardComponent({ item, actions, testID }: FileCardProps) {
             <ProgressBar
               percent={progress}
               heightClass="h-1"
-              fillClass={item.status === "paused" ? "bg-warning" : "bg-primary"}
+              tone={item.status === "paused" ? "paused" : "transfer"}
             />
           ) : null}
         </View>
       </Pressable>
       <View className="absolute right-1 top-24 flex-row">
+        {actions?.sendItem && item.status !== "missing" ? (
+          <Pressable
+            onPress={send}
+            accessibilityRole="button"
+            accessibilityLabel={t`发送 ${item.name} 到设备`}
+            className="size-11 items-center justify-center rounded-xl"
+          >
+            <Send size={15} color={colors.mutedForeground} />
+          </Pressable>
+        ) : null}
         {actions?.shareItem && item.status !== "missing" ? (
           <Pressable
             onPress={share}

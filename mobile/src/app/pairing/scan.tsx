@@ -8,8 +8,8 @@ import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import {
-  ArrowLeft,
   Camera,
+  ChevronLeft,
   ClipboardPaste,
   Flashlight,
   FlashlightOff,
@@ -24,8 +24,10 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { HeaderBackButton } from "@/components/header-back-button";
 import { Text } from "@/components/ui/text";
 import { INVITE_IN_TEXT_PATTERN, INVITE_PATTERN } from "@/core/invite-link";
+import { PREVIEW_REJECT_MESSAGE } from "@/core/pairing-labels";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { cn } from "@/lib/utils";
 import { usePairingInviteStore } from "@/stores/pairing-invite-store";
@@ -75,8 +77,8 @@ export default function ScanInvite() {
       setError(null);
       // 原样交给 core。canonical 载体整串大小写不敏感（payload 是 base32），所以这里
       // 既不需要也不该做归一——统一由 core 那侧完成，前端多一步就多一处能漂移的地方。
-      const ok = await previewInvite(raw);
-      if (ok) {
+      const outcome = await previewInvite(raw);
+      if (outcome === "ok") {
         Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
         ).catch(() => {});
@@ -87,13 +89,13 @@ export default function ScanInvite() {
       setWorking(false);
       // 按判别码给话：「自己的邀请」「已过期」「链接坏了」是三回事，说成一样会让用户
       // 反复重新生成、重新扫，而问题可能只是他扫了自己那张码。
-      const reject = usePairingInviteStore.getState().previewReject;
+      //
+      // `invalid` 走调用点给的 hint：这屏的两个入口（相机 / 剪贴板）下一步动作不同，
+      // 另外两类则与载体无关，共用 `PREVIEW_REJECT_MESSAGE`。
       setError(
-        reject === "self"
-          ? t`这是你自己的邀请`
-          : reject === "expired"
-            ? t`邀请已过期，请让对方重新生成`
-            : invalidHint,
+        outcome === "invalid"
+          ? invalidHint
+          : t(PREVIEW_REJECT_MESSAGE[outcome]),
       );
       // 去抖 1.5s 再解锁，避免坏码高频重触发。
       setTimeout(() => {
@@ -154,7 +156,7 @@ export default function ScanInvite() {
         className="bg-background"
         edges={["top", "bottom"]}
       >
-        <ScanHeader onBack={goBack} foreground={colors.foreground} />
+        <ScanHeader onBack={goBack} />
         <View className="flex-1 items-center justify-center gap-4 px-8">
           <View className="size-[72px] items-center justify-center rounded-full bg-primary/10">
             <Camera color={colors.primary} size={36} />
@@ -259,7 +261,11 @@ export default function ScanInvite() {
         edges={["top", "bottom"]}
         pointerEvents="box-none"
       >
-        <View className="flex-row items-center justify-between px-4 pt-2">
+        {/* 取景画面上的浮层控件族(返回 + 手电筒成对):`rounded-full bg-black/40` + 白图标。
+            **刻意不用 HeaderBackButton** —— 那是导航条族,`bg-muted` 浅底压在相机画面上
+            看不清,主题色图标同理。这是本 app 唯一一处正当的返回入口形态例外;图标仍与
+            全 app 一致用 ChevronLeft。 */}
+        <View className="flex-row items-center justify-between px-5 pt-2">
           <Pressable
             onPress={goBack}
             hitSlop={12}
@@ -267,7 +273,7 @@ export default function ScanInvite() {
             accessibilityLabel={t`返回`}
             className="size-11 items-center justify-center rounded-full bg-black/40 active:opacity-70"
           >
-            <ArrowLeft color="#ffffff" size={22} />
+            <ChevronLeft color="#ffffff" size={22} />
           </Pressable>
           <Pressable
             onPress={() => setTorch((on) => !on)}
@@ -311,25 +317,10 @@ export default function ScanInvite() {
 }
 
 /** 非相机态（primer/设置）复用的顶部返回条。 */
-function ScanHeader({
-  onBack,
-  foreground,
-}: {
-  onBack: () => void;
-  foreground: string;
-}) {
-  const { t } = useLingui();
+function ScanHeader({ onBack }: { onBack: () => void }) {
   return (
-    <View className="flex-row items-center px-4 pt-2">
-      <Pressable
-        onPress={onBack}
-        hitSlop={12}
-        accessibilityRole="button"
-        accessibilityLabel={t`返回`}
-        className="size-11 items-center justify-center active:opacity-70"
-      >
-        <ArrowLeft color={foreground} size={22} />
-      </Pressable>
+    <View className="flex-row items-center px-5 pt-2">
+      <HeaderBackButton onPress={onBack} />
     </View>
   );
 }
@@ -423,3 +414,6 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
 });
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

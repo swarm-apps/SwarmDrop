@@ -9,7 +9,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createLazyFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { Channel } from "@tauri-apps/api/core";
 import {
   Check,
   FileStack,
@@ -19,20 +18,23 @@ import {
   Send,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Trans } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import type { Device } from "@/lib/bindings";
-import type { PrepareProgress } from "@/lib/types";
 import { commands } from "@/lib/bindings";
 import { useNetworkStore } from "@/stores/network-store";
 import { useSecretStore } from "@/stores/secret-store";
 import { useShareStore } from "@/stores/share-store";
-import { useTransferStore } from "@/stores/transfer-store";
+import {
+  useActivePrepareProgress,
+  useTransferStore,
+} from "@/stores/transfer-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { useFileSelection } from "./-use-file-selection";
 import { getErrorMessage } from "@/lib/errors";
 import { deviceDisplayName } from "@/lib/device-name";
 import { formatLatency } from "@/lib/format";
+import { CONNECTION_LABEL } from "../devices/-components/connection-labels";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import { FileBrowser } from "@swarmdrop/file-browser";
 import { PrepareProgressBar } from "./-components/prepare-progress-bar";
@@ -64,7 +66,9 @@ function ShareTargetPage() {
 
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [prepareProgress, setPrepareProgress] = useState<PrepareProgress | null>(null);
+  // 准备进度住在 store：广播事件，且要在用户离开本页后继续可读。
+  const prepareProgress = useActivePrepareProgress();
+  const clearPrepare = useTransferStore((s) => s.clearPrepare);
   // 主任务是选设备（文件已定）。窄屏（<920）选设备占主屏，「待发文件」收进左抽屉。
   const isWide = useIsWideLayout();
   const [filesDrawerOpen, setFilesDrawerOpen] = useState(false);
@@ -126,17 +130,25 @@ function ShareTargetPage() {
   // 选中设备掉线时无需显式重置：selectedDevice 由下面的 find 派生，设备不在列表即为 null，
   // dock 自动回落「选择一个设备」、canSend 自动为 false。
   const selectedDevice = targetDevices.find((d) => d.peerId === selectedPeerId) ?? null;
-  const canSend = !sending && fileSelection.hasFiles && selectedDevice !== null;
+  const canSend =
+    !sending &&
+    !fileSelection.isScanning &&
+    fileSelection.hasFiles &&
+    selectedDevice !== null;
 
   const handleSend = async () => {
     if (!selectedDevice || sending || !fileSelection.hasFiles) return;
     setSending(true);
-    setPrepareProgress(null);
+    // 开工先清：上一批可能是**中途失败**停在半路的（尤其 MCP 发起的准备没有前端调用点，
+    // 永远轮不到 finally），而认领规则只让「已跑到 100%」的批次让位。不清的话用户会看着
+    // 一条冻结的旧进度条、标着别人的文件名，直到自己这批结束。
+    clearPrepare();
     try {
       const scannedFiles = fileSelection.getScannedFiles();
-      const progressChannel = new Channel<PrepareProgress>();
-      progressChannel.onmessage = setPrepareProgress;
-      const prepared = await commands.prepareSend(scannedFiles, progressChannel);
+      const prepared = await commands.prepareSend(scannedFiles);
+      // 准备已完成：立刻收掉进度条，别让它在随后的 startSend / loadProjections 期间
+      // 停在 100% 却还说着「正在准备」。
+      clearPrepare();
       const fileIds = prepared.files.map((f) => f.fileId);
       const result = await commands.startSend(
         prepared.preparedId,
@@ -154,7 +166,8 @@ function ShareTargetPage() {
       toast.error(getErrorMessage(err));
     } finally {
       setSending(false);
-      setPrepareProgress(null);
+      // 兜底：prepare 自己抛错时上面那次 clear 根本没跑到（见 /send 那页的同一条注释）。
+      clearPrepare();
     }
   };
 
@@ -242,14 +255,17 @@ function ShareTargetPage() {
     </div>
   );
 
+  // 准备进度**叠在按钮之上**（与 /send 同一形态），不替换它们：准备大目录可以是分钟级，
+  // 此前替换式的写法让那段时间界面上一个可交互元素都不剩。两页此前的显示门也不一致
+  // （这里是 `sending && prepareProgress`，那边是 `prepareProgress`），一并统一。
+  const prepareBar = prepareProgress ? (
+    <div className="min-w-0 px-2">
+      <PrepareProgressBar progress={prepareProgress} />
+    </div>
+  ) : null;
+
   const commandDock =
-    sending && prepareProgress ? (
-      <CommandDock className="justify-stretch">
-        <div className="min-w-0 flex-1 px-2">
-          <PrepareProgressBar progress={prepareProgress} />
-        </div>
-      </CommandDock>
-    ) : !fileSelection.hasFiles ? (
+    !fileSelection.hasFiles ? (
       // 空载荷：发送无从谈起，只留一个明确的出口
       <CommandDock>
         <TaskButton onClick={handleBack}>
@@ -263,7 +279,9 @@ function ShareTargetPage() {
         </TaskButton>
         <TaskButton onClick={handleSend} disabled={!canSend}>
           <Send className="size-4" />
-          {sending ? (
+          {fileSelection.isScanning ? (
+            <Trans>正在读取所选内容…</Trans>
+          ) : sending ? (
             <Trans>准备中…</Trans>
           ) : selectedDevice ? (
             <Trans>发送给 {deviceDisplayName(selectedDevice)}</Trans>
@@ -314,6 +332,7 @@ function ShareTargetPage() {
             </GlassPanel>
           )}
 
+          {prepareBar}
           {commandDock}
         </div>
 
@@ -368,8 +387,8 @@ function DeviceOption({
           {deviceDisplayName(device)}
         </p>
         <div className="mt-0.5 flex items-center gap-1.5">
-          <span className="size-1.5 rounded-full bg-green-500" />
-          <span className="text-[11px] text-green-500">
+          <span className="size-1.5 rounded-full bg-success" />
+          <span className="text-[11px] text-success-ink">
             <Trans>在线</Trans>
           </span>
           <ConnectionHint device={device} />
@@ -388,20 +407,17 @@ function DeviceOption({
 }
 
 function ConnectionHint({ device }: { device: Device }) {
-  if (!device.connection || device.latency == null) return null;
-  const label =
-    device.connection === "lan" ? (
-      <Trans>局域网</Trans>
-    ) : device.connection === "dcutr" ? (
-      <Trans>打洞</Trans>
-    ) : (
-      <Trans>中继</Trans>
-    );
+  const { t: translate } = useLingui();
+  const { connection } = device;
+  if (!connection || device.latency == null) return null;
+  // 查表而非三元链：连接方式此前写成 `lan ? … : dcutr ? … : 中继`，于是新增的
+  // `direct` 落进了最后那个"其余"分支，一条直连被显示成「中继」。
+  // `CONNECTION_LABEL` 是 `Record<ConnectionType, …>`，漏一个变体编译期就报。
   const latency = formatLatency(device.latency);
   return (
     <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
       <span aria-hidden>·</span>
-      {label}
+      {translate(CONNECTION_LABEL[connection])}
       {latency && <span className="font-mono tabular-nums">{latency}</span>}
     </span>
   );

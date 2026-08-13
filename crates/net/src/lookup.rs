@@ -104,13 +104,8 @@ pub(crate) async fn resolve_all(lookups: &[Box<dyn AddressLookup>], node: NodeId
     let mut found = Vec::new();
     while let Some(item) = merged.next().await {
         match item {
-            Ok(addrs) => {
-                for a in addrs {
-                    if !found.contains(&a) {
-                        found.push(a);
-                    }
-                }
-            }
+            // 保序去重：顺序即拨号优先级，必须确定（判据见 `addrset`）。
+            Ok(addrs) => found = crate::addrset::union_preserving_order(&found, &addrs),
             Err(e) => tracing::debug!(error = %e, "address lookup source failed"),
         }
     }

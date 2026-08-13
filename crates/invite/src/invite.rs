@@ -10,13 +10,17 @@
 //!   （openspec: invite-url-canonical）。
 //! - 二维码内容就是这个串**原样**（不做大小写归一）：payload 是大写 base32，落在 QR
 //!   alphanumeric 字符集内；小写的 scheme/host/path 前缀由编码器的最优分段单独成段。
-//!   实测码面与整串大写完全相同，故没必要为二维码牺牲链接外观（见 [`qr`](crate::qr)）。
+//!   实测两者同一 version，故没必要为二维码牺牲链接外观（见 [`qr`](crate::qr)）。
 //! - 选 base32 而非 base64url 的理由：**大小写不敏感**。payload 因此能用大写字母表进
 //!   QR alphanumeric，解析时也能容忍任意大小写的输入（手抄、IM 自动首字母大写等）。
 //! - wire = postcard 单变体 enum（[`InviteWire`]，1 字节判别码即版本；未知变体解码
 //!   即失败）+ 手工镜像结构（领域类型改字段不碰 wire 契约）
-//! - **签名尾置**：`signature` 是 wire 结构末位定长 64 字节 → signable =
-//!   `bytes[..len-64]`，天然覆盖版本判别码（防降级），无需二次规范化
+//! - **签名对象显式**：`SIGNING_DOMAIN ‖ core 字节`，标签含版本标识（防跨版本复用）。
+//!   ⚠️ wire v1 曾靠「`signature` 是末位定长 64 字节 ⇒ signable = `bytes[..len-64]`」这条
+//!   **位置约定**取签名对象；v2 把地址提示移出签名覆盖范围后签名不再位于末尾，那条约定
+//!   既不成立、也不该被换成另一条同样脆弱的。加字段时不要把它复活
+//! - **地址提示不进签名**（见 [`InviteV2`]），因此条数受 [`MAX_ADDR_HINTS`] 限制、
+//!   且零地址的邀请一律拒收
 //! - 验签公钥从 `inviter_id` 就地恢复（ed25519 PeerId 是 identity multihash），
 //!   邀请不携带独立公钥字段
 //!
@@ -37,6 +41,7 @@ use std::sync::Mutex;
 use data_encoding::BASE32_NOPAD;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use swarmdrop_net_base::compact::{self, CompactAddrs};
 use swarmdrop_net_base::{Addr, NodeAddr, NodeId, SecretKey};
 
 use crate::store::{InviteRecord, InviteStore, NoopInviteStore, PersistedInviteState};
@@ -126,32 +131,110 @@ pub struct PairInvite {
     pub display_platform: String,
 }
 
-/// wire 层：postcard 单变体 enum（判别码即版本；未来加变体不破坏 V1 解码）。
+/// wire 层：postcard 单变体 enum（判别码即版本）。
 ///
-/// **字段序即契约**：V1 一旦发布不可改动字段顺序/类型；`signature` 必须保持末位
-/// （签名尾置的 signable 切分依赖它）。
+/// **只认当前版本，不带旧版本解码分支。** 邀请是 TTL 24 小时的一次性凭证，跨版本共存窗口
+/// 自然收敛；保留旧解码换来的是一个只在极窄时间窗被执行到、因而没人测过的分支。旧邀请的
+/// 失败形态是「不是有效的配对邀请」，用户请对方重新生成一条即可，可自恢复。
 #[derive(Serialize, Deserialize)]
 enum InviteWire {
-    V1(InviteV1),
+    V2(InviteV2),
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-struct InviteV1 {
+/// 三段结构：**受保护区**（`core`）、签名、**不受保护的地址提示**（`hints`）。
+///
+/// # 为什么 `core` 是一段 `Vec<u8>` 而不是内联的结构体
+///
+/// 签名对象必须是一段**明确的字节**。V1 的做法是「序列化一遍占位签名的整条 wire，切掉末
+/// 64 字节当 signable」，于是背着一条隐式契约：`signature` 必须是最后一个字段。地址提示
+/// 移出签名覆盖范围后签名不再位于末尾，那条契约既不成立、也不该换成另一条同样脆弱的位置
+/// 约定。把 `SignedCore` 单独序列化成一段字节，签名对象就是它本身，代价是一个长度前缀。
+///
+/// # 为什么 `hints` 不进签名
+///
+/// 地址提示是**下游自证**的：拨过去之后身份由传输层（Noise / QUIC-TLS）对已签名的
+/// `inviter_id` 强制校验，篡改地址只能导致拨号失败，或把受邀方引向一个**完不成握手**的
+/// 第三方。签名保护的是 capability 的真实性与 `LocalOnly` 承诺不可降级 —— 两样都在
+/// `core` 里。
+///
+/// 代价如实记：能改写邀请文本的攻击者可以删空或替换地址提示，使受邀方拨不通。那是拒绝
+/// 服务，与「把整串改坏」同级，不涉及身份或凭证。
+///
+/// 换来的是[`SignedInvite`]：签一次之后地址可以任意增删而无需私钥 —— 「按二维码密度回收
+/// 地址」于是从生成侧的一次性动作变成任何持串方都能做的纯结构操作。
+#[derive(Serialize, Deserialize)]
+struct InviteV2 {
+    /// `postcard(SignedCore)` 的字节。签名对象是 [`SIGNING_DOMAIN`] 与它的拼接。
+    core: Vec<u8>,
+    /// serde 内置数组 impl 上限 32，拆两段序列化；postcard 下仍是紧凑 64 字节无分隔。
+    #[serde(with = "sig_serde")]
+    signature: [u8; 64],
+    /// 地址提示。**不在签名覆盖范围内**，可被任意方裁剪。
+    hints: CompactAddrs,
+}
+
+/// 受签名保护的字段。字段序即契约，发布后不可改动顺序/类型。
+#[derive(Serialize, Deserialize)]
+struct SignedCore {
     capability: [u8; 16],
     /// NodeId 的 multihash 字节（ed25519 下 38B；验签公钥由此恢复）。
     inviter_id: Vec<u8>,
-    /// multiaddr 二进制（文本形态约 2x 膨胀，QR 长度敏感）。
-    inviter_addrs: Vec<Vec<u8>>,
     expires_at: u64,
     /// 0 = Auto，1 = LocalOnly。
     transport_policy: u8,
     display_name: String,
     display_platform: String,
-    /// 必须末位（postcard 定长数组无长度前缀 → wire 尾部恰为 64 字节裸签名）。
-    /// serde 内置 impl 只到 [u8;32]，64 字节拆两段序列化——postcard 下仍是紧凑
-    /// 64 字节无分隔，尾部恰为签名（切分契约不受影响）。
-    #[serde(with = "sig_serde")]
-    signature: [u8; 64],
+}
+
+/// 一条邀请最多携带多少条地址提示。
+///
+/// **这是安全边界，不是容量优化。** 地址提示不在签名覆盖范围内（见 [`InviteV2`]），于是
+/// 任何能改写邀请文本的人都能往里塞任意多条。而受邀方拿到它们之后会经
+/// `Endpoint::add_addrs` 全部登记并拨号 —— 也就是说不设上限，一条被改写的邀请就是一台
+/// 指哪打哪的连接洪泛发生器（`LocalOnly` 也拦不住：它过滤成 `is_private_lan()`，
+/// 那恰好是一份内网端口扫描清单）。
+///
+/// wire v1 的签名覆盖地址列表，所以这个口子是 v2 新开的，必须在 v2 里堵上。
+///
+/// 32 是从生成侧反推的：`select_invite_addrs` 最多 5 个网络类别 × 每类 3 条传输 = 15。
+/// 留一倍余量给将来新增的传输或类别，超出即判为异常输入。
+const MAX_ADDR_HINTS: usize = 32;
+
+/// 签名的域分隔标签，含版本标识。
+///
+/// 它让**跨版本的签名复用**天然失败：同样一组字段，V2 的签名搬到别的版本上验不过。
+/// V1 靠「签名覆盖含 enum 判别码在内的全部前置字节」达到同一效果，但那是位置约定的副产品；
+/// 这里是显式的。
+const SIGNING_DOMAIN: &[u8] = b"swarmdrop-invite-v2";
+
+/// 待签名的字节：域分隔标签 ‖ `core`。
+fn signing_message(core: &[u8]) -> Vec<u8> {
+    let mut message = Vec::with_capacity(SIGNING_DOMAIN.len() + core.len());
+    message.extend_from_slice(SIGNING_DOMAIN);
+    message.extend_from_slice(core);
+    message
+}
+
+/// 从任意文本里定位邀请并解出 wire 字节。
+fn decode_payload_bytes(s: &str) -> Result<Vec<u8>, InviteParseError> {
+    BASE32_NOPAD
+        .decode(extract_payload(s)?.to_ascii_uppercase().as_bytes())
+        .map_err(|e| InviteParseError::Encoding(e.to_string()))
+}
+
+/// 解 wire 并**验签**。[`PairInvite::decode`] 与 [`SignedInvite::decode`] 的共同前半段——
+/// 两个出口共用同一段校验，不存在「某个入口松一点」的可能。
+fn verify_wire(bytes: &[u8]) -> Result<(InviteV2, SignedCore, NodeId), InviteParseError> {
+    let InviteWire::V2(wire) =
+        postcard::from_bytes(bytes).map_err(|e| InviteParseError::Postcard(e.to_string()))?;
+    let core: SignedCore =
+        postcard::from_bytes(&wire.core).map_err(|e| InviteParseError::Postcard(e.to_string()))?;
+    let inviter_id = NodeId::from_bytes(&core.inviter_id)
+        .map_err(|_| InviteParseError::Verify("发起方身份非法"))?;
+    if !inviter_id.verify(&signing_message(&wire.core), &wire.signature) {
+        return Err(InviteParseError::Verify("签名无效（邀请被篡改或伪造）"));
+    }
+    Ok((wire, core, inviter_id))
 }
 
 /// `[u8; 64]` 的 serde 适配（serde 内置数组 impl 上限 32）——两段 `[u8; 32]` 元组，
@@ -174,6 +257,23 @@ mod sig_serde {
     }
 }
 
+/// 本机当前没有任何可拨地址，因此**造不出**一条有意义的邀请。
+///
+/// 这是「一条邀请至少携带一条可拨地址」这条不变量的**生成侧**一半，与
+/// [`PairInvite::decode`] 里那句「邀请没有任何可拨地址」是同一条判断的两端：
+/// 那边保证本机不接受这种邀请，这边保证本机不产出它。
+///
+/// **为什么必须在这里挡住，而不是编出来再说。** 零地址邀请编得出、扫得动、也复制得走，
+/// 唯独没有任何东西可拨。此前生成侧不挡，于是发起方看到一张完全正常的二维码，受邀方拿到
+/// 它才报错 —— 认知分叉在两台设备之间，发起方永远不知道自己发出去的是废码。最容易撞上的
+/// 是浏览器端：它不 listen 本地 socket，可拨地址全部来自 relay reservation，在
+/// reservation 落定之前生成的每一条邀请都是空的。
+///
+/// 它是**瞬态**的，不是配置错误：等网络地址就绪后重新生成即可。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("本机当前没有任何可拨地址，邀请至少要携带一条")]
+pub struct NoDialableAddrs;
+
 /// 邀请串解析错误（分类照 iroh-tickets 的 ParseError 四分层）。
 #[derive(Debug, thiserror::Error)]
 pub enum InviteParseError {
@@ -192,7 +292,12 @@ pub enum InviteParseError {
 }
 
 impl PairInvite {
-    /// 生成并签名一个新邀请。`now` 为 Unix 秒（时间源由调用方注入，便于测试与 wasm）。
+    /// 生成一个新邀请。`now` 为 Unix 秒（时间源由调用方注入，便于测试与 wasm）。
+    ///
+    /// `inviter_addrs` 为空即 [`NoDialableAddrs`] —— 见那里的推导。这条闸让**「地址恒非空」
+    /// 成为 `PairInvite` 的类型不变量**：它只有两条构造路径（本方法与 [`Self::decode`]），
+    /// 两条都守住了，于是「拿到一个 `PairInvite` 就一定有地方可拨」在类型层面成立，下游
+    /// 不必各自再判一次空。
     pub fn generate(
         secret: &SecretKey,
         inviter_addrs: Vec<Addr>,
@@ -200,16 +305,19 @@ impl PairInvite {
         display_name: String,
         display_platform: String,
         now: u64,
-    ) -> Self {
+    ) -> Result<Self, NoDialableAddrs> {
+        if inviter_addrs.is_empty() {
+            return Err(NoDialableAddrs);
+        }
         let mut rng = rand::rng();
-        Self {
+        Ok(Self {
             capability: rand::RngExt::random(&mut rng),
             inviter: NodeAddr::with_addrs(secret.node_id(), inviter_addrs),
             expires_at: now + INVITE_TTL_SECS,
             transport_policy,
             display_name,
             display_platform,
-        }
+        })
     }
 
     /// 签名并编码为 canonical 邀请链接（[`INVITE_URL_PREFIX`] + base32-nopad）。
@@ -217,14 +325,32 @@ impl PairInvite {
     /// 产物直接用于链接分享、剪贴板、深链**与二维码** —— 四种载体同一个字符串，
     /// 二维码不再需要另一种编码、也不做大小写归一（见模块文档与 [`qr`](crate::qr)）。
     pub fn encode(&self, secret: &SecretKey) -> String {
-        let mut wire = self.to_wire([0u8; 64]);
-        // 签名尾置：先序列化占位版取 signable（尾 64 字节即占位签名，前缀与最终
-        // 序列化逐字节一致），签完写回再序列化——覆盖含 enum 判别码在内的全部前置字节。
-        let unsigned = postcard::to_stdvec(&InviteWire::V1(wire.clone())).expect("postcard");
-        let sig = secret.sign(&unsigned[..unsigned.len() - 64]);
-        wire.signature = sig;
-        let bytes = postcard::to_stdvec(&InviteWire::V1(wire)).expect("postcard");
-        format!("{INVITE_URL_PREFIX}{}", BASE32_NOPAD.encode(&bytes))
+        self.sign(secret).encode()
+    }
+
+    /// 签名一次，得到一份**地址可增删**的邀请。
+    ///
+    /// 这是「裁剪不需要私钥」这条性质的入口：[`SignedInvite::encode`] 不吃密钥，所以
+    /// 「一边裁地址一边重编码」的循环在类型上就不可能顺带重签名。
+    pub fn sign(&self, secret: &SecretKey) -> SignedInvite {
+        let core = postcard::to_stdvec(&SignedCore {
+            capability: self.capability,
+            inviter_id: self.inviter.id.to_bytes(),
+            expires_at: self.expires_at,
+            transport_policy: match self.transport_policy {
+                TransportPolicy::Auto => 0,
+                TransportPolicy::LocalOnly => 1,
+            },
+            display_name: self.display_name.clone(),
+            display_platform: self.display_platform.clone(),
+        })
+        .expect("postcard");
+        let signature = secret.sign(&signing_message(&core));
+        SignedInvite {
+            core,
+            signature,
+            addrs: self.inviter.addrs.clone(),
+        }
     }
 
     /// 从任意文本中提取邀请并**验签** —— 三端唯一的解析入口。
@@ -236,44 +362,42 @@ impl PairInvite {
     /// TTL 由调用方按 `expires_at` 判定 —— 权威判定在发起端 [`InviteRegistry`]，
     /// 解码侧预检仅为 UX。
     pub fn decode(s: &str) -> Result<Self, InviteParseError> {
-        let payload = extract_payload(s)?;
-        let bytes = BASE32_NOPAD
-            .decode(payload.to_ascii_uppercase().as_bytes())
-            .map_err(|e| InviteParseError::Encoding(e.to_string()))?;
-        Self::decode_wire(&bytes)
+        Self::decode_wire(&decode_payload_bytes(s)?)
     }
 
     fn decode_wire(bytes: &[u8]) -> Result<Self, InviteParseError> {
-        if bytes.len() <= 64 {
-            return Err(InviteParseError::Verify("载荷过短"));
-        }
-        let InviteWire::V1(wire) =
-            postcard::from_bytes(bytes).map_err(|e| InviteParseError::Postcard(e.to_string()))?;
+        let (wire, core, inviter_id) = verify_wire(bytes)?;
 
-        let inviter_id = NodeId::from_bytes(&wire.inviter_id)
-            .map_err(|_| InviteParseError::Verify("发起方身份非法"))?;
-        if !inviter_id.verify(&bytes[..bytes.len() - 64], &wire.signature) {
-            return Err(InviteParseError::Verify("签名无效（邀请被篡改或伪造）"));
-        }
-
-        let addrs = wire
-            .inviter_addrs
-            .iter()
-            .map(|b| Addr::from_bytes(b))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| InviteParseError::Verify("地址提示非法"))?;
-        let transport_policy = match wire.transport_policy {
+        let transport_policy = match core.transport_policy {
             0 => TransportPolicy::Auto,
             1 => TransportPolicy::LocalOnly,
             _ => return Err(InviteParseError::Verify("未知网络策略")),
         };
+        // 地址提示不受签名保护 ⇒ 条数是攻击者可控的，必须设上限。见 [`MAX_ADDR_HINTS`]。
+        if wire.hints.len() > MAX_ADDR_HINTS {
+            return Err(InviteParseError::Verify("地址提示数量异常"));
+        }
+        // 单条还原不出来时 `unpack` 跳过它继续（见 `swarmdrop_net_base::compact`）——少一条
+        // 只是少一条可拨路径。但**一条都不剩**是另一回事。
+        //
+        // ⚠️ 判据是「零地址就拒」，**不是**「有提示但全丢了才拒」。后者是本改动第一版写的，
+        // 漏掉了最容易构造的那种篡改：把路径数直接改成 0。两者的结果一模一样 —— 一条
+        // 验签通过、字段完好、就是没有任何东西可拨的邀请，用户要等到 RPC 超时才看到一句
+        // 与病因无关的「发送配对请求失败」。
+        //
+        // 这与 `swarmdrop_invite::compose` 里「裁剪绝不裁到零」是同一条价值判断的两端：
+        // 那边保证本机不产出这种邀请，这边保证本机不接受它。
+        let addrs = compact::unpack(&wire.hints);
+        if addrs.is_empty() {
+            return Err(InviteParseError::Verify("邀请没有任何可拨地址"));
+        }
         Ok(Self {
-            capability: wire.capability,
+            capability: core.capability,
             inviter: NodeAddr::with_addrs(inviter_id, addrs),
-            expires_at: wire.expires_at,
+            expires_at: core.expires_at,
             transport_policy,
-            display_name: wire.display_name,
-            display_platform: wire.display_platform,
+            display_name: core.display_name,
+            display_platform: core.display_platform,
         })
     }
 
@@ -295,22 +419,65 @@ impl PairInvite {
                 .collect(),
         }
     }
+}
 
-    #[doc(hidden)]
-    fn to_wire(&self, signature: [u8; 64]) -> InviteV1 {
-        InviteV1 {
-            capability: self.capability,
-            inviter_id: self.inviter.id.to_bytes(),
-            inviter_addrs: self.inviter.addrs.iter().map(|a| a.to_bytes()).collect(),
-            expires_at: self.expires_at,
-            transport_policy: match self.transport_policy {
-                TransportPolicy::Auto => 0,
-                TransportPolicy::LocalOnly => 1,
-            },
-            display_name: self.display_name.clone(),
-            display_platform: self.display_platform.clone(),
-            signature,
-        }
+/// 一份已签名的邀请：受保护区与签名已固定，**地址提示仍可增删**。
+///
+/// 存在的理由是让「按二维码密度回收地址」这件事不再需要私钥。[`encode`](Self::encode) 不吃
+/// 密钥，所以调用方即使写一个「编码 → 太密 → 丢一条 → 再编码」的循环，也不可能顺带把
+/// 签名重算一遍 —— 那条性质由类型保证，不靠注释提醒。
+///
+/// 地址提示不受签名保护（理由见 [`InviteV2`]），所以增删是**结构操作**而非伪造：
+/// 产物仍能通过验签，capability / 身份 / TTL / 策略一字不变。
+pub struct SignedInvite {
+    core: Vec<u8>,
+    signature: [u8; 64],
+    addrs: Vec<Addr>,
+}
+
+impl SignedInvite {
+    /// 从邀请串还原，**保留签名**。
+    ///
+    /// 与 [`PairInvite::decode`] 的差别只有一条，但那条决定了用途：那边把签名丢掉（它只回答
+    /// 「这条邀请说了什么」），于是重编码不回去；这边留着，所以可以裁掉几条地址再编码成一条
+    /// 仍然有效的邀请 —— 二维码按自己的码面回收地址就靠它。
+    ///
+    /// 校验与 `PairInvite::decode` 完全同款（同一段 `decode_wire` 逻辑的两个出口），
+    /// **不放松任何一步**。
+    pub fn decode(s: &str) -> Result<Self, InviteParseError> {
+        let bytes = decode_payload_bytes(s)?;
+        let (wire, _core, _id) = verify_wire(&bytes)?;
+        Ok(Self {
+            addrs: compact::unpack(&wire.hints),
+            core: wire.core,
+            signature: wire.signature,
+        })
+    }
+
+    /// 编码为 canonical 邀请链接。**不需要私钥**。
+    pub fn encode(&self) -> String {
+        let bytes = postcard::to_stdvec(&InviteWire::V2(InviteV2 {
+            core: self.core.clone(),
+            signature: self.signature,
+            hints: compact::pack(&self.addrs),
+        }))
+        .expect("postcard");
+        format!("{INVITE_URL_PREFIX}{}", BASE32_NOPAD.encode(&bytes))
+    }
+
+    /// 当前携带的地址提示。
+    pub fn addrs(&self) -> &[Addr] {
+        &self.addrs
+    }
+
+    /// 可增删的地址提示。
+    ///
+    /// 开放**写**入口而不是只给一个 `remove`：提示不受签名保护，增与删在密码学上是同一件事，
+    /// 假装只能删只会让调用方绕路。真正的约束在别处，而且是两端各守一半：产出侧由
+    /// [`compose::drop_least_valuable_addr`](crate::compose) 保证裁剪绝不裁到零，
+    /// 接收侧由 [`PairInvite::decode`] 拒掉零地址邀请。
+    pub fn addrs_mut(&mut self) -> &mut Vec<Addr> {
+        &mut self.addrs
     }
 }
 
@@ -659,6 +826,7 @@ mod tests {
             "macos".into(),
             1_700_000_000,
         )
+        .expect("夹具带地址")
     }
 
     /// 前缀匹配必须大小写不敏感 —— **这条曾经是「前缀必须全小写」，被现实推翻**。
@@ -758,33 +926,205 @@ mod tests {
         }
     }
 
+    /// 逐字节翻转整条 wire：**要么被拒，要么受保护字段一字未变**。
+    ///
+    /// V1 时代这条断言的是「除签名外每个字节被改都必须拒」。地址提示移出签名覆盖范围后
+    /// 那句话不再成立——改 hints 区的字节本来就该照常解开。但把断言弱化成「大部分要拒」
+    /// 会让它失去区分力，所以换成一条**更强**的不变量：解码成功就意味着改动落在 hints 上，
+    /// 那么六个受保护字段必须逐个不变。
+    ///
+    /// 这条红了说明签名覆盖范围漏了某个字段——那才是真正的降级面。
     #[test]
-    fn tampered_fields_are_rejected() {
+    fn tampering_either_fails_or_leaves_protected_fields_intact() {
         let sk = SecretKey::generate();
         let invite = test_invite(&sk, TransportPolicy::LocalOnly);
         let s = invite.encode(&sk);
-        let payload = s.strip_prefix(INVITE_URL_PREFIX).unwrap();
-        let bytes = BASE32_NOPAD.decode(payload.as_bytes()).unwrap();
+        let bytes = BASE32_NOPAD
+            .decode(extract_payload(&s).unwrap().as_bytes())
+            .unwrap();
 
-        // 逐字节翻转除签名外的每个字节（含 enum 判别码与 transport_policy），必须全拒
-        for i in 0..bytes.len() - 64 {
+        let mut survived = 0usize;
+        for i in 0..bytes.len() {
             let mut tampered = bytes.clone();
             tampered[i] ^= 0x01;
-            let ts = format!("{INVITE_URL_PREFIX}{}", BASE32_NOPAD.encode(&tampered));
-            assert!(
-                PairInvite::decode(&ts).is_err(),
-                "第 {i} 字节被篡改却通过了解码"
-            );
+            let text = format!("{INVITE_URL_PREFIX}{}", BASE32_NOPAD.encode(&tampered));
+            let Ok(got) = PairInvite::decode(&text) else {
+                continue;
+            };
+            survived += 1;
+            assert_eq!(got.capability, invite.capability, "第 {i} 字节");
+            assert_eq!(got.inviter.id, invite.inviter.id, "第 {i} 字节");
+            assert_eq!(got.expires_at, invite.expires_at, "第 {i} 字节");
+            assert_eq!(got.transport_policy, invite.transport_policy, "第 {i} 字节");
+            assert_eq!(got.display_name, invite.display_name, "第 {i} 字节");
+            assert_eq!(got.display_platform, invite.display_platform, "第 {i} 字节");
         }
-        // 篡改签名本身也拒
-        let mut tampered = bytes.clone();
-        let last = tampered.len() - 1;
-        tampered[last] ^= 0x01;
-        let ts = format!("{INVITE_URL_PREFIX}{}", BASE32_NOPAD.encode(&tampered));
-        assert!(matches!(
-            PairInvite::decode(&ts),
-            Err(InviteParseError::Verify(_))
-        ));
+        // 非空断言：hints 区确实存在、确实有字节改了还能解开。否则上面整个循环是空转，
+        // 而空转的循环看起来和「全都拒了」一模一样。
+        assert!(
+            survived > 0,
+            "没有任何一个字节改动后仍能解码——hints 区似乎也进了签名，本 change 白做了"
+        );
+    }
+
+    /// 地址提示条数必须有上限 —— 它不在签名覆盖范围内，条数是攻击者可控的。
+    ///
+    /// 没有这条闸时，一条被改写的邀请就是一台指哪打哪的连接洪泛发生器：受邀方会把全部提示
+    /// 经 `Endpoint::add_addrs` 登记并拨号。见 [`MAX_ADDR_HINTS`]。
+    #[test]
+    fn too_many_address_hints_are_rejected() {
+        let sk = SecretKey::generate();
+        let flood: Vec<Addr> = (0..MAX_ADDR_HINTS + 1)
+            .map(|i| {
+                format!("/ip4/198.51.100.{}/tcp/{}", i % 256, 4000 + i)
+                    .parse()
+                    .unwrap()
+            })
+            .collect();
+        let encoded = PairInvite::generate(
+            &sk,
+            flood,
+            TransportPolicy::Auto,
+            "书房的 Mac".into(),
+            "macos".into(),
+            1_700_000_000,
+        )
+        .expect("夹具带地址")
+        .encode(&sk);
+        assert!(
+            matches!(
+                PairInvite::decode(&encoded),
+                Err(InviteParseError::Verify(_))
+            ),
+            "超过 {MAX_ADDR_HINTS} 条地址提示必须被拒"
+        );
+    }
+
+    /// **验签通过、字段完好、却一条地址都没有** —— 这是本模块最坏的输出形态，任何篡改都
+    /// 不该产出它。
+    ///
+    /// 用字节翻转搜索而不是手工构造损坏结构：`CompactAddrs` 的内部字段对本 crate 不可见，
+    /// 而这条规则要防的恰恰是「提示区被改坏 → `unpack` 逐条丢弃 → 丢光了也没人说话」。
+    /// 那样的邀请拨不动任何东西，用户要等到 RPC 超时才看到一句与病因无关的
+    /// 「发送配对请求失败」。
+    ///
+    /// ⚠️ **夹具必须是「单条、且带 certhash 下标」的地址，翻转也必须覆盖 8 个 bit 位。**
+    /// 第一版用的是 `test_invite`（两条裸 TCP 地址、只翻最低位），去掉被测判断照样绿 ——
+    /// 两条地址里杀不死全部路径，裸 TCP 又没有下标可打坏，`0x01` 还只能让下标 0↔1 互换、
+    /// 始终落在表内。那样的测试看起来在守规则，实际一个字节都没守住。
+    #[test]
+    fn no_tampering_yields_a_zero_address_invite() {
+        let sk = SecretKey::generate();
+        let invite = PairInvite::generate(
+            &sk,
+            vec![
+                "/ip4/192.168.1.10/udp/4004/quic-v1/webtransport\
+                 /certhash/uEiDDq4_xNyDorZBH3TlGazyJdOWSwvo4PUo5YHFMrvDE8g\
+                 /certhash/uEiBuBPteUjlXiXM9izTtEdpg3C0QHFZ0A2m6aSjsbv2oeA"
+                    .parse()
+                    .unwrap(),
+            ],
+            TransportPolicy::Auto,
+            "书房的 Mac".into(),
+            "macos".into(),
+            1_700_000_000,
+        )
+        .expect("夹具带地址");
+        let bytes = BASE32_NOPAD
+            .decode(extract_payload(&invite.encode(&sk)).unwrap().as_bytes())
+            .unwrap();
+
+        for i in 0..bytes.len() {
+            for bit in 0..8u8 {
+                let mut tampered = bytes.clone();
+                tampered[i] ^= 1 << bit;
+                let text = format!("{INVITE_URL_PREFIX}{}", BASE32_NOPAD.encode(&tampered));
+                if let Ok(got) = PairInvite::decode(&text) {
+                    assert!(
+                        !got.inviter.addrs.is_empty(),
+                        "第 {i} 字节 bit {bit} 被篡改后解出了一条零地址邀请——它编得出、\
+                         扫得动、复制得走，唯独没有任何东西可拨"
+                    );
+                }
+            }
+        }
+    }
+
+    /// 生成侧的零地址闸 —— 与上面那条 `no_tampering_yields_a_zero_address_invite` 是
+    /// **同一条不变量的两端**：那条守「本机不接受零地址邀请」，这条守「本机不产出它」。
+    ///
+    /// 缺了这一半时的表现极难归因：发起方拿到一张完全正常的二维码，受邀方扫了才报错，
+    /// 而两人手上的信息对不上。浏览器端最容易撞上（可拨地址全部来自 relay reservation，
+    /// 落定之前是空集而非「少几条」）。
+    #[test]
+    fn generating_without_any_addr_is_refused() {
+        let sk = SecretKey::generate();
+        assert!(
+            matches!(
+                PairInvite::generate(
+                    &sk,
+                    vec![],
+                    TransportPolicy::Auto,
+                    "书房的 Mac".into(),
+                    "macos".into(),
+                    1_700_000_000,
+                ),
+                Err(NoDialableAddrs)
+            ),
+            "零地址邀请必须在生成侧就被拒，而不是编出来交给用户"
+        );
+    }
+
+    /// 把闸挡下的那种邀请**硬造出来**，确认它正是解码侧会拒的那一种。
+    ///
+    /// 上一条只证明「生成被拒了」，不能证明「被拒的是对的东西」——万一解码侧其实收得下
+    /// 零地址邀请，那道闸就是纯粹的多余限制。这条经 `addrs_mut`（不需要私钥的合法路径）
+    /// 绕过生成侧，直接验两端咬合。
+    #[test]
+    fn the_refused_shape_is_exactly_what_decode_rejects() {
+        let sk = SecretKey::generate();
+        let mut signed = test_invite(&sk, TransportPolicy::Auto).sign(&sk);
+        signed.addrs_mut().clear();
+        assert!(
+            matches!(
+                PairInvite::decode(&signed.encode()),
+                Err(InviteParseError::Verify(_))
+            ),
+            "生成侧挡下的形状，解码侧也必须拒 —— 否则那道闸是多余的"
+        );
+    }
+
+    /// 地址提示可被任意方**替换**，邀请仍然有效。
+    ///
+    /// 与上面那条逐字节翻转互补：那条证明「改了也不会伪造」，这条证明「改了确实还能用」
+    /// ——后者才是 [`SignedInvite::addrs_mut`] 与「按码面裁剪不需要私钥」的立足点。
+    #[test]
+    fn address_hints_can_be_replaced_without_the_key() {
+        let sk = SecretKey::generate();
+        let invite = test_invite(&sk, TransportPolicy::Auto);
+        let signed = invite.sign(&sk);
+
+        let bytes = BASE32_NOPAD
+            .decode(extract_payload(&signed.encode()).unwrap().as_bytes())
+            .unwrap();
+        let InviteWire::V2(wire) = postcard::from_bytes(&bytes).unwrap();
+        // 换成一组完全不同的地址，**不碰 core 与 signature**
+        let forged = postcard::to_stdvec(&InviteWire::V2(InviteV2 {
+            core: wire.core.clone(),
+            signature: wire.signature,
+            hints: compact::pack(&["/ip4/198.51.100.7/tcp/9999".parse().unwrap()]),
+        }))
+        .unwrap();
+
+        let text = format!("{INVITE_URL_PREFIX}{}", BASE32_NOPAD.encode(&forged));
+        let got = PairInvite::decode(&text).expect("换掉地址提示不该让邀请失效");
+        assert_eq!(got.capability, invite.capability);
+        assert_eq!(got.expires_at, invite.expires_at);
+        assert_eq!(
+            got.inviter.addrs,
+            vec!["/ip4/198.51.100.7/tcp/9999".parse::<Addr>().unwrap()],
+            "地址提示应当是被替换后的那组"
+        );
     }
 
     #[test]
@@ -1240,25 +1580,73 @@ mod tests {
         }
     }
 
-    /// wire 契约锁定：V1 的关键字段布局。**本测试失败 = wire 契约被改动**——
-    /// 已发布的邀请串将无法解析，禁止随手"修"这个测试，先回看 InviteV1 的改动。
+    /// wire 契约锁定：V2 的版本判别码与签名对象。
+    ///
+    /// **本测试失败 = wire 契约被改动**，已发出的邀请串将无法解析。禁止随手「修」它，
+    /// 先回看 [`InviteV2`] 的改动。
     #[test]
-    fn wire_v1_keeps_version_capability_and_tail_signature_layout() {
+    fn wire_v2_signs_the_domain_tagged_core() {
         let sk = SecretKey::generate();
         let mut invite = test_invite(&sk, TransportPolicy::LocalOnly);
         invite.capability = [0x22; 16];
-        let s = invite.encode(&sk);
-        let payload = extract_payload(&s).unwrap();
         let bytes = BASE32_NOPAD
-            .decode(payload.to_ascii_uppercase().as_bytes())
+            .decode(
+                extract_payload(&invite.encode(&sk))
+                    .unwrap()
+                    .to_ascii_uppercase()
+                    .as_bytes(),
+            )
             .unwrap();
-        // 契约固定段（不含随机密钥派生部分）：
-        // [0]=0x00 enum 判别码（V1）；[1..17]=capability
-        assert_eq!(bytes[0], 0x00, "V1 判别码必须是 0x00");
-        assert_eq!(&bytes[1..17], &[0x22; 16]);
-        // 尾 64 字节是签名（签名尾置契约）
-        let sig: [u8; 64] = bytes[bytes.len() - 64..].try_into().unwrap();
-        assert!(invite.inviter.id.verify(&bytes[..bytes.len() - 64], &sig));
+
+        assert_eq!(bytes[0], 0x00, "V2 判别码必须是 0x00（单变体 enum）");
+        let InviteWire::V2(wire) = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(
+            &wire.core[..16],
+            &[0x22; 16],
+            "capability 必须是 core 的第一个字段"
+        );
+        assert!(
+            invite
+                .inviter
+                .id
+                .verify(&signing_message(&wire.core), &wire.signature),
+            "签名对象必须是 域分隔标签 ‖ core"
+        );
+    }
+
+    /// 域分隔标签必须真的在签名对象里。
+    ///
+    /// 没有它，同样一组字段的签名可以搬到别的版本上继续有效——V1 靠「签名覆盖含 enum
+    /// 判别码在内的全部前置字节」达到同一效果，那是位置约定的副产品；换成显式标签后，
+    /// **这条测试是它唯一的看守**。裸 core 验签通过 = 标签被拿掉了。
+    #[test]
+    fn signature_does_not_verify_over_the_bare_core() {
+        let sk = SecretKey::generate();
+        let invite = test_invite(&sk, TransportPolicy::Auto);
+        let bytes = BASE32_NOPAD
+            .decode(extract_payload(&invite.encode(&sk)).unwrap().as_bytes())
+            .unwrap();
+        let InviteWire::V2(wire) = postcard::from_bytes(&bytes).unwrap();
+        assert!(
+            !invite.inviter.id.verify(&wire.core, &wire.signature),
+            "不带域分隔标签的 core 不该验得过"
+        );
+    }
+
+    /// 裁掉地址后**不重新签名**，邀请仍然有效——`compose::fit_to_scannable` 的立足点。
+    #[test]
+    fn trimming_addresses_needs_no_key() {
+        let sk = SecretKey::generate();
+        let invite = test_invite(&sk, TransportPolicy::Auto);
+        let mut signed = invite.sign(&sk);
+        assert_eq!(signed.addrs().len(), 2);
+
+        signed.addrs_mut().pop();
+        let got = PairInvite::decode(&signed.encode()).expect("裁剪后仍须验签通过");
+        assert_eq!(got.inviter.addrs.len(), 1);
+        assert_eq!(got.capability, invite.capability);
+        assert_eq!(got.expires_at, invite.expires_at);
+        assert_eq!(got.transport_policy, invite.transport_policy);
     }
 }
 
@@ -1285,7 +1673,8 @@ mod utf8_safety {
             "书房 Mac".into(),
             "macos".into(),
             1_700_000_000,
-        );
+        )
+        .expect("夹具带地址");
         let canonical = invite.encode(&sk);
 
         let cases = [

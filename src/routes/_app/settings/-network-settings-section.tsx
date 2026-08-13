@@ -8,14 +8,7 @@ import { useLingui } from "@lingui/react/macro";
 import { msg } from "@lingui/core/macro";
 import { Network } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { usePreferencesStore, type DiscoveryMode } from "@/stores/preferences-store";
+import { usePreferencesStore } from "@/stores/preferences-store";
 import { LanHelperAddress } from "@/components/network/lan-helper-address";
 import { useNodeRestart } from "@/hooks/use-node-restart";
 import {
@@ -29,15 +22,19 @@ export function NetworkSettingsSection() {
   const { t } = useLingui();
   const autoStart = usePreferencesStore((state) => state.autoStart);
   const setAutoStart = usePreferencesStore((state) => state.setAutoStart);
-  const discoveryMode = usePreferencesStore((state) => state.discoveryMode);
-  const setDiscoveryMode = usePreferencesStore((state) => state.setDiscoveryMode);
   const autoDiscoverLanHelpers = usePreferencesStore((state) => state.autoDiscoverLanHelpers);
   const setAutoDiscoverLanHelpers = usePreferencesStore((state) => state.setAutoDiscoverLanHelpers);
   const provideLanHelper = usePreferencesStore((state) => state.provideLanHelper);
   const setProvideLanHelper = usePreferencesStore((state) => state.setProvideLanHelper);
   const publicReachability = usePreferencesStore((state) => state.publicReachability);
   const setPublicReachability = usePreferencesStore((state) => state.setPublicReachability);
-  const { restarting, markRestartNeeded, restart, showBanner } = useNodeRestart();
+  const {
+    restarting,
+    markRestartNeeded,
+    restart,
+    showBanner,
+    activeTransferCount,
+  } = useNodeRestart();
 
   return (
     <SettingsSection title={<Trans>网络</Trans>} icon={Network} fill>
@@ -55,33 +52,9 @@ export function NetworkSettingsSection() {
         />
 
         <SettingsRow
-          title={<Trans>发现模式</Trans>}
-          description={
-            <Trans>是否主动连接公网引导节点；仅局域网模式下仍可被跨网访问，除非关闭公网可达性</Trans>
-          }
-          action={
-            <Select
-              value={discoveryMode}
-              onValueChange={(value) => {
-                setDiscoveryMode(value as DiscoveryMode);
-                markRestartNeeded();
-              }}
-            >
-              <SelectTrigger aria-label={t(msg`发现模式`)} className="w-34 sm:w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">{t(msg`自动`)}</SelectItem>
-                <SelectItem value="lanOnly">{t(msg`仅局域网`)}</SelectItem>
-              </SelectContent>
-            </Select>
-          }
-        />
-
-        <SettingsRow
           title={<Trans>公网可达性</Trans>}
           description={
-            <Trans>允许通过公网中继被跨网设备访问；关闭后为严格局域网，跨网访问可能不可用</Trans>
+            <Trans>允许通过公网中继被跨网设备访问；关闭后仅局域网可达，跨网设备找不到你</Trans>
           }
           action={
             <Switch
@@ -124,17 +97,23 @@ export function NetworkSettingsSection() {
             />
           }
         />
+
+        {/* 重启提示**贴着产生它的那些开关**，不再吊在页面底部。
+            引导节点已不在这条路径上——增删当场生效，不需要重启（见 `-bootstrap-nodes-section`），
+            所以这里剩下的全是真的要重启的开关。 */}
+        {showBanner && (
+          <div className="border-b border-border/60 p-4 last:border-b-0">
+            <NodeRestartBanner
+              activeTransferCount={activeTransferCount}
+              message={<Trans>网络发现设置已变更，需重启节点生效</Trans>}
+              restarting={restarting}
+              onRestart={restart}
+            />
+          </div>
+        )}
       </SettingsCard>
 
       <LanHelperAddress />
-
-      {showBanner && (
-        <NodeRestartBanner
-          message={<Trans>网络发现设置已变更，需重启节点生效</Trans>}
-          restarting={restarting}
-          onRestart={restart}
-        />
-      )}
     </SettingsSection>
   );
 }

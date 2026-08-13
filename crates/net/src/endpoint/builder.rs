@@ -82,13 +82,36 @@ impl Builder {
         self
     }
 
-    /// 显式登记已知的外部可达地址。
+    /// 声明启动时已知的外部可达地址（等价于 bind 后立刻
+    /// [`Endpoint::set_external_addrs`] 一次，但赶得上启动早期的 reservation 应答）。
     ///
-    /// 典型场景是公网 relay 的 TCP/QUIC/WebSocket 地址。WebRTC Direct 的
-    /// certhash 可用 [`crate::webrtc_direct_addr_from_pem`] 从同一持久化证书
-    /// 预先派生；运行期发现的地址则使用 [`Endpoint::add_external_addr`] 登记。
+    /// 只适合**不用等监听结果就能算出来、且恒定不变**的那几条（公网 relay 的 TCP/QUIC）。
+    /// 带 certhash 的传输不要在这里预先派生 —— 那需要第二条从证书算 certhash 的路径，
+    /// 与传输实际使用的那条一旦漂移，症状是浏览器在 TLS 阶段被拒而日志毫无线索。
+    /// 那几条交给 [`external_ip`](Self::external_ip)，它从**监听地址本身**取 certhash。
     pub fn external_addrs(mut self, addrs: Vec<Addr>) -> Self {
         self.config.external_addrs = addrs;
+        self
+    }
+
+    /// 本节点的公网 IP —— 内核据此把每条监听地址映射成公网形态并持续维护。
+    ///
+    /// 适用于**静态 1:1 NAT 或直接持有公网 IP**的节点（公网 bootstrap/relay、端口转发到
+    /// 固定公网 IP 的桌面端）。给了之后内核维护第三份 external 来源：
+    /// 「当前监听集合中每条非 circuit 地址 ⇒ 把 IP 段换成这个 IP」，随监听地址增删同步，
+    /// 与 [`external_addrs`](Self::external_addrs) 声明的、AutoNAT 确认的三者取并集。
+    ///
+    /// # 为什么必须由内核持续维护，而不是启动时算一次
+    ///
+    /// 监听地址不是恒定的：WebTransport 的地址里带 **certhash**，而证书每 14 天轮换一次。
+    /// 启动时算出来的那条会在第一次轮换后变成死地址，还会随 identify 广播给每个对端。
+    /// 跟着监听集合走则天然带着**当前正确的** certhash，轮换时内核重新发一轮
+    /// `NewListenAddr`，这份映射随之更新、旧的随之撤销。
+    ///
+    /// circuit 地址被排除：`/…/p2p/<relay>/p2p-circuit` 里的 IP 段属于中继方，换成本机的
+    /// 公网 IP 会得到一条谁都拨不通、且指认错了中继的地址。
+    pub fn external_ip(mut self, ip: std::net::IpAddr) -> Self {
+        self.config.external_ip = Some(ip);
         self
     }
 
@@ -141,6 +164,24 @@ impl Builder {
         self
     }
 
+    /// 启用 WebTransport（native listener + dialer）。
+    ///
+    /// 「启用」与「服务端证书持久化」是两件事，由 [`WebTransportConfig`] 区分：
+    /// 纯拨号方用 `client_only()`，监听方用 `with_store(..)`。后者不像 webrtc-direct
+    /// 那样给一份 PEM 就完事 —— WebTransport 的证书 spec 强制 ≤ 14 天有效期，本机会自行
+    /// 轮换并**回写**，宿主必须提供可写的存储。
+    ///
+    /// **native**：不调用它 = 不启用，`/quic-v1/webtransport` 地址会以
+    /// `MultiaddrNotSupported` 快速失败，而不是挂着等超时。
+    ///
+    /// **浏览器：调用与否都一样。** 那边的启用判据是「有没有 `WebTransport` API」，这个
+    /// 配置整个被忽略（它也没有 store 可放）。方法在两个 target 下都存在，是为了让上层
+    /// 组合根用同一份无分支的代码装配三端。
+    pub fn webtransport(mut self, config: crate::config::WebTransportConfig) -> Self {
+        self.config.webtransport = Some(config);
+        self
+    }
+
     /// 启用 WebRTC 打洞传输（内核层面默认关；core 的组合根对三端一律开启）。
     ///
     /// 与 webrtc-direct 正交：后者要求目标地址已可达，前者让双方都不可达的节点
@@ -183,7 +224,8 @@ impl Builder {
     pub async fn bind(self) -> Result<Endpoint, BindError> {
         let secret = self.secret.unwrap_or_else(SecretKey::generate);
         let node_id = secret.node_id();
-        let config = self.config;
+        let mut config = self.config;
+        ensure_webtransport_listen(&mut config);
 
         let mut swarm = build_swarm(secret.as_keypair().clone(), &config)?;
 
@@ -202,16 +244,22 @@ impl Builder {
                 .listen_on(addr.as_multiaddr().clone())
                 .map_err(|e| BindError::Listen {
                     addr: addr.clone(),
-                    reason: e.to_string(),
+                    // `{e:?}` 而非 `to_string()`：`TransportError` 的 Display 在 `Other`
+                    // 分支上写的是**空串**（libp2p `core/src/transport.rs`），而传输层的
+                    // 真实失败（端口占用、地址不可绑）全落在那个分支——用 Display 的话
+                    // bind 会以一句「listen on … failed: 」结束，什么都没说。
+                    reason: format!("{e:?}"),
                 })?;
         }
 
         // watch：actor 是唯一写者，Endpoint 持读端
         // `Swarm::add_external_address` 不会保证回发 ExternalAddrConfirmed；
         // 显式配置的公网地址由组合根负责正确性，故在状态视图中同步作为初值。
+        // 经同一个规范化函数，与 actor 的 `resync_external` 算出的形状一致——否则
+        // 配置里若有重复地址，第一次重算就会判为「变了」而白广播一轮。
         let (addrs_tx, addrs_rx) = watch::channel(AddrsInfo {
             listen: Vec::new(),
-            external: config.external_addrs.clone(),
+            external: crate::addrset::dedup_preserving_order(&config.external_addrs),
         });
         let (nat_tx, nat_rx) = watch::channel(NatStatus::default());
         let (conns_tx, conns_rx) = watch::channel(BTreeMap::new());
@@ -219,6 +267,9 @@ impl Builder {
 
         let (actor_tx, actor_rx) = mpsc::channel::<ActorMessage>(COMMAND_CHANNEL_SIZE);
         let dht_enabled = config.dht.is_some();
+        // registry 在这里建而不是在下面的 `Inner` 里：actor 也要读它（判断关掉一条连接
+        // 安不安全），而**必须是同一份**——两份各记各的，actor 会以为对端永远空闲。
+        let registry = StreamRegistry::new(config.stream_limits);
         let actor = Actor::new(
             swarm,
             actor_rx,
@@ -231,6 +282,7 @@ impl Builder {
             actor_tx.clone(),
             config.clone(),
             node_id,
+            registry.clone(),
         );
         let actor_handle = n0_future::task::spawn(actor.run());
 
@@ -239,12 +291,13 @@ impl Builder {
             node_id,
             actor_tx: actor_tx.clone(),
             control,
-            registry: StreamRegistry::new(config.stream_limits),
+            registry,
             watch_addrs: addrs_rx,
             watch_nat: nat_rx,
             watch_conns: conns_rx,
             watch_relays: relays_rx,
             dht: dht_enabled.then(|| Dht::new(actor_tx.clone())),
+            supported_transports: crate::transport::supported_transports(&config).into(),
             connect_timeout: config.connect_timeout,
             next_connect_request_id: std::sync::atomic::AtomicU64::new(1),
             closed: CancellationToken::new(),
@@ -263,3 +316,41 @@ impl Builder {
         Ok(endpoint)
     }
 }
+
+/// 注入了证书端口却没给监听地址时，自动补一条 WebTransport 监听。
+///
+/// 「有服务端证书可存」与「要监听 WebTransport」是同一个意图 —— 拨号方不需要证书
+/// （它只验对端的）。让调用方两处各表达一次，就会出现「给了 store 却没监听」这种
+/// 半配置状态：证书照常生成、轮换、落盘，唯独没人能连进来，而且**没有任何报错**。
+///
+/// 端口给 `0` 由系统分配，certhash 在 transport 层补进最终监听地址。已经显式给了
+/// WebTransport 监听地址的调用方（bootstrap 要固定 4004）不受影响。
+///
+/// wasm 下 `store` 字段根本不存在（`with_store` 是 native-only），因此浏览器永远走不到
+/// 这里 —— 那正对：它起不了任何监听，凭空多一条会让 `bind` 直接失败。
+#[cfg(not(wasm_browser))]
+fn ensure_webtransport_listen(config: &mut EndpointConfig) {
+    let wants_listen = config
+        .webtransport
+        .as_ref()
+        .is_some_and(|wt| wt.store().is_some());
+    if !wants_listen {
+        return;
+    }
+    let already = config
+        .listen
+        .iter()
+        .any(|a| a.transport() == Some(swarmdrop_net_base::TransportKind::Webtransport));
+    if already {
+        return;
+    }
+    config.listen.push(
+        "/ip4/0.0.0.0/udp/0/quic-v1/webtransport"
+            .parse()
+            .expect("valid multiaddr"),
+    );
+}
+
+/// 浏览器起不了监听，这里无事可做。
+#[cfg(wasm_browser)]
+fn ensure_webtransport_listen(_config: &mut EndpointConfig) {}

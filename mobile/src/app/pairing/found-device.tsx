@@ -1,9 +1,10 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
-import { ArrowLeft, MonitorSmartphone } from "lucide-react-native";
+import { MonitorSmartphone } from "lucide-react-native";
 import { useEffect, useRef } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { HeaderBackButton } from "@/components/header-back-button";
 import { PeerSummaryCard } from "@/components/pairing/peer-summary-card";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -63,21 +64,14 @@ export default function FoundDevice() {
       className="bg-background"
       edges={["top", "bottom"]}
     >
-      <View className="flex-row items-center justify-between px-4 pt-2">
-        <Pressable
-          onPress={onCancel}
-          hitSlop={12}
-          disabled={confirming}
-          accessibilityRole="button"
-          accessibilityLabel={t`返回`}
-          className="size-10 items-center justify-center active:opacity-70 disabled:opacity-50"
-        >
-          <ArrowLeft color={colors.foreground} size={22} />
-        </Pressable>
+      {/* 居中标题的导航条(与 SettingsHeader 的左对齐不同,这是确认流的形态),
+          但返回入口用同一个 HeaderBackButton;右侧 size-11 占位保证标题真正居中。 */}
+      <View className="flex-row items-center justify-between px-5 pt-2">
+        <HeaderBackButton onPress={onCancel} disabled={confirming} />
         <Text className="text-[17px] font-bold text-foreground">
           <Trans>确认设备</Trans>
         </Text>
-        <View className="size-10" />
+        <View className="size-11" />
       </View>
 
       <View className="flex-1 items-center justify-center gap-3 px-6">
@@ -149,3 +143,6 @@ export default function FoundDevice() {
     </SafeAreaView>
   );
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

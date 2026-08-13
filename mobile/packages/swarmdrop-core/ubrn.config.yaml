@@ -11,7 +11,13 @@ ios:
   targets:
     - aarch64-apple-ios        # 真机 (arm64)
     - aarch64-apple-ios-sim    # M 系列 Mac 模拟器
-    - x86_64-apple-ios         # Intel Mac 模拟器
+    # x86_64-apple-ios（Intel Mac 模拟器）**刻意不列**：ubrn 会把所有模拟器 target
+    # lipo 成同一个 fat slice，加上它后 dev profile 下体积达 2.3 GB，越过 Ruby
+    # `IO#read` 的 2 GB 线 —— `pod install` 里 ruby-macho 判断 static/dynamic 时
+    # 直接 `Errno::EINVAL` 崩掉，整个 iOS 构建起不来（2026-08-08 实测）。
+    # 去掉后两个 slice 各约 1.1 GB。iOS 没有 CI，只影响本机；真要在 Intel Mac 上跑，
+    # 单独 `ubrn build ios -t x86_64-apple-ios --sim-only`，别加回这里。
+    # 详见 dev-notes/knowledge/toolchain.md「重建时必须限定 target」。
 
 noOverwrite:
   - android/build.gradle

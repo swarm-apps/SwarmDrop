@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDuration, formatLatency, formatTimeLeft } from "./time";
+import { formatDuration, formatEta, formatLatency, formatTimeLeft } from "./time";
 
 describe("formatDuration", () => {
   it("uses seconds below a minute, rounding up", () => {
@@ -61,5 +61,43 @@ describe("formatTimeLeft", () => {
   it("returns an empty string once expired", () => {
     expect(formatTimeLeft(0, "en")).toBe("");
     expect(formatTimeLeft(-1, "en")).toBe("");
+  });
+});
+
+describe("formatEta", () => {
+  // 「算不出来」和「还剩 0 秒」是两件事：前者要占位文案，后者是一个真实的数字。
+  // formatDuration 把两者都压成 "0s"，所以 ETA 不能直接用它。
+  it("returns null when it cannot be computed", () => {
+    expect(formatEta(null)).toBeNull();
+    expect(formatEta(undefined)).toBeNull();
+    expect(formatEta(Number.NaN)).toBeNull();
+    expect(formatEta(Number.POSITIVE_INFINITY)).toBeNull();
+    expect(formatEta(-1)).toBeNull();
+  });
+
+  // 后端的 eta 是 3 秒滑窗速率的直接商，逐帧会跳字；粗化让秒位不再闪。
+  it("quantises to five-second steps below a minute", () => {
+    expect(formatEta(0)).toBe("0s");
+    expect(formatEta(1)).toBe("5s");
+    expect(formatEta(5)).toBe("5s");
+    expect(formatEta(6)).toBe("10s");
+    expect(formatEta(43)).toBe("45s");
+  });
+
+  it("quantises to ten-second steps from a minute up", () => {
+    expect(formatEta(59)).toBe("1m 0s");
+    expect(formatEta(61)).toBe("1m 10s");
+    expect(formatEta(200)).toBe("3m 20s");
+  });
+
+  // 向上取整：报少了会出现「说完了却还在跑」。
+  // 样本全部取在 1 小时以内——下面的反解只认 `Ns` 与 `Nm Ns` 两种形态，
+  // 一小时以上 formatDuration 会切到 `Nh Nm` 而丢掉秒位。
+  it("never reports less time than remains", () => {
+    for (const seconds of [1, 7, 33, 58, 61, 119, 3500]) {
+      const text = formatEta(seconds)!;
+      const [, minutes = "0", secs] = /^(?:(\d+)m )?(\d+)s$/.exec(text)!;
+      expect(Number(minutes) * 60 + Number(secs)).toBeGreaterThanOrEqual(seconds);
+    }
   });
 });

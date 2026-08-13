@@ -4,19 +4,15 @@ import { Trans } from "@lingui/react/macro";
 import { AlertCircle, Inbox, RotateCcw } from "lucide-react-native";
 import { memo } from "react";
 import { Pressable, View } from "react-native";
-import type {
-  MobileTransferProgress,
-  MobileTransferProjection,
-} from "react-native-swarmdrop-core";
+import type { MobileTransferProjection } from "react-native-swarmdrop-core";
 import {
-  calcPercent,
   DirectionIcon,
   formatBytes,
   formatRelativeTime,
   LocalizedError,
-  ProgressBar,
   projectionReasonLabel,
   StatusBadge,
+  TransferProgressReadout,
 } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
 import {
@@ -28,10 +24,16 @@ import {
   projectionTransferredBytes,
 } from "@/core/transfer-types";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import type { ProgressFrame, PublishingFile } from "@/stores/transfer-store";
 
 interface ActivityProjectionCardProps {
   projection: MobileTransferProjection;
-  progress?: MobileTransferProgress;
+  progress?: ProgressFrame;
+  /**
+   * 该会话此刻正在保存的文件（暂存 → 用户可见位置）。在场时进度块换成发布态：
+   * 字节已经收完，但 Android 的 SAF 目标还要整份拷一遍，几十秒起步。
+   */
+  publishing?: PublishingFile;
   /**
    * 是否显示进度条 —— 仅进行中(active)/可续传(recoverable)才为真。
    * 终态(已完成/已取消/已拒绝)与卡住(attention)不画进度条:进度条是"进行中"
@@ -46,22 +48,17 @@ interface ActivityProjectionCardProps {
    */
   inboxItemId?: string;
   onOpenInbox?: (itemId: string) => void;
-  /**
-   * 状态徽章开关 —— 卡片住在与状态同名的分组下(「已完成」组/「正在进行」组)时,
-   * 徽章只是复读分组标题,由父级关掉;混合状态的分组(需要注意/可恢复)保留。
-   */
-  showStatusBadge?: boolean;
 }
 
 function ActivityProjectionCardComponent({
   projection,
   progress,
+  publishing,
   showProgress = false,
   onPress,
   onResume,
   inboxItemId,
   onOpenInbox,
-  showStatusBadge = true,
 }: ActivityProjectionCardProps) {
   // useLingui 一职两用:订阅 locale(policyNote 经全局 i18n 即时解析,memo 组件靠它
   // 在切换语言时重算)+ 提供 _ 翻译 a11y 文案。
@@ -71,7 +68,6 @@ function ActivityProjectionCardComponent({
   const status = projectionStatus(projection);
   const total = projectionTotalBytes(projection, progress);
   const transferred = projectionTransferredBytes(projection, progress);
-  const percent = calcPercent(transferred, total);
   const reason = projectionReasonLabel(projection);
   // 已完成的卡不解释策略:自动接收成功是常规事实,灰条只会稀释「需要注意」组里
   // 真正需要解释的策略拒绝/待确认。
@@ -102,7 +98,9 @@ function ActivityProjectionCardComponent({
                 <Trans>来自 {projection.peerName}</Trans>
               )}
             </Text>
-            {showStatusBadge ? <StatusBadge status={status} /> : null}
+            {/* 徽章恒显：列表是纯时间线，没有分组标题替这一行说明状态
+                （DESIGN.md 的 Transfer List Order Contract）。 */}
+            <StatusBadge status={status} />
           </View>
           <Text className="text-[13px] text-muted-foreground" numberOfLines={1}>
             {projection.files.length} <Trans>文件</Trans>
@@ -128,13 +126,18 @@ function ActivityProjectionCardComponent({
         ) : null}
       </View>
 
+      {/* 活动页**没有会话级横幅**，这张卡就是发布态的唯一表面 —— 契约允许次要表面用
+          不点名的「正在保存…」正是因为「会话级横幅已经说清是哪个了」，这里没有。
+          `surface="card"` 那一档因此保留点名与保存百分比。 */}
       {showProgress ? (
-        <View className="gap-1.5">
-          <ProgressBar percent={percent} heightClass="h-1.5" />
-          <Text className="text-[12px] text-muted-foreground">
-            {formatBytes(transferred)} / {formatBytes(total)}
-          </Text>
-        </View>
+        <TransferProgressReadout
+          surface="card"
+          transferred={transferred}
+          total={total}
+          status={status}
+          progress={progress}
+          publishing={publishing}
+        />
       ) : null}
 
       {reason || projection.failure || policyNote ? (
@@ -185,3 +188,13 @@ function ActivityProjectionCardComponent({
 
 /** 活动卡片:memo 让未变会话在每个 progress tick 跳过重渲染(progressBySession 只换更新会话的内层对象)。 */
 export const ActivityProjectionCard = memo(ActivityProjectionCardComponent);
+
+/**
+ * 传输会话列表的 `keyExtractor` —— 与卡片同住:它是**这张卡片在列表里的呈现属性**,
+ * 不是某个屏的私有细节(传输记录页与传输搜索页此前各抄了一份)。模块级常量,引用稳定。
+ *
+ * 行间距不在这里,在 `mobile/screen.tsx` 的 `ListItemGap` —— 那个没有任何 transfer 语义,
+ * 放这儿会挡住第三个调用点(`send/share-target` 就曾因此又抄了一份)。
+ */
+export const transferSessionKey = (item: MobileTransferProjection) =>
+  item.sessionId;

@@ -58,16 +58,25 @@ const MODULE_COLOR = "#0a0a0a";
 
 export const InviteQr = memo(function InviteQr({
   invite,
+  // ⚠️ 这是**白卡外框**，二维码本体是它减掉两侧 12 的内边距 = 196。传给 Rust 的必须是
+  // 后者（`inner`），它同时是地址提示的预算：放不下时后端按价值反序回收地址（circuit
+  // 永不丢）。传成 `size` 等于虚报一圈码面，真机上就是扫不出来。
   size = 220,
   overlay = null,
 }: InviteQrProps) {
   const { t } = useLingui();
 
+  // 白卡容器（padding 12），二维码本体铺满
+  const pad = 12;
+  // 夹到 0：`inner` 要过 uniffi 的 u32，负数会在转换器里抛一个没有上下文的错。
+  // 夹住之后走 Rust 的码面下限判断（`qr::MIN_FACE_PX`），错误信息里会写清楚是码面太小。
+  const inner = Math.max(0, size - pad * 2);
+
   // inviteQrMatrix 是同步 uniffi 方法（Rust pub fn）→ useMemo 直接算，无首帧 spinner 闪烁
   const geometry = useMemo<QrGeometry | null>(() => {
     if (invite === null) return null;
     try {
-      const m = getMobileCore().inviteQrMatrix(invite);
+      const m = getMobileCore().inviteQrMatrix(invite, inner);
       const dim = Number(m.size);
       const modules = m.modules;
       let path = "";
@@ -87,17 +96,14 @@ export const InviteQr = memo(function InviteQr({
     } catch {
       return null;
     }
-  }, [invite]);
+    // inner 进依赖不是形式主义：它是后端的地址预算，改了尺寸要重新裁一次
+  }, [invite, inner]);
 
   // 矩阵算不出来自成一态：折进覆盖层，与过期/等待共用一套呈现
   const effectiveOverlay: InviteQrOverlay | null =
     invite !== null && geometry === null
       ? { kind: "error", message: t`二维码生成失败` }
       : overlay;
-
-  // 白卡容器（padding 12），二维码本体铺满
-  const pad = 12;
-  const inner = size - pad * 2;
 
   return (
     <View

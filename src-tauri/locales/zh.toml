@@ -13,6 +13,8 @@ resume = "恢复接收"
 offline = "○ 未连接"
 online = "● 在线 · 可接收文件"
 paused = "⏸ 已暂停接收"
+# 与 DESIGN.md 的 `nodeHealth.isolated` 同一句话（第四份 catalog，Lingui 扫不到这里）
+isolated = "⚠ 连不上任何网络，检查引导节点"
 
 [notif.pairing]
 title = "配对请求"

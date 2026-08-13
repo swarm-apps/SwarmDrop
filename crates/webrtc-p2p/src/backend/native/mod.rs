@@ -9,7 +9,7 @@
 //!
 //! | Setting | What the default gets wrong |
 //! |---|---|
-//! | `with_sctp_receive_buffer_size` | Defaults to 1 MiB, which a high-bandwidth LAN overruns within a few hundred milliseconds — **the connection drops rather than slowing down** |
+//! | `with_sctp_receive_buffer_size` | Must be **derived from the message size**, not picked by hand — see [`sctp_receive_buffer`]. Too *wide* a window silently loses data (webrtc#858); this table used to claim the opposite |
 //! | `with_data_channel_send_buffer_limit` | Unbounded by default, so a fast producer can exhaust memory; but below 4 MiB it starves the pipe |
 //! | `with_udp_addrs` given concrete interface IPs | Passing `0.0.0.0` does not expand to interfaces; the host candidate is written as the literal `0.0.0.0`, which the remote cannot use |
 //!
@@ -50,9 +50,92 @@ pub mod direct;
 pub(crate) mod managed;
 pub(crate) mod muxer;
 
-/// SCTP receive window. The 1 MiB default drops the connection outright on a LAN (the
-/// spike observed failures at 4 MiB).
-const SCTP_RECEIVE_BUFFER: u32 = 8 * 1024 * 1024;
+/// Depth of webrtc-rs's per-channel driver → `DataChannel` event queue.
+///
+/// **This mirrors an upstream constant we cannot import**
+/// (`DATA_CHANNEL_EVENT_CHANNEL_CAPACITY`, `pub(crate)` in `peer_connection/driver.rs`).
+/// If upstream changes it there is no compile-time signal here — [`sctp_receive_buffer`]'s
+/// guard test is the only backstop.
+const DRIVER_EVENT_QUEUE_LEN: u32 = 256;
+
+/// Slots reserved for non-data events on the driver queue.
+///
+/// `OnOpen` / `OnError` / `OnClosing` / `OnClose` / `OnBufferedAmountLow` / `OnBufferedAmountHigh`
+/// are `try_send` into the **same** queue as `OnMessage` (`peer_connection/driver.rs:718-735`).
+/// Sizing the window to the full queue would leave zero room for them, and during a
+/// bidirectional bulk transfer `SEND_BUFFER_LIMIT` makes the buffered-amount pair fire
+/// routinely — one of those on top of a full window would discard a data message.
+const DRIVER_QUEUE_HEADROOM: u32 = 32;
+
+/// Hard ceiling on the advertised window, independent of the message size.
+///
+/// Without it a large `max_message_size` would advertise an absurd window (and the
+/// arithmetic below would have to saturate, which lands on `u32::MAX` — a 4 GiB window,
+/// i.e. the exact failure this function exists to prevent).
+const SCTP_WINDOW_CEILING: u32 = 4 * 1024 * 1024;
+
+/// SCTP receive window for a connection carrying messages of `max_message_size`.
+///
+/// # Why this is derived and not a hand-picked number
+///
+/// The driver `try_send`s each inbound message into a queue of
+/// [`DRIVER_EVENT_QUEUE_LEN`] and, when it is full, **discards the message** — logging one
+/// line and nothing else ([webrtc#858]). That queue sits *below* SCTP, so SCTP's own
+/// reliability does not cover it: the peer's data arrives, is reassembled, and is then
+/// dropped on the floor. The byte stream above loses a slice and never re-syncs.
+///
+/// So the window must be tied to what that queue can hold. Measured on loopback with a
+/// 64 MiB transfer (`crates/net/examples/transport_throughput.rs`): an 8 MiB window against
+/// a 2 MiB queue lost 6.4 MiB and never completed; deriving it as below dropped **zero**
+/// messages.
+///
+/// # What this does *not* guarantee
+///
+/// Three gaps, all deliberate — do not upgrade any of them to "safe" in a future edit:
+///
+/// 1. **It is not a backpressure guarantee.** SCTP reopens `a_rwnd` when the *driver*
+///    dequeues a reassembled message, not when the application consumes it. A stalled
+///    consumer (GC, disk write, bao verify) lets the driver drain one window into the queue,
+///    the window reopens, and the peer sends another. The window bounds *burst size*, not
+///    queue occupancy. What actually keeps the queue drained is the consumer side —
+///    see `data_channel::PollDataChannel::poll_read`.
+/// 2. **The queue bounds messages, the window bounds bytes.** A peer sending many tiny
+///    messages still overflows it. Tolerable only because libp2p's framing fills messages to
+///    `max_data_size` before flushing (its send high-water mark).
+/// 3. **`max_message_size` here is this side's *advertised* limit, not the negotiated one.**
+///    `build()` runs before the Noise handshake, so the negotiated
+///    `min(local, remote)` ([`StreamConfig::limited_by`]) does not exist yet, and the window
+///    cannot be changed afterwards. A remote advertising a *smaller* limit therefore sends
+///    smaller messages against a window sized for ours — more messages in flight than
+///    budgeted. All three of this repo's ends advertise the same value
+///    (`WEBRTC_MAX_MESSAGE_SIZE` in `crates/net`), so the gap only opens against a
+///    third-party implementation; [`DRIVER_QUEUE_HEADROOM`] absorbs a little of it.
+///
+/// **The real fix is upstream's** — webrtc master and 0.21.0-alpha.1 stop pulling from the
+/// core instead of discarding, and drop this knob entirely. See
+/// `dev-notes/research/2026-08-11-web-webrtc-throughput.md` for the upgrade blocker
+/// (0.21.0-alpha.1 regresses rtc#159/#161) and the exit condition.
+///
+/// > The previous value was `8 * 1024 * 1024`, justified as "the 1 MiB default drops the
+/// > connection outright on a LAN (the spike observed failures at 4 MiB)". **That inverted
+/// > the causality**: a larger window makes the overflow worse, not better. With libp2p's
+/// > default 16 KiB messages the queue holds exactly 4 MiB — precisely the value at which
+/// > those failures were observed.
+///
+/// [webrtc#858]: https://github.com/webrtc-rs/webrtc/issues/858
+fn sctp_receive_buffer(stream_config: libp2p_webrtc_utils::StreamConfig) -> u32 {
+    let max_message_size = stream_config.max_message_size() as u64;
+    let slots = u64::from(DRIVER_EVENT_QUEUE_LEN.saturating_sub(DRIVER_QUEUE_HEADROOM));
+    // u64 throughout: `max_message_size` is a `usize`, and casting it to u32 first would
+    // truncate before any clamp could help.
+    let derived = slots.saturating_mul(max_message_size);
+    // Floor: upstream requires the window to hold at least one full message or a
+    // full-size inbound message stalls forever. It wins over the ceiling when a single
+    // message exceeds it — `clamp` panics if min > max, so raise the ceiling instead of
+    // relying on the two happening to be ordered.
+    let ceiling = u64::from(SCTP_WINDOW_CEILING).max(max_message_size);
+    derived.clamp(max_message_size, ceiling) as u32
+}
 
 /// Send buffer limit. Unbounded by default; measurements showed 1 MiB halves throughput
 /// while 4 MiB matches unbounded and caps memory.
@@ -371,7 +454,11 @@ async fn build_peer_connection(
         }))
         .with_runtime(runtime.clone())
         .with_udp_addrs(bind_addrs(&config))
-        .with_sctp_receive_buffer_size(SCTP_RECEIVE_BUFFER)
+        // Hole-punching muxer builds its streams with `StreamConfig::default()`
+        // (see `muxer.rs`), so the window must be derived from the same value.
+        .with_sctp_receive_buffer_size(sctp_receive_buffer(
+            libp2p_webrtc_utils::StreamConfig::default(),
+        ))
         .with_data_channel_send_buffer_limit(SEND_BUFFER_LIMIT)
         .build()
         .await
@@ -435,6 +522,71 @@ mod tests {
     fn explicit_bind_addrs_win() {
         let config = Config::default().with_udp_bind_addrs(["127.0.0.1:1234".parse().unwrap()]);
         assert_eq!(bind_addrs(&config), ["127.0.0.1:1234"]);
+    }
+
+    fn stream_config(bytes: usize) -> libp2p_webrtc_utils::StreamConfig {
+        libp2p_webrtc_utils::StreamConfig::new(
+            std::num::NonZeroUsize::new(bytes).expect("non-zero"),
+        )
+    }
+
+    /// **The** invariant: a full window must not put more messages in flight than the driver
+    /// queue has room for.
+    ///
+    /// Exceeding it means silent data loss — the driver discards inbound messages once that
+    /// queue is full (webrtc#858), and SCTP cannot throttle the peer because the overflow
+    /// happens below it.
+    ///
+    /// Stated as "in-flight messages ≤ usable slots" rather than by recomputing the
+    /// function's own body: an assertion shaped like the implementation passes for *any*
+    /// implementation, a hard-coded constant included.
+    #[test]
+    fn window_never_admits_more_messages_than_the_queue_holds() {
+        let usable = u64::from(DRIVER_EVENT_QUEUE_LEN - DRIVER_QUEUE_HEADROOM);
+
+        for bytes in [1024usize, 8 * 1024, 16 * 1024, 64 * 1024, 256 * 1024] {
+            let window = u64::from(sctp_receive_buffer(stream_config(bytes)));
+            let in_flight = window / bytes as u64;
+            assert!(
+                in_flight <= usable,
+                "a full window holds {in_flight} messages of {bytes} B, but the driver queue \
+                 has only {usable} usable slots — the surplus is discarded silently"
+            );
+        }
+    }
+
+    /// Pin what the two real call sites produce.
+    ///
+    /// Hole-punching builds streams with `StreamConfig::default()` (`muxer.rs`); direct mode
+    /// uses `DirectConfig`'s (this repo advertises 8 KiB, `crates/net/src/transport.rs`).
+    /// Absolute numbers on purpose — changing the multiplier, the headroom or the ceiling
+    /// has to surface here instead of being silently absorbed.
+    #[test]
+    fn window_at_the_real_call_sites() {
+        assert_eq!(sctp_receive_buffer(stream_config(8 * 1024)), 224 * 8 * 1024);
+        assert_eq!(
+            sctp_receive_buffer(libp2p_webrtc_utils::StreamConfig::default()),
+            224 * 16 * 1024,
+            "hole-punching uses the libp2p default (16 KiB)"
+        );
+    }
+
+    /// Extremes must clamp — not panic, not wrap.
+    ///
+    /// A message larger than [`SCTP_WINDOW_CEILING`] makes the floor exceed the ceiling, and
+    /// `clamp` panics when `min > max`. Computing in `u32` would also truncate before any
+    /// clamp could help, with `saturating_mul` landing on `u32::MAX` — a 4 GiB window, the
+    /// very failure this function exists to prevent.
+    #[test]
+    fn window_clamps_at_both_ends() {
+        // Ceiling wins: 224 × 1 MiB would otherwise be 224 MiB.
+        assert_eq!(
+            sctp_receive_buffer(stream_config(1024 * 1024)),
+            SCTP_WINDOW_CEILING
+        );
+        // Floor wins, without panicking: a single message already exceeds the ceiling.
+        let huge = 64 * 1024 * 1024;
+        assert_eq!(sctp_receive_buffer(stream_config(huge)), huge as u32);
     }
 
     /// 端到端走一遍 spec 步骤 4：建 init 通道 → 造 offer → 设为本地描述。

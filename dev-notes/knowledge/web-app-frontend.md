@@ -118,8 +118,15 @@ DPR、帧率、层不透明度与遮罩，理由与数值见 DESIGN.md 的 Ambie
 UUID——永远生成不出来。传输详情因此走 `?session=…` + 就地展开，而不是照搬桌面端的
 `_app/transfer/$sessionId`。
 
-> **2026-08-04 更新**：历史列表的 8 条硬截断**已删除**，`groupSessions` 的第二个参数
-> 从 `selectedId` 换成了筛选档（全部 / 进行中 / 可恢复 / 已结束，与桌面同名同义）。
+> **2026-08-04 更新**：历史列表的 8 条硬截断**已删除**，改成筛选档
+> （全部 / 进行中 / 可恢复 / 已结束）。
+>
+> **2026-08-12 更新**：`groupSessions` 已不存在——列表不再切成 active / history 两段，
+> 而是一条纯时间线，只剩单会话谓词 `matchesSessionFilter(projection, filter)`。
+> 排序收进了 `@swarmdrop/shared-view` 的 `sortByTimelineDesc`（三端唯一一份），
+> 判据见 `DESIGN.md` 的 **Transfer List Order Contract**。⚠️ 那四档与桌面**同名但
+> 判据尚未同义**（本端 `active` 含 suspended、`ended` 只看 terminal），契约的
+> open gaps 里记着这条待收敛。
 >
 > 原先的做法是「只留最近 8 条已结束会话，并显式保留选中项，免得深链指向第 20 条时进来
 > 看到一个什么都没选中的列表」。那个补丁修的是症状：**第 9 条起在 UI 里根本够不着**，
@@ -163,6 +170,27 @@ function SendPanelInner() {
 
 **相关文件**：`docs/app/app/_components/send-panel.tsx`、
 `docs/app/app/_components/transfer-activity-panel.tsx`、`docs/app/app/_components/panel-fallback.tsx`
+
+#### ⚠️ `pnpm dev` 下这些页面**打不开**，别以为是自己刚写的代码坏了（2026-08-07）
+
+`next dev` 里，读 `useSearchParams()` 的三条路由**永久停在 fallback**：
+`/app/transfer`（「正在读取传输会话…」）、`/app/send`、`/app/inbox`；不读它的
+`/app/devices` 与 `/app/settings` 正常。**`pnpm build` 的静态产物上不复现**。
+
+实测（Next 16.3.0 / React 19.2，干净重启的 dev server，10/10）：
+
+- 与 Fast Refresh 无关——重启 dev server 后第一次访问就是这样
+- 与 query 有无无关——`/app/transfer/?session=abc` 一样卡
+- 页面**不是没渲染**：内容树已经渲染过一遍，被 React 收进 `<div hidden>`（Suspense 的
+  hidden 模式），fallback 盖在上面。所以 `document.querySelector('[data-testid=...]')`
+  找得到元素，`offsetParent` 却是 null——**用 DOM 存在性判断「页面好了」会误判**
+
+根因未定位（不是 `cacheComponents` / `ppr`，`next.config.mjs` 没开）。**手测这三页请用生产
+产物**，跑法同下面「Next Dev Tools 浮标」那节：
+
+```bash
+cd docs && pnpm build && python3 -m http.server 3210 -d out
+```
 
 ## 路由字符串一律走 `_lib/nav.ts`，不在组件里手拼
 
@@ -434,6 +462,70 @@ subscriptions = { stopPoll: startStatePoll(n), stopRelayWatch: startRelayWatch(n
 **相关文件**：`docs/app/app/_lib/node-lifecycle.ts`、`docs/app/app/_lib/event-dispatch.ts`、
 `docs/app/app/_components/node-status-dialog.tsx`、`docs/app/app/_components/node-not-ready-state.tsx`
 
+## ⚠️ `status === "running"` **不代表拨得动中继**——消费邀请要等 reservation（2026-08-12 修）
+
+从 `/p/` 落地页点进来的人，配对**必然失败**，而且是 100% 复现。
+
+**根因是两个「就绪」被当成了一个**。`markRunning` 只说明 wasm 节点 spawn 完成、订阅装好了；
+引导节点此刻才刚被 `replayInfraNodes` 登记成**意图**，core 的 InfraSupervisor 最迟 1s 后才
+发出第一轮拨号，拨通 + reservation 还要几秒。而确认卡恰恰是由 `pairing-panel` 的补偿
+effect 在 `ready` 翻真那一刻解码出来的——**「打开链接 → 立刻点确认」必然落在这个窗口里**。
+
+**为什么非等中继不可**（这条是机制，不是保守）：跨网时邀请里唯一用得上的是对方的 circuit
+地址，而 circuit 地址的**外层**是对方连中继用的那种传输（桌面是 TCP，见
+`crates/net/src/transport.rs` 里 `supported_transports` 的说明）。**浏览器拨不动 TCP** ——
+它只有在自己已经连上同一台中继时，libp2p 才会复用那条现成连接做 HOP。
+
+判据取 `selectReservation`（reservation 已建）而不是 `connected`：前者蕴含后者，还额外保证
+配对成功后对方拨得回来；用后者只能省一两秒，却要多解释一次两者的差别。
+
+三条约束，改这块前逐条看：
+
+- **等待只推迟，不否决。** 超时（20s）后照常发起握手——同网时邀请里带着对方的 webrtc-direct
+  直连地址，那条路径与中继毫无关系。做成前置条件，等于让一个纯优化的时机调整反过来掐死
+  原本能成的配对。所以 `waitForPairingReadiness` 返回 `boolean` 而不是抛错。
+- **`LocalOnly` 邀请跳过等待。** 它里面根本没有 circuit 地址（`select_invite_addrs` 只放
+  私网那一桶），等中继纯属白等；何况这类场景常常压根连不上公网。
+- **等待期间必须能取消，而取消要真的中断。** 这一段可长达 20 秒且尚未出网，锁住用户没有
+  道理；但只作废结果（`useAsyncAction.cancel()`）**不够**——那次等待会照常走完然后发出握手，
+  把一条用户已经放弃的一次性邀请消费掉。所以要 `AbortController`，且调用方靠
+  `signal.aborted` 区分「别等了，直接试」与「别试了」，`false` 这个返回值本身分不开这两者。
+
+还有两条不那么显然的：
+
+- **等完之后句柄要重新取一次**（`getNode()` 比对实例，不只是判空）。等待长达 20s，其间
+  用户完全可能停掉节点，而 `closeNode()` 走的是 `close(self)` —— **wasm 侧的指针被释放**，
+  拿闭包里那个旧句柄再调方法，得到的是一句 `null pointer passed to rust`：用户看不懂，
+  日志也指不回真正的原因。重启后 `spawnNode()` 给的又是另一个实例，同样不该拿来续这一趟。
+- **`useAsyncAction.pending` 的守卫要放行等待段。** 那些「握手在途时不换邀请」的守卫
+  （`setInviteAndPreview` 的早退）理由是「`connect_invite` 一发出对端就可能 CAS 消费掉」——
+  等中继时那个理由一条都不成立，照旧拦下只会让用户在 20 秒里换不掉一条粘错的邀请，
+  而输入框看着还能打字（它只按 `ready` 禁用）。放行的同时要 abort 在途等待，否则它会
+  照常走完并用**已经被换掉**的那条邀请去握手。
+
+**对称性提醒**：生成邀请那侧一直有这道门（没有 reservation 就禁用按钮 + 一段解释文案），
+消费这侧的缺失纯属遗漏。**两侧的网络前提本就不同**（生成要「别人拨得到我」，消费要
+「我拨得到别人」），只是在浏览器上恰好都归结为同一件事：有没有一条活的 circuit 预留。
+
+### 已知边界：`localOnly` 不是「需不需要中继」的精确判据
+
+跳过等待的判据现在是 `preview.localOnly`，而真正该问的是**这条邀请里有没有直连地址**。
+两者在一种真实场景下分叉：**离线局域网**（无网演示、封了 bootstrap 的访客 Wi-Fi）里，
+对方发的是一条普通 `Auto` 邀请（没人会去翻「仅同一网络内可用」那个开关），里面带着
+局域网 webrtc-direct / WebTransport 地址，浏览器本可以立刻拨通 —— 却要先白等满 20 秒，
+因为那种环境下 reservation **永远**不会出现。
+
+结果是「慢，但仍然成功」，不是失败，所以没在本轮修。要修得给 `PairInvitePreviewJson`
+加一位「有无直连地址」，而那是 `crates/web` 的公开面改动，**三条 codegen 链路都要重跑**
+（见本文件「改 `crates/web` 的公开面」一节）。同一条边界也解释了另一个场景：邀请方在
+自己还没建起 reservation 时生成的 `Auto` 邀请里压根没有 circuit 地址，等它同样是白等。
+
+桌面与移动 App **不需要**这道门：它们是 native，拨得动 circuit 外层的 TCP/QUIC，
+不必先跟中继建立关系。这也是为什么这条只在浏览器上暴露。
+
+**相关文件**：`docs/app/app/_lib/pair-readiness.ts`（含单测）、
+`docs/app/app/_components/pairing-panel.tsx`、`docs/app/app/_components/pairing-confirm-dialog.tsx`
+
 ## 手测坑：Next Dev Tools 浮标会挡住底部导航
 
 `pnpm dev` 下左下角的 Next.js Dev Tools 徽标是 fixed 定位，正好压在窄屏底部导航上，
@@ -583,10 +675,14 @@ docs/app/app/_lib/view-types.ts        ← 手工再导出新类型（它刻意�
 - **白卡内禁用 `text-fd-*` 主题 token**。码面固定深模块 + 白底、不随暗色主题反色
   （摄像头对反色 QR 识别差），所以卡内文字在暗色主题下会变浅灰压在白底上。用固定的
   `text-slate-*`。
-- **容量不是约束，密度才是**。QR 在 ECL::M 下约 2079 字节 wire 才到顶，而浏览器邀请最坏
-  327 字节（地址只来自 relay reservation，`append_invite_transports` 每桶最多留 2 条）。
-  先出事的是「196px 码面下 px/模块 < 2 就扫不动」——真放宽地址上限时，掉的是扫码成功率
-  而不是编码。
+- **容量不是约束，密度才是**。QR 在 ECL::M 下约 2079 字节 wire 才到顶；先出事的是
+  「196px 码面下 px/模块 < 2 就扫不动」，也就是含 quiet zone 不超过 98 模块。
+  浏览器自己发的邀请离这个上限很远（地址只来自 relay reservation），**会顶到线的是桌面
+  与移动端发的**——它们地址多，而这里的 196px 正是三端里最小的那个码面，上限因此由本页定。
+  ⚠️ 这条此前写着「每桶最多留 2 条」，2026-08-12 起是 **3 条**（多一条 WebTransport），
+  并且加了一道按码面密度回收地址的闸。判据、实测数据与丢弃顺序在
+  [`net-kernel.md`](net-kernel.md) 的「邀请地址有 QR 密度上限」一节，**改码面尺寸
+  （`QR_SIZE`）就是在改那条上限**，两边要一起动。
 
 **相关文件**：`docs/app/app/_components/invite-share.tsx`、`crates/web/src/node.rs`、
 `crates/invite/src/qr.rs`
@@ -638,6 +734,77 @@ UI 停在旧值不动。
 判断依据是「这个字段会不会在集合不变的前提下单独变化」——会，就必须进清单。
 
 **相关文件**：`docs/app/app/_lib/store.ts`
+
+## ⚠️ 同一个父下的两个兄弟共用一个 key，被挤掉的那个**永远不卸载**（2026-08-08）
+
+传输详情侧此前有两个按会话换代的兄弟节点，各自裸用 `projection.sessionId` 当 key：
+
+```tsx
+<SessionFileSection key={projection.sessionId} … />   // 先写
+<TransferItemActions … />
+<SessionIdRow key={projection.sessionId} … />         // 后写，key 一样
+```
+
+**症状**：每切换一次会话，详情里就多堆一份**上一条会话的文件清单**——切三次三份，一路往下
+排，看起来像布局塌了。
+
+**根因在 React 的 `reconcileChildrenArray`**：JSX 的多个 children 编译成一个数组，第一轮
+按位置匹配，撞到 key 不同（`bbb` → `ccc`）就退出，剩余旧 fiber 被塞进一张 `key → fiber` 的
+Map。**两个同 key 的兄弟里，后写的会把先写的从 Map 里覆盖掉**；收尾时 React 只删除 Map 里
+还剩下的那些，被挤掉的 `SessionFileSection` 因此既没被复用、也没进删除名单，它的 DOM 就
+留在了页面上。修法是给两个 key 加不同前缀（`files-` / `sid-`）。
+
+**为什么没人发现**：
+
+- **生产构建下 React 不打「Encountered two children with the same key」警告**，控制台干净；
+- React fiber 树里**只有一份**（残留的只是 DOM），所以 React DevTools 看不出异常；
+- `tsc` / ESLint / `pnpm test` 全绿——重复 key 是运行时语义，不是类型或静态错误。
+
+**判据**：同一个父下有两个及以上带 key 的兄弟时，key 必须**跨兄弟唯一**，不只是「同一个
+列表内唯一」。`{arr.map(...)}` 之间不受此限——每个数组是嵌套一层，React 会给它自己的
+索引前缀，两个 map 的 key 空间天然隔离。会撞的只有**手写并列**的这种。
+
+**复现/验证方法**（同类「DOM 残留」都适用）：数 DOM 里该组件的实例数，而不是看截图。
+
+```js
+document.querySelectorAll("[data-testid=file-browser]").length   // 恒为 1 才对
+```
+
+真实浏览器才复现——jsdom 里单独测那个组件的 key 切换是过的，因为冲突来自**兄弟关系**，
+不在组件内部。手测走生产产物（`cd docs && pnpm build && python3 -m http.server 3210 -d out`），
+要造数据可临时加一个 client page 调 `webNodeActions.setHistory([...])` 注入假 projection，
+再用 `next/link` SPA 导航到真实页面（store 是模块单例，整页刷新才会丢）。
+
+**相关文件**：`docs/app/app/_components/transfer-detail.tsx`
+
+## 面板内的一节，高度约束要给**上限**不是下限（2026-08-08）
+
+同一次改动里的第二个问题：传输详情与收件箱详情的文件区都写着
+`contentClassName="min-h-[320px]"`，理由是「树形视图内部是虚拟滚动，必须有确定高度才算得出
+可见行」。但绝大多数条目只有一两个文件，于是详情侧固定挂着一块 320px 的空槽——正是
+`DESIGN.md`「Empty states size to their role」点名的那种 cavity（面板里的一节撑出一个大洞，
+读起来像没做完）。
+
+**`max-h` 同样满足虚拟化的前提**：内容超出时容器高度被钉死在上限，`getScrollElement()` 的
+`clientHeight` 有确定值，`useVirtualizer` 照常只挂可见行。两处实测：
+
+| 场景 | clientHeight | scrollHeight | 实际挂载 |
+|---|---|---|---|
+| 传输详情 · 树形 40 文件 · `max-h-[340px]` | 340 | 1612 | 19 行（可见 ~8.5 + overscan 10） |
+| 收件箱详情 · 网格 40 文件 · `max-h-[460px]` | 460 | 3057 | 18 张卡 |
+
+**下限只在「这一节就是整屏主体」时才对**（文件浏览器独占一页那种）。作为面板里的一节时，
+下限的代价是「内容少也占那么高」，而那正是常态。顺带修掉的一件事：**没有上限时，文件多的
+条目会把下方的动作区（归档 / 删除 / 暂停）推到几十行之外**，用户要滚过整份清单才够得着。
+
+两档按视图分（树 340 / 网格 460）并收在 `_components/section.tsx` 的
+`fileSectionHeightClass(view)` 里，两个详情侧共用：树形一行 40px、网格一行约 220px
+（`file-grid-view.tsx` 的 `estimatedRowHeight`），同一个数必然让其中一种要么空一半、
+要么只露一行半。两个数都刻意留半行/一小截露头——那截被切掉的内容就是「还能往下滚」的
+唯一提示。
+
+**相关文件**：`docs/app/app/_components/section.tsx`、`transfer-detail.tsx`、`inbox-views.tsx`、
+`packages/file-browser/src/file-tree-view.tsx`
 
 ## ⚠️ 共享组件包的类名必须显式 `@source`，否则样式**只丢一半**（2026-08-07）
 
@@ -833,6 +1000,79 @@ curl -s "$(浏览器里读 link[rel=stylesheet].href)" | grep -o '[^-]backdrop-f
 现在两份文件的这几行可以直接肉眼比对，改一边漏另一边会显眼。
 
 **相关文件**：`docs/components.json`、`docs/app/global.css`、`docs/lib/cn.ts`
+
+### 加了新 token 却「不生效」，先怀疑 Next 的构建缓存（2026-08-07 实测）
+
+给 `global.css` 加 `--info` / `--info-ink` 并在 `@theme inline` 里映射 `--color-info` 之后，
+`pnpm build` 的产物 CSS 里**既没有 `.bg-info`，也没有 `--info:` 的定义**，而同一次改动里的
+`bg-success/12`（同样写在一个 `.ts` 文件里）却生成得好好的——看起来像是 Tailwind 漏扫了某类文件，
+或者 `@theme inline` 对新变量有什么额外要求。
+
+都不是。`rm -rf .next && pnpm build` 之后全部正常。是 Next 的增量缓存判定 CSS 没变。
+
+**规矩**：**新增** CSS 变量 / theme 映射后，验证那一次必须清 `.next` 再 build。改已有变量的**值**
+不受影响（值变了 hash 就变），只有「加一个此前不存在的 utility」会撞上这个。少了这一步，很容易
+顺着错误方向去改 `@source`、改文件扩展名、把 token 挪进 `@theme` ——全是白工。
+
+**查证方式**（比翻产物文件名可靠，Next 的 CSS chunk 名不带内容 hash）：
+
+```bash
+rm -rf .next && pnpm build
+python3 -c "import glob,pathlib; s=''.join(pathlib.Path(f).read_text() for f in glob.glob('.next/static/chunks/*.css')); print('.bg-info' in s, '--info:' in s)"
+```
+
+### 状态色一律走 token，`-ink` 只给文字
+
+`--success` / `--warning` / `--destructive` / `--info` 四组各带 `-ink` 文字变体（State Ink Rule，
+见根 `DESIGN.md`）。**填充 / 圆点 / 图标用本色，任何文字用 ink**，token 自己随主题切换，
+所以 `dark:` 分支是多余的——`bg-amber-50 ... dark:bg-amber-950/40` 这种双份写法是硬编码时代
+的遗物，token 化时一并删掉。
+
+本区剩下的调色板直用只有两处，都是刻意的**主题真空区**且各自带注释：`invite-share.tsx` 的
+二维码白卡（含它的 `QrOverlay`）、`appearance-panel.tsx` 的主题预览缩略图（那是在画「主题长什么样」，
+跟着主题变反而错）。新增第三处之前先确认它真属于这一类。
+
+### `bg-foreground` / `text-background` 不是「中性」，是**满对比反色**（2026-08-08）
+
+设置页的「Multiaddr」格式提示曾写作 `bg-foreground` + `text-background`：浅色下一块纯黑、
+深色下一块纯白。它没碰调色板、每个类都是 token，所以在 diff 里完全不可疑——但它是整张页面
+**对比度最高的元素**（约 19:1），而它挂在全页优先级最低的一行（一个收起着的次要动作）上。
+视觉重量与信息重量正好反着。
+
+判据不是「有没有用 token」，而是**这块颜色在本页的对比度排名，和它承载的信息在本页的
+重要度排名，是不是同一名次**。低强调标签走 `Badge variant="outline"`（根 `DESIGN.md` §5 就是
+这么定义 outline/ghost 的）；要跟着所在行一起明暗，加 `text-inherit` 让它继承父行的
+`text-muted-foreground → hover:text-foreground`。
+
+顺带一条计数：那次改动前，同一张设置页有**四种徽标方言**（实心反色 / `bg-primary/10 text-brand`
+的传输名 / `Badge variant="outline"` 的分组计数 / `bg-background/50 border` 的关于页特性片）。
+加第五种之前先在页面里数一遍——徽标是最容易长出方言的一类元素，因为每处都只需要「一个小圆角」。
+
+### 渐进披露一律走 `_components/disclosure.tsx`，不要裸 `<details>`（2026-08-08）
+
+裸 `<details>` 会顶着浏览器默认的 ▶ 三角，那是全站仅有的非 Lucide 图形语汇，且没有 hover、
+没有像样的命中区、展开时也没有方向反馈。`Disclosure` 把 `SectionHeader` 那套披露语汇
+（`ChevronDown` + `group-open:rotate-180` + `--ease-out-quart`）下放到**行**尺度，两档尺寸：
+默认档是设置卡里的一行（`p-4`，与 `SettingsRow` 逐字相同，行高 52px 过触摸基线），
+`compact` 档给弹窗。
+
+三条实现细节，抄这个组件时别丢：
+
+- **marker 要关两次**——`list-none` 管 Chrome/Firefox，`[&::-webkit-details-marker]:hidden`
+  管旧 WebKit。只写一条就会在另一半浏览器上漏出默认三角。
+- **仍然用原生 `<details>`**：键盘、读屏 disclosure 语义、JS 没跑起来也能展开，都是白拿的。
+- **有机器值就摆在收起态右侧**（`value` 属性，恒等宽）。折叠该藏的是「所以呢」那段话，
+  不是答案本身——「身份存在哪里？」此前把一个 API 名藏在一次点击后面，那不是渐进披露。
+
+### 通栏行的焦点环要用**负** `outline-offset`（2026-08-08）
+
+`.focus-ring` 的 `outline-offset: 2px` 是给独立控件用的。**通栏行**（`SettingsCard` 里的
+`SettingsRow` / `Disclosure`、`ConnectionPanel` 的「添加自定义引导节点」）两侧紧贴容器边缘，
+而这些容器都是 `overflow-hidden`——往外 2px 的环左右两段会被整段裁掉，只剩上下两条横线，
+看起来像渲染坏了。
+
+修法是在该行上加 `focus-visible:-outline-offset-2`：同一个环、同一种颜色宽度，只把偏移翻个号，
+不动全局的 `.focus-ring`（utilities 层排在 components 之后，能干净地覆盖）。
 
 ## `scrollbar-gutter: stable` 会在应用区右边留一条永远空的死边
 
@@ -1500,6 +1740,48 @@ Web 的三处文件清单（传输详情 / 收件箱详情 / 发送面板）以�
 
 **相关文件**：`docs/app/app/_lib/file-browser-adapters.ts`、`docs/app/app/_lib/thumbnail-source.ts`、
 `packages/shared-view/src/file-browser/adapters.ts`、`packages/file-browser/README.md`
+
+## ⚠️ 浏览器上「取回一组文件」不能循环触发 `<a download>`（2026-08-09）
+
+收件箱的「全部下载」原本是串行 `for` 循环，逐个文件建 blob URL 再 `anchor.click()`。
+**线上症状是「目录只下载了第一层」**，而代码里找不到任何「只取一层」的逻辑——两条原因叠在
+一起，都不在 JS 的可观测面内：
+
+1. **连续多次程序化下载会被浏览器拦。** 第二次起会弹「是否允许下载多个文件」，而我们的
+   `click()` 跑在 `await download_url()` 之后，**早已脱离用户手势**，更容易被直接静默丢弃。
+   关键在于 **`anchor.click()` 被拦时既不回调也不抛错**——代码看起来全都成功了。
+2. **落盘顺序恰好是「先浅后深」。** 收件箱文件按 `file_id` 升序（`inbox.rs` 的
+   `ordered.sort_by_key`），而 `file_id` 来自发送侧 manifest 顺序 = 桌面 `WalkDir` 的顺序：
+   先第一层的文件，再逐层深入。于是被拦掉的**恰好是深层那些**，看起来就像「只支持一层」。
+
+外加第三条，即使全下来了也不对：**`<a download>` 的文件名会被浏览器消毒掉路径分隔符**，
+塞完整相对路径没有用，所有文件平铺进下载目录，同名的被改成 `a(1).txt`——目录层级留不住。
+
+**做法：一组文件 = 一个 zip = 一次下载**（`docs/app/app/_lib/zip-download.ts`，用
+`client-zip` 2.6KB gzip）。一次下载不触发拦截，层级写在 zip 条目名里。
+
+几条只有写的时候会想到的：
+
+- **`downloadZip(...).blob()` 会物化整包**。浏览器视大小落到磁盘 backing store，但仍占配额，
+  所以 zip 的 object URL TTL 与单文件那条**不是一个数**（3s vs 30s）：单文件的 blob 背后是
+  OPFS 快照，钉住它几乎不花内存。同理，`saveObjectUrl` 之后**不要再 `await`** 别的东西
+  ——挂起的 async 帧不会被单独回收，整包字节会跟着那个帧多活一个往返。
+  真正的零内存写法是 `showSaveFilePicker()` + `makeZip()` 流式写盘，但只有 Chromium 有。
+- **取不到字节的条目跳过，不要让整包失败**（OPFS 是配额存储，条目会被驱逐）；但**全部**
+  取不到时必须报错——`downloadZip` 会照样产出一个 22 字节的空包（只有中央目录结尾记录），
+  用户拿到它会以为文件真的没了。
+- **`lastModified` 用条目的接收时间，不要用 `new Date()`**：同一份内容打两次会得到两个
+  字节不同的包。
+- 目录 zip 的条目名**保留目录名自身那一层**（`photos/2024/` → `2024/a.jpg`），解压出来是
+  一个文件夹而不是散落一地的文件，与各家云盘一致。
+
+**相关文件**：`docs/app/app/_lib/zip-download.ts`、`docs/app/app/_components/receive-panel.tsx`
+
+### 推论：目录动作只能是增强，不能是唯一入口
+
+目录行只存在于**树形视图**（网格是扁平卡片，没有目录这个节点），而收件箱的默认视图恰恰是
+**网格**（`shared-view` 的 `view-preference.ts`）。所以「下载整个目录」这类能力必须有一个
+两个视图都够得着的兜底，位置是 `FileBrowser` 的 `headerActions`（表头）。
 
 ## 改了 `packages/file-browser` 就必须在 `docs/` 重装（2026-08-06 实证）
 

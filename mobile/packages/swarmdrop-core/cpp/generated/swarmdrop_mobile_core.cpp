@@ -156,6 +156,7 @@ extern "C" {
     typedef void
     (*UniffiCallbackInterfaceForeignFileAccessMethod2)(
     uint64_t uniffi_handle, 
+    RustBuffer staging_uri, 
     RustBuffer metadata, 
     UniffiForeignFutureCompleteRustBuffer uniffi_future_callback, 
     uint64_t uniffi_callback_data, 
@@ -163,40 +164,6 @@ extern "C" {
     );
     typedef void
     (*UniffiCallbackInterfaceForeignFileAccessMethod3)(
-    uint64_t uniffi_handle, 
-    RustBuffer metadata, 
-    UniffiForeignFutureCompleteRustBuffer uniffi_future_callback, 
-    uint64_t uniffi_callback_data, 
-    UniffiForeignFutureDroppedCallbackStruct * uniffi_out_dropped_callback
-    );
-    typedef void
-    (*UniffiCallbackInterfaceForeignFileAccessMethod4)(
-    uint64_t uniffi_handle, 
-    RustBuffer sink_id, 
-    uint64_t offset, 
-    RustBuffer data, 
-    UniffiForeignFutureCompleteVoid uniffi_future_callback, 
-    uint64_t uniffi_callback_data, 
-    UniffiForeignFutureDroppedCallbackStruct * uniffi_out_dropped_callback
-    );
-    typedef void
-    (*UniffiCallbackInterfaceForeignFileAccessMethod5)(
-    uint64_t uniffi_handle, 
-    RustBuffer sink_id, 
-    UniffiForeignFutureCompleteRustBuffer uniffi_future_callback, 
-    uint64_t uniffi_callback_data, 
-    UniffiForeignFutureDroppedCallbackStruct * uniffi_out_dropped_callback
-    );
-    typedef void
-    (*UniffiCallbackInterfaceForeignFileAccessMethod6)(
-    uint64_t uniffi_handle, 
-    RustBuffer sink_id, 
-    UniffiForeignFutureCompleteVoid uniffi_future_callback, 
-    uint64_t uniffi_callback_data, 
-    UniffiForeignFutureDroppedCallbackStruct * uniffi_out_dropped_callback
-    );
-    typedef void
-    (*UniffiCallbackInterfaceForeignFileAccessMethod7)(
     uint64_t uniffi_handle, 
     RustBuffer uri, 
     UniffiForeignFutureCompleteVoid uniffi_future_callback, 
@@ -270,12 +237,8 @@ extern "C" {
         UniffiCallbackInterfaceClone uniffi_clone;
         UniffiCallbackInterfaceForeignFileAccessMethod0 source_metadata;
         UniffiCallbackInterfaceForeignFileAccessMethod1 read_source_chunk;
-        UniffiCallbackInterfaceForeignFileAccessMethod2 create_sink;
-        UniffiCallbackInterfaceForeignFileAccessMethod3 open_or_create_sink;
-        UniffiCallbackInterfaceForeignFileAccessMethod4 write_sink_chunk;
-        UniffiCallbackInterfaceForeignFileAccessMethod5 finalize_sink;
-        UniffiCallbackInterfaceForeignFileAccessMethod6 cleanup_sink;
-        UniffiCallbackInterfaceForeignFileAccessMethod7 delete_finalized_file;
+        UniffiCallbackInterfaceForeignFileAccessMethod2 publish_to_target;
+        UniffiCallbackInterfaceForeignFileAccessMethod3 delete_finalized_file;
     } UniffiVTableCallbackInterfaceForeignFileAccess;typedef struct UniffiVTableCallbackInterfaceForeignKeychainProvider {
         UniffiCallbackInterfaceFree uniffi_free;
         UniffiCallbackInterfaceClone uniffi_clone;
@@ -401,8 +364,16 @@ extern "C" {
         RustBuffer limit, 
         int8_t include_archived
     );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_add_infra_node(
+        /*handle*/ uint64_t ptr, 
+        RustBuffer addr
+    );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(
         /*handle*/ uint64_t ptr
+    );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_remove_infra_node(
+        /*handle*/ uint64_t ptr, 
+        RustBuffer peer_id
     );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_shutdown_node(
         /*handle*/ uint64_t ptr
@@ -410,6 +381,13 @@ extern "C" {
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(
         /*handle*/ uint64_t ptr, 
         RustBuffer network_config
+    );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_supported_transports(
+        /*handle*/ uint64_t ptr
+    );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_validate_infra_addr(
+        /*handle*/ uint64_t ptr, 
+        RustBuffer addr
     );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_consume_pair_invite(
         /*handle*/ uint64_t ptr, 
@@ -427,6 +405,7 @@ extern "C" {
     RustBuffer uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(
         /*handle*/ uint64_t ptr, 
         RustBuffer invite, 
+        uint32_t face_px, 
         RustCallStatus *uniffi_out_err
     );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_pair_invites(
@@ -488,6 +467,10 @@ extern "C" {
         RustBuffer peer_name, 
         RustBuffer file_ids
     );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_default_save_location(
+        /*handle*/ uint64_t ptr, 
+        RustBuffer uri
+    );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused(
         /*handle*/ uint64_t ptr, 
         int8_t paused
@@ -529,27 +512,10 @@ extern "C" {
         uint64_t offset, 
         uint64_t length
     );
-    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_create_sink(
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_publish_to_target(
         /*handle*/ uint64_t ptr, 
+        RustBuffer staging_uri, 
         RustBuffer metadata
-    );
-    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_open_or_create_sink(
-        /*handle*/ uint64_t ptr, 
-        RustBuffer metadata
-    );
-    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_write_sink_chunk(
-        /*handle*/ uint64_t ptr, 
-        RustBuffer sink_id, 
-        uint64_t offset, 
-        RustBuffer data
-    );
-    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_finalize_sink(
-        /*handle*/ uint64_t ptr, 
-        RustBuffer sink_id
-    );
-    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink(
-        /*handle*/ uint64_t ptr, 
-        RustBuffer sink_id
     );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_delete_finalized_file(
         /*handle*/ uint64_t ptr, 
@@ -855,11 +821,19 @@ extern "C" {
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox(
     );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_add_infra_node(
+    );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status(
+    );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_infra_node(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node(
+    );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_supported_transports(
+    );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_validate_infra_addr(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_consume_pair_invite(
     );
@@ -897,6 +871,8 @@ extern "C" {
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared(
     );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_default_save_location(
+    );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreigneventbus_emit(
@@ -905,15 +881,7 @@ extern "C" {
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_read_source_chunk(
     );
-    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_create_sink(
-    );
-    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_open_or_create_sink(
-    );
-    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk(
-    );
-    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink(
-    );
-    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink(
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_publish_to_target(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file(
     );
@@ -3392,7 +3360,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
         rsLambda = nullptr;
     }
 } // namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod1::vtablecallbackinterfaceforeignfileaccess
-    // Implementation of CallbackInterfaceForeignFileAccessMethod2 for vtable field create_sink in VTableCallbackInterfaceForeignFileAccess
+    // Implementation of CallbackInterfaceForeignFileAccessMethod2 for vtable field publish_to_target in VTableCallbackInterfaceForeignFileAccess
 
 
 // Callback function: uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod2::vtablecallbackinterfaceforeignfileaccess::UniffiCallbackInterfaceForeignFileAccessMethod2
@@ -3412,7 +3380,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
 
     // We need to store a lambda in a global so we can call it from
     // a function pointer. The function pointer is passed to Rust.
-    static std::function<void(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer, uint64_t, UniffiForeignFutureDroppedCallbackStruct *)> rsLambda = nullptr;
+    static std::function<void(uint64_t, RustBuffer, RustBuffer, UniffiForeignFutureCompleteRustBuffer, uint64_t, UniffiForeignFutureDroppedCallbackStruct *)> rsLambda = nullptr;
 
     // This is the main body of the callback. It's called from the lambda,
     // which itself is called from the callback function which is passed to Rust.
@@ -3420,6 +3388,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
                      std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
                      std::shared_ptr<jsi::Value> callbackValue
             ,uint64_t rs_uniffiHandle
+            ,RustBuffer rs_stagingUri
             ,RustBuffer rs_metadata
             ,UniffiForeignFutureCompleteRustBuffer rs_uniffiFutureCallback
             ,uint64_t rs_uniffiCallbackData
@@ -3428,6 +3397,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
         // Convert the arguments from Rust, into jsi::Values.
         // We'll use the Bridging class to do this…
         auto js_uniffiHandle = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_uniffiHandle);
+        auto js_stagingUri = uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::toJs(rt, callInvoker, rs_stagingUri);
         auto js_metadata = uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::toJs(rt, callInvoker, rs_metadata);
         auto js_uniffiFutureCallback = uniffi::swarmdrop_mobile_core::Bridging<UniffiForeignFutureCompleteRustBuffer>::toJs(rt, callInvoker, rs_uniffiFutureCallback);
         auto js_uniffiCallbackData = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_uniffiCallbackData);
@@ -3438,7 +3408,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
         try {
             // Getting the callback function
             auto cb = callbackValue->asObject(rt).asFunction(rt);
-            auto uniffiResult = cb.call(rt, js_uniffiHandle, js_metadata, js_uniffiFutureCallback, js_uniffiCallbackData
+            auto uniffiResult = cb.call(rt, js_uniffiHandle, js_stagingUri, js_metadata, js_uniffiFutureCallback, js_uniffiCallbackData
             );
 
             
@@ -3459,7 +3429,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
         }
     }
 
-    static void callback(uint64_t rs_uniffiHandle, RustBuffer rs_metadata, UniffiForeignFutureCompleteRustBuffer rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
+    static void callback(uint64_t rs_uniffiHandle, RustBuffer rs_stagingUri, RustBuffer rs_metadata, UniffiForeignFutureCompleteRustBuffer rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
         // If the runtime has shutdown, then there is no point in trying to
         // call into Javascript. BUT how do we tell if the runtime has shutdown?
         //
@@ -3477,6 +3447,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
         // are all in the lambda.
         rsLambda(
             rs_uniffiHandle, 
+            rs_stagingUri, 
             rs_metadata, 
             rs_uniffiFutureCallback, 
             rs_uniffiCallbackData, 
@@ -3502,19 +3473,21 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
         }
         auto callbackFunction = value.asObject(rt).asFunction(rt);
         auto callbackValue = std::make_shared<jsi::Value>(rt, callbackFunction);
-        rsLambda = [&rt, callInvoker, callbackValue](uint64_t rs_uniffiHandle, RustBuffer rs_metadata, UniffiForeignFutureCompleteRustBuffer rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
+        rsLambda = [&rt, callInvoker, callbackValue](uint64_t rs_uniffiHandle, RustBuffer rs_stagingUri, RustBuffer rs_metadata, UniffiForeignFutureCompleteRustBuffer rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
                 // We immediately make a lambda which will do the work of transforming the
                 // arguments into JSI values and calling the callback.
                 uniffi_runtime::UniffiCallFunc jsLambda = [
                     callInvoker,
                     callbackValue
                     , rs_uniffiHandle
+                    , rs_stagingUri
                     , rs_metadata
                     , rs_uniffiFutureCallback
                     , rs_uniffiCallbackData
                     , rs_uniffiOutDroppedCallback](jsi::Runtime &rt) mutable {
                     body(rt, callInvoker, callbackValue
                         , rs_uniffiHandle
+                        , rs_stagingUri
                         , rs_metadata
                         , rs_uniffiFutureCallback
                         , rs_uniffiCallbackData
@@ -3535,7 +3508,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
         rsLambda = nullptr;
     }
 } // namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod2::vtablecallbackinterfaceforeignfileaccess
-    // Implementation of CallbackInterfaceForeignFileAccessMethod3 for vtable field open_or_create_sink in VTableCallbackInterfaceForeignFileAccess
+    // Implementation of CallbackInterfaceForeignFileAccessMethod3 for vtable field delete_finalized_file in VTableCallbackInterfaceForeignFileAccess
 
 
 // Callback function: uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod3::vtablecallbackinterfaceforeignfileaccess::UniffiCallbackInterfaceForeignFileAccessMethod3
@@ -3551,588 +3524,6 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
 // We then give the `callback` function pointer to Rust which will call the lambda sometime in the
 // future.
 namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod3::vtablecallbackinterfaceforeignfileaccess {
-    using namespace facebook;
-
-    // We need to store a lambda in a global so we can call it from
-    // a function pointer. The function pointer is passed to Rust.
-    static std::function<void(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer, uint64_t, UniffiForeignFutureDroppedCallbackStruct *)> rsLambda = nullptr;
-
-    // This is the main body of the callback. It's called from the lambda,
-    // which itself is called from the callback function which is passed to Rust.
-    static void body(jsi::Runtime &rt,
-                     std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
-                     std::shared_ptr<jsi::Value> callbackValue
-            ,uint64_t rs_uniffiHandle
-            ,RustBuffer rs_metadata
-            ,UniffiForeignFutureCompleteRustBuffer rs_uniffiFutureCallback
-            ,uint64_t rs_uniffiCallbackData
-            ,UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
-
-        // Convert the arguments from Rust, into jsi::Values.
-        // We'll use the Bridging class to do this…
-        auto js_uniffiHandle = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_uniffiHandle);
-        auto js_metadata = uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::toJs(rt, callInvoker, rs_metadata);
-        auto js_uniffiFutureCallback = uniffi::swarmdrop_mobile_core::Bridging<UniffiForeignFutureCompleteRustBuffer>::toJs(rt, callInvoker, rs_uniffiFutureCallback);
-        auto js_uniffiCallbackData = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_uniffiCallbackData);
-
-        // Now we are ready to call the callback.
-        // We are already on the JS thread, because this `body` function was
-        // invoked from the CallInvoker.
-        try {
-            // Getting the callback function
-            auto cb = callbackValue->asObject(rt).asFunction(rt);
-            auto uniffiResult = cb.call(rt, js_uniffiHandle, js_metadata, js_uniffiFutureCallback, js_uniffiCallbackData
-            );
-
-            
-
-            
-            // return type is Struct("ForeignFutureDroppedCallbackStruct")
-            // Finally, we need to copy the return value back into the Rust pointer.
-            *rs_uniffiOutDroppedCallback =
-                uniffi::swarmdrop_mobile_core::Bridging<
-                    UniffiForeignFutureDroppedCallbackStruct
-                >::fromJs(
-                    rt, callInvoker, uniffiResult
-                );
-        } catch (const jsi::JSError &error) {
-            std::cout << "Error in callback UniffiCallbackInterfaceForeignFileAccessMethod3: "
-                    << error.what() << std::endl;
-            throw error;
-        }
-    }
-
-    static void callback(uint64_t rs_uniffiHandle, RustBuffer rs_metadata, UniffiForeignFutureCompleteRustBuffer rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
-        // If the runtime has shutdown, then there is no point in trying to
-        // call into Javascript. BUT how do we tell if the runtime has shutdown?
-        //
-        // Answer: the module destructor calls into callback `cleanup` method,
-        // which nulls out the rsLamda.
-        //
-        // If rsLamda is null, then there is no runtime to call into.
-        if (rsLambda == nullptr) {
-            // This only occurs when destructors are calling into Rust free/drop,
-            // which causes the JS callback to be dropped.
-            return;
-        }
-
-        // The runtime, the actual callback jsi::funtion, and the callInvoker
-        // are all in the lambda.
-        rsLambda(
-            rs_uniffiHandle, 
-            rs_metadata, 
-            rs_uniffiFutureCallback, 
-            rs_uniffiCallbackData, 
-            rs_uniffiOutDroppedCallback);
-    }
-
-    [[maybe_unused]] static UniffiCallbackInterfaceForeignFileAccessMethod3
-    makeCallbackFunction( // uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod3::vtablecallbackinterfaceforeignfileaccess
-                    jsi::Runtime &rt,
-                     std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
-                     const jsi::Value &value) {
-        if (rsLambda != nullptr) {
-            // `makeCallbackFunction` is called in two circumstances:
-            //
-            // 1. at startup, when initializing callback interface vtables.
-            // 2. when polling futures. This happens at least once per future that is
-            //    exposed to Javascript. We know that this is always the same function,
-            //    `uniffiFutureContinuationCallback` in `async-rust-calls.ts`.
-            //
-            // We can therefore return the callback function without making anything
-            // new if we've been initialized already.
-            return callback;
-        }
-        auto callbackFunction = value.asObject(rt).asFunction(rt);
-        auto callbackValue = std::make_shared<jsi::Value>(rt, callbackFunction);
-        rsLambda = [&rt, callInvoker, callbackValue](uint64_t rs_uniffiHandle, RustBuffer rs_metadata, UniffiForeignFutureCompleteRustBuffer rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
-                // We immediately make a lambda which will do the work of transforming the
-                // arguments into JSI values and calling the callback.
-                uniffi_runtime::UniffiCallFunc jsLambda = [
-                    callInvoker,
-                    callbackValue
-                    , rs_uniffiHandle
-                    , rs_metadata
-                    , rs_uniffiFutureCallback
-                    , rs_uniffiCallbackData
-                    , rs_uniffiOutDroppedCallback](jsi::Runtime &rt) mutable {
-                    body(rt, callInvoker, callbackValue
-                        , rs_uniffiHandle
-                        , rs_metadata
-                        , rs_uniffiFutureCallback
-                        , rs_uniffiCallbackData
-                        , rs_uniffiOutDroppedCallback);
-                };
-                // We'll then call that lambda from the callInvoker which will
-                // look after calling it on the correct thread.
-                callInvoker->invokeBlocking(rt, jsLambda);
-        };
-        return callback;
-    }
-
-    // This method is called from the destructor of NativeSwarmdropMobileCore, which only happens
-    // when the jsi::Runtime is being destroyed.
-    static void cleanup() {
-        // The lambda holds a reference to the the Runtime, so when this is nulled out,
-        // then the pointer will no longer be left dangling.
-        rsLambda = nullptr;
-    }
-} // namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod3::vtablecallbackinterfaceforeignfileaccess
-    // Implementation of CallbackInterfaceForeignFileAccessMethod4 for vtable field write_sink_chunk in VTableCallbackInterfaceForeignFileAccess
-
-
-// Callback function: uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod4::vtablecallbackinterfaceforeignfileaccess::UniffiCallbackInterfaceForeignFileAccessMethod4
-//
-// We have the following constraints:
-// - we need to pass a function pointer to Rust.
-// - we need a jsi::Runtime and jsi::Function to call into JS.
-// - function pointers can't store state, so we can't use a lamda.
-//
-// For this, we store a lambda as a global, as `rsLambda`. The `callback` function calls
-// the lambda, which itself calls the `body` which then calls into JS.
-//
-// We then give the `callback` function pointer to Rust which will call the lambda sometime in the
-// future.
-namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod4::vtablecallbackinterfaceforeignfileaccess {
-    using namespace facebook;
-
-    // We need to store a lambda in a global so we can call it from
-    // a function pointer. The function pointer is passed to Rust.
-    static std::function<void(uint64_t, RustBuffer, uint64_t, RustBuffer, UniffiForeignFutureCompleteVoid, uint64_t, UniffiForeignFutureDroppedCallbackStruct *)> rsLambda = nullptr;
-
-    // This is the main body of the callback. It's called from the lambda,
-    // which itself is called from the callback function which is passed to Rust.
-    static void body(jsi::Runtime &rt,
-                     std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
-                     std::shared_ptr<jsi::Value> callbackValue
-            ,uint64_t rs_uniffiHandle
-            ,RustBuffer rs_sinkId
-            ,uint64_t rs_offset
-            ,RustBuffer rs_data
-            ,UniffiForeignFutureCompleteVoid rs_uniffiFutureCallback
-            ,uint64_t rs_uniffiCallbackData
-            ,UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
-
-        // Convert the arguments from Rust, into jsi::Values.
-        // We'll use the Bridging class to do this…
-        auto js_uniffiHandle = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_uniffiHandle);
-        auto js_sinkId = uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::toJs(rt, callInvoker, rs_sinkId);
-        auto js_offset = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_offset);
-        auto js_data = uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::toJs(rt, callInvoker, rs_data);
-        auto js_uniffiFutureCallback = uniffi::swarmdrop_mobile_core::Bridging<UniffiForeignFutureCompleteVoid>::toJs(rt, callInvoker, rs_uniffiFutureCallback);
-        auto js_uniffiCallbackData = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_uniffiCallbackData);
-
-        // Now we are ready to call the callback.
-        // We are already on the JS thread, because this `body` function was
-        // invoked from the CallInvoker.
-        try {
-            // Getting the callback function
-            auto cb = callbackValue->asObject(rt).asFunction(rt);
-            auto uniffiResult = cb.call(rt, js_uniffiHandle, js_sinkId, js_offset, js_data, js_uniffiFutureCallback, js_uniffiCallbackData
-            );
-
-            
-
-            
-            // return type is Struct("ForeignFutureDroppedCallbackStruct")
-            // Finally, we need to copy the return value back into the Rust pointer.
-            *rs_uniffiOutDroppedCallback =
-                uniffi::swarmdrop_mobile_core::Bridging<
-                    UniffiForeignFutureDroppedCallbackStruct
-                >::fromJs(
-                    rt, callInvoker, uniffiResult
-                );
-        } catch (const jsi::JSError &error) {
-            std::cout << "Error in callback UniffiCallbackInterfaceForeignFileAccessMethod4: "
-                    << error.what() << std::endl;
-            throw error;
-        }
-    }
-
-    static void callback(uint64_t rs_uniffiHandle, RustBuffer rs_sinkId, uint64_t rs_offset, RustBuffer rs_data, UniffiForeignFutureCompleteVoid rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
-        // If the runtime has shutdown, then there is no point in trying to
-        // call into Javascript. BUT how do we tell if the runtime has shutdown?
-        //
-        // Answer: the module destructor calls into callback `cleanup` method,
-        // which nulls out the rsLamda.
-        //
-        // If rsLamda is null, then there is no runtime to call into.
-        if (rsLambda == nullptr) {
-            // This only occurs when destructors are calling into Rust free/drop,
-            // which causes the JS callback to be dropped.
-            return;
-        }
-
-        // The runtime, the actual callback jsi::funtion, and the callInvoker
-        // are all in the lambda.
-        rsLambda(
-            rs_uniffiHandle, 
-            rs_sinkId, 
-            rs_offset, 
-            rs_data, 
-            rs_uniffiFutureCallback, 
-            rs_uniffiCallbackData, 
-            rs_uniffiOutDroppedCallback);
-    }
-
-    [[maybe_unused]] static UniffiCallbackInterfaceForeignFileAccessMethod4
-    makeCallbackFunction( // uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod4::vtablecallbackinterfaceforeignfileaccess
-                    jsi::Runtime &rt,
-                     std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
-                     const jsi::Value &value) {
-        if (rsLambda != nullptr) {
-            // `makeCallbackFunction` is called in two circumstances:
-            //
-            // 1. at startup, when initializing callback interface vtables.
-            // 2. when polling futures. This happens at least once per future that is
-            //    exposed to Javascript. We know that this is always the same function,
-            //    `uniffiFutureContinuationCallback` in `async-rust-calls.ts`.
-            //
-            // We can therefore return the callback function without making anything
-            // new if we've been initialized already.
-            return callback;
-        }
-        auto callbackFunction = value.asObject(rt).asFunction(rt);
-        auto callbackValue = std::make_shared<jsi::Value>(rt, callbackFunction);
-        rsLambda = [&rt, callInvoker, callbackValue](uint64_t rs_uniffiHandle, RustBuffer rs_sinkId, uint64_t rs_offset, RustBuffer rs_data, UniffiForeignFutureCompleteVoid rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
-                // We immediately make a lambda which will do the work of transforming the
-                // arguments into JSI values and calling the callback.
-                uniffi_runtime::UniffiCallFunc jsLambda = [
-                    callInvoker,
-                    callbackValue
-                    , rs_uniffiHandle
-                    , rs_sinkId
-                    , rs_offset
-                    , rs_data
-                    , rs_uniffiFutureCallback
-                    , rs_uniffiCallbackData
-                    , rs_uniffiOutDroppedCallback](jsi::Runtime &rt) mutable {
-                    body(rt, callInvoker, callbackValue
-                        , rs_uniffiHandle
-                        , rs_sinkId
-                        , rs_offset
-                        , rs_data
-                        , rs_uniffiFutureCallback
-                        , rs_uniffiCallbackData
-                        , rs_uniffiOutDroppedCallback);
-                };
-                // We'll then call that lambda from the callInvoker which will
-                // look after calling it on the correct thread.
-                callInvoker->invokeBlocking(rt, jsLambda);
-        };
-        return callback;
-    }
-
-    // This method is called from the destructor of NativeSwarmdropMobileCore, which only happens
-    // when the jsi::Runtime is being destroyed.
-    static void cleanup() {
-        // The lambda holds a reference to the the Runtime, so when this is nulled out,
-        // then the pointer will no longer be left dangling.
-        rsLambda = nullptr;
-    }
-} // namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod4::vtablecallbackinterfaceforeignfileaccess
-    // Implementation of CallbackInterfaceForeignFileAccessMethod5 for vtable field finalize_sink in VTableCallbackInterfaceForeignFileAccess
-
-
-// Callback function: uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod5::vtablecallbackinterfaceforeignfileaccess::UniffiCallbackInterfaceForeignFileAccessMethod5
-//
-// We have the following constraints:
-// - we need to pass a function pointer to Rust.
-// - we need a jsi::Runtime and jsi::Function to call into JS.
-// - function pointers can't store state, so we can't use a lamda.
-//
-// For this, we store a lambda as a global, as `rsLambda`. The `callback` function calls
-// the lambda, which itself calls the `body` which then calls into JS.
-//
-// We then give the `callback` function pointer to Rust which will call the lambda sometime in the
-// future.
-namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod5::vtablecallbackinterfaceforeignfileaccess {
-    using namespace facebook;
-
-    // We need to store a lambda in a global so we can call it from
-    // a function pointer. The function pointer is passed to Rust.
-    static std::function<void(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer, uint64_t, UniffiForeignFutureDroppedCallbackStruct *)> rsLambda = nullptr;
-
-    // This is the main body of the callback. It's called from the lambda,
-    // which itself is called from the callback function which is passed to Rust.
-    static void body(jsi::Runtime &rt,
-                     std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
-                     std::shared_ptr<jsi::Value> callbackValue
-            ,uint64_t rs_uniffiHandle
-            ,RustBuffer rs_sinkId
-            ,UniffiForeignFutureCompleteRustBuffer rs_uniffiFutureCallback
-            ,uint64_t rs_uniffiCallbackData
-            ,UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
-
-        // Convert the arguments from Rust, into jsi::Values.
-        // We'll use the Bridging class to do this…
-        auto js_uniffiHandle = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_uniffiHandle);
-        auto js_sinkId = uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::toJs(rt, callInvoker, rs_sinkId);
-        auto js_uniffiFutureCallback = uniffi::swarmdrop_mobile_core::Bridging<UniffiForeignFutureCompleteRustBuffer>::toJs(rt, callInvoker, rs_uniffiFutureCallback);
-        auto js_uniffiCallbackData = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_uniffiCallbackData);
-
-        // Now we are ready to call the callback.
-        // We are already on the JS thread, because this `body` function was
-        // invoked from the CallInvoker.
-        try {
-            // Getting the callback function
-            auto cb = callbackValue->asObject(rt).asFunction(rt);
-            auto uniffiResult = cb.call(rt, js_uniffiHandle, js_sinkId, js_uniffiFutureCallback, js_uniffiCallbackData
-            );
-
-            
-
-            
-            // return type is Struct("ForeignFutureDroppedCallbackStruct")
-            // Finally, we need to copy the return value back into the Rust pointer.
-            *rs_uniffiOutDroppedCallback =
-                uniffi::swarmdrop_mobile_core::Bridging<
-                    UniffiForeignFutureDroppedCallbackStruct
-                >::fromJs(
-                    rt, callInvoker, uniffiResult
-                );
-        } catch (const jsi::JSError &error) {
-            std::cout << "Error in callback UniffiCallbackInterfaceForeignFileAccessMethod5: "
-                    << error.what() << std::endl;
-            throw error;
-        }
-    }
-
-    static void callback(uint64_t rs_uniffiHandle, RustBuffer rs_sinkId, UniffiForeignFutureCompleteRustBuffer rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
-        // If the runtime has shutdown, then there is no point in trying to
-        // call into Javascript. BUT how do we tell if the runtime has shutdown?
-        //
-        // Answer: the module destructor calls into callback `cleanup` method,
-        // which nulls out the rsLamda.
-        //
-        // If rsLamda is null, then there is no runtime to call into.
-        if (rsLambda == nullptr) {
-            // This only occurs when destructors are calling into Rust free/drop,
-            // which causes the JS callback to be dropped.
-            return;
-        }
-
-        // The runtime, the actual callback jsi::funtion, and the callInvoker
-        // are all in the lambda.
-        rsLambda(
-            rs_uniffiHandle, 
-            rs_sinkId, 
-            rs_uniffiFutureCallback, 
-            rs_uniffiCallbackData, 
-            rs_uniffiOutDroppedCallback);
-    }
-
-    [[maybe_unused]] static UniffiCallbackInterfaceForeignFileAccessMethod5
-    makeCallbackFunction( // uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod5::vtablecallbackinterfaceforeignfileaccess
-                    jsi::Runtime &rt,
-                     std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
-                     const jsi::Value &value) {
-        if (rsLambda != nullptr) {
-            // `makeCallbackFunction` is called in two circumstances:
-            //
-            // 1. at startup, when initializing callback interface vtables.
-            // 2. when polling futures. This happens at least once per future that is
-            //    exposed to Javascript. We know that this is always the same function,
-            //    `uniffiFutureContinuationCallback` in `async-rust-calls.ts`.
-            //
-            // We can therefore return the callback function without making anything
-            // new if we've been initialized already.
-            return callback;
-        }
-        auto callbackFunction = value.asObject(rt).asFunction(rt);
-        auto callbackValue = std::make_shared<jsi::Value>(rt, callbackFunction);
-        rsLambda = [&rt, callInvoker, callbackValue](uint64_t rs_uniffiHandle, RustBuffer rs_sinkId, UniffiForeignFutureCompleteRustBuffer rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
-                // We immediately make a lambda which will do the work of transforming the
-                // arguments into JSI values and calling the callback.
-                uniffi_runtime::UniffiCallFunc jsLambda = [
-                    callInvoker,
-                    callbackValue
-                    , rs_uniffiHandle
-                    , rs_sinkId
-                    , rs_uniffiFutureCallback
-                    , rs_uniffiCallbackData
-                    , rs_uniffiOutDroppedCallback](jsi::Runtime &rt) mutable {
-                    body(rt, callInvoker, callbackValue
-                        , rs_uniffiHandle
-                        , rs_sinkId
-                        , rs_uniffiFutureCallback
-                        , rs_uniffiCallbackData
-                        , rs_uniffiOutDroppedCallback);
-                };
-                // We'll then call that lambda from the callInvoker which will
-                // look after calling it on the correct thread.
-                callInvoker->invokeBlocking(rt, jsLambda);
-        };
-        return callback;
-    }
-
-    // This method is called from the destructor of NativeSwarmdropMobileCore, which only happens
-    // when the jsi::Runtime is being destroyed.
-    static void cleanup() {
-        // The lambda holds a reference to the the Runtime, so when this is nulled out,
-        // then the pointer will no longer be left dangling.
-        rsLambda = nullptr;
-    }
-} // namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod5::vtablecallbackinterfaceforeignfileaccess
-    // Implementation of CallbackInterfaceForeignFileAccessMethod6 for vtable field cleanup_sink in VTableCallbackInterfaceForeignFileAccess
-
-
-// Callback function: uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod6::vtablecallbackinterfaceforeignfileaccess::UniffiCallbackInterfaceForeignFileAccessMethod6
-//
-// We have the following constraints:
-// - we need to pass a function pointer to Rust.
-// - we need a jsi::Runtime and jsi::Function to call into JS.
-// - function pointers can't store state, so we can't use a lamda.
-//
-// For this, we store a lambda as a global, as `rsLambda`. The `callback` function calls
-// the lambda, which itself calls the `body` which then calls into JS.
-//
-// We then give the `callback` function pointer to Rust which will call the lambda sometime in the
-// future.
-namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod6::vtablecallbackinterfaceforeignfileaccess {
-    using namespace facebook;
-
-    // We need to store a lambda in a global so we can call it from
-    // a function pointer. The function pointer is passed to Rust.
-    static std::function<void(uint64_t, RustBuffer, UniffiForeignFutureCompleteVoid, uint64_t, UniffiForeignFutureDroppedCallbackStruct *)> rsLambda = nullptr;
-
-    // This is the main body of the callback. It's called from the lambda,
-    // which itself is called from the callback function which is passed to Rust.
-    static void body(jsi::Runtime &rt,
-                     std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
-                     std::shared_ptr<jsi::Value> callbackValue
-            ,uint64_t rs_uniffiHandle
-            ,RustBuffer rs_sinkId
-            ,UniffiForeignFutureCompleteVoid rs_uniffiFutureCallback
-            ,uint64_t rs_uniffiCallbackData
-            ,UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
-
-        // Convert the arguments from Rust, into jsi::Values.
-        // We'll use the Bridging class to do this…
-        auto js_uniffiHandle = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_uniffiHandle);
-        auto js_sinkId = uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::toJs(rt, callInvoker, rs_sinkId);
-        auto js_uniffiFutureCallback = uniffi::swarmdrop_mobile_core::Bridging<UniffiForeignFutureCompleteVoid>::toJs(rt, callInvoker, rs_uniffiFutureCallback);
-        auto js_uniffiCallbackData = uniffi_jsi::Bridging<uint64_t>::toJs(rt, callInvoker, rs_uniffiCallbackData);
-
-        // Now we are ready to call the callback.
-        // We are already on the JS thread, because this `body` function was
-        // invoked from the CallInvoker.
-        try {
-            // Getting the callback function
-            auto cb = callbackValue->asObject(rt).asFunction(rt);
-            auto uniffiResult = cb.call(rt, js_uniffiHandle, js_sinkId, js_uniffiFutureCallback, js_uniffiCallbackData
-            );
-
-            
-
-            
-            // return type is Struct("ForeignFutureDroppedCallbackStruct")
-            // Finally, we need to copy the return value back into the Rust pointer.
-            *rs_uniffiOutDroppedCallback =
-                uniffi::swarmdrop_mobile_core::Bridging<
-                    UniffiForeignFutureDroppedCallbackStruct
-                >::fromJs(
-                    rt, callInvoker, uniffiResult
-                );
-        } catch (const jsi::JSError &error) {
-            std::cout << "Error in callback UniffiCallbackInterfaceForeignFileAccessMethod6: "
-                    << error.what() << std::endl;
-            throw error;
-        }
-    }
-
-    static void callback(uint64_t rs_uniffiHandle, RustBuffer rs_sinkId, UniffiForeignFutureCompleteVoid rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
-        // If the runtime has shutdown, then there is no point in trying to
-        // call into Javascript. BUT how do we tell if the runtime has shutdown?
-        //
-        // Answer: the module destructor calls into callback `cleanup` method,
-        // which nulls out the rsLamda.
-        //
-        // If rsLamda is null, then there is no runtime to call into.
-        if (rsLambda == nullptr) {
-            // This only occurs when destructors are calling into Rust free/drop,
-            // which causes the JS callback to be dropped.
-            return;
-        }
-
-        // The runtime, the actual callback jsi::funtion, and the callInvoker
-        // are all in the lambda.
-        rsLambda(
-            rs_uniffiHandle, 
-            rs_sinkId, 
-            rs_uniffiFutureCallback, 
-            rs_uniffiCallbackData, 
-            rs_uniffiOutDroppedCallback);
-    }
-
-    [[maybe_unused]] static UniffiCallbackInterfaceForeignFileAccessMethod6
-    makeCallbackFunction( // uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod6::vtablecallbackinterfaceforeignfileaccess
-                    jsi::Runtime &rt,
-                     std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
-                     const jsi::Value &value) {
-        if (rsLambda != nullptr) {
-            // `makeCallbackFunction` is called in two circumstances:
-            //
-            // 1. at startup, when initializing callback interface vtables.
-            // 2. when polling futures. This happens at least once per future that is
-            //    exposed to Javascript. We know that this is always the same function,
-            //    `uniffiFutureContinuationCallback` in `async-rust-calls.ts`.
-            //
-            // We can therefore return the callback function without making anything
-            // new if we've been initialized already.
-            return callback;
-        }
-        auto callbackFunction = value.asObject(rt).asFunction(rt);
-        auto callbackValue = std::make_shared<jsi::Value>(rt, callbackFunction);
-        rsLambda = [&rt, callInvoker, callbackValue](uint64_t rs_uniffiHandle, RustBuffer rs_sinkId, UniffiForeignFutureCompleteVoid rs_uniffiFutureCallback, uint64_t rs_uniffiCallbackData, UniffiForeignFutureDroppedCallbackStruct * rs_uniffiOutDroppedCallback) {
-                // We immediately make a lambda which will do the work of transforming the
-                // arguments into JSI values and calling the callback.
-                uniffi_runtime::UniffiCallFunc jsLambda = [
-                    callInvoker,
-                    callbackValue
-                    , rs_uniffiHandle
-                    , rs_sinkId
-                    , rs_uniffiFutureCallback
-                    , rs_uniffiCallbackData
-                    , rs_uniffiOutDroppedCallback](jsi::Runtime &rt) mutable {
-                    body(rt, callInvoker, callbackValue
-                        , rs_uniffiHandle
-                        , rs_sinkId
-                        , rs_uniffiFutureCallback
-                        , rs_uniffiCallbackData
-                        , rs_uniffiOutDroppedCallback);
-                };
-                // We'll then call that lambda from the callInvoker which will
-                // look after calling it on the correct thread.
-                callInvoker->invokeBlocking(rt, jsLambda);
-        };
-        return callback;
-    }
-
-    // This method is called from the destructor of NativeSwarmdropMobileCore, which only happens
-    // when the jsi::Runtime is being destroyed.
-    static void cleanup() {
-        // The lambda holds a reference to the the Runtime, so when this is nulled out,
-        // then the pointer will no longer be left dangling.
-        rsLambda = nullptr;
-    }
-} // namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod6::vtablecallbackinterfaceforeignfileaccess
-    // Implementation of CallbackInterfaceForeignFileAccessMethod7 for vtable field delete_finalized_file in VTableCallbackInterfaceForeignFileAccess
-
-
-// Callback function: uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod7::vtablecallbackinterfaceforeignfileaccess::UniffiCallbackInterfaceForeignFileAccessMethod7
-//
-// We have the following constraints:
-// - we need to pass a function pointer to Rust.
-// - we need a jsi::Runtime and jsi::Function to call into JS.
-// - function pointers can't store state, so we can't use a lamda.
-//
-// For this, we store a lambda as a global, as `rsLambda`. The `callback` function calls
-// the lambda, which itself calls the `body` which then calls into JS.
-//
-// We then give the `callback` function pointer to Rust which will call the lambda sometime in the
-// future.
-namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod7::vtablecallbackinterfaceforeignfileaccess {
     using namespace facebook;
 
     // We need to store a lambda in a global so we can call it from
@@ -4178,7 +3569,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
                     rt, callInvoker, uniffiResult
                 );
         } catch (const jsi::JSError &error) {
-            std::cout << "Error in callback UniffiCallbackInterfaceForeignFileAccessMethod7: "
+            std::cout << "Error in callback UniffiCallbackInterfaceForeignFileAccessMethod3: "
                     << error.what() << std::endl;
             throw error;
         }
@@ -4208,8 +3599,8 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
             rs_uniffiOutDroppedCallback);
     }
 
-    [[maybe_unused]] static UniffiCallbackInterfaceForeignFileAccessMethod7
-    makeCallbackFunction( // uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod7::vtablecallbackinterfaceforeignfileaccess
+    [[maybe_unused]] static UniffiCallbackInterfaceForeignFileAccessMethod3
+    makeCallbackFunction( // uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod3::vtablecallbackinterfaceforeignfileaccess
                     jsi::Runtime &rt,
                      std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
                      const jsi::Value &value) {
@@ -4259,7 +3650,7 @@ namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessm
         // then the pointer will no longer be left dangling.
         rsLambda = nullptr;
     }
-} // namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod7::vtablecallbackinterfaceforeignfileaccess
+} // namespace uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod3::vtablecallbackinterfaceforeignfileaccess
 namespace uniffi::swarmdrop_mobile_core {
 using namespace facebook;
 using CallInvoker = uniffi_runtime::UniffiCallInvoker;
@@ -4293,22 +3684,10 @@ template <> struct Bridging<UniffiVTableCallbackInterfaceForeignFileAccess> {
     rsObject.read_source_chunk = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod1::vtablecallbackinterfaceforeignfileaccess::makeCallbackFunction(
           rt, callInvoker, jsObject.getProperty(rt, "read_source_chunk")
         );
-    rsObject.create_sink = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod2::vtablecallbackinterfaceforeignfileaccess::makeCallbackFunction(
-          rt, callInvoker, jsObject.getProperty(rt, "create_sink")
+    rsObject.publish_to_target = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod2::vtablecallbackinterfaceforeignfileaccess::makeCallbackFunction(
+          rt, callInvoker, jsObject.getProperty(rt, "publish_to_target")
         );
-    rsObject.open_or_create_sink = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod3::vtablecallbackinterfaceforeignfileaccess::makeCallbackFunction(
-          rt, callInvoker, jsObject.getProperty(rt, "open_or_create_sink")
-        );
-    rsObject.write_sink_chunk = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod4::vtablecallbackinterfaceforeignfileaccess::makeCallbackFunction(
-          rt, callInvoker, jsObject.getProperty(rt, "write_sink_chunk")
-        );
-    rsObject.finalize_sink = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod5::vtablecallbackinterfaceforeignfileaccess::makeCallbackFunction(
-          rt, callInvoker, jsObject.getProperty(rt, "finalize_sink")
-        );
-    rsObject.cleanup_sink = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod6::vtablecallbackinterfaceforeignfileaccess::makeCallbackFunction(
-          rt, callInvoker, jsObject.getProperty(rt, "cleanup_sink")
-        );
-    rsObject.delete_finalized_file = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod7::vtablecallbackinterfaceforeignfileaccess::makeCallbackFunction(
+    rsObject.delete_finalized_file = uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod3::vtablecallbackinterfaceforeignfileaccess::makeCallbackFunction(
           rt, callInvoker, jsObject.getProperty(rt, "delete_finalized_file")
         );
 
@@ -5898,12 +5277,28 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_search_inbox(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_add_infra_node"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_add_infra_node"),
+        2,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_add_infra_node(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status"),
         1,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_remove_infra_node"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_remove_infra_node"),
+        2,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_remove_infra_node(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_shutdown_node"] = jsi::Function::createFromHostFunction(
@@ -5920,6 +5315,22 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
         2,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_supported_transports"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_supported_transports"),
+        1,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_supported_transports(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_validate_infra_addr"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_validate_infra_addr"),
+        2,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_validate_infra_addr(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_consume_pair_invite"] = jsi::Function::createFromHostFunction(
@@ -5949,7 +5360,7 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix"),
-        2,
+        3,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(rt, thisVal, args, count);
         }
@@ -6066,6 +5477,14 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_prepared(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_default_save_location"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_default_save_location"),
+        2,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_default_save_location(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_receiving_paused"),
@@ -6146,44 +5565,12 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_read_source_chunk(rt, thisVal, args, count);
         }
     );
-    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_create_sink"] = jsi::Function::createFromHostFunction(
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_publish_to_target"] = jsi::Function::createFromHostFunction(
         rt,
-        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_create_sink"),
-        2,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_publish_to_target"),
+        3,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
-            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_create_sink(rt, thisVal, args, count);
-        }
-    );
-    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_open_or_create_sink"] = jsi::Function::createFromHostFunction(
-        rt,
-        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_open_or_create_sink"),
-        2,
-        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
-            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_open_or_create_sink(rt, thisVal, args, count);
-        }
-    );
-    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_write_sink_chunk"] = jsi::Function::createFromHostFunction(
-        rt,
-        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_write_sink_chunk"),
-        4,
-        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
-            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_write_sink_chunk(rt, thisVal, args, count);
-        }
-    );
-    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_finalize_sink"] = jsi::Function::createFromHostFunction(
-        rt,
-        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_finalize_sink"),
-        2,
-        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
-            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_finalize_sink(rt, thisVal, args, count);
-        }
-    );
-    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink"] = jsi::Function::createFromHostFunction(
-        rt,
-        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink"),
-        2,
-        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
-            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink(rt, thisVal, args, count);
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_publish_to_target(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_delete_finalized_file"] = jsi::Function::createFromHostFunction(
@@ -6906,12 +6293,28 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_search_inbox(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_add_infra_node"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_add_infra_node"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_add_infra_node(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status"),
         0,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_infra_node"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_infra_node"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_infra_node(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_shutdown_node"] = jsi::Function::createFromHostFunction(
@@ -6928,6 +6331,22 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
         0,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_supported_transports"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_supported_transports"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_supported_transports(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_validate_infra_addr"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_validate_infra_addr"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_validate_infra_addr(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_consume_pair_invite"] = jsi::Function::createFromHostFunction(
@@ -7074,6 +6493,14 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_default_save_location"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_default_save_location"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_default_save_location(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused"),
@@ -7106,44 +6533,12 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_read_source_chunk(rt, thisVal, args, count);
         }
     );
-    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_create_sink"] = jsi::Function::createFromHostFunction(
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_publish_to_target"] = jsi::Function::createFromHostFunction(
         rt,
-        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_create_sink"),
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_publish_to_target"),
         0,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
-            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_create_sink(rt, thisVal, args, count);
-        }
-    );
-    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_open_or_create_sink"] = jsi::Function::createFromHostFunction(
-        rt,
-        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_open_or_create_sink"),
-        0,
-        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
-            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_open_or_create_sink(rt, thisVal, args, count);
-        }
-    );
-    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk"] = jsi::Function::createFromHostFunction(
-        rt,
-        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk"),
-        0,
-        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
-            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk(rt, thisVal, args, count);
-        }
-    );
-    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink"] = jsi::Function::createFromHostFunction(
-        rt,
-        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink"),
-        0,
-        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
-            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink(rt, thisVal, args, count);
-        }
-    );
-    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink"] = jsi::Function::createFromHostFunction(
-        rt,
-        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink"),
-        0,
-        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
-            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink(rt, thisVal, args, count);
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_publish_to_target(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file"] = jsi::Function::createFromHostFunction(
@@ -7393,10 +6788,6 @@ uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod0::vt
 uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod1::vtablecallbackinterfaceforeignfileaccess::cleanup();
 uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod2::vtablecallbackinterfaceforeignfileaccess::cleanup();
 uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod3::vtablecallbackinterfaceforeignfileaccess::cleanup();
-uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod4::vtablecallbackinterfaceforeignfileaccess::cleanup();
-uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod5::vtablecallbackinterfaceforeignfileaccess::cleanup();
-uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod6::vtablecallbackinterfaceforeignfileaccess::cleanup();
-uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignfileaccessmethod7::vtablecallbackinterfaceforeignfileaccess::cleanup();
 uniffi::swarmdrop_mobile_core::cb::callbackinterfaceclone::vtablecallbackinterfaceforeignkeychainprovider::cleanup();
 uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod0::vtablecallbackinterfaceforeignkeychainprovider::cleanup();
 uniffi::swarmdrop_mobile_core::cb::callbackinterfaceforeignkeychainprovidermethod1::vtablecallbackinterfaceforeignkeychainprovider::cleanup();
@@ -7663,8 +7054,22 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
         
         return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
 }
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_add_infra_node(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_add_infra_node(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_network_status(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_remove_infra_node(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_remove_infra_node(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
         );
 
         
@@ -7679,6 +7084,20 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_start_node(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_supported_transports(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_supported_transports(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_validate_infra_addr(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_validate_infra_addr(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
         );
 
         
@@ -7710,7 +7129,7 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         RustCallStatus status = uniffi::swarmdrop_mobile_core::Bridging<RustCallStatus>::rustSuccess(rt);
-        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), 
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi_jsi::Bridging<uint32_t>::fromJs(rt, callInvoker, args[2]), 
             &status
         );
         uniffi::swarmdrop_mobile_core::Bridging<RustCallStatus>::copyIntoJs(rt, callInvoker, status, args[count - 1]);
@@ -7811,6 +7230,13 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_prepared(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_prepared(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[2]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[3]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[4])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_default_save_location(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_default_save_location(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
         );
 
         
@@ -7921,36 +7347,8 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
         
         return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
 }
-jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_create_sink(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
-        auto value = uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_create_sink(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
-        );
-
-        
-        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
-}
-jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_open_or_create_sink(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
-        auto value = uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_open_or_create_sink(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
-        );
-
-        
-        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
-}
-jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_write_sink_chunk(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
-        auto value = uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_write_sink_chunk(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi_jsi::Bridging<uint64_t>::fromJs(rt, callInvoker, args[2]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[3])
-        );
-
-        
-        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
-}
-jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_finalize_sink(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
-        auto value = uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_finalize_sink(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
-        );
-
-        
-        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
-}
-jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
-        auto value = uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_publish_to_target(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_publish_to_target(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[2])
         );
 
         
@@ -8646,8 +8044,22 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_
         
         return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
 }
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_add_infra_node(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_add_infra_node(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_network_status(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_infra_node(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_infra_node(
         );
 
         
@@ -8662,6 +8074,20 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_supported_transports(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_supported_transports(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_validate_infra_addr(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_validate_infra_addr(
         );
 
         
@@ -8793,6 +8219,13 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_
         
         return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
 }
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_default_save_location(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_default_save_location(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused(
         );
@@ -8821,36 +8254,8 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_
         
         return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
 }
-jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_create_sink(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
-        auto value = uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_create_sink(
-        );
-
-        
-        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
-}
-jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_open_or_create_sink(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
-        auto value = uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_open_or_create_sink(
-        );
-
-        
-        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
-}
-jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
-        auto value = uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk(
-        );
-
-        
-        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
-}
-jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
-        auto value = uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink(
-        );
-
-        
-        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
-}
-jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
-        auto value = uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink(
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_publish_to_target(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_publish_to_target(
         );
 
         

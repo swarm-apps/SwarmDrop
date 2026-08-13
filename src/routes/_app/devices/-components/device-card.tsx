@@ -159,13 +159,13 @@ export function DeviceCard({
                 <span
                   className={cn(
                     "size-1.5 rounded-full",
-                    isOnline ? "bg-green-500" : "bg-muted-foreground"
+                    isOnline ? "bg-success" : "bg-muted-foreground"
                   )}
                 />
                 <span
                   className={cn(
                     "text-[11px]",
-                    isOnline ? "text-green-500" : "text-muted-foreground"
+                    isOnline ? "text-success-ink" : "text-muted-foreground"
                   )}
                 >
                   {isOnline ? <Trans>在线</Trans> : <Trans>离线</Trans>}

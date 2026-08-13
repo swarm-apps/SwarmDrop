@@ -27,7 +27,11 @@
 //! - libp2p 类型不出本 crate，上层只见 [`base`] 的 newtype。
 
 mod actor;
+mod addrset;
 mod behaviour;
+// 文件持久化只在 native 有意义（浏览器不监听 WebTransport，也没有文件系统）。
+#[cfg(not(wasm_browser))]
+mod cert_store;
 mod config;
 mod dht;
 mod endpoint;
@@ -42,7 +46,8 @@ mod watch;
 
 pub use swarmdrop_net_base as base;
 pub use swarmdrop_net_base::{
-    Addr, DiscoverySource, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId, SecretKey,
+    Addr, AddrParseError, DiscoverySource, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId,
+    SecretKey, TransportKind,
 };
 
 pub use config::{DhtConfig, RelayServerConfig, WebRtcP2pConfig};
@@ -70,23 +75,29 @@ pub fn generate_webrtc_certificate_pem() -> Result<String, String> {
         .map(|certificate| certificate.serialize_pem())
 }
 
-/// 根据持久化 WebRTC Direct 证书构造可公告的公网地址。
+// ⚠️ 这里曾有一个 `webrtc_direct_addr_from_pem`（从持久化 PEM 预先派生可公告的
+// webrtc-direct 公网地址），2026-08-12 删除，**不要加回来**。
+//
+// 它是「从证书算 certhash」的第二条路径，与传输启动时实际使用的那条并行存在；两者一旦
+// 漂移，症状是浏览器在 TLS 阶段被拒、而本机日志毫无线索。它唯一的消费方（bootstrap）已
+// 改用 [`Builder::external_ip`](endpoint::builder::Builder::external_ip)——那条从**监听
+// 地址本身**取 certhash，按定义不可能与传输不一致，并且顺带覆盖了 WebTransport 那种
+// certhash 会周期性轮换、静态派生根本算不对的情形。
+
+/// WebTransport 配置。**两个 target 都在**——它是上层唯一需要认识的类型，
+/// 证书端口藏在它后面（判据见该类型的文档）。
+pub use config::WebTransportConfig;
+
+/// WebTransport 的证书持久化端口与其两个实现。**native only**：浏览器不监听、
+/// 没有服务端证书可存，`webtransport_p2p` 在那边也不在依赖树里。
 ///
-/// `certhash` 由完整证书派生，必须与
-/// [`Builder::webrtc_certificate`](Builder::webrtc_certificate) 注入的 PEM 相同。
+/// 直接转出上游的 trait 而不做镜像 —— `crates/net` 正是本仓允许写 cfg 的平台边界层，
+/// 在这里挡住比在上层每个组合根挡一次便宜。
 #[cfg(not(wasm_browser))]
-pub fn webrtc_direct_addr_from_pem(
-    ip: std::net::IpAddr,
-    port: u16,
-    pem: &str,
-) -> Result<Addr, String> {
-    let certificate = webrtc_p2p::Certificate::from_pem(pem).map_err(|error| error.to_string())?;
-    // 走 webrtc-p2p 的编码器，别在这儿手拼——那边有 `direct_addr_roundtrips` 钉死
-    // 「与官方编码逐字一致」。多一条独立路径就多一处会悄悄漂移的 certhash，
-    // 而漂移的症状是存量分享地址集体拨不通。
-    let address = webrtc_p2p::protocol::addr::direct_addr(
-        std::net::SocketAddr::new(ip, port),
-        Some(certificate.fingerprint()),
-    );
-    Ok(Addr::from_multiaddr(address))
-}
+pub use cert_store::WebTransportFileCertificateStore;
+#[cfg(not(wasm_browser))]
+pub use webtransport_p2p::{
+    CertificateStore as WebTransportCertificateStore,
+    MemoryCertificateStore as WebTransportMemoryCertificateStore,
+    StoreError as WebTransportStoreError,
+};

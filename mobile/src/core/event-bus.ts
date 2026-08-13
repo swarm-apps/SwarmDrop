@@ -122,6 +122,23 @@ function routeEventToStores(event: MobileCoreEvent): void {
       break;
     }
 
+    case MobileCoreEvent_Tags.FilePublish: {
+      // 「字节收完」不等于「文件已保存」：数据先落进程私有的暂存区，收齐才发布到用户
+      // 可见位置。Android 的 SAF 目标那一段是全量字节拷贝、几十秒起步，而此时进度条
+      // 已经满了——没有这条事件，用户看到的就是「满了之后凭空多等一段」。
+      //
+      // 逐文件发生（收齐即发布），所以一个多文件会话会来很多次，不是末尾一次。
+      useTransferStore.getState().applyFilePublish(event.inner.event);
+      break;
+    }
+
+    case MobileCoreEvent_Tags.PrepareProgress: {
+      // 发送准备进度（一遍流式读产出 checksum + 验签树）。落 store 而非页面 useState：
+      // 准备大目录可以是分钟级，用户切走再回来得看得到它。
+      useTransferStore.getState().updatePrepare(event.inner.event);
+      break;
+    }
+
     case MobileCoreEvent_Tags.TransferProjectionUpdate: {
       useTransferStore.getState().applyProjection(event.inner.projection);
       break;
@@ -152,7 +169,9 @@ function routeEventToStores(event: MobileCoreEvent): void {
     }
 
     case MobileCoreEvent_Tags.TransferFailed: {
-      const { error } = event.inner;
+      const { error, sessionId } = event.inner;
+      // 发布失败不会补发 `finished`，横幅只能靠这里（与 Paused / 非活跃投影）收掉。
+      useTransferStore.getState().clearPublishing(sessionId);
       if (error.startsWith("对方取消")) {
         const message = t`对方已取消传输`;
         toast.info(message);
@@ -168,6 +187,7 @@ function routeEventToStores(event: MobileCoreEvent): void {
 
     case MobileCoreEvent_Tags.TransferPaused: {
       // 对端暂停：状态由 TransferProjectionUpdate 接管，这里只提示。
+      useTransferStore.getState().clearPublishing(event.inner.sessionId);
       const message = t`对方已暂停传输`;
       toast.info(message);
       useTransferStore.getState().setError(message);
@@ -181,6 +201,16 @@ function routeEventToStores(event: MobileCoreEvent): void {
 
     case MobileCoreEvent_Tags.TransferDbError: {
       useTransferStore.getState().setError(event.inner.message);
+      break;
+    }
+
+    case MobileCoreEvent_Tags.PairingCompleted: {
+      // 显式不落：配对完成的状态由 PairedDeviceAdded（上面刷新已配对列表）与
+      // DevicesChanged 表达，这里再动一次是第二条写路径。
+      //
+      // 写成显式空 case 而不是让它掉进 default，是为了保住 `default` 分支「真的遇到了
+      // 未知事件」这个信号——它和 PrepareProgress 曾一起漏在那里，每次发送都刷成百上千
+      // 条 warn，于是这条日志再也不代表任何东西。
       break;
     }
 

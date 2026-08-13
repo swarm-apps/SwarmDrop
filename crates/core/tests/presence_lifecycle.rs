@@ -19,6 +19,7 @@ use swarmdrop_core::host::{CoreEvent, EventBus, MemoryHost, PairedDeviceStore};
 use swarmdrop_core::network::config::create_candidate_manager;
 use swarmdrop_core::network::event_loop::handle_core_node_event;
 use swarmdrop_core::network::{NetManager, NetworkRuntimeConfig};
+use swarmdrop_core::pairing::PairingPorts;
 use swarmdrop_net::{Addr, DhtConfig, Endpoint, NodeAddr, NodeId, SecretKey};
 
 /// 已配对设备列表的持久化端口替身（本用例只关心 presence/infra，列表恒为空）。
@@ -75,10 +76,12 @@ async fn spawn_node(secret: SecretKey, paired: Vec<PairedDeviceInfo>) -> TestNod
         (),
         network_config,
         candidates,
-        bus.clone(),
-        None,
-        std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
-        Arc::new(host.clone()),
+        PairingPorts {
+            event_bus: bus.clone(),
+            notifier: None,
+            invite_store: std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
+            paired_store: Arc::new(host.clone()),
+        },
     );
 
     let shared = manager.shared_refs();

@@ -39,7 +39,8 @@
 //!
 //! ## 不落库的一样东西
 //!
-//! - **bao outboard**（1 GiB 文件 ≈ 4 MiB）：只有发送侧用得上，而发送侧本就不跨刷新恢复。
+//! - **bao outboard**（1 GiB 文件 ≈ 256 KiB；chunk group 与 `CHUNK_SIZE` 对齐前是 4 MiB）：
+//!   只有发送侧用得上，而发送侧本就不跨刷新恢复。
 //!
 //! 收件箱**不在**上面这张表里：它是独立的 `inbox` object store（见 [`crate::inbox`]），
 //! 因而不参与下面的 [`HISTORY_CAP`] 淘汰——「清空传输历史不动收件箱」这条三端不变量
@@ -475,26 +476,17 @@ impl SessionStore for WebTransferStore {
         self.persist(session_id).await
     }
 
-    async fn reset_file_checkpoint(&self, session_id: Uuid, file_id: i32) -> AppResult<()> {
-        self.mutate_file(session_id, file_id, |f| {
-            f.completed_chunks = vec![];
-            f.completed_ranges = "[]".to_string();
-            f.transferred_bytes = 0;
-        });
-        self.persist(session_id).await
-    }
-
+    /// **绝对覆盖，零值照写**——判据见端口 trait 文档。浏览器端只有接收方向能续传，
+    /// 所以这条路径今天走不到；保持与 native 实现同语义是为了别让端口的两个实现分叉。
     async fn save_sender_file_progress(
         &self,
         session_id: Uuid,
         progress: &[(u32, u32, u64)],
     ) -> AppResult<()> {
         for &(file_id, _chunks_done, transferred) in progress {
-            if transferred > 0 {
-                self.mutate_file(session_id, file_id as i32, |f| {
-                    f.transferred_bytes = transferred as i64;
-                });
-            }
+            self.mutate_file(session_id, file_id as i32, |f| {
+                f.transferred_bytes = transferred as i64;
+            });
         }
         self.persist(session_id).await
     }
@@ -606,9 +598,11 @@ impl SessionStore for WebTransferStore {
             .values()
             .map(|s| projection_of(&s.session, &s.files))
             .collect();
-        // `HashMap` 的迭代序不可依赖，而端口契约要求 `started_at` 倒序：没有它，
-        // 「取最近 N 条」（活动面板的 `HISTORY_LIMIT`）在 Web 上取到的就是随机 N 条。
-        // 前端各面板照旧按自己的维度重排，与本契约不冲突。
+        // `HashMap` 的迭代序不可依赖，而端口契约要求 `started_at` 倒序。
+        // 撑着这条契约的是最后这句：**前端各面板照旧按自己的维度重排**（今天三端都按
+        // `updatedAt`，见 DESIGN.md 的 Transfer List Order Contract），所以这里保证的
+        // 是「确定性」而不是「给谁看的顺序」——`started_at` 不可变，比会被 checkpoint
+        // 改写的 `updated_at` 更适合当这个锚。
         projections.sort_unstable_by_key(|p| std::cmp::Reverse(p.started_at));
         Ok(projections)
     }
@@ -896,7 +890,7 @@ struct FileRowDef {
     source_path: Option<String>,
     local_path: Option<String>,
     local_dir: Option<String>,
-    /// 不落库（1 GiB 文件 ≈ 4 MiB），载入恒 `None`——见模块注释「不落库的两样东西」。
+    /// 不落库（1 GiB 文件 ≈ 256 KiB），载入恒 `None`——见模块注释「不落库的一样东西」。
     #[serde(skip)]
     outboard: Option<Vec<u8>>,
 }
@@ -1199,8 +1193,7 @@ mod tests {
     ///
     /// 与 `crates/storage-sql/src/store.rs` 的 `lists_projections_by_started_at_desc`
     /// 逐条对应——同一组落库顺序、同一组期望顺序。两端跑同一组断言正是 D3 的意义：
-    /// 本实现此前直接 `HashMap::values()` 出，顺序随机，于是「取最近 N 条」
-    /// （活动面板的 `HISTORY_LIMIT`）在浏览器上取到的是随机 N 条。
+    /// 本实现此前直接 `HashMap::values()` 出，顺序随机——端口就没有确定性可言了。
     ///
     /// 跑法：`wasm-pack test --headless --chrome -p swarmdrop-web`。
     #[wasm_bindgen_test]

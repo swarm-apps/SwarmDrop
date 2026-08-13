@@ -73,10 +73,19 @@ pnpm test                  # vitest。⚠️ 根 vitest.config.ts 显式 exclude
                            #   Web 应用区的测试要单独跑（见下面 docs 那条）
 pnpm check:zustand-access  # selector 派生 + store API 访问检查（src/ 与 docs/app/app）
 pnpm check:clipboard       # 禁止绕过 src/lib/clipboard.ts 直接用 navigator.clipboard
+pnpm check:quit-entry      # 禁止绕过 src/lib/quit-app.ts 直接终止进程（退出/重启要先 flush 偏好）
+pnpm check:node-lifecycle  # 禁止在 useEffect 里调节点启停（收敛环 → 用户停不掉节点）
 pnpm check:shared-view     # 共享包零平台依赖（import 纯度 + 无 DOM lib 的 tsc）
 pnpm check:landing         # 配对落地页体积（≤10KB gzip，含注释）+ 字典完整性
 pnpm i18n:extract          # 新增/修改翻译字符串后
                            # ⚠️ 提取完要**补 en / zh-TW 译文**，否则那两个语言静默回落中文
+
+# 移动端（在 mobile/ 下跑 —— 独立 pnpm workspace，改了 mobile/src 就要跑）
+# ⚠️ 这两条**零 CI 覆盖**：mobile-checks.yml 目前只跑 check:expo-patches，
+#    workflow 自己的注释也写着 typecheck / biome / check:zustand-access 还没接进去。
+#    漏跑没人会告诉你——2026-08-12 的传输时间线改动就是这么带着 4 个 biome error 提交的。
+pnpm typecheck
+pnpm lint:ci               # biome（import 排序 + 格式）；`pnpm lint` 是可写版
 
 # Rust（在仓库根目录跑即可，workspace 会一并 check）
 cargo fmt --all

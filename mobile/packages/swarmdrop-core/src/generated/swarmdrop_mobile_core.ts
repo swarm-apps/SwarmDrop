@@ -95,6 +95,52 @@ export function logFilePath(): string | undefined {
     ));
     }
 
+/**
+ * 一段基础设施关系承担的角色（两个正交能力，不是二选一）。
+ */
+export type MobileCandidateRoles = {
+    kadServer: boolean,
+    relayServer: boolean
+}
+
+/**
+ * Generated factory for {@link MobileCandidateRoles} record objects.
+ */
+export const MobileCandidateRoles = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileCandidateRoles, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileCandidateRoles>,
+    });
+})();
+
+const FfiConverterTypeMobileCandidateRoles = (() => {
+    type TypeName = MobileCandidateRoles;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                kadServer: FfiConverterBool.read(from), 
+                relayServer: FfiConverterBool.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterBool.write(value.kadServer, into);
+            FfiConverterBool.write(value.relayServer, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterBool.allocationSize(value.kadServer) +
+             FfiConverterBool.allocationSize(value.relayServer);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
 export enum MobileBootstrapCandidateSource {
     HostConfigured,
     MdnsLanHelper,
@@ -739,6 +785,114 @@ const FfiConverterTypeMobileFileProgress = (() => {
 })();
 
 /**
+ * 发布阶段。**fieldless `uniffi::Enum`，与同域的 [`MobileTransferDirection`] 等同体例**
+ * ——生成的 TS 是 `export enum MobileFilePublishPhase { Started, Finished }`，所以 JS 侧
+ * 加档时 switch 会缺项报错。
+ *
+ * 早先这里是 `String`，理由写作「uniffi enum 会生成 `{ tag: … }` 对象」——**那是带字段
+ * 枚举的形态**，无字段的不是。裸 `String` 让 `FilePublishEvent` 的文档断言（「三端 codegen
+ * 都稳，加档会在查表处编译期报缺项」）恰好在唯一有慢发布路径的那一端不成立。
+ */
+export enum MobileFilePublishPhase {
+    Started,
+    Finished
+}
+
+const FfiConverterTypeMobileFilePublishPhase = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileFilePublishPhase;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileFilePublishPhase.Started;
+                case 2: return MobileFilePublishPhase.Finished;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileFilePublishPhase.Started: return ordinalConverter.write(1, into);
+                case MobileFilePublishPhase.Finished: return ordinalConverter.write(2, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+/**
+ * 单个文件的发布阶段（暂存 → 用户可见位置）。
+ *
+ * **Android 上这一段是全量字节拷贝，几十秒起步**，而此时字节已收完、进度条已满——
+ * 没有这条事件，用户看到的就是「满了之后凭空多等一段」。
+ *
+ * 拷贝中的字节数**不在这里**——那个循环在 JS 侧的 `ForeignFileAccess` 里，由它直接上报。
+ */
+export type MobileFilePublish = {
+    sessionId: string,
+    fileId: number,
+    name: string,
+    /**
+     * JS 侧靠它把自己的拷贝字节数认领到正确的条目上——它拿到的元数据里没有会话与文件 id。
+     */
+    relativePath: string,
+    totalBytes: bigint,
+    phase: MobileFilePublishPhase
+}
+
+/**
+ * Generated factory for {@link MobileFilePublish} record objects.
+ */
+export const MobileFilePublish = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileFilePublish, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileFilePublish>,
+    });
+})();
+
+const FfiConverterTypeMobileFilePublish = (() => {
+    type TypeName = MobileFilePublish;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                sessionId: FfiConverterString.read(from), 
+                fileId: FfiConverterUInt32.read(from), 
+                name: FfiConverterString.read(from), 
+                relativePath: FfiConverterString.read(from), 
+                totalBytes: FfiConverterUInt64.read(from), 
+                phase: FfiConverterTypeMobileFilePublishPhase.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.sessionId, into);
+            FfiConverterUInt32.write(value.fileId, into);
+            FfiConverterString.write(value.name, into);
+            FfiConverterString.write(value.relativePath, into);
+            FfiConverterUInt64.write(value.totalBytes, into);
+            FfiConverterTypeMobileFilePublishPhase.write(value.phase, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.sessionId) +
+             FfiConverterUInt32.allocationSize(value.fileId) +
+             FfiConverterString.allocationSize(value.name) +
+             FfiConverterString.allocationSize(value.relativePath) +
+             FfiConverterUInt64.allocationSize(value.totalBytes) +
+             FfiConverterTypeMobileFilePublishPhase.allocationSize(value.phase);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+/**
  * finalize_sink 的返回（uniffi 镜像 [`FinalizedSink`]）：文件最终 URI + 其父目录 URI。
  * `dir` 供「打开文件夹」定位真实容器目录（file:// 目录 / SAF 目录 document URI）。
  */
@@ -1303,10 +1457,10 @@ const FfiConverterTypeMobileResumeRejectReason = (() => {
 
 // Enum: MobileFailureCode
 export enum MobileFailureCode_Tags {
-    FileFinalizeFailed = "FileFinalizeFailed",
     SessionExpired = "SessionExpired",
     ResumeRejected = "ResumeRejected",
     OfferFailed = "OfferFailed",
+    PeerProtocolUnsupported = "PeerProtocolUnsupported",
     Legacy = "Legacy"
 }
 /**
@@ -1317,37 +1471,6 @@ export enum MobileFailureCode_Tags {
  * 判别码把「是什么失败」和「怎么措辞」分开之后，那种猜测彻底没有存在的余地。
  */
 export const MobileFailureCode = (() => {
-
-    type FileFinalizeFailed__interface = {
-        tag: MobileFailureCode_Tags.FileFinalizeFailed;
-        inner: 
-Readonly<{fileName: string}>
-    };
-    class FileFinalizeFailed_ extends UniffiEnum implements FileFinalizeFailed__interface {
-        /**
-         * @private
-         * This field is private and should not be used, use `tag` instead.
-         */
-        readonly [uniffiTypeNameSymbol] = "MobileFailureCode";
-        readonly tag = MobileFailureCode_Tags.FileFinalizeFailed;
-        readonly inner: 
-Readonly<{fileName: string}>;
-        constructor(
-inner: {fileName: string }) {
-            super("MobileFailureCode", "FileFinalizeFailed");
-
-            this.inner = Object.freeze(inner);
-        }
-        static new(
-inner: {fileName: string }): FileFinalizeFailed_ {
-            return new FileFinalizeFailed_(inner);
-        }
-
-        static instanceOf(obj: any): obj is FileFinalizeFailed_ {
-            return obj.tag === MobileFailureCode_Tags.FileFinalizeFailed;
-        }
-
-    }
 
     type SessionExpired__interface = {
         tag: MobileFailureCode_Tags.SessionExpired;
@@ -1435,6 +1558,33 @@ inner: {reason: MobileResumeRejectReason }): ResumeRejected_ {
 
     }
 
+    type PeerProtocolUnsupported__interface = {
+        tag: MobileFailureCode_Tags.PeerProtocolUnsupported
+    };
+    /**
+     * 对端不认识本机的数据面协议名——版本不兼容，重试无用。
+     */
+    class PeerProtocolUnsupported_ extends UniffiEnum implements PeerProtocolUnsupported__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileFailureCode";
+        readonly tag = MobileFailureCode_Tags.PeerProtocolUnsupported;
+        constructor() {
+            super("MobileFailureCode", "PeerProtocolUnsupported");
+        }
+
+        static new(): PeerProtocolUnsupported_ {
+            return new PeerProtocolUnsupported_();
+        }
+
+        static instanceOf(obj: any): obj is PeerProtocolUnsupported_ {
+            return obj.tag === MobileFailureCode_Tags.PeerProtocolUnsupported;
+        }
+
+    }
+
     type Legacy__interface = {
         tag: MobileFailureCode_Tags.Legacy;
         inner: 
@@ -1475,10 +1625,10 @@ inner: {message: string }): Legacy_ {
 
     return Object.freeze({
         instanceOf,
-  FileFinalizeFailed: FileFinalizeFailed_, 
   SessionExpired: SessionExpired_, 
   ResumeRejected: ResumeRejected_, 
   OfferFailed: OfferFailed_, 
+  PeerProtocolUnsupported: PeerProtocolUnsupported_, 
   Legacy: Legacy_
     });
 
@@ -1491,7 +1641,7 @@ inner: {message: string }): Legacy_ {
  * 判别码把「是什么失败」和「怎么措辞」分开之后，那种猜测彻底没有存在的余地。
  */
 export type MobileFailureCode = InstanceType<
-    typeof MobileFailureCode['FileFinalizeFailed' | 'SessionExpired' | 'ResumeRejected' | 'OfferFailed' | 'Legacy']
+    typeof MobileFailureCode['SessionExpired' | 'ResumeRejected' | 'OfferFailed' | 'PeerProtocolUnsupported' | 'Legacy']
 >;
 
 // FfiConverter for enum MobileFailureCode
@@ -1501,35 +1651,33 @@ const FfiConverterTypeMobileFailureCode = (() => {
     class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
         read(from: RustBuffer): TypeName {
             switch (ordinalConverter.read(from)) {
-                case 1: return new MobileFailureCode.FileFinalizeFailed({fileName: FfiConverterString.read(from) });
-                case 2: return new MobileFailureCode.SessionExpired({retentionDays: FfiConverterUInt32.read(from) });
-                case 3: return new MobileFailureCode.ResumeRejected({reason: FfiConverterTypeMobileResumeRejectReason.read(from) });
-                case 4: return new MobileFailureCode.OfferFailed();
+                case 1: return new MobileFailureCode.SessionExpired({retentionDays: FfiConverterUInt32.read(from) });
+                case 2: return new MobileFailureCode.ResumeRejected({reason: FfiConverterTypeMobileResumeRejectReason.read(from) });
+                case 3: return new MobileFailureCode.OfferFailed();
+                case 4: return new MobileFailureCode.PeerProtocolUnsupported();
                 case 5: return new MobileFailureCode.Legacy({message: FfiConverterString.read(from) });
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
         write(value: TypeName, into: RustBuffer): void {
             switch (value.tag) {
-                case MobileFailureCode_Tags.FileFinalizeFailed: {
-                    ordinalConverter.write(1, into);
-                    const inner = value.inner;
-                    FfiConverterString.write(inner.fileName, into);
-                    return;
-                }
                 case MobileFailureCode_Tags.SessionExpired: {
-                    ordinalConverter.write(2, into);
+                    ordinalConverter.write(1, into);
                     const inner = value.inner;
                     FfiConverterUInt32.write(inner.retentionDays, into);
                     return;
                 }
                 case MobileFailureCode_Tags.ResumeRejected: {
-                    ordinalConverter.write(3, into);
+                    ordinalConverter.write(2, into);
                     const inner = value.inner;
                     FfiConverterTypeMobileResumeRejectReason.write(inner.reason, into);
                     return;
                 }
                 case MobileFailureCode_Tags.OfferFailed: {
+                    ordinalConverter.write(3, into);
+                    return;
+                }
+                case MobileFailureCode_Tags.PeerProtocolUnsupported: {
                     ordinalConverter.write(4, into);
                     return;
                 }
@@ -1546,25 +1694,22 @@ const FfiConverterTypeMobileFailureCode = (() => {
         }
         allocationSize(value: TypeName): number {
             switch (value.tag) {
-                case MobileFailureCode_Tags.FileFinalizeFailed: {
-                    const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(1);
-                    size += FfiConverterString.allocationSize(inner.fileName);
-                    return size;
-                }
                 case MobileFailureCode_Tags.SessionExpired: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(2);
+                    let size = ordinalConverter.allocationSize(1);
                     size += FfiConverterUInt32.allocationSize(inner.retentionDays);
                     return size;
                 }
                 case MobileFailureCode_Tags.ResumeRejected: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(3);
+                    let size = ordinalConverter.allocationSize(2);
                     size += FfiConverterTypeMobileResumeRejectReason.allocationSize(inner.reason);
                     return size;
                 }
                 case MobileFailureCode_Tags.OfferFailed: {
+                    return ordinalConverter.allocationSize(3);
+                }
+                case MobileFailureCode_Tags.PeerProtocolUnsupported: {
                     return ordinalConverter.allocationSize(4);
                 }
                 case MobileFailureCode_Tags.Legacy: {
@@ -1877,6 +2022,344 @@ const FfiConverterTypeMobileInboxSearchHit = (() => {
     return new FFIConverter();
 })();
 
+export enum MobileCandidateScope {
+    Public,
+    Lan
+}
+
+const FfiConverterTypeMobileCandidateScope = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileCandidateScope;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileCandidateScope.Public;
+                case 2: return MobileCandidateScope.Lan;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileCandidateScope.Public: return ordinalConverter.write(1, into);
+                case MobileCandidateScope.Lan: return ordinalConverter.write(2, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+
+// Enum: MobileRelayLinkState
+export enum MobileRelayLinkState_Tags {
+    Connecting = "Connecting",
+    Active = "Active",
+    Failed = "Failed"
+}
+/**
+ * relay reservation 三态。`lastError` 是内核原文，**不翻译**——排查时用户要贴的
+ * 就是这一句。
+ */
+export const MobileRelayLinkState = (() => {
+
+    type Connecting__interface = {
+        tag: MobileRelayLinkState_Tags.Connecting
+    };
+    class Connecting_ extends UniffiEnum implements Connecting__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileRelayLinkState";
+        readonly tag = MobileRelayLinkState_Tags.Connecting;
+        constructor() {
+            super("MobileRelayLinkState", "Connecting");
+        }
+
+        static new(): Connecting_ {
+            return new Connecting_();
+        }
+
+        static instanceOf(obj: any): obj is Connecting_ {
+            return obj.tag === MobileRelayLinkState_Tags.Connecting;
+        }
+
+    }
+
+    type Active__interface = {
+        tag: MobileRelayLinkState_Tags.Active;
+        inner: 
+Readonly<{circuitAddr: string}>
+    };
+    class Active_ extends UniffiEnum implements Active__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileRelayLinkState";
+        readonly tag = MobileRelayLinkState_Tags.Active;
+        readonly inner: 
+Readonly<{circuitAddr: string}>;
+        constructor(
+inner: {circuitAddr: string }) {
+            super("MobileRelayLinkState", "Active");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {circuitAddr: string }): Active_ {
+            return new Active_(inner);
+        }
+
+        static instanceOf(obj: any): obj is Active_ {
+            return obj.tag === MobileRelayLinkState_Tags.Active;
+        }
+
+    }
+
+    type Failed__interface = {
+        tag: MobileRelayLinkState_Tags.Failed;
+        inner: 
+Readonly<{lastError: string}>
+    };
+    class Failed_ extends UniffiEnum implements Failed__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileRelayLinkState";
+        readonly tag = MobileRelayLinkState_Tags.Failed;
+        readonly inner: 
+Readonly<{lastError: string}>;
+        constructor(
+inner: {lastError: string }) {
+            super("MobileRelayLinkState", "Failed");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {lastError: string }): Failed_ {
+            return new Failed_(inner);
+        }
+
+        static instanceOf(obj: any): obj is Failed_ {
+            return obj.tag === MobileRelayLinkState_Tags.Failed;
+        }
+
+    }
+
+    function instanceOf(obj: any): obj is MobileRelayLinkState {
+        return obj[uniffiTypeNameSymbol] === "MobileRelayLinkState";
+    }
+
+    return Object.freeze({
+        instanceOf,
+  Connecting: Connecting_, 
+  Active: Active_, 
+  Failed: Failed_
+    });
+
+})();
+/**
+ * relay reservation 三态。`lastError` 是内核原文，**不翻译**——排查时用户要贴的
+ * 就是这一句。
+ */
+export type MobileRelayLinkState = InstanceType<
+    typeof MobileRelayLinkState['Connecting' | 'Active' | 'Failed']
+>;
+
+// FfiConverter for enum MobileRelayLinkState
+const FfiConverterTypeMobileRelayLinkState = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileRelayLinkState;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return new MobileRelayLinkState.Connecting();
+                case 2: return new MobileRelayLinkState.Active({circuitAddr: FfiConverterString.read(from) });
+                case 3: return new MobileRelayLinkState.Failed({lastError: FfiConverterString.read(from) });
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value.tag) {
+                case MobileRelayLinkState_Tags.Connecting: {
+                    ordinalConverter.write(1, into);
+                    return;
+                }
+                case MobileRelayLinkState_Tags.Active: {
+                    ordinalConverter.write(2, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner.circuitAddr, into);
+                    return;
+                }
+                case MobileRelayLinkState_Tags.Failed: {
+                    ordinalConverter.write(3, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner.lastError, into);
+                    return;
+                }
+                default:
+                    // Throwing from here means that MobileRelayLinkState_Tags hasn't matched an ordinal.
+                    throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        allocationSize(value: TypeName): number {
+            switch (value.tag) {
+                case MobileRelayLinkState_Tags.Connecting: {
+                    return ordinalConverter.allocationSize(1);
+                }
+                case MobileRelayLinkState_Tags.Active: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(2);
+                    size += FfiConverterString.allocationSize(inner.circuitAddr);
+                    return size;
+                }
+                case MobileRelayLinkState_Tags.Failed: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(3);
+                    size += FfiConverterString.allocationSize(inner.lastError);
+                    return size;
+                }
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+    }
+    return new FFIConverter();
+})();
+
+/**
+ * 当前不参与 relay 收敛的原因。**说的是设置不是故障**——UI 走中性色 + 指向设置，
+ * 不给「重试」。
+ */
+export enum MobileInfraExclusion {
+    PublicReachabilityDisabled
+}
+
+const FfiConverterTypeMobileInfraExclusion = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileInfraExclusion;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileInfraExclusion.PublicReachabilityDisabled;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileInfraExclusion.PublicReachabilityDisabled: return ordinalConverter.write(1, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+/**
+ * 一段基础设施关系的逐条状态。
+ *
+ * 时间跨 uniffi 一律转毫秒 `i64`（本 crate 全目录零 chrono，见 inbox / history 同例）。
+ */
+export type MobileInfraLink = {
+    peerId: string,
+    addrs: Array<string>,
+    sources: Array<MobileBootstrapCandidateSource>,
+    roles: MobileCandidateRoles,
+    scope: MobileCandidateScope,
+    /**
+     * 首次登记时刻（epoch 毫秒）——宽限期的时间锚
+     */
+    firstSeen: bigint,
+    lastSeen: bigint,
+    /**
+     * 是否给用户「移除」入口（只有来源全是 host 配置时为真）
+     */
+    removable: boolean,
+    connected: boolean,
+    /**
+     * `None` = 这条关系在内核里没有 relay 轨道
+     */
+    relay?: MobileRelayLinkState,
+    /**
+     * 本次会话内是否曾建立过 reservation（宽限期开关）
+     */
+    everActive: boolean,
+    excluded?: MobileInfraExclusion
+}
+
+/**
+ * Generated factory for {@link MobileInfraLink} record objects.
+ */
+export const MobileInfraLink = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileInfraLink, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileInfraLink>,
+    });
+})();
+
+const FfiConverterTypeMobileInfraLink = (() => {
+    type TypeName = MobileInfraLink;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                peerId: FfiConverterString.read(from), 
+                addrs: FfiConverterSequenceString.read(from), 
+                sources: FfiConverterSequenceTypeMobileBootstrapCandidateSource.read(from), 
+                roles: FfiConverterTypeMobileCandidateRoles.read(from), 
+                scope: FfiConverterTypeMobileCandidateScope.read(from), 
+                firstSeen: FfiConverterInt64.read(from), 
+                lastSeen: FfiConverterInt64.read(from), 
+                removable: FfiConverterBool.read(from), 
+                connected: FfiConverterBool.read(from), 
+                relay: FfiConverterOptionalTypeMobileRelayLinkState.read(from), 
+                everActive: FfiConverterBool.read(from), 
+                excluded: FfiConverterOptionalTypeMobileInfraExclusion.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.peerId, into);
+            FfiConverterSequenceString.write(value.addrs, into);
+            FfiConverterSequenceTypeMobileBootstrapCandidateSource.write(value.sources, into);
+            FfiConverterTypeMobileCandidateRoles.write(value.roles, into);
+            FfiConverterTypeMobileCandidateScope.write(value.scope, into);
+            FfiConverterInt64.write(value.firstSeen, into);
+            FfiConverterInt64.write(value.lastSeen, into);
+            FfiConverterBool.write(value.removable, into);
+            FfiConverterBool.write(value.connected, into);
+            FfiConverterOptionalTypeMobileRelayLinkState.write(value.relay, into);
+            FfiConverterBool.write(value.everActive, into);
+            FfiConverterOptionalTypeMobileInfraExclusion.write(value.excluded, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.peerId) +
+             FfiConverterSequenceString.allocationSize(value.addrs) +
+             FfiConverterSequenceTypeMobileBootstrapCandidateSource.allocationSize(value.sources) +
+             FfiConverterTypeMobileCandidateRoles.allocationSize(value.roles) +
+             FfiConverterTypeMobileCandidateScope.allocationSize(value.scope) +
+             FfiConverterInt64.allocationSize(value.firstSeen) +
+             FfiConverterInt64.allocationSize(value.lastSeen) +
+             FfiConverterBool.allocationSize(value.removable) +
+             FfiConverterBool.allocationSize(value.connected) +
+             FfiConverterOptionalTypeMobileRelayLinkState.allocationSize(value.relay) +
+             FfiConverterBool.allocationSize(value.everActive) +
+             FfiConverterOptionalTypeMobileInfraExclusion.allocationSize(value.excluded);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
 /**
  * 「已发出的邀请」列表条目（openspec: invite-persistence）。
  *
@@ -2007,38 +2490,8 @@ const FfiConverterTypeMobileInvitePreview = (() => {
     return new FFIConverter();
 })();
 
-export enum MobileDiscoveryMode {
-    Auto,
-    LanOnly
-}
-
-const FfiConverterTypeMobileDiscoveryMode = (() => {
-    const ordinalConverter = FfiConverterInt32;
-    type TypeName = MobileDiscoveryMode;
-    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
-        read(from: RustBuffer): TypeName {
-            switch (ordinalConverter.read(from)) {
-                case 1: return MobileDiscoveryMode.Auto;
-                case 2: return MobileDiscoveryMode.LanOnly;
-                default: throw new UniffiInternalError.UnexpectedEnumCase();
-            }
-        }
-        write(value: TypeName, into: RustBuffer): void {
-            switch (value) {
-                case MobileDiscoveryMode.Auto: return ordinalConverter.write(1, into);
-                case MobileDiscoveryMode.LanOnly: return ordinalConverter.write(2, into);
-            }
-        }
-        allocationSize(value: TypeName): number {
-            return ordinalConverter.allocationSize(0);
-        }
-    }
-    return new FFIConverter();
-})();
-
 export type MobileNetworkRuntimeConfig = {
     bootstrapNodes: Array<string>,
-    discoveryMode: MobileDiscoveryMode,
     autoDiscoverLanHelpers: boolean,
     provideLanHelper: boolean,
     /**
@@ -2069,7 +2522,6 @@ const FfiConverterTypeMobileNetworkRuntimeConfig = (() => {
         read(from: RustBuffer): TypeName {
             return {
                 bootstrapNodes: FfiConverterSequenceString.read(from), 
-                discoveryMode: FfiConverterTypeMobileDiscoveryMode.read(from), 
                 autoDiscoverLanHelpers: FfiConverterBool.read(from), 
                 provideLanHelper: FfiConverterBool.read(from), 
                 publicReachability: FfiConverterBool.read(from)
@@ -2077,14 +2529,12 @@ const FfiConverterTypeMobileNetworkRuntimeConfig = (() => {
         }
         write(value: TypeName, into: RustBuffer): void {
             FfiConverterSequenceString.write(value.bootstrapNodes, into);
-            FfiConverterTypeMobileDiscoveryMode.write(value.discoveryMode, into);
             FfiConverterBool.write(value.autoDiscoverLanHelpers, into);
             FfiConverterBool.write(value.provideLanHelper, into);
             FfiConverterBool.write(value.publicReachability, into);
         }
         allocationSize(value: TypeName): number {
             return FfiConverterSequenceString.allocationSize(value.bootstrapNodes) +
-             FfiConverterTypeMobileDiscoveryMode.allocationSize(value.discoveryMode) +
              FfiConverterBool.allocationSize(value.autoDiscoverLanHelpers) +
              FfiConverterBool.allocationSize(value.provideLanHelper) +
              FfiConverterBool.allocationSize(value.publicReachability);
@@ -2094,11 +2544,47 @@ const FfiConverterTypeMobileNetworkRuntimeConfig = (() => {
     return new FFIConverter();
 })();
 
+/**
+ * NAT 状态的 uniffi 镜像。
+ *
+ * 此前这一格是 `format!("{nat_status:?}")` 出来的 `"Public"`，而 JS 侧三处 UI
+ * 一律判 `=== "public"`——大小写对不上，NAT 格从有这功能起就恒显示「未知」。
+ * 枚举化后 JS 拿到的是判别联合，这类错配写不出来。
+ */
+export enum MobileNatStatus {
+    Public,
+    Unknown
+}
+
+const FfiConverterTypeMobileNatStatus = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileNatStatus;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileNatStatus.Public;
+                case 2: return MobileNatStatus.Unknown;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileNatStatus.Public: return ordinalConverter.write(1, into);
+                case MobileNatStatus.Unknown: return ordinalConverter.write(2, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
 export type MobileNetworkStatus = {
     status: string,
     peerId?: string,
     listenAddrs: Array<string>,
-    natStatus: string,
+    natStatus: MobileNatStatus,
     publicAddr?: string,
     connectedPeers: bigint,
     discoveredPeers: bigint,
@@ -2113,7 +2599,6 @@ export type MobileNetworkStatus = {
     publicReachabilityEnabled: boolean,
     relayPeers: Array<string>,
     bootstrapConnected: boolean,
-    discoveryMode: MobileDiscoveryMode,
     autoDiscoverLanHelpers: boolean,
     localLanHelperEnabled: boolean,
     localLanHelperRunning: boolean,
@@ -2122,7 +2607,11 @@ export type MobileNetworkStatus = {
     lanHelperCount: bigint,
     bootstrapCandidateCount: bigint,
     candidateSources: Array<MobileCandidateSourceStatus>,
-    relaySource?: MobileBootstrapCandidateSource
+    relaySource?: MobileBootstrapCandidateSource,
+    /**
+     * 逐条基础设施关系。上面那批标量都是它的压扁投影，新 UI 一律读这个。
+     */
+    infraLinks: Array<MobileInfraLink>
 }
 
 /**
@@ -2149,7 +2638,7 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
                 status: FfiConverterString.read(from), 
                 peerId: FfiConverterOptionalString.read(from), 
                 listenAddrs: FfiConverterSequenceString.read(from), 
-                natStatus: FfiConverterString.read(from), 
+                natStatus: FfiConverterTypeMobileNatStatus.read(from), 
                 publicAddr: FfiConverterOptionalString.read(from), 
                 connectedPeers: FfiConverterUInt64.read(from), 
                 discoveredPeers: FfiConverterUInt64.read(from), 
@@ -2158,7 +2647,6 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
                 publicReachabilityEnabled: FfiConverterBool.read(from), 
                 relayPeers: FfiConverterSequenceString.read(from), 
                 bootstrapConnected: FfiConverterBool.read(from), 
-                discoveryMode: FfiConverterTypeMobileDiscoveryMode.read(from), 
                 autoDiscoverLanHelpers: FfiConverterBool.read(from), 
                 localLanHelperEnabled: FfiConverterBool.read(from), 
                 localLanHelperRunning: FfiConverterBool.read(from), 
@@ -2167,14 +2655,15 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
                 lanHelperCount: FfiConverterUInt64.read(from), 
                 bootstrapCandidateCount: FfiConverterUInt64.read(from), 
                 candidateSources: FfiConverterSequenceTypeMobileCandidateSourceStatus.read(from), 
-                relaySource: FfiConverterOptionalTypeMobileBootstrapCandidateSource.read(from)
+                relaySource: FfiConverterOptionalTypeMobileBootstrapCandidateSource.read(from), 
+                infraLinks: FfiConverterSequenceTypeMobileInfraLink.read(from)
             };
         }
         write(value: TypeName, into: RustBuffer): void {
             FfiConverterString.write(value.status, into);
             FfiConverterOptionalString.write(value.peerId, into);
             FfiConverterSequenceString.write(value.listenAddrs, into);
-            FfiConverterString.write(value.natStatus, into);
+            FfiConverterTypeMobileNatStatus.write(value.natStatus, into);
             FfiConverterOptionalString.write(value.publicAddr, into);
             FfiConverterUInt64.write(value.connectedPeers, into);
             FfiConverterUInt64.write(value.discoveredPeers, into);
@@ -2183,7 +2672,6 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
             FfiConverterBool.write(value.publicReachabilityEnabled, into);
             FfiConverterSequenceString.write(value.relayPeers, into);
             FfiConverterBool.write(value.bootstrapConnected, into);
-            FfiConverterTypeMobileDiscoveryMode.write(value.discoveryMode, into);
             FfiConverterBool.write(value.autoDiscoverLanHelpers, into);
             FfiConverterBool.write(value.localLanHelperEnabled, into);
             FfiConverterBool.write(value.localLanHelperRunning, into);
@@ -2193,12 +2681,13 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
             FfiConverterUInt64.write(value.bootstrapCandidateCount, into);
             FfiConverterSequenceTypeMobileCandidateSourceStatus.write(value.candidateSources, into);
             FfiConverterOptionalTypeMobileBootstrapCandidateSource.write(value.relaySource, into);
+            FfiConverterSequenceTypeMobileInfraLink.write(value.infraLinks, into);
         }
         allocationSize(value: TypeName): number {
             return FfiConverterString.allocationSize(value.status) +
              FfiConverterOptionalString.allocationSize(value.peerId) +
              FfiConverterSequenceString.allocationSize(value.listenAddrs) +
-             FfiConverterString.allocationSize(value.natStatus) +
+             FfiConverterTypeMobileNatStatus.allocationSize(value.natStatus) +
              FfiConverterOptionalString.allocationSize(value.publicAddr) +
              FfiConverterUInt64.allocationSize(value.connectedPeers) +
              FfiConverterUInt64.allocationSize(value.discoveredPeers) +
@@ -2207,7 +2696,6 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
              FfiConverterBool.allocationSize(value.publicReachabilityEnabled) +
              FfiConverterSequenceString.allocationSize(value.relayPeers) +
              FfiConverterBool.allocationSize(value.bootstrapConnected) +
-             FfiConverterTypeMobileDiscoveryMode.allocationSize(value.discoveryMode) +
              FfiConverterBool.allocationSize(value.autoDiscoverLanHelpers) +
              FfiConverterBool.allocationSize(value.localLanHelperEnabled) +
              FfiConverterBool.allocationSize(value.localLanHelperRunning) +
@@ -2216,7 +2704,8 @@ const FfiConverterTypeMobileNetworkStatus = (() => {
              FfiConverterUInt64.allocationSize(value.lanHelperCount) +
              FfiConverterUInt64.allocationSize(value.bootstrapCandidateCount) +
              FfiConverterSequenceTypeMobileCandidateSourceStatus.allocationSize(value.candidateSources) +
-             FfiConverterOptionalTypeMobileBootstrapCandidateSource.allocationSize(value.relaySource);
+             FfiConverterOptionalTypeMobileBootstrapCandidateSource.allocationSize(value.relaySource) +
+             FfiConverterSequenceTypeMobileInfraLink.allocationSize(value.infraLinks);
             
         }
     };
@@ -3081,6 +3570,7 @@ export enum FfiError_Tags {
     InvitePersistFailed = "InvitePersistFailed",
     DeviceNotFound = "DeviceNotFound",
     NodeNotStarted = "NodeNotStarted",
+    NoDialableAddrs = "NoDialableAddrs",
     ExpiredCode = "ExpiredCode",
     InvalidCode = "InvalidCode",
     SessionNotFound = "SessionNotFound",
@@ -3413,6 +3903,37 @@ Readonly<
 
     }
 
+    type NoDialableAddrs__interface = {
+        tag: FfiError_Tags.NoDialableAddrs
+    };
+    /**
+     * 节点起来了但还没拿到任何可拨地址 —— 与 `NodeNotStarted` 的用户动作不同
+     * （那个去启动，这个等一下），见 `swarmdrop_host::AppError::NoDialableAddrs`。
+     */
+    class NoDialableAddrs_ extends UniffiError implements NoDialableAddrs__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "FfiError";
+        readonly tag = FfiError_Tags.NoDialableAddrs;
+        constructor() {
+            super("FfiError", "NoDialableAddrs");
+        }
+
+        static new(): NoDialableAddrs_ {
+            return new NoDialableAddrs_();
+        }
+
+        static instanceOf(obj: any): obj is NoDialableAddrs_ {
+            return obj.tag === FfiError_Tags.NoDialableAddrs;
+        }
+        static hasInner(obj: any): obj is NoDialableAddrs_ {
+            return false;
+        }
+
+    }
+
     type ExpiredCode__interface = {
         tag: FfiError_Tags.ExpiredCode
     };
@@ -3654,6 +4175,7 @@ Readonly<
   InvitePersistFailed: InvitePersistFailed_, 
   DeviceNotFound: DeviceNotFound_, 
   NodeNotStarted: NodeNotStarted_, 
+  NoDialableAddrs: NoDialableAddrs_, 
   ExpiredCode: ExpiredCode_, 
   InvalidCode: InvalidCode_, 
   SessionNotFound: SessionNotFound_, 
@@ -3664,7 +4186,7 @@ Readonly<
 
 })();
 export type FfiError = InstanceType<
-    typeof FfiError['Io' | 'Serialization' | 'Network' | 'Identity' | 'IdentityNotReady' | 'InvalidArgument' | 'InvitePersistFailed' | 'DeviceNotFound' | 'NodeNotStarted' | 'ExpiredCode' | 'InvalidCode' | 'SessionNotFound' | 'StorageFailed' | 'Transfer' | 'Database']
+    typeof FfiError['Io' | 'Serialization' | 'Network' | 'Identity' | 'IdentityNotReady' | 'InvalidArgument' | 'InvitePersistFailed' | 'DeviceNotFound' | 'NodeNotStarted' | 'NoDialableAddrs' | 'ExpiredCode' | 'InvalidCode' | 'SessionNotFound' | 'StorageFailed' | 'Transfer' | 'Database']
 >;
 
 // FfiConverter for enum FfiError
@@ -3683,12 +4205,13 @@ const FfiConverterTypeFfiError = (() => {
                 case 7: return new FfiError.InvitePersistFailed();
                 case 8: return new FfiError.DeviceNotFound();
                 case 9: return new FfiError.NodeNotStarted();
-                case 10: return new FfiError.ExpiredCode();
-                case 11: return new FfiError.InvalidCode();
-                case 12: return new FfiError.SessionNotFound(FfiConverterString.read(from));
-                case 13: return new FfiError.StorageFailed(FfiConverterString.read(from));
-                case 14: return new FfiError.Transfer(FfiConverterString.read(from));
-                case 15: return new FfiError.Database(FfiConverterString.read(from));
+                case 10: return new FfiError.NoDialableAddrs();
+                case 11: return new FfiError.ExpiredCode();
+                case 12: return new FfiError.InvalidCode();
+                case 13: return new FfiError.SessionNotFound(FfiConverterString.read(from));
+                case 14: return new FfiError.StorageFailed(FfiConverterString.read(from));
+                case 15: return new FfiError.Transfer(FfiConverterString.read(from));
+                case 16: return new FfiError.Database(FfiConverterString.read(from));
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
@@ -3740,34 +4263,38 @@ const FfiConverterTypeFfiError = (() => {
                     ordinalConverter.write(9, into);
                     return;
                 }
-                case FfiError_Tags.ExpiredCode: {
+                case FfiError_Tags.NoDialableAddrs: {
                     ordinalConverter.write(10, into);
                     return;
                 }
-                case FfiError_Tags.InvalidCode: {
+                case FfiError_Tags.ExpiredCode: {
                     ordinalConverter.write(11, into);
                     return;
                 }
-                case FfiError_Tags.SessionNotFound: {
+                case FfiError_Tags.InvalidCode: {
                     ordinalConverter.write(12, into);
-                    const inner = value.inner;
-                    FfiConverterString.write(inner[0], into);
                     return;
                 }
-                case FfiError_Tags.StorageFailed: {
+                case FfiError_Tags.SessionNotFound: {
                     ordinalConverter.write(13, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner[0], into);
                     return;
                 }
-                case FfiError_Tags.Transfer: {
+                case FfiError_Tags.StorageFailed: {
                     ordinalConverter.write(14, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner[0], into);
                     return;
                 }
-                case FfiError_Tags.Database: {
+                case FfiError_Tags.Transfer: {
                     ordinalConverter.write(15, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner[0], into);
+                    return;
+                }
+                case FfiError_Tags.Database: {
+                    ordinalConverter.write(16, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner[0], into);
                     return;
@@ -3821,33 +4348,36 @@ const FfiConverterTypeFfiError = (() => {
                 case FfiError_Tags.NodeNotStarted: {
                     return ordinalConverter.allocationSize(9);
                 }
-                case FfiError_Tags.ExpiredCode: {
+                case FfiError_Tags.NoDialableAddrs: {
                     return ordinalConverter.allocationSize(10);
                 }
-                case FfiError_Tags.InvalidCode: {
+                case FfiError_Tags.ExpiredCode: {
                     return ordinalConverter.allocationSize(11);
                 }
-                case FfiError_Tags.SessionNotFound: {
-                    const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(12);
-                    size += FfiConverterString.allocationSize(inner[0]);
-                    return size;
+                case FfiError_Tags.InvalidCode: {
+                    return ordinalConverter.allocationSize(12);
                 }
-                case FfiError_Tags.StorageFailed: {
+                case FfiError_Tags.SessionNotFound: {
                     const inner = value.inner;
                     let size = ordinalConverter.allocationSize(13);
                     size += FfiConverterString.allocationSize(inner[0]);
                     return size;
                 }
-                case FfiError_Tags.Transfer: {
+                case FfiError_Tags.StorageFailed: {
                     const inner = value.inner;
                     let size = ordinalConverter.allocationSize(14);
                     size += FfiConverterString.allocationSize(inner[0]);
                     return size;
                 }
-                case FfiError_Tags.Database: {
+                case FfiError_Tags.Transfer: {
                     const inner = value.inner;
                     let size = ordinalConverter.allocationSize(15);
+                    size += FfiConverterString.allocationSize(inner[0]);
+                    return size;
+                }
+                case FfiError_Tags.Database: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(16);
                     size += FfiConverterString.allocationSize(inner[0]);
                     return size;
                 }
@@ -3879,6 +4409,7 @@ export enum MobileCoreEvent_Tags {
     TransferProjectionUpdate = "TransferProjectionUpdate",
     TransferDbError = "TransferDbError",
     PrepareProgress = "PrepareProgress",
+    FilePublish = "FilePublish",
     Error = "Error"
 }
 export const MobileCoreEvent = (() => {
@@ -4438,6 +4969,37 @@ inner: {event: MobilePrepareProgress }): PrepareProgress_ {
 
     }
 
+    type FilePublish__interface = {
+        tag: MobileCoreEvent_Tags.FilePublish;
+        inner: 
+Readonly<{event: MobileFilePublish}>
+    };
+    class FilePublish_ extends UniffiEnum implements FilePublish__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileCoreEvent";
+        readonly tag = MobileCoreEvent_Tags.FilePublish;
+        readonly inner: 
+Readonly<{event: MobileFilePublish}>;
+        constructor(
+inner: {event: MobileFilePublish }) {
+            super("MobileCoreEvent", "FilePublish");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {event: MobileFilePublish }): FilePublish_ {
+            return new FilePublish_(inner);
+        }
+
+        static instanceOf(obj: any): obj is FilePublish_ {
+            return obj.tag === MobileCoreEvent_Tags.FilePublish;
+        }
+
+    }
+
     type Error__interface = {
         tag: MobileCoreEvent_Tags.Error;
         inner: 
@@ -4493,12 +5055,13 @@ inner: {message: string }): Error_ {
   TransferProjectionUpdate: TransferProjectionUpdate_, 
   TransferDbError: TransferDbError_, 
   PrepareProgress: PrepareProgress_, 
+  FilePublish: FilePublish_, 
   Error: Error_
     });
 
 })();
 export type MobileCoreEvent = InstanceType<
-    typeof MobileCoreEvent['NetworkStatusChanged' | 'DevicesChanged' | 'PairingRequestReceived' | 'PairingCompleted' | 'PairedDeviceAdded' | 'PairedDeviceRemoved' | 'DeviceRenamed' | 'TransferOfferReceived' | 'TransferProgress' | 'TransferAccepted' | 'TransferRejected' | 'TransferCompleted' | 'TransferFailed' | 'TransferPaused' | 'TransferResumed' | 'TransferProjectionUpdate' | 'TransferDbError' | 'PrepareProgress' | 'Error']
+    typeof MobileCoreEvent['NetworkStatusChanged' | 'DevicesChanged' | 'PairingRequestReceived' | 'PairingCompleted' | 'PairedDeviceAdded' | 'PairedDeviceRemoved' | 'DeviceRenamed' | 'TransferOfferReceived' | 'TransferProgress' | 'TransferAccepted' | 'TransferRejected' | 'TransferCompleted' | 'TransferFailed' | 'TransferPaused' | 'TransferResumed' | 'TransferProjectionUpdate' | 'TransferDbError' | 'PrepareProgress' | 'FilePublish' | 'Error']
 >;
 
 // FfiConverter for enum MobileCoreEvent
@@ -4526,7 +5089,8 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                 case 16: return new MobileCoreEvent.TransferProjectionUpdate({projection: FfiConverterTypeMobileTransferProjection.read(from) });
                 case 17: return new MobileCoreEvent.TransferDbError({sessionId: FfiConverterString.read(from), message: FfiConverterString.read(from) });
                 case 18: return new MobileCoreEvent.PrepareProgress({event: FfiConverterTypeMobilePrepareProgress.read(from) });
-                case 19: return new MobileCoreEvent.Error({message: FfiConverterString.read(from) });
+                case 19: return new MobileCoreEvent.FilePublish({event: FfiConverterTypeMobileFilePublish.read(from) });
+                case 20: return new MobileCoreEvent.Error({message: FfiConverterString.read(from) });
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
@@ -4644,8 +5208,14 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                     FfiConverterTypeMobilePrepareProgress.write(inner.event, into);
                     return;
                 }
-                case MobileCoreEvent_Tags.Error: {
+                case MobileCoreEvent_Tags.FilePublish: {
                     ordinalConverter.write(19, into);
+                    const inner = value.inner;
+                    FfiConverterTypeMobileFilePublish.write(inner.event, into);
+                    return;
+                }
+                case MobileCoreEvent_Tags.Error: {
+                    ordinalConverter.write(20, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.message, into);
                     return;
@@ -4768,11 +5338,381 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                     size += FfiConverterTypeMobilePrepareProgress.allocationSize(inner.event);
                     return size;
                 }
-                case MobileCoreEvent_Tags.Error: {
+                case MobileCoreEvent_Tags.FilePublish: {
                     const inner = value.inner;
                     let size = ordinalConverter.allocationSize(19);
+                    size += FfiConverterTypeMobileFilePublish.allocationSize(inner.event);
+                    return size;
+                }
+                case MobileCoreEvent_Tags.Error: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(20);
                     size += FfiConverterString.allocationSize(inner.message);
                     return size;
+                }
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+    }
+    return new FFIConverter();
+})();
+
+
+// Error type: MobileInfraAddrError
+export enum MobileInfraAddrError_Tags {
+    NodeNotStarted = "NodeNotStarted",
+    Malformed = "Malformed",
+    MissingPeerId = "MissingPeerId",
+    NoTransport = "NoTransport",
+    UnsupportedTransport = "UnsupportedTransport",
+    SelfAddr = "SelfAddr",
+    Duplicate = "Duplicate"
+}
+/**
+ * 引导节点地址**提交前校验**失败的原因（core 的 `InfraAddrError` 逐变体镜像）。
+ *
+ * 刻意不走 [`FfiError::InvalidArgument`] 那条 `format!("{e}")` 的路：那正是本轮在修
+ * 的病——压成一句话之后 JS 只能整串贴给用户，说不出「本端装配了哪些传输、你粘的这条
+ * 是哪一种」这类可行动的信息，而这恰恰是最容易踩的一类错（往手机上粘一条只有浏览器
+ * 才有的 `/webrtc/`）。
+ *
+ * [`Self::NodeNotStarted`] 与其余变体同列而不另开一个错误类型：调用点只有一个
+ * 输入框，两类失败在 UI 上落到同一处内联提示，分成两个错误类型只会逼 JS 侧写
+ * 两条 catch。
+ */
+export const MobileInfraAddrError = (() => {
+
+    type NodeNotStarted__interface = {
+        tag: MobileInfraAddrError_Tags.NodeNotStarted
+    };
+    class NodeNotStarted_ extends UniffiError implements NodeNotStarted__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileInfraAddrError";
+        readonly tag = MobileInfraAddrError_Tags.NodeNotStarted;
+        constructor() {
+            super("MobileInfraAddrError", "NodeNotStarted");
+        }
+
+        static new(): NodeNotStarted_ {
+            return new NodeNotStarted_();
+        }
+
+        static instanceOf(obj: any): obj is NodeNotStarted_ {
+            return obj.tag === MobileInfraAddrError_Tags.NodeNotStarted;
+        }
+        static hasInner(obj: any): obj is NodeNotStarted_ {
+            return false;
+        }
+
+    }
+
+    type Malformed__interface = {
+        tag: MobileInfraAddrError_Tags.Malformed;
+        inner: 
+Readonly<{detail: string}>
+    };
+    class Malformed_ extends UniffiError implements Malformed__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileInfraAddrError";
+        readonly tag = MobileInfraAddrError_Tags.Malformed;
+        readonly inner: 
+Readonly<{detail: string}>;
+        constructor(
+inner: {detail: string }) {
+            super("MobileInfraAddrError", "Malformed");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {detail: string }): Malformed_ {
+            return new Malformed_(inner);
+        }
+
+        static instanceOf(obj: any): obj is Malformed_ {
+            return obj.tag === MobileInfraAddrError_Tags.Malformed;
+        }
+        static hasInner(obj: any): obj is Malformed_ {
+            return Malformed_.instanceOf(obj);
+        }
+
+        static getInner(obj: Malformed_): 
+Readonly<{detail: string}> {
+            return obj.inner;
+        }
+
+    }
+
+    type MissingPeerId__interface = {
+        tag: MobileInfraAddrError_Tags.MissingPeerId
+    };
+    class MissingPeerId_ extends UniffiError implements MissingPeerId__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileInfraAddrError";
+        readonly tag = MobileInfraAddrError_Tags.MissingPeerId;
+        constructor() {
+            super("MobileInfraAddrError", "MissingPeerId");
+        }
+
+        static new(): MissingPeerId_ {
+            return new MissingPeerId_();
+        }
+
+        static instanceOf(obj: any): obj is MissingPeerId_ {
+            return obj.tag === MobileInfraAddrError_Tags.MissingPeerId;
+        }
+        static hasInner(obj: any): obj is MissingPeerId_ {
+            return false;
+        }
+
+    }
+
+    type NoTransport__interface = {
+        tag: MobileInfraAddrError_Tags.NoTransport
+    };
+    class NoTransport_ extends UniffiError implements NoTransport__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileInfraAddrError";
+        readonly tag = MobileInfraAddrError_Tags.NoTransport;
+        constructor() {
+            super("MobileInfraAddrError", "NoTransport");
+        }
+
+        static new(): NoTransport_ {
+            return new NoTransport_();
+        }
+
+        static instanceOf(obj: any): obj is NoTransport_ {
+            return obj.tag === MobileInfraAddrError_Tags.NoTransport;
+        }
+        static hasInner(obj: any): obj is NoTransport_ {
+            return false;
+        }
+
+    }
+
+    type UnsupportedTransport__interface = {
+        tag: MobileInfraAddrError_Tags.UnsupportedTransport;
+        inner: 
+Readonly<{transport: string; supported: Array<string>}>
+    };
+    class UnsupportedTransport_ extends UniffiError implements UnsupportedTransport__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileInfraAddrError";
+        readonly tag = MobileInfraAddrError_Tags.UnsupportedTransport;
+        readonly inner: 
+Readonly<{transport: string; supported: Array<string>}>;
+        constructor(
+inner: {transport: string; supported: Array<string> }) {
+            super("MobileInfraAddrError", "UnsupportedTransport");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {transport: string; supported: Array<string> }): UnsupportedTransport_ {
+            return new UnsupportedTransport_(inner);
+        }
+
+        static instanceOf(obj: any): obj is UnsupportedTransport_ {
+            return obj.tag === MobileInfraAddrError_Tags.UnsupportedTransport;
+        }
+        static hasInner(obj: any): obj is UnsupportedTransport_ {
+            return UnsupportedTransport_.instanceOf(obj);
+        }
+
+        static getInner(obj: UnsupportedTransport_): 
+Readonly<{transport: string; supported: Array<string>}> {
+            return obj.inner;
+        }
+
+    }
+
+    type SelfAddr__interface = {
+        tag: MobileInfraAddrError_Tags.SelfAddr
+    };
+    class SelfAddr_ extends UniffiError implements SelfAddr__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileInfraAddrError";
+        readonly tag = MobileInfraAddrError_Tags.SelfAddr;
+        constructor() {
+            super("MobileInfraAddrError", "SelfAddr");
+        }
+
+        static new(): SelfAddr_ {
+            return new SelfAddr_();
+        }
+
+        static instanceOf(obj: any): obj is SelfAddr_ {
+            return obj.tag === MobileInfraAddrError_Tags.SelfAddr;
+        }
+        static hasInner(obj: any): obj is SelfAddr_ {
+            return false;
+        }
+
+    }
+
+    type Duplicate__interface = {
+        tag: MobileInfraAddrError_Tags.Duplicate
+    };
+    class Duplicate_ extends UniffiError implements Duplicate__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileInfraAddrError";
+        readonly tag = MobileInfraAddrError_Tags.Duplicate;
+        constructor() {
+            super("MobileInfraAddrError", "Duplicate");
+        }
+
+        static new(): Duplicate_ {
+            return new Duplicate_();
+        }
+
+        static instanceOf(obj: any): obj is Duplicate_ {
+            return obj.tag === MobileInfraAddrError_Tags.Duplicate;
+        }
+        static hasInner(obj: any): obj is Duplicate_ {
+            return false;
+        }
+
+    }
+
+    function instanceOf(obj: any): obj is MobileInfraAddrError {
+        return obj[uniffiTypeNameSymbol] === "MobileInfraAddrError";
+    }
+
+    return Object.freeze({
+        instanceOf,
+  NodeNotStarted: NodeNotStarted_, 
+  Malformed: Malformed_, 
+  MissingPeerId: MissingPeerId_, 
+  NoTransport: NoTransport_, 
+  UnsupportedTransport: UnsupportedTransport_, 
+  SelfAddr: SelfAddr_, 
+  Duplicate: Duplicate_
+    });
+
+})();
+/**
+ * 引导节点地址**提交前校验**失败的原因（core 的 `InfraAddrError` 逐变体镜像）。
+ *
+ * 刻意不走 [`FfiError::InvalidArgument`] 那条 `format!("{e}")` 的路：那正是本轮在修
+ * 的病——压成一句话之后 JS 只能整串贴给用户，说不出「本端装配了哪些传输、你粘的这条
+ * 是哪一种」这类可行动的信息，而这恰恰是最容易踩的一类错（往手机上粘一条只有浏览器
+ * 才有的 `/webrtc/`）。
+ *
+ * [`Self::NodeNotStarted`] 与其余变体同列而不另开一个错误类型：调用点只有一个
+ * 输入框，两类失败在 UI 上落到同一处内联提示，分成两个错误类型只会逼 JS 侧写
+ * 两条 catch。
+ */
+export type MobileInfraAddrError = InstanceType<
+    typeof MobileInfraAddrError['NodeNotStarted' | 'Malformed' | 'MissingPeerId' | 'NoTransport' | 'UnsupportedTransport' | 'SelfAddr' | 'Duplicate']
+>;
+
+// FfiConverter for enum MobileInfraAddrError
+const FfiConverterTypeMobileInfraAddrError = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileInfraAddrError;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return new MobileInfraAddrError.NodeNotStarted();
+                case 2: return new MobileInfraAddrError.Malformed({detail: FfiConverterString.read(from) });
+                case 3: return new MobileInfraAddrError.MissingPeerId();
+                case 4: return new MobileInfraAddrError.NoTransport();
+                case 5: return new MobileInfraAddrError.UnsupportedTransport({transport: FfiConverterString.read(from), supported: FfiConverterSequenceString.read(from) });
+                case 6: return new MobileInfraAddrError.SelfAddr();
+                case 7: return new MobileInfraAddrError.Duplicate();
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value.tag) {
+                case MobileInfraAddrError_Tags.NodeNotStarted: {
+                    ordinalConverter.write(1, into);
+                    return;
+                }
+                case MobileInfraAddrError_Tags.Malformed: {
+                    ordinalConverter.write(2, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner.detail, into);
+                    return;
+                }
+                case MobileInfraAddrError_Tags.MissingPeerId: {
+                    ordinalConverter.write(3, into);
+                    return;
+                }
+                case MobileInfraAddrError_Tags.NoTransport: {
+                    ordinalConverter.write(4, into);
+                    return;
+                }
+                case MobileInfraAddrError_Tags.UnsupportedTransport: {
+                    ordinalConverter.write(5, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner.transport, into);
+                    FfiConverterSequenceString.write(inner.supported, into);
+                    return;
+                }
+                case MobileInfraAddrError_Tags.SelfAddr: {
+                    ordinalConverter.write(6, into);
+                    return;
+                }
+                case MobileInfraAddrError_Tags.Duplicate: {
+                    ordinalConverter.write(7, into);
+                    return;
+                }
+                default:
+                    // Throwing from here means that MobileInfraAddrError_Tags hasn't matched an ordinal.
+                    throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        allocationSize(value: TypeName): number {
+            switch (value.tag) {
+                case MobileInfraAddrError_Tags.NodeNotStarted: {
+                    return ordinalConverter.allocationSize(1);
+                }
+                case MobileInfraAddrError_Tags.Malformed: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(2);
+                    size += FfiConverterString.allocationSize(inner.detail);
+                    return size;
+                }
+                case MobileInfraAddrError_Tags.MissingPeerId: {
+                    return ordinalConverter.allocationSize(3);
+                }
+                case MobileInfraAddrError_Tags.NoTransport: {
+                    return ordinalConverter.allocationSize(4);
+                }
+                case MobileInfraAddrError_Tags.UnsupportedTransport: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(5);
+                    size += FfiConverterString.allocationSize(inner.transport);
+                    size += FfiConverterSequenceString.allocationSize(inner.supported);
+                    return size;
+                }
+                case MobileInfraAddrError_Tags.SelfAddr: {
+                    return ordinalConverter.allocationSize(6);
+                }
+                case MobileInfraAddrError_Tags.Duplicate: {
+                    return ordinalConverter.allocationSize(7);
                 }
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
@@ -4945,32 +5885,30 @@ export interface ForeignFileAccess {
  */
     readSourceChunk(sourceId: string, offset: bigint, length: bigint, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<ArrayBuffer>;
 /**
- * 创建写入目标，返回 sink_id
+ * 把一个已收齐的暂存文件发布到 SAF (`content://`) 目标目录下。
+ *
+ * **只有 SAF 目标会走到这里。** `file://` 目标由 Rust 侧直接 rename/copy——
+ * 这个 port 存在的唯一理由是 `ContentResolver`：建 document、拿 document URI，
+ * 只有平台侧做得到。接收的随机写则完全不经过 JS（见 `file_staging` 的模块文档）。
+ *
+ * `staging_uri` 是应用私有目录下暂存文件的 **`file://` URI**（percent-encoded）。
+ * **必须带 scheme**：expo 的 `JavaFile` 构造是 `File(URI.create(uri))`，
+ * 无 scheme 的裸路径会抛 `IllegalArgumentException: URI is not absolute`，
+ * 于是每一次 SAF 发布都失败——正是这个改动要修的那个配置。
+ *
+ * 实现方读它、顺序写进目标，**不要**在目标上做定位写。
+ *
+ * 返回文件的最终落盘 URI **及其父目录 URI**——core 会原样落库，收件箱
+ * 「打开/分享/删除」依赖 uri、「打开文件夹」依赖 dir，**不能**用目录 + 相对路径
+ * 拼接代替（SAF document id 有独立编码，重名冲突还会被系统改写成 "foo (1).txt"）。
+ *
+ * 必须**可重入**：目标已存在时覆盖它，而不是生成带序号的副本——进程在拷贝中途
+ * 被杀之后，续传会重新发布一次。失败时应尽力删掉目标位置的半成品。
  */
-    createSink(metadata: MobileFileMetadata, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<string>;
+    publishToTarget(stagingUri: string, metadata: MobileFileMetadata, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileFinalizedSink>;
 /**
- * 打开已有 sink 或创建新 sink（断点续传用）
- */
-    openOrCreateSink(metadata: MobileFileMetadata, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<string>;
-/**
- * 写入指定偏移
- */
-    writeSinkChunk(sinkId: string, offset: bigint, data: ArrayBuffer, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
-/**
- * 校验完成，把 .part 文件最终化（host 自己实现 BLAKE3 校验）。
- * 返回文件的最终落盘 URI **及其父目录 URI**（file:// 或 SAF document URI）——core
- * 会原样落库,收件箱「打开/分享/删除」依赖 uri、「打开文件夹」依赖 dir,**不能**用
- * 目录 + 相对路径拼接代替(SAF document id 有独立编码,重名冲突还会被系统改写成
- * "foo (1).txt")。
- */
-    finalizeSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileFinalizedSink>;
-/**
- * 取消时清理临时文件
- */
-    cleanupSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
-/**
- * 删除一个**已最终化**的文件。`uri` 是 [`Self::finalize_sink`] 返回过的那个
- * （`file://` 或 SAF document URI），也就是落库到 `local_path` 的值。
+ * 删除一个**已最终化**的文件。`uri` 是发布时返回过的那个（`file://` 或 SAF
+ * document URI），也就是落库到 `local_path` 的值。
  *
  * **文件已不存在不算错误**，按契约返回 `Ok`（删除幂等）。
  *
@@ -5075,120 +6013,34 @@ private constructor(pointer: UniffiHandle) {
     }
     
 /**
- * 创建写入目标，返回 sink_id
+ * 把一个已收齐的暂存文件发布到 SAF (`content://`) 目标目录下。
+ *
+ * **只有 SAF 目标会走到这里。** `file://` 目标由 Rust 侧直接 rename/copy——
+ * 这个 port 存在的唯一理由是 `ContentResolver`：建 document、拿 document URI，
+ * 只有平台侧做得到。接收的随机写则完全不经过 JS（见 `file_staging` 的模块文档）。
+ *
+ * `staging_uri` 是应用私有目录下暂存文件的 **`file://` URI**（percent-encoded）。
+ * **必须带 scheme**：expo 的 `JavaFile` 构造是 `File(URI.create(uri))`，
+ * 无 scheme 的裸路径会抛 `IllegalArgumentException: URI is not absolute`，
+ * 于是每一次 SAF 发布都失败——正是这个改动要修的那个配置。
+ *
+ * 实现方读它、顺序写进目标，**不要**在目标上做定位写。
+ *
+ * 返回文件的最终落盘 URI **及其父目录 URI**——core 会原样落库，收件箱
+ * 「打开/分享/删除」依赖 uri、「打开文件夹」依赖 dir，**不能**用目录 + 相对路径
+ * 拼接代替（SAF document id 有独立编码，重名冲突还会被系统改写成 "foo (1).txt"）。
+ *
+ * 必须**可重入**：目标已存在时覆盖它，而不是生成带序号的副本——进程在拷贝中途
+ * 被杀之后，续传会重新发布一次。失败时应尽力删掉目标位置的半成品。
  */
-    async createSink(metadata: MobileFileMetadata, asyncOpts_?: { signal: AbortSignal }): Promise<string> /*throws*/ {
+    async publishToTarget(stagingUri: string, metadata: MobileFileMetadata, asyncOpts_?: { signal: AbortSignal }): Promise<MobileFinalizedSink> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
         return await uniffiRustCallAsync(
             /*rustCaller:*/ uniffiCaller,
             /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_create_sink(
-                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),FfiConverterTypeMobileFileMetadata.lower(metadata, nativeModule().rustbuffer_alloc)
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
-            // Async returns always go through the JS-side converter: the
-            // FFI symbol returns the future handle (u64), and the user-level
-            // RustBuffer comes back via the shared `rust_future_complete_*`
-            // export. The bytes the runtime hands back must be deserialized
-            // here using the per-callable return-type converter.
-            /*liftFunc:*/ FfiConverterString.lift.bind(FfiConverterString),
-            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
-            /*asyncOpts:*/ asyncOpts_,
-            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
-/**
- * 打开已有 sink 或创建新 sink（断点续传用）
- */
-    async openOrCreateSink(metadata: MobileFileMetadata, asyncOpts_?: { signal: AbortSignal }): Promise<string> /*throws*/ {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_open_or_create_sink(
-                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),FfiConverterTypeMobileFileMetadata.lower(metadata, nativeModule().rustbuffer_alloc)
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
-            // Async returns always go through the JS-side converter: the
-            // FFI symbol returns the future handle (u64), and the user-level
-            // RustBuffer comes back via the shared `rust_future_complete_*`
-            // export. The bytes the runtime hands back must be deserialized
-            // here using the per-callable return-type converter.
-            /*liftFunc:*/ FfiConverterString.lift.bind(FfiConverterString),
-            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
-            /*asyncOpts:*/ asyncOpts_,
-            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
-/**
- * 写入指定偏移
- */
-    async writeSinkChunk(sinkId: string, offset: bigint, data: ArrayBuffer, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_write_sink_chunk(
-                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),FfiConverterString.lower(sinkId, nativeModule().rustbuffer_alloc),FfiConverterUInt64.lower(offset, nativeModule().rustbuffer_alloc),FfiConverterArrayBuffer.lower(data, nativeModule().rustbuffer_alloc)
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
-            /*liftFunc:*/ (_v) => {},
-            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
-            /*asyncOpts:*/ asyncOpts_,
-            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
-/**
- * 校验完成，把 .part 文件最终化（host 自己实现 BLAKE3 校验）。
- * 返回文件的最终落盘 URI **及其父目录 URI**（file:// 或 SAF document URI）——core
- * 会原样落库,收件箱「打开/分享/删除」依赖 uri、「打开文件夹」依赖 dir,**不能**用
- * 目录 + 相对路径拼接代替(SAF document id 有独立编码,重名冲突还会被系统改写成
- * "foo (1).txt")。
- */
-    async finalizeSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobileFinalizedSink> /*throws*/ {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_finalize_sink(
-                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),FfiConverterString.lower(sinkId, nativeModule().rustbuffer_alloc)
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_publish_to_target(
+                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),FfiConverterString.lower(stagingUri, nativeModule().rustbuffer_alloc),FfiConverterTypeMobileFileMetadata.lower(metadata, nativeModule().rustbuffer_alloc)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
@@ -5214,38 +6066,8 @@ private constructor(pointer: UniffiHandle) {
     }
     
 /**
- * 取消时清理临时文件
- */
-    async cleanupSink(sinkId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
-    const __stack = uniffiIsDebug ? new Error().stack : undefined;
-    try {
-        return await uniffiRustCallAsync(
-            /*rustCaller:*/ uniffiCaller,
-            /*rustFutureFunc:*/ () => {
-                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_foreignfileaccess_cleanup_sink(
-                    uniffiTypeForeignFileAccessImplObjectFactory.clonePointer(this),FfiConverterString.lower(sinkId, nativeModule().rustbuffer_alloc)
-                );
-            },
-            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
-            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
-            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
-            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
-            /*liftFunc:*/ (_v) => {},
-            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
-            /*asyncOpts:*/ asyncOpts_,
-            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
-        );
-    } catch (__error: any) {
-        if (uniffiIsDebug && __error instanceof Error) {
-            __error.stack = __stack;
-        }
-        throw __error;
-    }
-    }
-    
-/**
- * 删除一个**已最终化**的文件。`uri` 是 [`Self::finalize_sink`] 返回过的那个
- * （`file://` 或 SAF document URI），也就是落库到 `local_path` 的值。
+ * 删除一个**已最终化**的文件。`uri` 是发布时返回过的那个（`file://` 或 SAF
+ * document URI），也就是落库到 `local_path` 的值。
  *
  * **文件已不存在不算错误**，按契约返回 `Ok`（删除幂等）。
  *
@@ -5452,154 +6274,19 @@ const uniffiCallbackInterfaceForeignFileAccess: { vtable: any; register: () => v
             );
             return uniffiForeignFuture;
         },
-        create_sink: (
+        publish_to_target: (
             uniffiHandle: bigint,
+            stagingUri: Uint8Array,
             metadata: Uint8Array,
-            uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer,
-            uniffiCallbackData: bigint) => {
-            const uniffiMakeCall = 
-            async (signal: AbortSignal)
-            : Promise<string> => {
-                const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
-                return await jsCallback.createSink(
-                    FfiConverterTypeMobileFileMetadata.lift(metadata), { signal }
-                )
-            };
-            const uniffiHandleSuccess = (returnValue: string) => {
-                uniffiFutureCallback.call(
-                    uniffiFutureCallback,
-                    uniffiCallbackData,
-                    /* UniffiForeignFutureResultRustBuffer */{
-                        return_value: FfiConverterString.lower(returnValue, nativeModule().rustbuffer_alloc),
-                        call_status: uniffiCaller.createCallStatus()
-                    }
-                );
-            };
-            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
-                uniffiFutureCallback.call(
-                    uniffiFutureCallback,
-                    uniffiCallbackData,
-                    /* UniffiForeignFutureResultRustBuffer */{
-                        return_value: /*empty*/ new Uint8Array(0),
-                        // TODO create callstatus with error.
-                        call_status: uniffiCaller.createErrorStatus(code, errorBuf),
-                    }
-                );
-            };
-            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
-                /*makeCall:*/ uniffiMakeCall,
-                /*handleSuccess:*/ uniffiHandleSuccess,
-                /*handleError:*/ uniffiHandleError,
-                /*isErrorType:*/ FfiError.instanceOf,
-                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
-                /*lowerString:*/ FfiConverterString.lower.bind(FfiConverterString),
-                /*alloc:*/ nativeModule().rustbuffer_alloc,
-            );
-            return uniffiForeignFuture;
-        },
-        open_or_create_sink: (
-            uniffiHandle: bigint,
-            metadata: Uint8Array,
-            uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer,
-            uniffiCallbackData: bigint) => {
-            const uniffiMakeCall = 
-            async (signal: AbortSignal)
-            : Promise<string> => {
-                const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
-                return await jsCallback.openOrCreateSink(
-                    FfiConverterTypeMobileFileMetadata.lift(metadata), { signal }
-                )
-            };
-            const uniffiHandleSuccess = (returnValue: string) => {
-                uniffiFutureCallback.call(
-                    uniffiFutureCallback,
-                    uniffiCallbackData,
-                    /* UniffiForeignFutureResultRustBuffer */{
-                        return_value: FfiConverterString.lower(returnValue, nativeModule().rustbuffer_alloc),
-                        call_status: uniffiCaller.createCallStatus()
-                    }
-                );
-            };
-            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
-                uniffiFutureCallback.call(
-                    uniffiFutureCallback,
-                    uniffiCallbackData,
-                    /* UniffiForeignFutureResultRustBuffer */{
-                        return_value: /*empty*/ new Uint8Array(0),
-                        // TODO create callstatus with error.
-                        call_status: uniffiCaller.createErrorStatus(code, errorBuf),
-                    }
-                );
-            };
-            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
-                /*makeCall:*/ uniffiMakeCall,
-                /*handleSuccess:*/ uniffiHandleSuccess,
-                /*handleError:*/ uniffiHandleError,
-                /*isErrorType:*/ FfiError.instanceOf,
-                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
-                /*lowerString:*/ FfiConverterString.lower.bind(FfiConverterString),
-                /*alloc:*/ nativeModule().rustbuffer_alloc,
-            );
-            return uniffiForeignFuture;
-        },
-        write_sink_chunk: (
-            uniffiHandle: bigint,
-            sinkId: Uint8Array,
-            offset: bigint,
-            data: Uint8Array,
-            uniffiFutureCallback: UniffiForeignFutureCompletevoid,
-            uniffiCallbackData: bigint) => {
-            const uniffiMakeCall = 
-            async (signal: AbortSignal)
-            : Promise<void> => {
-                const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
-                return await jsCallback.writeSinkChunk(
-                    FfiConverterString.lift(sinkId), 
-                    FfiConverterUInt64.lift(offset), 
-                    FfiConverterArrayBuffer.lift(data), { signal }
-                )
-            };
-            const uniffiHandleSuccess = (returnValue: void) => {
-                uniffiFutureCallback.call(
-                    uniffiFutureCallback,
-                    uniffiCallbackData,
-                    /* UniffiForeignFutureResultVoid */{
-                        call_status: uniffiCaller.createCallStatus()
-                    }
-                );
-            };
-            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
-                uniffiFutureCallback.call(
-                    uniffiFutureCallback,
-                    uniffiCallbackData,
-                    /* UniffiForeignFutureResultVoid */{
-                        // TODO create callstatus with error.
-                        call_status: uniffiCaller.createErrorStatus(code, errorBuf),
-                    }
-                );
-            };
-            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
-                /*makeCall:*/ uniffiMakeCall,
-                /*handleSuccess:*/ uniffiHandleSuccess,
-                /*handleError:*/ uniffiHandleError,
-                /*isErrorType:*/ FfiError.instanceOf,
-                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
-                /*lowerString:*/ FfiConverterString.lower.bind(FfiConverterString),
-                /*alloc:*/ nativeModule().rustbuffer_alloc,
-            );
-            return uniffiForeignFuture;
-        },
-        finalize_sink: (
-            uniffiHandle: bigint,
-            sinkId: Uint8Array,
             uniffiFutureCallback: UniffiForeignFutureCompleterustBuffer,
             uniffiCallbackData: bigint) => {
             const uniffiMakeCall = 
             async (signal: AbortSignal)
             : Promise<MobileFinalizedSink> => {
                 const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
-                return await jsCallback.finalizeSink(
-                    FfiConverterString.lift(sinkId), { signal }
+                return await jsCallback.publishToTarget(
+                    FfiConverterString.lift(stagingUri), 
+                    FfiConverterTypeMobileFileMetadata.lift(metadata), { signal }
                 )
             };
             const uniffiHandleSuccess = (returnValue: MobileFinalizedSink) => {
@@ -5618,49 +6305,6 @@ const uniffiCallbackInterfaceForeignFileAccess: { vtable: any; register: () => v
                     uniffiCallbackData,
                     /* UniffiForeignFutureResultRustBuffer */{
                         return_value: /*empty*/ new Uint8Array(0),
-                        // TODO create callstatus with error.
-                        call_status: uniffiCaller.createErrorStatus(code, errorBuf),
-                    }
-                );
-            };
-            const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
-                /*makeCall:*/ uniffiMakeCall,
-                /*handleSuccess:*/ uniffiHandleSuccess,
-                /*handleError:*/ uniffiHandleError,
-                /*isErrorType:*/ FfiError.instanceOf,
-                /*lowerError:*/ FfiConverterTypeFfiError.lower.bind(FfiConverterTypeFfiError),
-                /*lowerString:*/ FfiConverterString.lower.bind(FfiConverterString),
-                /*alloc:*/ nativeModule().rustbuffer_alloc,
-            );
-            return uniffiForeignFuture;
-        },
-        cleanup_sink: (
-            uniffiHandle: bigint,
-            sinkId: Uint8Array,
-            uniffiFutureCallback: UniffiForeignFutureCompletevoid,
-            uniffiCallbackData: bigint) => {
-            const uniffiMakeCall = 
-            async (signal: AbortSignal)
-            : Promise<void> => {
-                const jsCallback = FfiConverterTypeForeignFileAccess.lift(uniffiHandle);
-                return await jsCallback.cleanupSink(
-                    FfiConverterString.lift(sinkId), { signal }
-                )
-            };
-            const uniffiHandleSuccess = (returnValue: void) => {
-                uniffiFutureCallback.call(
-                    uniffiFutureCallback,
-                    uniffiCallbackData,
-                    /* UniffiForeignFutureResultVoid */{
-                        call_status: uniffiCaller.createCallStatus()
-                    }
-                );
-            };
-            const uniffiHandleError = (code: number, errorBuf: UniffiByteArray) => {
-                uniffiFutureCallback.call(
-                    uniffiFutureCallback,
-                    uniffiCallbackData,
-                    /* UniffiForeignFutureResultVoid */{
                         // TODO create callstatus with error.
                         call_status: uniffiCaller.createErrorStatus(code, errorBuf),
                     }
@@ -6439,6 +7083,14 @@ export interface MobileCoreLike {
  * 实际写入路径由 ForeignFileAccess::create_sink 实现决定，core 只把 uri 当作 SaveLocation::Path 透传。
  */
     acceptReceive(sessionId: string, saveLocationUri: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+/**
+ * 添加一个引导节点：校验 + 登记常驻意图，**节点无需重启**。
+ *
+ * 返回该节点的 peer id —— JS 侧拿它当移除的键（`multiaddr` 可以有多条，关系只有
+ * 一段）。角色给全 kad + relay：本仓自建的引导节点两角兼任，而只给 relay 会让它
+ * 进不了 kad 路由表（那个漏洞在 Web 端靠 identify 兜了很久）。
+ */
+    addInfraNode(addr: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<string>;
     archiveInboxItem(itemId: string, archived: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
 /**
  * 取消接收会话（含清理已落盘的半成品）。
@@ -6505,8 +7157,11 @@ export interface MobileCoreLike {
     initializeIdentity(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileIdentity>;
 /**
  * 生成邀请串的二维码模块矩阵（RN 按此绘制；三端统一编码规范见 `swarmdrop_invite::qr`）。
+ *
+ * `face_px` 是二维码**实际占据的边长**——RN 端那个 `size` 是白卡外框，要减掉两侧内边距
+ * 再传。它同时是地址提示的预算：放不下时按价值反序回收地址。
  */
-    inviteQrMatrix(invite: string) /*throws*/: MobileQrMatrix;
+    inviteQrMatrix(invite: string, facePx: number) /*throws*/: MobileQrMatrix;
 /**
  * 查询当前是否暂停接收。节点未启动视为「未暂停」（对齐桌面语义），
  * 这样 RN 侧在节点未运行时也能安全读取初始状态。
@@ -6549,6 +7204,14 @@ export interface MobileCoreLike {
  */
     prepareSend(files: Array<MobileTransferFile>, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobilePreparedTransfer>;
     rejectReceive(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+/**
+ * 撤销引导节点的常驻意图：清候选表与收敛状态，并关掉 circuit listener、断开连接。
+ *
+ * **只对 `removable` 为真的条目调用**——同一个 NodeId 可能既是引导节点又是已配对
+ * 设备（LAN Helper 就是另一台 SwarmDrop），对它调这个会掐断正在跑的传输，而
+ * mDNS 来源的候选下一次 identify 又会原样回来。
+ */
+    removeInfraNode(peerId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
 /**
  * 解除配对。
  *
@@ -6613,12 +7276,30 @@ export interface MobileCoreLike {
  */
     sendPrepared(preparedId: string, peerId: string, peerName: string, fileIds: Array<number>, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileSendResult>;
 /**
+ * 告知内核宿主**此刻**的默认接收落点。
+ *
+ * 设备策略未显式指定落点时，自动接收用它。RN 侧应在节点启动后、以及用户改动接收
+ * 目录之后调用——**这正是它存在的理由**：此前宿主是在设置策略时把当时的落点抄一份
+ * 进每台设备的策略里，用户之后换目录，自动接收还照着旧值写。
+ *
+ * 节点未启动时静默忽略：落点会在下次启动后由 RN 侧重新推上来。
+ */
+    setDefaultSaveLocation(uri: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+/**
  * 设置全局「暂停接收」。暂停期间节点仍在线可发现、配对不受影响，但对新 offer
  * 以 ReceivingPaused 婉拒。镜像桌面托盘的「暂停接收」开关（core 3d2d764）。
  */
     setReceivingPaused(paused: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
     shutdownNode(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
     startNode(networkConfig: MobileNetworkRuntimeConfig, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+/**
+ * 本端点**实际装配**的传输 wire 名（`tcp` / `quic` / `webrtc` / `webrtcDirect`）。
+ *
+ * 这是内核事实而非部署配置：`MOBILE_BOOTSTRAP_NODES` 是「连哪些地址」，这里是
+ * 「本机拨得动哪些传输」。JS 侧只拿它写提示文案，判定本身在 Rust 里做
+ * （见 [`Self::validate_infra_addr`]）——两边各判一次必然漂移。
+ */
+    supportedTransports(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<string>>;
 /**
  * 取出最近一次 Rust panic 的详情(location + payload + 可选 backtrace)。
  * 取过即清空 —— RN 端在 catch 到 uniffi `Rust panic` 错误后立即调一次,
@@ -6637,6 +7318,14 @@ export interface MobileCoreLike {
  * `find` 一遍。
  */
     updatePairedDevicePolicy(peerId: string, trustLevel: MobileDeviceTrustLevel, receivePolicy: MobileDeviceReceivePolicy | undefined, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileDevice>;
+/**
+ * 提交前同步校验，**不写任何状态**。
+ *
+ * 五条规则全部零网络往返；「能不能连上」由提交后的收敛环回答。输入框边打边校验
+ * 时调它，提交走 [`Self::add_infra_node`]（那一步会再校验一次，两步之间的窗口
+ * 因此不存在）。
+ */
+    validateInfraAddr(addr: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
 }
 /**
  * @deprecated Use `MobileCoreLike` instead.
@@ -6699,6 +7388,45 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
             /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
+ * 添加一个引导节点：校验 + 登记常驻意图，**节点无需重启**。
+ *
+ * 返回该节点的 peer id —— JS 侧拿它当移除的键（`multiaddr` 可以有多条，关系只有
+ * 一段）。角色给全 kad + relay：本仓自建的引导节点两角兼任，而只给 relay 会让它
+ * 进不了 kad 路由表（那个漏洞在 Web 端靠 identify 兜了很久）。
+ */
+    async addInfraNode(addr: string, asyncOpts_?: { signal: AbortSignal }): Promise<string> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_add_infra_node(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(addr, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            // Async returns always go through the JS-side converter: the
+            // FFI symbol returns the future handle (u64), and the user-level
+            // RustBuffer comes back via the shared `rust_future_complete_*`
+            // export. The bytes the runtime hands back must be deserialized
+            // here using the per-callable return-type converter.
+            /*liftFunc:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeMobileInfraAddrError.lift.bind(FfiConverterTypeMobileInfraAddrError)
         );
     } catch (__error: any) {
         if (uniffiIsDebug && __error instanceof Error) {
@@ -7253,8 +7981,11 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     
 /**
  * 生成邀请串的二维码模块矩阵（RN 按此绘制；三端统一编码规范见 `swarmdrop_invite::qr`）。
+ *
+ * `face_px` 是二维码**实际占据的边长**——RN 端那个 `size` 是白卡外框，要减掉两侧内边距
+ * 再传。它同时是地址提示的预算：放不下时按价值反序回收地址。
  */
-    inviteQrMatrix(invite: string): MobileQrMatrix /*throws*/ {
+    inviteQrMatrix(invite: string, facePx: number): MobileQrMatrix /*throws*/ {
     return ((__rb: Uint8Array) => {
         try {
             return FfiConverterTypeMobileQrMatrix.lift(__rb);
@@ -7267,6 +7998,7 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
                 return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_invite_qr_matrix(
                 uniffiTypeMobileCoreObjectFactory.clonePointer(this),
         FfiConverterString.lower(invite, nativeModule().rustbuffer_alloc),
+        FfiConverterUInt32.lower(facePx, nativeModule().rustbuffer_alloc),
                 callStatus);
             },
             /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
@@ -7694,6 +8426,40 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     
 /**
+ * 撤销引导节点的常驻意图：清候选表与收敛状态，并关掉 circuit listener、断开连接。
+ *
+ * **只对 `removable` 为真的条目调用**——同一个 NodeId 可能既是引导节点又是已配对
+ * 设备（LAN Helper 就是另一台 SwarmDrop），对它调这个会掐断正在跑的传输，而
+ * mDNS 来源的候选下一次 identify 又会原样回来。
+ */
+    async removeInfraNode(peerId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_remove_infra_node(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(peerId, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
  * 解除配对。
  *
  * 编排在 core 的 [`unpair`](swarmdrop_core::paired_devices::unpair)：节点在跑时走
@@ -8036,6 +8802,42 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     
 /**
+ * 告知内核宿主**此刻**的默认接收落点。
+ *
+ * 设备策略未显式指定落点时，自动接收用它。RN 侧应在节点启动后、以及用户改动接收
+ * 目录之后调用——**这正是它存在的理由**：此前宿主是在设置策略时把当时的落点抄一份
+ * 进每台设备的策略里，用户之后换目录，自动接收还照着旧值写。
+ *
+ * 节点未启动时静默忽略：落点会在下次启动后由 RN 侧重新推上来。
+ */
+    async setDefaultSaveLocation(uri: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_set_default_save_location(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(uri, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
  * 设置全局「暂停接收」。暂停期间节点仍在线可发现、配对不受影响，但对新 offer
  * 以 ReceivingPaused 婉拒。镜像桌面托盘的「暂停接收」开关（core 3d2d764）。
  */
@@ -8121,6 +8923,45 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     
 /**
+ * 本端点**实际装配**的传输 wire 名（`tcp` / `quic` / `webrtc` / `webrtcDirect`）。
+ *
+ * 这是内核事实而非部署配置：`MOBILE_BOOTSTRAP_NODES` 是「连哪些地址」，这里是
+ * 「本机拨得动哪些传输」。JS 侧只拿它写提示文案，判定本身在 Rust 里做
+ * （见 [`Self::validate_infra_addr`]）——两边各判一次必然漂移。
+ */
+    async supportedTransports(asyncOpts_?: { signal: AbortSignal }): Promise<Array<string>> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_supported_transports(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            // Async returns always go through the JS-side converter: the
+            // FFI symbol returns the future handle (u64), and the user-level
+            // RustBuffer comes back via the shared `rust_future_complete_*`
+            // export. The bytes the runtime hands back must be deserialized
+            // here using the per-callable return-type converter.
+            /*liftFunc:*/ FfiConverterSequenceString.lift.bind(FfiConverterSequenceString),
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
  * 取出最近一次 Rust panic 的详情(location + payload + 可选 backtrace)。
  * 取过即清空 —— RN 端在 catch 到 uniffi `Rust panic` 错误后立即调一次,
  * 把内容打到 console 便于定位。无 panic 时返回 None。
@@ -8176,6 +9017,40 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
             /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+/**
+ * 提交前同步校验，**不写任何状态**。
+ *
+ * 五条规则全部零网络往返；「能不能连上」由提交后的收敛环回答。输入框边打边校验
+ * 时调它，提交走 [`Self::add_infra_node`]（那一步会再校验一次，两步之间的窗口
+ * 因此不存在）。
+ */
+    async validateInfraAddr(addr: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_validate_infra_addr(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(addr, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeMobileInfraAddrError.lift.bind(FfiConverterTypeMobileInfraAddrError)
         );
     } catch (__error: any) {
         if (uniffiIsDebug && __error instanceof Error) {
@@ -8306,11 +9181,23 @@ const FfiConverterSequenceTypeMobileInboxHitFile = new FfiConverterArray(FfiConv
 // FfiConverter for Array<string>
 const FfiConverterSequenceString = new FfiConverterArray(FfiConverterString);
 
+// FfiConverter for Array<MobileBootstrapCandidateSource>
+const FfiConverterSequenceTypeMobileBootstrapCandidateSource = new FfiConverterArray(FfiConverterTypeMobileBootstrapCandidateSource);
+
+// FfiConverter for MobileRelayLinkState | undefined
+const FfiConverterOptionalTypeMobileRelayLinkState = new FfiConverterOptional(FfiConverterTypeMobileRelayLinkState);
+
+// FfiConverter for MobileInfraExclusion | undefined
+const FfiConverterOptionalTypeMobileInfraExclusion = new FfiConverterOptional(FfiConverterTypeMobileInfraExclusion);
+
 // FfiConverter for Array<MobileCandidateSourceStatus>
 const FfiConverterSequenceTypeMobileCandidateSourceStatus = new FfiConverterArray(FfiConverterTypeMobileCandidateSourceStatus);
 
 // FfiConverter for MobileBootstrapCandidateSource | undefined
 const FfiConverterOptionalTypeMobileBootstrapCandidateSource = new FfiConverterOptional(FfiConverterTypeMobileBootstrapCandidateSource);
+
+// FfiConverter for Array<MobileInfraLink>
+const FfiConverterSequenceTypeMobileInfraLink = new FfiConverterArray(FfiConverterTypeMobileInfraLink);
 
 // FfiConverter for Array<MobilePreparedFile>
 const FfiConverterSequenceTypeMobilePreparedFile = new FfiConverterArray(FfiConverterTypeMobilePreparedFile);
@@ -8397,22 +9284,10 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_read_source_chunk() !== 58751) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_read_source_chunk");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_create_sink() !== 15892) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_create_sink");
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_publish_to_target() !== 3812) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_publish_to_target");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_open_or_create_sink() !== 42405) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_open_or_create_sink");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk() !== 54574) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_write_sink_chunk");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink() !== 46445) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_finalize_sink");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink() !== 36565) {
-        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_cleanup_sink");
-    }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file() !== 63176) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file() !== 47656) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_foreignfileaccess_delete_finalized_file");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_foreignkeychainprovider_load_identity() !== 59813) {
@@ -8444,6 +9319,9 @@ function uniffiEnsureInitialized() {
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive() !== 33535) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_add_infra_node() !== 53085) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_add_infra_node");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_archive_inbox_item() !== 6529) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_archive_inbox_item");
@@ -8496,7 +9374,7 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity() !== 64600) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_initialize_identity");
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_invite_qr_matrix() !== 8809) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_invite_qr_matrix() !== 1665) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_invite_qr_matrix");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_is_receiving_paused() !== 45427) {
@@ -8538,6 +9416,9 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive() !== 8223) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_reject_receive");
     }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_infra_node() !== 34743) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_infra_node");
+    }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_paired_device() !== 20356) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_remove_paired_device");
     }
@@ -8565,6 +9446,9 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared() !== 28705) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared");
     }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_default_save_location() !== 11522) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_default_save_location");
+    }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused() !== 14427) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_receiving_paused");
     }
@@ -8574,11 +9458,17 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node() !== 34031) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_start_node");
     }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_supported_transports() !== 33345) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_supported_transports");
+    }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic() !== 20022) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_take_last_panic");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_update_paired_device_policy() !== 61697) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_update_paired_device_policy");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_validate_infra_addr() !== 60408) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_validate_infra_addr");
     }
 
     uniffiCallbackInterfaceForeignEventBus.register();
@@ -8594,6 +9484,8 @@ export default Object.freeze({
     FfiConverterTypeForeignFileAccess,
     FfiConverterTypeForeignKeychainProvider,
     FfiConverterTypeMobileBootstrapCandidateSource,
+    FfiConverterTypeMobileCandidateRoles,
+    FfiConverterTypeMobileCandidateScope,
     FfiConverterTypeMobileCandidateSourceStatus,
     FfiConverterTypeMobileConnectionDetails,
     FfiConverterTypeMobileCore,
@@ -8601,10 +9493,11 @@ export default Object.freeze({
     FfiConverterTypeMobileDevice,
     FfiConverterTypeMobileDeviceReceivePolicy,
     FfiConverterTypeMobileDeviceTrustLevel,
-    FfiConverterTypeMobileDiscoveryMode,
     FfiConverterTypeMobileFailureCode,
     FfiConverterTypeMobileFileMetadata,
     FfiConverterTypeMobileFileProgress,
+    FfiConverterTypeMobileFilePublish,
+    FfiConverterTypeMobileFilePublishPhase,
     FfiConverterTypeMobileFinalizedSink,
     FfiConverterTypeMobileIdentity,
     FfiConverterTypeMobileInboxContentKind,
@@ -8614,8 +9507,12 @@ export default Object.freeze({
     FfiConverterTypeMobileInboxItemSummary,
     FfiConverterTypeMobileInboxSearchHit,
     FfiConverterTypeMobileInboxSourceKind,
+    FfiConverterTypeMobileInfraAddrError,
+    FfiConverterTypeMobileInfraExclusion,
+    FfiConverterTypeMobileInfraLink,
     FfiConverterTypeMobileInviteListItem,
     FfiConverterTypeMobileInvitePreview,
+    FfiConverterTypeMobileNatStatus,
     FfiConverterTypeMobileNetworkRuntimeConfig,
     FfiConverterTypeMobileNetworkStatus,
     FfiConverterTypeMobilePairedDevice,
@@ -8625,6 +9522,7 @@ export default Object.freeze({
     FfiConverterTypeMobilePreparedTransfer,
     FfiConverterTypeMobileQrMatrix,
     FfiConverterTypeMobileReceiveSaveBehavior,
+    FfiConverterTypeMobileRelayLinkState,
     FfiConverterTypeMobileResumeRejectReason,
     FfiConverterTypeMobileSaveLocation,
     FfiConverterTypeMobileSendResult,

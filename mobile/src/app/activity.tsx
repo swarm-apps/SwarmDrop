@@ -1,31 +1,44 @@
 import { Trans, useLingui } from "@lingui/react/macro";
+import { sortByTimelineDesc } from "@swarmdrop/shared-view";
 import { useFocusEffect, useRouter } from "expo-router";
-import { Activity, Search, SearchX, Trash2 } from "lucide-react-native";
+import { ArrowLeftRight, Search, SearchX, Trash2 } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
-import { SectionList, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { FlatList, View } from "react-native";
 import type { MobileTransferProjection } from "react-native-swarmdrop-core";
-import { ActivityProjectionCard } from "@/components/activity-projection-card";
+import {
+  ActivityProjectionCard,
+  transferSessionKey,
+} from "@/components/activity-projection-card";
 import { FilterChip, FilterChipRail } from "@/components/filter-chip";
 import {
+  AppScreen,
   EmptyState,
   HeaderIconButton,
   InlineEmptyState,
-  LIST_CONTENT_PADDING,
+  LIST_CONTENT_PADDING_UNDER_HEADER,
+  ListItemGap,
 } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Text } from "@/components/ui/text";
+
 import {
-  groupTransferProjections,
+  isProjectionRecoverable,
   projectionDirection,
-  projectionGroup,
+  projectionNeedsAttention,
+  shouldShowProgress,
 } from "@/core/transfer-types";
 import { toast } from "@/lib/toast";
 import { useInboxStore } from "@/stores/inbox-store";
 import { useTransferStore } from "@/stores/transfer-store";
 
-const ACTIVITY_FILTERS = ["all", "receive", "send", "attention"] as const;
+const ACTIVITY_FILTERS = [
+  "all",
+  "receive",
+  "send",
+  "recoverable",
+  "attention",
+] as const;
 
 type ActivityFilter = (typeof ACTIVITY_FILTERS)[number];
 
@@ -33,6 +46,7 @@ const ACTIVITY_FILTER_LABELS: Record<ActivityFilter, React.ReactNode> = {
   all: <Trans>全部</Trans>,
   receive: <Trans>收到</Trans>,
   send: <Trans>发出</Trans>,
+  recoverable: <Trans>可恢复</Trans>,
   attention: <Trans>需要注意</Trans>,
 };
 
@@ -42,8 +56,10 @@ function matchesActivityFilter(
   filter: ActivityFilter,
 ): boolean {
   if (filter === "all") return true;
-  if (filter === "attention")
-    return projectionGroup(projection) === "attention";
+  // 「可恢复」必须单独成档：`projectionNeedsAttention` 对 suspended 返回的是
+  // `!recoverable`，所以扁平化删掉「可恢复」分组后，它是唯一筛不出来的那一类。
+  if (filter === "recoverable") return isProjectionRecoverable(projection);
+  if (filter === "attention") return projectionNeedsAttention(projection);
   return projectionDirection(projection) === filter;
 }
 
@@ -52,6 +68,7 @@ export default function ActivityScreen() {
   const { t } = useLingui();
   const projections = useTransferStore((s) => s.projections);
   const progressBySession = useTransferStore((s) => s.progressBySession);
+  const publishingBySession = useTransferStore((s) => s.publishingBySession);
   const loadProjections = useTransferStore((s) => s.loadProjections);
   const clearAllHistory = useTransferStore((s) => s.clearAllHistory);
   const resumeHistoryItem = useTransferStore((s) => s.resumeHistoryItem);
@@ -71,23 +88,31 @@ export default function ActivityScreen() {
   );
 
   // 计数按全量算(不随筛选变化),让用户在任何筛选下都能看到全貌;谓词与列表过滤共用一份。
-  const filterCounts = useMemo(
-    () =>
-      Object.fromEntries(
-        ACTIVITY_FILTERS.map((f) => [
-          f,
-          allProjections.filter((p) => matchesActivityFilter(p, f)).length,
-        ]),
-      ) as Record<ActivityFilter, number>,
+  // 一趟数完五档：按档各扫一遍是 5×N 次谓词调用，而每次调用还要重跑
+  // projectionDirection / isProjectionRecoverable / projectionNeedsAttention。
+  const filterCounts = useMemo(() => {
+    const counts = Object.fromEntries(
+      ACTIVITY_FILTERS.map((f) => [f, 0]),
+    ) as Record<ActivityFilter, number>;
+    for (const projection of allProjections) {
+      for (const f of ACTIVITY_FILTERS) {
+        if (matchesActivityFilter(projection, f)) counts[f]++;
+      }
+    }
+    return counts;
+  }, [allProjections]);
+
+  // 一条纯时间线：不按状态分层，顺序全交给最后活动时间
+  // （判据见 DESIGN.md 的 Transfer List Order Contract）。
+  // 排序只依赖 projections——别和只影响筛选的参数挤进同一个 memo，
+  // 否则每点一次筛选 chip 都要重跑一次全量排序。
+  const sorted = useMemo(
+    () => sortByTimelineDesc(allProjections),
     [allProjections],
   );
-
-  const grouped = useMemo(
-    () =>
-      groupTransferProjections(
-        allProjections.filter((p) => matchesActivityFilter(p, filter)),
-      ),
-    [allProjections, filter],
+  const items = useMemo(
+    () => sorted.filter((p) => matchesActivityFilter(p, filter)),
+    [sorted, filter],
   );
 
   // 会话 → 收件箱记录 反查:只有"接收且已落库"的会话能命中,用于已完成接收卡片的
@@ -102,52 +127,10 @@ export default function ActivityScreen() {
     return map;
   }, [inboxItems]);
 
-  // 4 个分组 → SectionList sections;数据只依赖 grouped(不含每 tick 变化的 progress),
-  // 进度经 extraData 注入、按会话 memo 的卡片只重渲染真正变化的那一条。
-  // 顺序按"可行动优先":正在进行 → 可恢复(有恢复按钮) → 需要注意(只需知晓) → 已完成。
-  // showStatusBadge:分组标题与卡片状态恒同名的组(正在进行/已完成)关掉徽章,不复读;
-  // 混合状态的组(需要注意=失败/取消/拒绝,可恢复=暂停/中断)保留徽章区分具体状态。
-  const sections = useMemo(() => {
-    const defs = [
-      {
-        key: "active",
-        title: <Trans>正在进行</Trans>,
-        data: grouped.active,
-        showProgress: true,
-        resume: false,
-        showStatusBadge: false,
-        testID: "activity-section-active",
-      },
-      {
-        key: "recoverable",
-        title: <Trans>可恢复</Trans>,
-        data: grouped.recoverable,
-        showProgress: true,
-        resume: true,
-        showStatusBadge: true,
-        testID: "activity-section-recoverable",
-      },
-      {
-        key: "attention",
-        title: <Trans>需要注意</Trans>,
-        data: grouped.attention,
-        showProgress: false,
-        resume: false,
-        showStatusBadge: true,
-        testID: "activity-section-attention",
-      },
-      {
-        key: "completed",
-        title: <Trans>已完成</Trans>,
-        data: grouped.completed,
-        showProgress: false,
-        resume: false,
-        showStatusBadge: false,
-        testID: "activity-section-completed",
-      },
-    ];
-    return defs.filter((s) => s.data.length > 0);
-  }, [grouped]);
+  const listExtraData = useMemo(
+    () => [progressBySession, publishingBySession],
+    [progressBySession, publishingBySession],
+  );
 
   const goDetail = useCallback(
     (sessionId: string) => {
@@ -192,40 +175,43 @@ export default function ActivityScreen() {
   }, [clearAllHistory, t]);
 
   return (
-    <SafeAreaView
-      style={{ flex: 1 }}
-      className="bg-background"
-      edges={["top"]}
+    <AppScreen
       testID="activity-screen"
+      // 导航条进 header 槽:它带返回箭头与搜索/清空两个入口,跟着列表滚走的话,
+      // 往下翻一屏就都够不着了。`bare` 让位给列表自己的 contentContainerStyle。
+      header={
+        <SettingsHeader
+          title={t`传输记录`}
+          right={
+            <View className="flex-row gap-2">
+              <HeaderIconButton
+                icon={Search}
+                label={t`搜索传输记录`}
+                onPress={openSearch}
+                testID="activity-open-search-button"
+              />
+              <HeaderIconButton
+                icon={Trash2}
+                label={t`清空传输记录`}
+                onPress={() => setClearOpen(true)}
+                testID="activity-clear-button"
+              />
+            </View>
+          }
+        />
+      }
+      bare
     >
-      <SectionList
-        sections={sections}
-        keyExtractor={activityKeyExtractor}
-        extraData={progressBySession}
-        stickySectionHeadersEnabled={false}
+      <FlatList
+        data={items}
+        keyExtractor={transferSessionKey}
+        // 两张高频表都要进来：发布期没有新的进度事件（字节已收完），只挂
+        // progressBySession 的话「正在保存」这一态永远画不出来。
+        extraData={listExtraData}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={LIST_CONTENT_PADDING}
+        contentContainerStyle={LIST_CONTENT_PADDING_UNDER_HEADER}
         ListHeaderComponent={
           <View className="gap-4">
-            <SettingsHeader
-              title={t`传输记录`}
-              right={
-                <View className="flex-row gap-2">
-                  <HeaderIconButton
-                    icon={Search}
-                    label={t`搜索传输记录`}
-                    onPress={openSearch}
-                    testID="activity-open-search-button"
-                  />
-                  <HeaderIconButton
-                    icon={Trash2}
-                    label={t`清空传输记录`}
-                    onPress={() => setClearOpen(true)}
-                    testID="activity-clear-button"
-                  />
-                </View>
-              }
-            />
             <Text className="px-1 text-[13px] text-muted-foreground">
               <Trans>每一笔传输的过程都记在这里；收好的东西请到收件箱找</Trans>
             </Text>
@@ -243,40 +229,27 @@ export default function ActivityScreen() {
             </FilterChipRail>
           </View>
         }
-        renderSectionHeader={({ section }) => (
-          <View className="pb-2.5 pt-5" testID={section.testID}>
-            <Text className="text-[15px] font-semibold text-foreground">
-              {section.title}
-            </Text>
-            {section.key === "completed" ? (
-              <Text className="mt-1 text-[12px] text-muted-foreground">
-                <Trans>收到的内容已放进收件箱</Trans>
-              </Text>
-            ) : null}
-          </View>
-        )}
-        renderItem={({ item, section }) => (
+        // 恢复按钮与收件箱入口都无条件传：卡片自己判 `isProjectionRecoverable`，
+        // 而 inbox 映射只含「接收且已落库」的会话（`ensure_inbox_item_for_completed_receive_session`
+        // 是 `transfer_session_id` 的唯一写入点）。
+        renderItem={({ item }) => (
           <ActivityProjectionCard
             projection={item}
             progress={progressBySession[item.sessionId]}
-            showProgress={section.showProgress}
-            showStatusBadge={section.showStatusBadge}
+            publishing={publishingBySession[item.sessionId]}
+            showProgress={shouldShowProgress(item)}
             onPress={goDetail}
-            onResume={section.resume ? resume : undefined}
-            inboxItemId={
-              section.key === "completed"
-                ? inboxItemIdBySession.get(item.sessionId)
-                : undefined
-            }
+            onResume={resume}
+            inboxItemId={inboxItemIdBySession.get(item.sessionId)}
             onOpenInbox={openInboxItem}
           />
         )}
-        ItemSeparatorComponent={ActivityItemGap}
+        ItemSeparatorComponent={ListItemGap}
         ListEmptyComponent={
           <View className="pt-5">
             {allProjections.length === 0 ? (
               <EmptyState
-                icon={Activity}
+                icon={ArrowLeftRight}
                 title={<Trans>暂无传输记录</Trans>}
                 description={
                   <Trans>从设备页发送文件，或接收其他设备发来的内容。</Trans>
@@ -312,12 +285,9 @@ export default function ActivityScreen() {
         cancelTestID="activity-clear-cancel-button"
         actionTestID="activity-clear-confirm-button"
       />
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 
-const activityKeyExtractor = (item: MobileTransferProjection) => item.sessionId;
-
-function ActivityItemGap() {
-  return <View className="h-2" />;
-}
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

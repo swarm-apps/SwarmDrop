@@ -12,14 +12,17 @@ use crate::{commands, events};
 use tauri::{Builder, Manager, Wry};
 use tauri_specta::{Builder as SpectaBuilder, ErrorHandlingMode, collect_commands, collect_events};
 
-/// 初始化 tracing 订阅器（默认 `swarmdrop=debug,swarmdrop_net=debug`，可被
-/// `RUST_LOG` 覆盖）。
+/// 初始化 tracing 订阅器（默认过滤见 [`crate::logging`] 的 `DEFAULT_FILTER`，
+/// 可被 `RUST_LOG` 覆盖）。
+///
+/// 这里刻意不复述那个值——它已经漂移过一次（补 `webrtc_p2p` / `webrtc` / `rtc` 时
+/// 这条注释没跟上），而复述一份就等于再造一个会过期的事实源。
 ///
 /// 实现搬进 [`crate::logging`]：控制台层在这里立即生效，**文件层留一个空位**——
 /// 此刻还在 `tauri::Builder` 之前，`app_log_dir()` 拿不到。等 setup hook 里
 /// 取到目录后再由 `install_file_layer` 装载。
 ///
-/// 之所以不把整个初始化推迟到 setup hook：那会丢掉启动早期的日志，而 keychain
+/// 之所以不把整个初始化推迟到 setup hook：那会丢掉启动早期的日志，而身份
 /// 读取与节点 bind 恰好在那之前，且它们正是最容易出问题的阶段。
 pub fn init_tracing() {
     crate::logging::init();
@@ -46,6 +49,11 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::list_devices,
             commands::get_network_status,
             commands::install_update,
+            // infra（引导节点意图）
+            commands::validate_infra_addr,
+            commands::add_infra_node,
+            commands::remove_infra_node,
+            commands::supported_transports,
             // inbox
             commands::list_inbox_items,
             commands::search_inbox,
@@ -60,6 +68,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             // identity
             commands::initialize_identity,
             commands::generate_keypair,
+            commands::get_identity_file_path,
             commands::register_keypair,
             commands::get_device_name,
             commands::set_device_name,
@@ -115,6 +124,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             events::DeviceRenamed,
             events::TransferOffer,
             events::TransferProgress,
+            events::PrepareProgress,
             events::TransferAccepted,
             events::TransferRejected,
             events::TransferComplete,
@@ -123,6 +133,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             events::TransferResumed,
             events::TransferDbError,
             events::TransferProjectionUpdate,
+            events::FilePublish,
             events::ReceivingPausedChanged,
             events::ExternalFileOpen,
             events::ExternalPairInvite,

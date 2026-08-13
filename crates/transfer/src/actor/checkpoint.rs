@@ -23,6 +23,32 @@ pub(crate) fn ensure_files_complete(
     Ok(())
 }
 
+/// 清除某一块的完成标记（[`mark_chunk_completed`] 的反向）。
+pub(crate) fn clear_chunk_completed(bitmap: &mut [u8], chunk_index: u32) {
+    let byte = (chunk_index / 8) as usize;
+    let bit = chunk_index % 8;
+    if let Some(slot) = bitmap.get_mut(byte) {
+        *slot &= !(1 << bit);
+    }
+}
+
+/// 该文件的分块位图是否已收齐。
+///
+/// 「收齐」在本仓有两个层面，别混用：
+/// - **本函数**看的是位图本身，`size == 0` 的文件同样要求它那唯一一块被标记过；
+/// - [`first_missing_range`] 看的是「还差哪段字节」，它对 `size == 0` 直接跳过，
+///   因为空文件没有任何字节可缺。
+///
+/// 接收侧用本函数判断「这个文件是否已经发布」——发布成功后位图由
+/// `mark_file_completed` 写成完整，于是二者等价（见
+/// `openspec/changes/receive-staging-publish` 的 D10）。
+pub(crate) fn file_is_complete(file: &FileInfo, bitmaps: &HashMap<u32, Vec<u8>>) -> bool {
+    let total_chunks = calc_total_chunks(file.size);
+    bitmaps
+        .get(&file.file_id)
+        .is_some_and(|bitmap| count_completed_in_bitmap(bitmap, total_chunks) >= total_chunks)
+}
+
 /// 返回首个未完成 chunk 的 range（用于完整性校验与续传补洞）。
 pub(crate) fn first_missing_range(
     files: &[FileInfo],
@@ -75,10 +101,11 @@ pub(crate) fn validate_block_range(file: &FileInfo, range: &FileRange) -> AppRes
             range.length, CHUNK_SIZE
         )));
     }
-    if file.size > 0 && !range.offset.is_multiple_of(CHUNK_SIZE as u64) {
+    // 与发送侧的续传计划校验、`bao::encode_proof` 共用同一条判据——三处不许各写各的。
+    if file.size > 0 && !crate::is_chunk_aligned_range(range.offset, end, file.size) {
         return Err(AppError::Transfer(format!(
-            "BlockData offset 未按 chunk 对齐: {}",
-            range.offset
+            "BlockData range 未按 chunk 对齐: [{}, {})",
+            range.offset, end
         )));
     }
     if file.size > 0 && range.length == 0 {
@@ -272,5 +299,39 @@ mod tests {
         };
 
         assert!(ensure_files_complete(&[file], &HashMap::new()).is_ok());
+    }
+
+    /// 空文件上，`file_is_complete` 与 `ensure_files_complete` **故意给出不同答案**。
+    ///
+    /// 这个差异是本仓踩过的坑：`ensure_files_complete`（经 `first_missing_range`）问的是
+    /// 「还差哪段字节」，空文件没有字节可缺、恒为完成；而接收侧要问的是「这个文件发布了吗」，
+    /// 空文件同样需要走一次发布才会有 `local_path`。把前者当后者用，会让中断后重来的空文件
+    /// 被判为已完成而永远不落地——`publish_pending_empty_files` 存在的全部理由。
+    #[test]
+    fn empty_file_is_byte_complete_but_not_yet_published() {
+        let file = FileInfo {
+            file_id: 9,
+            name: "empty.txt".into(),
+            relative_path: "empty.txt".into(),
+            size: 0,
+            checksum: "hash".into(),
+        };
+        let mut bitmaps = HashMap::new();
+        bitmaps.insert(file.file_id, vec![0u8; 1]);
+
+        assert!(
+            ensure_files_complete(&[file.clone()], &bitmaps).is_ok(),
+            "按字节看：空文件没有缺失的段"
+        );
+        assert!(
+            !file_is_complete(&file, &bitmaps),
+            "按位图看：那唯一一块还没被标记，也就还没发布过"
+        );
+
+        mark_chunk_completed(bitmaps.get_mut(&file.file_id).unwrap(), 0);
+        assert!(
+            file_is_complete(&file, &bitmaps),
+            "标记之后（即发布之后）两者才一致"
+        );
     }
 }

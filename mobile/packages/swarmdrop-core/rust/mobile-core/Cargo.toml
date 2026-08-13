@@ -19,13 +19,24 @@ migration = { workspace = true }
 swarmdrop-net = { workspace = true }
 
 async-trait = { workspace = true }
+# 只用来给 staging 文件算确定性名字（见 file_staging.rs）。选它而不是 std 的
+# DefaultHasher：后者的输出不保证跨版本稳定，而这个名字必须在进程重启后仍能重算出来。
+# 版本跟随其余四个 crate 的写法（本仓 blake3 不走 workspace.dependencies）。
+blake3 = "1.8.3"
+# `file://` URI 与文件系统路径之间的百分号编解码（见 utils.rs）。expo 给出的 URI 是
+# 编码过的，而 Rust 侧的 Path 要的是解码后的字节——两侧不对齐会让含空格 / 中文的
+# 文件名在「打开 / 分享 / 删除」上全线失效。已在依赖树里（libp2p 用它），不增编译成本。
+percent-encoding = "2.3"
 sea-orm = { workspace = true, features = ["runtime-tokio-rustls", "sqlx-sqlite"] }
 sea-orm-migration = { workspace = true }
 # 只用得到 serde_json（已配对设备清单的 JSON 编解码）；本 crate 自己没有类型再 derive
 # Serialize —— 设备名那份落盘结构随 `JsonFileDeviceConfig` 一起搬进 crates/host 了。
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros"] }
+# "fs" 供发布路径用（建目录 / canonicalize / rename / copy）。这些都会阻塞，而
+# mobile-core 的 async 全挤在 async-compat 那根单线程 runtime 上（见
+# dev-notes/knowledge/rust-backend.md），必须走 tokio::fs 的 spawn_blocking 而不是 std::fs。
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros", "fs"] }
 tracing = { workspace = true }
 # 日志订阅端。此前本 crate 只有 `tracing` 门面而没有任何 subscriber，
 # 导致 crates/* 的 tracing 宏在移动端全是空操作 —— 日志不是难取得，是从未产生。

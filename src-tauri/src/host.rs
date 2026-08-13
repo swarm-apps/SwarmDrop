@@ -1,8 +1,9 @@
 //! Desktop host adapters —— 实现 [`swarmdrop_core::host`] 中的各个 trait。
 //!
 //! - [`event_bus`] —— [`EventBus`](swarmdrop_core::host::EventBus)：把 CoreEvent 翻成 Tauri emit
-//! - [`keychain`] —— [`KeychainProvider`](swarmdrop_core::host::KeychainProvider)：系统 keychain，
-//!   同时实现 [`PairedDeviceStore`](swarmdrop_core::host::PairedDeviceStore)：已配对设备列表
+//! - [`identity_store`] —— [`KeychainProvider`](swarmdrop_core::host::KeychainProvider)：
+//!   设备身份文件，同时实现
+//!   [`PairedDeviceStore`](swarmdrop_core::host::PairedDeviceStore)：已配对设备列表
 //! - [`device_config`] —— [`DeviceConfig`](swarmdrop_core::host::DeviceConfig)：用户设备名，
 //!   实现体是端口层共享的 [`JsonFileDeviceConfig`]，桌面只算路径
 //! - [`notifier`] —— [`Notifier`](swarmdrop_core::host::Notifier)：桌面通知
@@ -22,39 +23,26 @@ use std::sync::Arc;
 use swarmdrop_core::host::{JsonFileDeviceConfig, KeychainProvider, PairedDeviceStore};
 
 pub mod event_bus;
-#[cfg(debug_assertions)]
-pub mod file_keychain;
 pub mod file_sink;
 pub mod file_source;
-pub mod keychain;
+pub mod identity_store;
 pub mod notifier;
 // fixture 覆盖本身是 `cfg(debug_assertions)` 门控的（见模块内 `fixture_dir`），
 // 所以模块声明**不加** cfg —— release 下它照常编译，只是永远走平台默认目录。
 pub mod paths;
 pub mod update_installer;
+pub mod webtransport_cert;
 
-/// 身份与已配对设备的桌面存储后端：**debug build 用文件后端**（[`file_keychain`]，
-/// 绕开 dev 二进制 ad-hoc 签名无法访问 macOS login keychain 的限制 ——
-/// `errSecInteractionNotAllowed` / "User interaction is not allowed"），
-/// **release build 用系统 keychain**（[`keychain::DesktopKeychainProvider`]）。
+/// 身份与已配对设备的桌面存储后端。
 ///
-/// **cfg 判别只在这个别名与紧随其后的构造函数上**。两个端口工厂
-/// （[`keychain_provider`] / [`paired_device_store`]）因此零 cfg —— 它们此前各写一份
-/// 逐字相同的分叉，漏改一处就是「密钥走文件、设备列表走 keychain」：只在 debug 出现、
-/// 极难联想的错配。收进这里之后，两个分支不一致会直接编译不过。
-#[cfg(debug_assertions)]
-type DesktopSecretStore = file_keychain::FileKeychainProvider;
-#[cfg(not(debug_assertions))]
-type DesktopSecretStore = keychain::DesktopKeychainProvider;
-
-#[cfg(debug_assertions)]
-fn secret_store(app: &tauri::AppHandle) -> crate::AppResult<Arc<DesktopSecretStore>> {
-    Ok(Arc::new(file_keychain::FileKeychainProvider::new(app)?))
-}
-
-#[cfg(not(debug_assertions))]
-fn secret_store(_app: &tauri::AppHandle) -> crate::AppResult<Arc<DesktopSecretStore>> {
-    Ok(Arc::new(keychain::DesktopKeychainProvider::new()?))
+/// 此处此前是 `cfg(debug_assertions)` 的编译期二选一（debug 文件 / release 系统 keychain），
+/// 由一个 `DesktopSecretStore` 类型别名承载那个分叉。三平台统一走文件之后别名一对一映射到
+/// 具体类型，不再指代任何抽象，故删除。存储形态、为什么不用 keychain、安全边界——
+/// 判据都在 [`identity_store`] 的模块文档里，此处不复述（复述过的注释只会各自漂移）。
+fn secret_store(
+    app: &tauri::AppHandle,
+) -> crate::AppResult<Arc<identity_store::DesktopIdentityStore>> {
+    Ok(Arc::new(identity_store::DesktopIdentityStore::new(app)?))
 }
 
 /// 身份存储端口。
@@ -74,6 +62,37 @@ pub fn keychain_provider(app: &tauri::AppHandle) -> crate::AppResult<Arc<dyn Key
 pub fn paired_device_store(app: &tauri::AppHandle) -> crate::AppResult<Arc<dyn PairedDeviceStore>> {
     let store: Arc<dyn PairedDeviceStore> = secret_store(app)?;
     Ok(store)
+}
+
+/// WebTransport 配置（带证书持久化 ⇒ 桌面端监听 WebTransport）。
+///
+/// 与另外几个端口并列放在这里（而不是让 `commands/lifecycle` 自己 new 一个），理由同下：
+/// 「桌面能力从 `host` 的装配面拿」这条规则一旦破例就不再成立。
+///
+/// 证书落点见 [`webtransport_cert`]；「有证书 ⇒ 也监听」由内核的 `bind` 兑现，
+/// 不在这一层也不在 core。
+pub fn webtransport_config(
+    app: &tauri::AppHandle,
+) -> crate::AppResult<swarmdrop_net::WebTransportConfig> {
+    Ok(swarmdrop_net::WebTransportConfig::with_store(Arc::new(
+        swarmdrop_net::WebTransportFileCertificateStore::new(webtransport_cert::cert_path(app)?),
+    )))
+}
+
+/// 身份文件的绝对路径，供节点状态诊断展示给用户。
+///
+/// 与三个端口工厂并列放在这里，而不是让命令层自己 `DesktopIdentityStore::new(&app)` ——
+/// `commands/` 是薄壳，「桌面能力从 `host` 的装配面拿」这条规则一旦有第一个例外，
+/// 第二个就不需要理由了。真正会疼的时刻是将来换存储后端：那时改这一处即可，而一个
+/// 直接 new 具体类型的命令会静默地继续指向旧位置。
+///
+/// **刻意不做成 [`KeychainProvider`] 的方法**：移动端是系统 keychain、Web 端是
+/// IndexedDB，两端都没有「一个用户可见的文件路径」这个概念，加上去只能返回 `None`——
+/// 那是把桌面独有的展示需求推给两个没有该概念的宿主。
+pub fn identity_file_path(app: &tauri::AppHandle) -> crate::AppResult<std::path::PathBuf> {
+    Ok(identity_store::DesktopIdentityStore::new(app)?
+        .identity_path()
+        .to_path_buf())
 }
 
 /// 设备名配置端口：`app_data_dir/device_config.json`。

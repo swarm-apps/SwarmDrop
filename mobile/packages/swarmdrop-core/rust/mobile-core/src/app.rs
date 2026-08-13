@@ -16,7 +16,7 @@ use swarmdrop_core::network::NetManager;
 use swarmdrop_core::pairing::manager::PairingManager;
 use swarmdrop_core::transfer::manager::TransferManager;
 use swarmdrop_core::transfer::store::TransferStore;
-use swarmdrop_net::SecretKey;
+use swarmdrop_net::{SecretKey, WebTransportConfig, WebTransportFileCertificateStore};
 use tokio::sync::{Mutex, MutexGuard};
 
 use crate::device_config::device_config_path;
@@ -37,6 +37,12 @@ pub struct MobileCore {
     data_dir: PathBuf,
     /// 设备名持久化端口，落在同一个 `data_dir` 下的 `device_config.json`
     device_config: Arc<JsonFileDeviceConfig>,
+    /// WebTransport 证书对的持久化端口，落在同一个 `data_dir` 下的
+    /// `webtransport-cert.pem`。**给了它，移动端才会监听 WebTransport。**
+    ///
+    /// 实现是 `crates/net` 里与桌面共用的那份（原子写 + `0600` + 读失败不降级）；
+    /// 这里只决定落点，与 `device_config` 同一体例。
+    webtransport_cert: Arc<WebTransportFileCertificateStore>,
     keypair: Mutex<Option<SecretKey>>,
     /// 持有 TransferManager generic 的 NetManager
     net_manager: Mutex<Option<NetManager<TransferManager>>>,
@@ -76,8 +82,15 @@ impl MobileCore {
         Arc::new(Self {
             event_bus: Arc::new(MobileEventBusAdapter::new(event_bus)),
             keychain,
-            file_access: Arc::new(MobileFileAccessAdapter::new(file_access)),
+            // 接收暂存区挂在 data_dir 下（与 SQLite 同级），故必须在 data_dir 解析之后建。
+            // 同一个 data_dir 还被用来反推**应用沙箱容器根**——发送侧读源的快路径以它
+            // 为归属白名单（判定见 `file_access::route_source`）。认不出形态时快路径
+            // 整个关掉，退回 JS，不影响正确性。
+            file_access: Arc::new(MobileFileAccessAdapter::new(file_access, &data_dir)),
             device_config: Arc::new(JsonFileDeviceConfig::new(device_config_path(&data_dir))),
+            webtransport_cert: Arc::new(WebTransportFileCertificateStore::new(
+                crate::webtransport_cert::cert_path(&data_dir),
+            )),
             data_dir,
             keypair: Mutex::new(None),
             net_manager: Mutex::new(None),
@@ -122,6 +135,13 @@ impl MobileCore {
     /// 同上，`start_node` 这类要长期持有端口的调用方用 Arc 版本。
     pub(crate) fn device_config_arc(&self) -> Arc<dyn DeviceConfig> {
         self.device_config.clone()
+    }
+
+    /// WebTransport 配置（带证书持久化 ⇒ 移动端监听 WebTransport）。
+    ///
+    /// 「有证书 ⇒ 也监听」由内核的 `bind` 兑现，这里只交出配置。
+    pub(crate) fn webtransport_config(&self) -> WebTransportConfig {
+        WebTransportConfig::with_store(self.webtransport_cert.clone())
     }
 
     /// 事件总线端口 —— 只在一次调用里用的场合取这个引用；

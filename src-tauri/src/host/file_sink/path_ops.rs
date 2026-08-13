@@ -119,40 +119,22 @@ async fn create_new_part(part_path: &Path, file_size: u64) -> AppResult<tokio::f
     Ok(f)
 }
 
-/// 校验 BLAKE3 + 重命名 .part → 最终路径
+/// 发布：把 `.part` 重命名为最终路径。
 ///
-/// 校验失败时删除 .part 文件。
+/// **不做完整性校验。** 那是 bao 逐块验签的职责——每一块在落盘前就已对着
+/// `FileInfo.checksum` 解出的 root 验过，而「root == 整文件 blake3」是 bao 的不变量
+/// （见 `swarmdrop_transfer::bao` 的模块文档）。这里曾经再读一遍整个文件算 BLAKE3，
+/// 是 bao 落地之前的遗留：311 MB 的文件就是白读 311 MB，而移动端与 Web 的 finalize
+/// 本来就只做「提交句柄」这一件事——删掉之后三端语义才对齐。
+///
+/// 连带的语义变化：finalize 不再可能因「数据坏了」而失败，它失败只意味着
+/// **数据是好的、只是搬不过去**。所以调用方不得再重置该文件的 checkpoint。
+///
+/// 同盘 rename 是原子的，因此没有「目标已存在但内容不全」的中间态。
 /// 调用前需确保写入句柄已关闭（`PartFile::close_write_handle()`）。
-pub(crate) async fn verify_and_finalize(
-    part_file: &PartFile,
-    expected_checksum: &str,
-) -> AppResult<PathBuf> {
-    let part_path = part_file.part_path.clone();
-    let expected = expected_checksum.to_owned();
-
-    let checksum_ok =
-        tokio::task::spawn_blocking(move || verify_checksum_sync(&part_path, &expected)).await??;
-
-    if !checksum_ok {
-        let _ = tokio::fs::remove_file(&part_file.part_path).await;
-        return Err(AppError::Transfer(format!(
-            "文件校验失败: {}",
-            part_file.final_path.display()
-        )));
-    }
-
+pub(crate) async fn publish(part_file: &PartFile) -> AppResult<PathBuf> {
     tokio::fs::rename(&part_file.part_path, &part_file.final_path).await?;
     Ok(part_file.final_path.clone())
-}
-
-// ============ 同步内部实现 ============
-
-fn verify_checksum_sync(path: &Path, expected_hex: &str) -> AppResult<bool> {
-    let mut file = std::fs::File::open(path)?;
-    let mut hasher = blake3::Hasher::new();
-    hasher.update_reader(&mut file)?;
-    let actual_hex = hasher.finalize().to_hex().to_string();
-    Ok(actual_hex == expected_hex)
 }
 
 #[cfg(test)]
@@ -266,8 +248,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_verify_and_finalize_success() {
-        let dir = std::env::temp_dir().join("swarmdrop_test_sink_verify_ok");
+    async fn test_publish_renames_part_to_final() {
+        let dir = std::env::temp_dir().join("swarmdrop_test_sink_publish_ok");
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
 
@@ -275,14 +257,7 @@ mod tests {
         part.close_write_handle();
         std::fs::write(&part.part_path, b"hello swarmdrop").unwrap();
 
-        // 计算正确的 hash
-        let hash = {
-            let mut hasher = blake3::Hasher::new();
-            hasher.update(b"hello swarmdrop");
-            hasher.finalize().to_hex().to_string()
-        };
-
-        let final_path = verify_and_finalize(&part, &hash).await.unwrap();
+        let final_path = publish(&part).await.unwrap();
         assert!(final_path.exists());
         assert!(!part.part_path.exists());
         assert_eq!(
@@ -293,19 +268,28 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// publish 失败时 `.part` **必须保留**。
+    ///
+    /// 这条钉的是与整文件校验一起变掉的失败语义：publish 不再可能因「数据坏了」而失败，
+    /// 它失败只意味着搬不过去（空间不足 / 权限 / 目标被占），数据完好躺在 `.part` 里、
+    /// 上层要能原地重试。旧的 `verify_and_finalize` 在校验失败时会把它删掉——
+    /// 那个行为若被照搬过来，一次瞬时故障就会让整个文件重传。
     #[tokio::test]
-    async fn test_verify_and_finalize_failure() {
-        let dir = std::env::temp_dir().join("swarmdrop_test_sink_verify_fail");
+    async fn test_publish_failure_keeps_part_file() {
+        let dir = std::env::temp_dir().join("swarmdrop_test_sink_publish_fail");
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
 
-        let part = create_part_file(&dir, "test.txt", 0).await.unwrap();
+        let part = create_part_file(&dir, "blocked.txt", 0).await.unwrap();
         part.close_write_handle();
-        std::fs::write(&part.part_path, b"hello").unwrap();
+        std::fs::write(&part.part_path, b"payload").unwrap();
 
-        let result = verify_and_finalize(&part, "wrong_hash").await;
-        assert!(result.is_err());
-        assert!(!part.part_path.exists()); // .part 应被删除
+        // 用一个非空目录占住最终路径：rename 过去必然失败。
+        std::fs::create_dir_all(part.final_path.join("occupied")).unwrap();
+
+        let result = publish(&part).await;
+        assert!(result.is_err(), "目标被非空目录占据时 publish 必须失败");
+        assert!(part.part_path.exists(), ".part 必须保留供重试");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

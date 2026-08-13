@@ -136,9 +136,6 @@ impl From<TransferProjectionFile> for MobileTransferProjectionFile {
 /// 判别码把「是什么失败」和「怎么措辞」分开之后，那种猜测彻底没有存在的余地。
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum MobileFailureCode {
-    FileFinalizeFailed {
-        file_name: String,
-    },
     SessionExpired {
         retention_days: u32,
     },
@@ -146,6 +143,8 @@ pub enum MobileFailureCode {
         reason: MobileResumeRejectReason,
     },
     OfferFailed,
+    /// 对端不认识本机的数据面协议名——版本不兼容，重试无用。
+    PeerProtocolUnsupported,
     /// 判别码引入之前落库的自由文本，原样透传给 UI。
     Legacy {
         message: String,
@@ -179,7 +178,6 @@ impl From<ResumeRejectReason> for MobileResumeRejectReason {
 impl From<FailureCode> for MobileFailureCode {
     fn from(code: FailureCode) -> Self {
         match code {
-            FailureCode::FileFinalizeFailed { file_name } => Self::FileFinalizeFailed { file_name },
             FailureCode::SessionExpired { retention_days } => {
                 Self::SessionExpired { retention_days }
             }
@@ -187,6 +185,7 @@ impl From<FailureCode> for MobileFailureCode {
                 reason: reason.into(),
             },
             FailureCode::OfferFailed => Self::OfferFailed,
+            FailureCode::PeerProtocolUnsupported => Self::PeerProtocolUnsupported,
             FailureCode::Legacy { message } => Self::Legacy { message },
         }
     }

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Provider } from "@/components/provider";
-import { appIconPath, appName, appTagline } from "@/lib/shared";
+import { appIconPath, appName, appTagline, assetPath } from "@/lib/shared";
 import { SITE_ORIGIN } from "@/lib/site";
 import "./global.css";
 
@@ -13,7 +13,10 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: appIconPath, type: "image/png" },
-      { url: "/favicon.ico", sizes: "any" },
+      // metadata 里的裸 `/x` **不会**自动加 basePath（只有 next/link 会），
+      // 所以这里必须走 assetPath —— 写死 "/favicon.ico" 会被解析到域名根，
+      // Pages 子路径下每个页面都多一条 404。本地 BASE_PATH 为空恰好看不出来。
+      { url: assetPath("favicon.ico"), sizes: "any" },
     ],
   },
 };

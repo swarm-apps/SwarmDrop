@@ -225,13 +225,19 @@ export class WebNode {
     }
     /**
      * 拨任意 multiaddr（`.../ws` 或 `.../webrtc-direct/certhash/...`，须带 `/p2p/<id>`）。
-     * 返回结构化的连接信息（`{ path: "local"|"direct"|"relayed", addr }`）。
+     * 返回结构化的连接信息（`{ path: "local"|"direct"|"holePunched"|"relayed", addr }`）。
      *
      * `signal`（可选）：标准 `AbortSignal`——超时组合用平台原语表达
      * （`AbortSignal.timeout(5000)` / `AbortSignal.any([...])`）。abort 时 Promise
      * 立即以 `{ kind: "aborted" }` reject；**abort ≠ 撤回拨号**（在途拨号继续到
      * 自然失败，无常驻意图残留）。不传 signal 时由内核兜底超时（Browser 15s）
      * 保证有限时间内 settle。
+     *
+     * ⚠️ **不要拿它判定引导节点或中继的可达性。** 三条理由：它会把候选地址**永久**写进
+     * 地址簿且没有失败回滚；对**已连接**的对端它直接返回既有连接快照，于是对已经连上的
+     * 内置节点永远返回成功——一个不可能失败的测试比没有测试更坏；而且它测的是直连链路，
+     * 中继的实际用法是 reservation，两条链路不同。可达性看
+     * [`infra_links`](Self::infra_links) 里那条关系的状态。
      * @param {string} addr
      * @param {AbortSignal | null} [signal]
      * @returns {Promise<ConnectionJson>}
@@ -283,7 +289,7 @@ export class WebNode {
      * 而 autonat 是 native-only（见 `crates/net/src/actor.rs` 的 `WatchSenders::nat`，
      * 那里挂着 `cfg_attr(wasm_browser, expect(dead_code))`），wasm 下它恒为 `Unknown`。
      * 导出一个永远不变的常量只是给界面添一行假状态；浏览器版的「别人能不能拨到我」
-     * 由 circuit 预留回答，那条已经有了（`relays_state`）。
+     * 由 circuit 预留回答，那条已经有了（`infra_links`）。
      * @returns {number}
      */
     connected_peers() {
@@ -387,8 +393,13 @@ export class WebNode {
      *
      * `local_only=true` 走 LocalOnly（受邀方只用私网地址）。邀请自包含本机 dialable 地址提示——
      * 浏览器不 listen 本地 socket，其可达地址来自 **relay reservation**（circuit 地址）；故桌面要
-     * 拨得到本机，本机需先经 [`relays_ensure`](Self::relays_ensure) 在某 helper 上建 reservation
-     * （等到 `active`），否则邀请里无可拨地址、消费方连不上。
+     * 拨得到本机，本机需先经 [`infra_ensure`](Self::infra_ensure) 在某引导节点上建 reservation
+     * （等到 `active`）。
+     *
+     * reservation 没建好时**这里直接失败**（`NoDialableAddrs` → `WebError::Network`），不再
+     * 交出一条零地址邀请 —— 三端里浏览器最容易撞上这条：它一条本地监听地址都没有，所以
+     * 「可拨地址」在 reservation 落定之前是**空集**而不是「少几条」。
+     *
      * **async 化于 invite-persistence**：生成时要把邀请写穿进 IndexedDB，否则刷新页面
      * 后本机就不认识刚发出去的那条邀请了（注册表 fail-closed，查不到即拒绝）。
      * @param {boolean} local_only
@@ -437,6 +448,113 @@ export class WebNode {
         return ret;
     }
     /**
+     * 基础设施状态变化流：每次变化产出一份全量快照（可直接 setState）。
+     * 可多次调用（每次独立订阅），与 `events()` 的单点消费不同。
+     *
+     * **触发源是 `watch_relays`**：内核不外露候选表与在途拨号的变化，而 relay 轨道的
+     * 每一次翻转（Connecting / Active / Failed）都从那里出。意图侧的增删由调用方自己
+     * 知道（它就是发起方），补一次 `infra_links()` 即可。
+     * @returns {ReadableStream<InfraLink[]>}
+     */
+    infra_changed() {
+        const ret = wasm.webnode_infra_changed(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * 撤销基础设施意图（[`infra_ensure`](Self::infra_ensure) 的对称面）。
+     *
+     * **真撤销**而非停止等待：停止后台收敛重试、关闭 circuit listener、立刻
+     * 断开与该节点的连接（含中止在途拨号），条目从状态集合消失。
+     * @param {string} peer_id
+     * @returns {Promise<void>}
+     */
+    infra_drop(peer_id) {
+        const ptr0 = passStringToWasm0(peer_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_infra_drop(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * 登记一个基础设施节点的常驻意图（校验 + 登记，同步返回）。
+     *
+     * 浏览器被动接收连接的唯一入口。拨号 / reservation / 断线重建由 core 的
+     * InfraSupervisor 统一收敛（最迟 1s 内启动第一轮，失败退避重试）；进度经
+     * [`infra_links`](Self::infra_links) / [`infra_changed`](Self::infra_changed)
+     * 观测，或用 [`infra_until_active`](Self::infra_until_active) 等首次建立。
+     *
+     * **校验走 core 的 `add_infra_node`，前端不重写一份规则。** 三条判据里有两条要
+     * 认识内核事实（合法 peer id 形状、本端点**实际装配了哪些 transport**），后者正是
+     * 浏览器最容易踩的——粘一条 `/tcp/` 进来今天会被静静收下，然后永远连不上且毫无提示。
+     * 失败时 reject 一个 `InfraAddrError`（`{ kind, … }`，形状见 bindings.ts），
+     * **不是** `WebError`：它要回答的是「这条地址哪里不对」，而不是「哪一层出了错」。
+     *
+     * **`Duplicate` 也照常 reject。** 它曾被这里吞成成功，理由是「回放要幂等」——不成立：
+     * 回放（`replayInfraNodes`）本来就 try/catch 且只 `console.error`，而且它跑在一张空的
+     * 候选表上，压根产不出重复。代价却是实打实的：用户粘一条已在清单里的地址会看到
+     * 「已添加引导节点，正在连接…」而其实什么都没发生，`duplicate` 那句文案成了死代码。
+     * 登记的**效果**仍然幂等（core 的 upsert 会合并），幂等的是状态不是回执。
+     *
+     * 全部规则零网络往返。「它到底连不连得上」由提交后的收敛环回答——那测的才是后续
+     * 真正会走的那条链路（旧的「测试连通性」按钮走直连，对已连上的节点永远绿）。
+     *
+     * 返回节点的 base58 NodeId——即 `infra_drop` / `infra_until_active` 的入参，
+     * 调用方直接串联，无需自行解析 multiaddr 的 `/p2p/` 段。
+     * @param {string} addr
+     * @returns {string}
+     */
+    infra_ensure(addr) {
+        let deferred3_0;
+        let deferred3_1;
+        try {
+            const ptr0 = passStringToWasm0(addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.webnode_infra_ensure(this.__wbg_ptr, ptr0, len0);
+            var ptr2 = ret[0];
+            var len2 = ret[1];
+            if (ret[3]) {
+                ptr2 = 0; len2 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred3_0 = ptr2;
+            deferred3_1 = len2;
+            return getStringFromWasm0(ptr2, len2);
+        } finally {
+            wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        }
+    }
+    /**
+     * 全量基础设施关系快照（[`InfraLink`](swarmdrop_core::infra::InfraLink)`[]`）。
+     *
+     * 每条同时带**意图侧**（地址 / 来源 / 角色 / scope / 首末次见到 / 能否移除）与
+     * **观测侧**（是否已连、relay 轨道状态与失败原文）。零存储读模型，现场 join
+     * 候选表与内核两条 watch——所以「状态粘死」在物理上不可能发生。
+     * @returns {InfraLink[]}
+     */
+    infra_links() {
+        const ret = wasm.webnode_infra_links(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * 等待某条关系的 relay 首次进入 `active`，resolve 出 circuit 可达地址（内核拼装）。
+     *
+     * 观察到 `failed` 时**立即 reject**（把「要不要再等下一轮退避」还给调用方），
+     * 意图保留——要停止后台收敛请调 [`infra_drop`](Self::infra_drop)。
+     * `signal`（可选）：abort 只是不再等待，同样不改变意图生命周期。
+     * 不传 signal 时 30s 兜底超时保证 Promise 有限时间内 settle。
+     * @param {string} peer_id
+     * @param {AbortSignal | null} [signal]
+     * @returns {Promise<string>}
+     */
+    infra_until_active(peer_id, signal) {
+        const ptr0 = passStringToWasm0(peer_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_infra_until_active(this.__wbg_ptr, ptr0, len0, isLikeNone(signal) ? 0 : addToExternrefTable0(signal));
+        return ret;
+    }
+    /**
      * 邀请二维码的 SVG 字符串（深模块 + 透明背景，渲染端自己套白卡）。
      *
      * 编码规范由 [`swarmdrop_invite::qr`] 三端单点固化（原样编码 + 最优分段 + ECL::M +
@@ -451,16 +569,20 @@ export class WebNode {
      * 加这套机器不值，而 `getNode()` 是现成的。
      *
      * 同步返回：纯计算，不碰 IndexedDB 也不碰网络。
+     *
+     * `face_px` 是二维码实际占据的边长（不是白卡外框），同时是地址提示的预算 ——
+     * 放不下时按价值反序回收地址。
      * @param {string} invite
+     * @param {number} face_px
      * @returns {string}
      */
-    invite_qr_svg(invite) {
+    invite_qr_svg(invite, face_px) {
         let deferred3_0;
         let deferred3_1;
         try {
             const ptr0 = passStringToWasm0(invite, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len0 = WASM_VECTOR_LEN;
-            const ret = wasm.webnode_invite_qr_svg(this.__wbg_ptr, ptr0, len0);
+            const ret = wasm.webnode_invite_qr_svg(this.__wbg_ptr, ptr0, len0, face_px);
             var ptr2 = ret[0];
             var len2 = ret[1];
             if (ret[3]) {
@@ -627,90 +749,6 @@ export class WebNode {
         return ret;
     }
     /**
-     * relay 状态变化流：每次变化产出一份全量快照（可直接 setState）。
-     * 可多次调用（每次独立订阅），与 `events()` 的单点消费不同。
-     * @returns {ReadableStream<RelayInfoJson[]>}
-     */
-    relays_changed() {
-        const ret = wasm.webnode_relays_changed(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * 撤销 relay 意图（[`relays_ensure`](Self::relays_ensure) 的对称面）。
-     *
-     * **真撤销**而非停止等待：停止后台收敛重试、关闭 circuit listener、立刻
-     * 断开与该 helper 的连接（含中止在途拨号），条目从状态集合消失。
-     * @param {string} helper_id
-     * @returns {Promise<void>}
-     */
-    relays_drop(helper_id) {
-        const ptr0 = passStringToWasm0(helper_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.webnode_relays_drop(this.__wbg_ptr, ptr0, len0);
-        return ret;
-    }
-    /**
-     * 登记一个 relay helper 的常驻可达意图（幂等，同步返回）。
-     *
-     * 浏览器被动接收连接的唯一入口。拨号 / reservation / 断线重建由 core 的
-     * InfraSupervisor 统一收敛（最迟 1s 内启动第一轮，失败退避重试）；进度经
-     * [`relays_state`](Self::relays_state) / [`relays_changed`](Self::relays_changed)
-     * 观测，或用 [`relays_until_active`](Self::relays_until_active) 等首次建立。
-     *
-     * 返回 helper 的 base58 NodeId——即 `relays_drop` / `relays_until_active` 的
-     * 入参，调用方直接串联，无需自行解析 multiaddr 的 `/p2p/` 段。
-     * @param {string} helper_addr
-     * @returns {string}
-     */
-    relays_ensure(helper_addr) {
-        let deferred3_0;
-        let deferred3_1;
-        try {
-            const ptr0 = passStringToWasm0(helper_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-            const len0 = WASM_VECTOR_LEN;
-            const ret = wasm.webnode_relays_ensure(this.__wbg_ptr, ptr0, len0);
-            var ptr2 = ret[0];
-            var len2 = ret[1];
-            if (ret[3]) {
-                ptr2 = 0; len2 = 0;
-                throw takeFromExternrefTable0(ret[2]);
-            }
-            deferred3_0 = ptr2;
-            deferred3_1 = len2;
-            return getStringFromWasm0(ptr2, len2);
-        } finally {
-            wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
-        }
-    }
-    /**
-     * 全量 relay 状态快照（`{ id, state, circuitAddr?, lastError? }[]`）。
-     * @returns {RelayInfoJson[]}
-     */
-    relays_state() {
-        const ret = wasm.webnode_relays_state(this.__wbg_ptr);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return takeFromExternrefTable0(ret[0]);
-    }
-    /**
-     * 等待某 relay 首次进入 `active`，resolve 出 circuit 可达地址（内核拼装）。
-     *
-     * 观察到 `failed` 时**立即 reject**（把「要不要再等下一轮退避」还给调用方），
-     * 意图保留——要停止后台收敛请调 [`relays_drop`](Self::relays_drop)。
-     * `signal`（可选）：abort 只是不再等待，同样不改变意图生命周期。
-     * 不传 signal 时 30s 兜底超时保证 Promise 有限时间内 settle。
-     * @param {string} helper_id
-     * @param {AbortSignal | null} [signal]
-     * @returns {Promise<string>}
-     */
-    relays_until_active(helper_id, signal) {
-        const ptr0 = passStringToWasm0(helper_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.webnode_relays_until_active(this.__wbg_ptr, ptr0, len0, isLikeNone(signal) ? 0 : addToExternrefTable0(signal));
-        return ret;
-    }
-    /**
      * 解除与某台已配对设备的配对（`peer_id` 为 base58 NodeId）。
      *
      * 走 core 的 `PairingManager::unpair`：**先落盘、再删共享内存表、最后发事件**。
@@ -843,6 +881,35 @@ export class WebNode {
         return ret;
     }
     /**
+     * 转发已接收的文件：把 OPFS 里的条目取回成 `File`，之后与用户选文件发送**完全同路**。
+     *
+     * `paths` 是收件箱条目的 OPFS 相对路径（落盘时写的那个）。`FileSystemFileHandle::get_file()`
+     * 返回的正是 `send_files` 已经在吃的 `web_sys::File`，所以读分块那条路径一行都不用动——
+     * 转发在后端从来不缺能力，缺的只是一个入口。
+     *
+     * 拿到的 `File.name()` 是路径末段，`webkitRelativePath` 为空，于是 `relative_path` 回落
+     * 到文件名。这是要的行为：转发是一次新的发送，把上一次传输的目录结构带给第三台设备
+     * 只会让对方莫名其妙（移动端同此约定）。
+     * **取不到的条目被跳过，而不是让整批失败。** OPFS 是配额存储，条目可能被浏览器驱逐；
+     * 「一个死路径 → 整次转发失败 → 用户看到一条没有文件名的 DOMException」正是
+     * Received File Reuse Contract 里「发起前筛掉」要杜绝的。移动端由 `selectForwardable`
+     * 承担这件事，浏览器这边没有对应的 per-path 原语可用，所以筛在这里。
+     *
+     * 被跳过的路径经 [`Self::take_skipped_forward_paths`] 取回，由 UI 告诉用户。全部取不到
+     * 才算失败——那时确实没有任何东西可发。
+     * @param {string} to
+     * @param {string[]} paths
+     * @returns {Promise<string>}
+     */
+    send_inbox_files(to, paths) {
+        const ptr0 = passStringToWasm0(to, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArrayJsValueToWasm0(paths, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.webnode_send_inbox_files(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        return ret;
+    }
+    /**
      * 建节点：持久化身份（Window=localStorage / Worker=OPFS）+ IndexedDB 恢复已配对设备 → 包 core 组合根 [`start_node`]
      * （Browser [`EndpointProfile`] + Web 端口）→ 完整 [`NetManager`] + 3 协议 Router（含
      * pairing）。**须在主线程 Window 跑**——webrtc-websys dial 碰 window，Worker 里会 panic。
@@ -851,6 +918,19 @@ export class WebNode {
     static spawn() {
         const ret = wasm.webnode_spawn();
         return ret;
+    }
+    /**
+     * 取回上一次转发中被跳过的路径，**取过即清**。
+     *
+     * 单独一个方法而不是塞进 `send_inbox_files` 的返回值：那个返回的是 session_id，
+     * 换成结构体会让所有既有调用点跟着改，而这条信息只有转发这一个入口关心。
+     * @returns {string[]}
+     */
+    take_skipped_forward_paths() {
+        const ret = wasm.webnode_take_skipped_forward_paths(this.__wbg_ptr);
+        var v1 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
     }
     /**
      * 已持久化的传输会话投影，**按 `startedAt` 倒序**（端口契约，三端一致）。
@@ -1133,9 +1213,17 @@ function __wbg_get_imports() {
             const ret = arg0.call(arg1, arg2);
             return ret;
         }, arguments); },
+        __wbg_cancel_2c0a0a251ff6b2b7: function(arg0) {
+            const ret = arg0.cancel();
+            return ret;
+        },
         __wbg_candidate_e034be3d85919c5f: function(arg0) {
             const ret = arg0.candidate;
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+        },
+        __wbg_catch_c1f8c7623b458214: function(arg0, arg1) {
+            const ret = arg0.catch(arg1);
+            return ret;
         },
         __wbg_channel_82b58a29dba55e8a: function(arg0) {
             const ret = arg0.channel;
@@ -1148,9 +1236,16 @@ function __wbg_get_imports() {
             const ret = clearTimeout(arg0);
             return ret;
         },
+        __wbg_close_023f23e40c08de17: function(arg0) {
+            const ret = arg0.close();
+            return ret;
+        },
         __wbg_close_06dfa0a815b9d71f: function() { return handleError(function (arg0) {
             arg0.close();
         }, arguments); },
+        __wbg_close_47e2271217957c7e: function(arg0) {
+            arg0.close();
+        },
         __wbg_close_53683f4809368fc7: function(arg0) {
             arg0.close();
         },
@@ -1164,6 +1259,14 @@ function __wbg_get_imports() {
         __wbg_close_f9ba12c30bbb456f: function(arg0) {
             arg0.close();
         },
+        __wbg_closed_9020de43877af289: function(arg0) {
+            const ret = arg0.closed;
+            return ret;
+        },
+        __wbg_closed_f3dc59c66d3664a7: function(arg0) {
+            const ret = arg0.closed;
+            return ret;
+        },
         __wbg_connectionState_552a7ef94243f9da: function(arg0) {
             const ret = arg0.connectionState;
             return (__wbindgen_enum_RtcPeerConnectionState.indexOf(ret) + 1 || 7) - 1;
@@ -1174,6 +1277,10 @@ function __wbg_get_imports() {
         },
         __wbg_createAnswer_a81a236697720f26: function(arg0) {
             const ret = arg0.createAnswer();
+            return ret;
+        },
+        __wbg_createBidirectionalStream_48118f75a605ab18: function(arg0) {
+            const ret = arg0.createBidirectionalStream();
             return ret;
         },
         __wbg_createDataChannel_1175bbde394c8293: function(arg0, arg1, arg2, arg3) {
@@ -1222,6 +1329,11 @@ function __wbg_get_imports() {
         __wbg_delete_d6d7f750bd9ed2cd: function() { return handleError(function (arg0, arg1) {
             const ret = arg0.delete(arg1);
             return ret;
+        }, arguments); },
+        __wbg_desiredSize_cd0f9f8beba4c989: function() { return handleError(function (arg0, arg1) {
+            const ret = arg1.desiredSize;
+            getDataViewMemory0().setFloat64(arg0 + 8 * 1, isLikeNone(ret) ? 0 : ret, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, !isLikeNone(ret), true);
         }, arguments); },
         __wbg_enqueue_2c63f2044f257c3e: function() { return handleError(function (arg0, arg1) {
             arg0.enqueue(arg1);
@@ -1294,10 +1406,18 @@ function __wbg_get_imports() {
         __wbg_getRandomValues_b3f15fcbfabb0f8b: function() { return handleError(function (arg0, arg1) {
             arg0.getRandomValues(arg1);
         }, arguments); },
+        __wbg_getReader_804829cfb24eb4dd: function(arg0) {
+            const ret = arg0.getReader();
+            return ret;
+        },
         __wbg_getTime_1e3cd1391c5c3995: function(arg0) {
             const ret = arg0.getTime();
             return ret;
         },
+        __wbg_getWriter_4bd085da387cdc1a: function() { return handleError(function (arg0) {
+            const ret = arg0.getWriter();
+            return ret;
+        }, arguments); },
         __wbg_get_5e856edb32ac1289: function() { return handleError(function (arg0, arg1) {
             const ret = arg0.get(arg1);
             return ret;
@@ -1314,9 +1434,17 @@ function __wbg_get_imports() {
             const ret = arg0[arg1];
             return ret;
         },
+        __wbg_has_d4e53238966c12b6: function() { return handleError(function (arg0, arg1) {
+            const ret = Reflect.has(arg0, arg1);
+            return ret;
+        }, arguments); },
         __wbg_id_5a5e3288567f6f1f: function(arg0) {
             const ret = arg0.id;
             return isLikeNone(ret) ? 0xFFFFFF : ret;
+        },
+        __wbg_incomingBidirectionalStreams_01c80c459a7f4dfa: function(arg0) {
+            const ret = arg0.incomingBidirectionalStreams;
+            return ret;
         },
         __wbg_indexedDB_782f0610ea9fb144: function() { return handleError(function (arg0) {
             const ret = arg0.indexedDB;
@@ -1336,6 +1464,16 @@ function __wbg_get_imports() {
             let result;
             try {
                 result = arg0 instanceof DOMException;
+            } catch (_) {
+                result = false;
+            }
+            const ret = result;
+            return ret;
+        },
+        __wbg_instanceof_Error_8573fe0b0b480f46: function(arg0) {
+            let result;
+            try {
+                result = arg0 instanceof Error;
             } catch (_) {
                 result = false;
             }
@@ -1402,10 +1540,30 @@ function __wbg_get_imports() {
             const ret = result;
             return ret;
         },
+        __wbg_instanceof_ReadableStreamDefaultReader_8c3866331ce32722: function(arg0) {
+            let result;
+            try {
+                result = arg0 instanceof ReadableStreamDefaultReader;
+            } catch (_) {
+                result = false;
+            }
+            const ret = result;
+            return ret;
+        },
         __wbg_instanceof_Uint8Array_9b9075935c74707c: function(arg0) {
             let result;
             try {
                 result = arg0 instanceof Uint8Array;
+            } catch (_) {
+                result = false;
+            }
+            const ret = result;
+            return ret;
+        },
+        __wbg_instanceof_WebTransportBidirectionalStream_abe1536df7828016: function(arg0) {
+            let result;
+            try {
+                result = arg0 instanceof WebTransportBidirectionalStream;
             } catch (_) {
                 result = false;
             }
@@ -1517,6 +1675,10 @@ function __wbg_get_imports() {
             const ret = new Date();
             return ret;
         },
+        __wbg_new_28132f467c93cf40: function() { return handleError(function (arg0, arg1) {
+            const ret = new WebTransport(getStringFromWasm0(arg0, arg1));
+            return ret;
+        }, arguments); },
         __wbg_new_361308b2356cecd0: function() {
             const ret = new Object();
             return ret;
@@ -1583,6 +1745,10 @@ function __wbg_get_imports() {
             const ret = new Uint8Array(arg0 >>> 0);
             return ret;
         },
+        __wbg_new_with_options_4d98b7fe6f1234ea: function() { return handleError(function (arg0, arg1, arg2) {
+            const ret = new WebTransport(getStringFromWasm0(arg0, arg1), arg2);
+            return ret;
+        }, arguments); },
         __wbg_node_e1f24f89a7336c2e: function(arg0) {
             const ret = arg0.node;
             return ret;
@@ -1644,9 +1810,25 @@ function __wbg_get_imports() {
         __wbg_randomFillSync_f8c153b79f285817: function() { return handleError(function (arg0, arg1) {
             arg0.randomFillSync(arg1);
         }, arguments); },
+        __wbg_read_68fd377df67e19b0: function(arg0) {
+            const ret = arg0.read();
+            return ret;
+        },
+        __wbg_readable_f48737ebbe0d83d7: function(arg0) {
+            const ret = arg0.readable;
+            return ret;
+        },
         __wbg_readyState_c000912ef3045df7: function(arg0) {
             const ret = arg0.readyState;
             return (__wbindgen_enum_RtcDataChannelState.indexOf(ret) + 1 || 5) - 1;
+        },
+        __wbg_ready_4a2ef790cf8ee5f8: function(arg0) {
+            const ret = arg0.ready;
+            return ret;
+        },
+        __wbg_ready_8484a7b5b5439603: function(arg0) {
+            const ret = arg0.ready;
+            return ret;
         },
         __wbg_removeEntry_d1cc9710704217eb: function(arg0, arg1, arg2) {
             const ret = arg0.removeEntry(getStringFromWasm0(arg1, arg2));
@@ -1810,6 +1992,10 @@ function __wbg_get_imports() {
             const ret = arg0.size;
             return ret;
         },
+        __wbg_slice_8bbd46adb2100583: function(arg0, arg1, arg2) {
+            const ret = arg0.slice(arg1 >>> 0, arg2 >>> 0);
+            return ret;
+        },
         __wbg_slice_a4d15492574b99a1: function() { return handleError(function (arg0, arg1, arg2) {
             const ret = arg0.slice(arg1, arg2);
             return ret;
@@ -1869,6 +2055,10 @@ function __wbg_get_imports() {
             const ret = arg0.toJSON();
             return ret;
         },
+        __wbg_toString_029ac24421fd7a24: function(arg0) {
+            const ret = arg0.toString();
+            return ret;
+        },
         __wbg_transaction_55ceb96f4b852417: function() { return handleError(function (arg0, arg1, arg2, arg3) {
             const ret = arg0.transaction(getStringFromWasm0(arg1, arg2), __wbindgen_enum_IdbTransactionMode[arg3]);
             return ret;
@@ -1904,6 +2094,10 @@ function __wbg_get_imports() {
             const ret = WebNode.__wrap(arg0);
             return ret;
         },
+        __wbg_writable_48ed470a7316152a: function(arg0) {
+            const ret = arg0.writable;
+            return ret;
+        },
         __wbg_write_3b10b2d633031cad: function() { return handleError(function (arg0, arg1, arg2) {
             const ret = arg0.write(getStringFromWasm0(arg1, arg2));
             return ret;
@@ -1912,62 +2106,71 @@ function __wbg_get_imports() {
             const ret = arg0.write(arg1);
             return ret;
         }, arguments); },
+        __wbg_write_4dbba5e5426abaf4: function(arg0, arg1) {
+            const ret = arg0.write(arg1);
+            return ret;
+        },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2237, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 2238, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent_____);
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2392, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 2393, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_93005bece23d88e1___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_93005bece23d88e1___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2237, function: Function { arguments: [NamedExternref("RTCDataChannelEvent")], shim_idx: 2238, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent_____);
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2392, function: Function { arguments: [NamedExternref("RTCDataChannelEvent")], shim_idx: 2393, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_93005bece23d88e1___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_93005bece23d88e1___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000003: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2237, function: Function { arguments: [NamedExternref("RTCPeerConnectionIceEvent")], shim_idx: 2238, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent_____);
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2392, function: Function { arguments: [NamedExternref("RTCPeerConnectionIceEvent")], shim_idx: 2393, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_93005bece23d88e1___features__gen_MessageEvent__MessageEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_93005bece23d88e1___features__gen_MessageEvent__MessageEvent_____);
             return ret;
         },
         __wbindgen_cast_0000000000000004: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2366, function: Function { arguments: [], shim_idx: 2367, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______);
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 2536, function: Function { arguments: [], shim_idx: 2537, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______1_);
             return ret;
         },
         __wbindgen_cast_0000000000000005: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2917, function: Function { arguments: [Externref], shim_idx: 2918, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 3124, function: Function { arguments: [Externref], shim_idx: 3125, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____);
             return ret;
         },
         __wbindgen_cast_0000000000000006: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 2971, function: Function { arguments: [], shim_idx: 2972, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output________1_, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______1_);
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 3178, function: Function { arguments: [], shim_idx: 3179, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output________1_, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______2_);
             return ret;
         },
         __wbindgen_cast_0000000000000007: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 900, function: Function { arguments: [NamedExternref("Event")], shim_idx: 901, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_ec41cd9da292efe4___features__gen_CloseEvent__CloseEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_CloseEvent__CloseEvent_____);
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 919, function: Function { arguments: [NamedExternref("Event")], shim_idx: 920, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_93005bece23d88e1___features__gen_CloseEvent__CloseEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_93005bece23d88e1___features__gen_CloseEvent__CloseEvent_____);
             return ret;
         },
-        __wbindgen_cast_0000000000000008: function(arg0) {
+        __wbindgen_cast_0000000000000008: function(arg0, arg1) {
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 919, function: Function { arguments: [], shim_idx: 922, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_93005bece23d88e1___features__gen_CloseEvent__CloseEvent____Output_______, wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______);
+            return ret;
+        },
+        __wbindgen_cast_0000000000000009: function(arg0) {
             // Cast intrinsic for `F64 -> Externref`.
             const ret = arg0;
             return ret;
         },
-        __wbindgen_cast_0000000000000009: function(arg0) {
+        __wbindgen_cast_000000000000000a: function(arg0) {
             // Cast intrinsic for `I64 -> Externref`.
             const ret = arg0;
             return ret;
         },
-        __wbindgen_cast_000000000000000a: function(arg0, arg1) {
+        __wbindgen_cast_000000000000000b: function(arg0, arg1) {
             // Cast intrinsic for `Ref(Slice(U8)) -> NamedExternref("Uint8Array")`.
             const ret = getArrayU8FromWasm0(arg0, arg1);
             return ret;
         },
-        __wbindgen_cast_000000000000000b: function(arg0, arg1) {
+        __wbindgen_cast_000000000000000c: function(arg0, arg1) {
             // Cast intrinsic for `Ref(String) -> Externref`.
             const ret = getStringFromWasm0(arg0, arg1);
             return ret;
         },
-        __wbindgen_cast_000000000000000c: function(arg0) {
+        __wbindgen_cast_000000000000000d: function(arg0) {
             // Cast intrinsic for `U64 -> Externref`.
             const ret = BigInt.asUintN(64, arg0);
             return ret;
@@ -1988,24 +2191,28 @@ function __wbg_get_imports() {
     };
 }
 
-function wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______(arg0, arg1) {
-    wasm.wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______(arg0, arg1);
-}
-
 function wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______1_(arg0, arg1) {
     wasm.wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______1_(arg0, arg1);
 }
 
-function wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent_____(arg0, arg1, arg2) {
-    wasm.wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_MessageEvent__MessageEvent_____(arg0, arg1, arg2);
+function wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______2_(arg0, arg1) {
+    wasm.wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______2_(arg0, arg1);
+}
+
+function wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______(arg0, arg1) {
+    wasm.wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______(arg0, arg1);
+}
+
+function wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_93005bece23d88e1___features__gen_MessageEvent__MessageEvent_____(arg0, arg1, arg2) {
+    wasm.wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_93005bece23d88e1___features__gen_MessageEvent__MessageEvent_____(arg0, arg1, arg2);
 }
 
 function wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____(arg0, arg1, arg2) {
     wasm.wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____(arg0, arg1, arg2);
 }
 
-function wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_CloseEvent__CloseEvent_____(arg0, arg1, arg2) {
-    wasm.wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_ec41cd9da292efe4___features__gen_CloseEvent__CloseEvent_____(arg0, arg1, arg2);
+function wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_93005bece23d88e1___features__gen_CloseEvent__CloseEvent_____(arg0, arg1, arg2) {
+    wasm.wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_93005bece23d88e1___features__gen_CloseEvent__CloseEvent_____(arg0, arg1, arg2);
 }
 
 function wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____(arg0, arg1, arg2, arg3) {

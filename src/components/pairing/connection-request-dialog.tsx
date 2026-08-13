@@ -80,7 +80,7 @@ export function ConnectionRequestDialog() {
             </div>
 
             {/* 安全提示 */}
-            <div className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            <div className="flex items-start gap-2 rounded-lg bg-warning/12 p-3 text-warning-ink">
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <p className="text-xs">
                 <Trans>

@@ -1,13 +1,11 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import * as Device from "expo-device";
-import { Directory } from "expo-file-system";
-import { Bell, Folder, RotateCcw } from "lucide-react-native";
+import { Bell, Folder } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Pressable, View } from "react-native";
+import { AppScreen } from "@/components/mobile/screen";
 import { SettingDivider, SettingSection } from "@/components/setting-row";
 import { SettingsHeader } from "@/components/settings-header";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Switch } from "@/components/ui/switch";
 import { Text } from "@/components/ui/text";
 import { getMobileCore } from "@/core/mobile-core";
@@ -15,13 +13,16 @@ import {
   ensureNotificationPermission,
   openNotificationSettings,
 } from "@/core/notifier";
-import { getMobilePaths } from "@/core/paths";
+import {
+  pickReceiveLocation,
+  requiresUserChoice,
+  useReceiveLocation,
+} from "@/core/receive-location";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { getErrorMessage } from "@/lib/errors";
 import { toast } from "@/lib/toast";
 import { lastPathSegment } from "@/lib/utils";
 import { useMobileCoreStore } from "@/stores/mobile-core-store";
-import { usePreferencesStore } from "@/stores/preferences-store";
 
 export default function GeneralScreen() {
   const { t } = useLingui();
@@ -29,61 +30,50 @@ export default function GeneralScreen() {
   const deviceName = Device.deviceName ?? Device.modelName ?? "—";
 
   return (
-    <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
-      <SettingsHeader title={t`通用`} />
-      <ScrollView
-        contentContainerClassName="gap-5 px-5 pt-2 pb-8"
-        showsVerticalScrollIndicator={false}
-      >
-        <SettingSection label={t`设备`}>
-          <View className="flex-row items-center justify-between px-3.5 py-3">
-            <Text className="text-[14px] text-foreground">
-              <Trans>设备名</Trans>
-            </Text>
-            <Text
-              className="text-[13px] text-muted-foreground"
-              numberOfLines={1}
-            >
-              {deviceName}
-            </Text>
-          </View>
-          <SettingDivider />
-          <View className="flex-row items-center justify-between px-3.5 py-3">
-            <Text className="text-[14px] text-foreground">
-              <Trans>型号</Trans>
-            </Text>
-            <Text
-              className="text-[13px] text-muted-foreground"
-              numberOfLines={1}
-            >
-              {Device.modelName ?? "—"}
-            </Text>
-          </View>
-          <SettingDivider />
-          <View className="flex-row items-center justify-between px-3.5 py-3">
-            <Text className="text-[14px] text-foreground">
-              <Trans>系统</Trans>
-            </Text>
-            <Text
-              className="text-[13px] text-muted-foreground"
-              numberOfLines={1}
-            >
-              {Device.osName} {Device.osVersion ?? ""}
-            </Text>
-          </View>
-        </SettingSection>
+    <AppScreen
+      scroll
+      header={<SettingsHeader title={t`通用`} />}
+      contentClassName="gap-5 pt-2"
+    >
+      <SettingSection label={t`设备`}>
+        <View className="flex-row items-center justify-between px-3.5 py-3">
+          <Text className="text-[14px] text-foreground">
+            <Trans>设备名</Trans>
+          </Text>
+          <Text className="text-[13px] text-muted-foreground" numberOfLines={1}>
+            {deviceName}
+          </Text>
+        </View>
+        <SettingDivider />
+        <View className="flex-row items-center justify-between px-3.5 py-3">
+          <Text className="text-[14px] text-foreground">
+            <Trans>型号</Trans>
+          </Text>
+          <Text className="text-[13px] text-muted-foreground" numberOfLines={1}>
+            {Device.modelName ?? "—"}
+          </Text>
+        </View>
+        <SettingDivider />
+        <View className="flex-row items-center justify-between px-3.5 py-3">
+          <Text className="text-[14px] text-foreground">
+            <Trans>系统</Trans>
+          </Text>
+          <Text className="text-[13px] text-muted-foreground" numberOfLines={1}>
+            {Device.osName} {Device.osVersion ?? ""}
+          </Text>
+        </View>
+      </SettingSection>
 
-        <SettingSection label={t`传输`}>
-          <PauseReceivingRow />
-          <SettingDivider />
-          <ReceivePathRow />
-        </SettingSection>
+      <SettingSection label={t`传输`}>
+        <PauseReceivingRow />
+        <SettingDivider />
+        <ReceivePathRow />
+      </SettingSection>
 
-        <SettingSection label={t`通知`}>
-          <NotificationRow />
-        </SettingSection>
-      </ScrollView>
-    </SafeAreaView>
+      <SettingSection label={t`通知`}>
+        <NotificationRow />
+      </SettingSection>
+    </AppScreen>
   );
 }
 
@@ -211,79 +201,63 @@ function NotificationRow() {
   );
 }
 
+/**
+ * 接收位置。两端形态不同，因为平台给的东西就不同：
+ *
+ * - **iOS** — 恒为 `Documents`，经文件共享出现在「文件」App 里。用户既无需也无从更改，
+ *   所以这里是一行只读说明，不是一个入口。
+ * - **Android** — 用户选定的 SAF 目录，可更换。**没有「恢复默认」**：应用私有目录自
+ *   Android 11 起连系统文件管理器都进不去，把它当默认值等于把收到的文件锁进一座孤岛。
+ */
 function ReceivePathRow() {
   const { t } = useLingui();
   const colors = useThemeColors();
-  const receivePath = usePreferencesStore((s) => s.receivePath);
-  const setReceivePath = usePreferencesStore((s) => s.setReceivePath);
-  const [resetOpen, setResetOpen] = useState(false);
+  const location = useReceiveLocation();
 
   const onPickDirectory = async () => {
-    try {
-      const dir = await Directory.pickDirectoryAsync();
-      // 只读探测：调一次 list() 验证 URI 持久化权限可用。
-      // iOS file:// / Android SAF content:// 双平台都用同一套校验。
-      // SAF 写入由 ForeignFileAccess 适配（expo-file-system 56 起支持 chunk write）。
-      try {
-        dir.list();
-      } catch (probeErr) {
-        toast.error(t`此目录不可读`, probeErr);
-        return;
-      }
-      setReceivePath(dir.uri);
-      toast.success(t`接收位置已更新`);
-    } catch (err) {
-      toast.error(t`选择失败`, err);
-    }
+    const picked = await pickReceiveLocation();
+    // 取消不作声：用户退出选择器就是不想换了。
+    if (picked.outcome === "unusable") toast.error(t`此目录不可用`);
+    else if (picked.outcome === "picked") toast.success(t`接收位置已更新`);
   };
 
-  const displayPath = receivePath ?? getMobilePaths().transfersInboxUri;
-  const isCustom = receivePath !== null;
-
-  return (
+  const body = (
     <>
-      <Pressable
-        onPress={onPickDirectory}
-        accessibilityRole="button"
-        accessibilityLabel={t`接收位置`}
-        className="flex-row items-center gap-3 px-3.5 py-3 active:bg-muted"
-      >
-        <View className="h-8 w-8 items-center justify-center rounded-lg bg-muted">
-          <Folder color={colors.mutedForeground} size={16} />
-        </View>
-        <View className="flex-1 gap-0.5">
-          <Text className="text-[14px] text-foreground">
-            <Trans>接收位置</Trans>
-          </Text>
-          <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
-            {isCustom ? (
-              lastPathSegment(displayPath)
-            ) : (
-              <Trans>应用私有目录（默认）</Trans>
-            )}
-          </Text>
-        </View>
-        {isCustom ? (
-          <Pressable
-            onPress={() => setResetOpen(true)}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={t`恢复默认`}
-            className="rounded-full p-1.5 active:bg-destructive/15"
-          >
-            <RotateCcw size={14} color={colors.mutedForeground} />
-          </Pressable>
-        ) : null}
-      </Pressable>
-
-      <ConfirmDialog
-        open={resetOpen}
-        onOpenChange={setResetOpen}
-        title={<Trans>恢复默认接收位置</Trans>}
-        description={<Trans>接收文件将保存到应用私有目录。</Trans>}
-        actionLabel={<Trans>恢复默认</Trans>}
-        onAction={() => setReceivePath(null)}
-      />
+      <View className="h-8 w-8 items-center justify-center rounded-lg bg-muted">
+        <Folder color={colors.mutedForeground} size={16} />
+      </View>
+      <View className="flex-1 gap-0.5">
+        <Text className="text-[14px] text-foreground">
+          <Trans>接收位置</Trans>
+        </Text>
+        <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
+          {location.status === "ready" ? (
+            lastPathSegment(location.uri)
+          ) : (
+            <Trans>尚未设置</Trans>
+          )}
+        </Text>
+      </View>
     </>
   );
+
+  if (!requiresUserChoice()) {
+    return (
+      <View className="flex-row items-center gap-3 px-3.5 py-3">{body}</View>
+    );
+  }
+
+  return (
+    <Pressable
+      onPress={onPickDirectory}
+      accessibilityRole="button"
+      accessibilityLabel={t`接收位置`}
+      className="flex-row items-center gap-3 px-3.5 py-3 active:bg-muted"
+    >
+      {body}
+    </Pressable>
+  );
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

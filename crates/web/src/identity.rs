@@ -1,7 +1,7 @@
 //! 设备身份密钥材料的持久化——**只管 `SecretKey`**。
 //!
 //! `SecretKey` 的 protobuf 编码经 hex 存储、启动恢复——节点身份必须稳定（circuit 地址与
-//! 邀请里的可拨地址都绑 NodeId）。protobuf 编码与桌面/移动 keychain 存量同构。存储后端按
+//! 邀请里的可拨地址都绑 NodeId）。protobuf 编码与桌面/移动的存量同构。存储后端按
 //! 环境双轨：Window 用 localStorage（同步、现状）；Worker 没有 localStorage，退到 OPFS 小
 //! 文件（与落盘同一存储域，Worker 全自治、无需主线程注入身份）。
 //!

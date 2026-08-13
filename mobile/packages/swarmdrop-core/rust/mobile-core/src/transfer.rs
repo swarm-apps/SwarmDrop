@@ -299,6 +299,24 @@ impl MobileCore {
             Err(err) => Err(err),
         }
     }
+
+    /// 告知内核宿主**此刻**的默认接收落点。
+    ///
+    /// 设备策略未显式指定落点时，自动接收用它。RN 侧应在节点启动后、以及用户改动接收
+    /// 目录之后调用——**这正是它存在的理由**：此前宿主是在设置策略时把当时的落点抄一份
+    /// 进每台设备的策略里，用户之后换目录，自动接收还照着旧值写。
+    ///
+    /// 节点未启动时静默忽略：落点会在下次启动后由 RN 侧重新推上来。
+    pub async fn set_default_save_location(&self, uri: String) -> FfiResult<()> {
+        match self.transfer_manager_arc().await {
+            Ok(manager) => {
+                manager.set_host_default_save_location(Some(uri));
+                Ok(())
+            }
+            Err(FfiError::NodeNotStarted) => Ok(()),
+            Err(err) => Err(err),
+        }
+    }
 }
 
 fn parse_session_id(s: &str) -> FfiResult<Uuid> {

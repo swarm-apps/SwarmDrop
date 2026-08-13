@@ -6,11 +6,11 @@ use std::time::Duration;
 
 use dashmap::DashMap;
 use n0_future::time::Instant;
-use swarmdrop_net::{Addr, Endpoint, NetEvent, NodeAddr, NodeId};
+use swarmdrop_net::{Addr, Endpoint, NetEvent, NodeAddr, NodeId, RelayState};
 
 use super::{ONLINE_RECORD_TTL_SECS, OnlineRecord, RelayHint, online_key};
 use crate::device::{OsInfo, PairedDeviceInfo};
-use crate::network::candidates::{BootstrapCandidateManager, CandidateHealth};
+use crate::network::candidates::{BootstrapCandidate, BootstrapCandidateManager};
 
 /// per-paired-peer 的 presence 状态。
 ///
@@ -299,7 +299,7 @@ impl PresenceSupervisor {
     /// - 解除配对 → 出白名单 + 断开连接 + 移除状态
     ///
     /// **撤销的触发判据是内存 `paired` 表**（`NetManager` 建的那份共享 `DashMap`），
-    /// 不是持久化列表：只把设备从 keychain / IndexedDB 里删掉，下面的
+    /// 不是持久化列表：只把设备从宿主身份存储 / IndexedDB 里删掉，下面的
     /// `presence − paired` 差集永远算不出它，保活与重探会一直跑到进程退出。
     /// 解除配对因此必须走
     /// [`PairingManager::unpair`](crate::pairing::PairingManager::unpair)——它删的正是这份表。
@@ -453,21 +453,9 @@ impl PresenceSupervisor {
         let Ok(candidates) = self.candidates.read() else {
             return Vec::new();
         };
-        candidates
-            .snapshot()
-            .into_iter()
-            .filter(|c| c.roles.relay_server && matches!(c.health, CandidateHealth::RelayReady))
-            .take(MAX_RELAY_HINTS)
-            .map(|c| RelayHint {
-                peer_id: c.peer_id,
-                addrs: c
-                    .addrs
-                    .into_iter()
-                    .filter(|a| !a.is_loopback_or_unspecified())
-                    .collect(),
-            })
-            .filter(|hint| !hint.addrs.is_empty())
-            .collect()
+        let snapshot = candidates.snapshot();
+        drop(candidates);
+        relay_hints_from(&snapshot, &self.endpoint.watch_relays().get())
     }
 
     /// 宣布下线：从 DHT 移除在线记录（节点停止时调用）
@@ -579,6 +567,49 @@ fn announce_backoff(fail_streak: u32) -> Duration {
     Duration::from_secs(secs.min(30))
 }
 
+/// 从候选表与**内核 relay 状态**联合算出中继提示。
+///
+/// # 为什么读 `watch_relays` 而不是候选表里的健康位
+///
+/// 这些 hint 会写进发布到公共 DHT 的 `OnlineRecord`，对端拿去「先修 relay 直连、
+/// 再拨 circuit」。它们必须反映**此刻**的 reservation，否则对端拨的是一条已经没了
+/// 的路。
+///
+/// 此前判据是候选表的 `CandidateHealth::RelayReady`——一个**写进候选表的观测值**，
+/// 而它在四条路径上根本不回写：`cancel_relay_reservation` 与
+/// `handle_remove_infra_peer` 刻意不发 `RelayReservationLost`（避免上层把用户取消
+/// 误判成故障），`set_relay_failed` 的另外几条路径同样不发。结果是本机在公共 DHT
+/// 上持续发布失效的 relay hint，对端拨号必然失败，且日志无痕。
+///
+/// 抽成纯函数是为了让这条约束可测——见 `relay_hints_follow_live_relay_state`。
+fn relay_hints_from(
+    candidates: &[BootstrapCandidate],
+    relays: &std::collections::BTreeMap<NodeId, RelayState>,
+) -> Vec<RelayHint> {
+    // **先筛后截**（与消费侧的同一条规则一致）：`take` 必须排在「剔掉无可用地址的
+    // 条目」之后。反过来的话，一条只有 loopback 地址的 relay 会先占掉一个名额、再被
+    // 后面的 filter 丢弃，于是真正该发的 hint 被挤出去——而候选快照来自 `HashMap`、
+    // 顺序不定，这个坑只在某些次序下才现形。
+    candidates
+        .iter()
+        .filter(|c| {
+            c.roles.relay_server
+                && matches!(relays.get(&c.peer_id), Some(RelayState::Active { .. }))
+        })
+        .map(|c| RelayHint {
+            peer_id: c.peer_id,
+            addrs: c
+                .addrs
+                .iter()
+                .filter(|a| !a.is_loopback_or_unspecified())
+                .cloned()
+                .collect(),
+        })
+        .filter(|hint| !hint.addrs.is_empty())
+        .take(MAX_RELAY_HINTS)
+        .collect()
+}
+
 /// 构造在线宣告记录。
 ///
 /// **这条记录发布到公共 DHT**：key = `SHA256(NS‖peer_id)` 可由公开信息算出，记录本身
@@ -626,8 +657,67 @@ fn classify_announce_addrs(addrs: Vec<Addr>) -> (Vec<Addr>, Vec<Addr>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::network::DiscoveryMode;
     use swarmdrop_net::{PathKind, SecretKey};
+
+    fn relay_candidate_for_hints(addr: &str) -> BootstrapCandidate {
+        let mut mgr = BootstrapCandidateManager::new(true);
+        let peer = SecretKey::generate().node_id();
+        mgr.upsert(
+            peer,
+            vec![addr.parse().unwrap()],
+            crate::network::BootstrapCandidateSource::HostConfigured,
+            crate::network::CandidateRoles::kad_and_relay(),
+        );
+        mgr.snapshot().pop().expect("刚插入的候选必然在")
+    }
+
+    /// relay hint 必须跟随**内核当下的** reservation，而不是候选表里的一个粘性标记。
+    ///
+    /// 这些 hint 会写进发布到公共 DHT 的 `OnlineRecord`，对端拿去先修 relay 直连。
+    /// 旧实现读候选表的 `CandidateHealth::RelayReady`，而那个位在
+    /// `cancel_relay_reservation` / `handle_remove_infra_peer` / 多条
+    /// `set_relay_failed` 路径上**都不回写**（前两条刻意不发 `RelayReservationLost`，
+    /// 免得上层把用户取消误判成故障）。后果是本机持续发布一条早已失效的中继路径，
+    /// 对端拨号必然失败，而且日志无痕。
+    #[test]
+    fn relay_hints_follow_live_relay_state() {
+        use std::collections::BTreeMap;
+
+        let candidate = relay_candidate_for_hints("/ip4/203.0.113.7/tcp/4001");
+        let peer = candidate.peer_id;
+        let candidates = vec![candidate];
+
+        // ① 内核说 Active → 出 hint
+        let mut relays = BTreeMap::new();
+        relays.insert(
+            peer,
+            RelayState::Active {
+                circuit_addr: "/ip4/203.0.113.7/tcp/4001/p2p-circuit".parse().unwrap(),
+            },
+        );
+        assert_eq!(relay_hints_from(&candidates, &relays).len(), 1);
+
+        // ② 内核翻 Failed → 立刻不再出 hint（候选表条目原封不动）
+        relays.insert(
+            peer,
+            RelayState::Failed {
+                last_error: "dial failed".into(),
+            },
+        );
+        assert!(
+            relay_hints_from(&candidates, &relays).is_empty(),
+            "reservation 已失效仍发 hint = 让对端拨一条不存在的路"
+        );
+
+        // ③ 用户撤销 / 内核注销：条目直接从 watch_relays 消失，且这两条路径
+        //    **刻意不发** RelayReservationLost。判据必须是「map 里有没有 Active」，
+        //    而不是「有没有收到过 Lost 事件」。
+        relays.remove(&peer);
+        assert!(
+            relay_hints_from(&candidates, &relays).is_empty(),
+            "撤销 relay 意图后不得继续发布它的 hint"
+        );
+    }
 
     /// 在线宣告记录发布到**公共 DHT**：key = `SHA256(NS‖peer_id)` 由公开信息可算，
     /// 记录无签名，任何加入网络的节点都能查。它绝不能携带设备身份信息——尤其是
@@ -672,10 +762,7 @@ mod tests {
 
         let paired: Arc<DashMap<NodeId, PairedDeviceInfo>> = Arc::new(DashMap::new());
         let presence: PresenceMap = Arc::new(DashMap::new());
-        let candidates = Arc::new(RwLock::new(BootstrapCandidateManager::new(
-            DiscoveryMode::Auto,
-            true,
-        )));
+        let candidates = Arc::new(RwLock::new(BootstrapCandidateManager::new(true)));
         let supervisor =
             PresenceSupervisor::new(endpoint, paired.clone(), presence.clone(), candidates);
         TestCtx {

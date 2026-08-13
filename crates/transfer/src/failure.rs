@@ -3,16 +3,10 @@
 //! 这是 `AppError::kind` 那条契约在**会话级失败**上的延续：Rust 只回答「是什么失败」，
 //! 用户看到的句子由三端各自的 Lingui catalog 生成。
 //!
-//! 它替换的是一段自由文本。旧形态
-//! `format!("文件最终化失败: {name} (file_id={id}): {e}")` 有两个问题，第二个是真 bug：
-//!
-//! 1. 中文串直达三端 UI，英文界面上照样弹中文。
-//! 2. **文件名被拼进了错误串**，而移动端拿整串跑英文关键词正则 —— 一个叫
-//!    `Q3-cancel.xlsx` 的文件校验失败时，用户看到的是「传输已取消」，
-//!    一次数据损坏被说成用户自己的操作。
-//!
-//! 所以判别码的参数**只放渲染真正需要的字段**：文件名要显示，故保留；`file_id`
-//! 与底层错误只对开发者有意义，留在 `warn!` 里，不进用户可见的数据结构。
+//! 判别码的参数**只放渲染真正需要的字段**；`file_id`、底层错误这类只对开发者有意义的
+//! 东西留在 `warn!` 里，不进用户可见的数据结构。这条约束有来历：判别码取代的那段自由文本
+//! 把文件名拼进了错误串，而移动端拿整串跑英文关键词正则——一个叫 `Q3-cancel.xlsx` 的文件
+//! 失败时，用户看到的是「传输已取消」，一次落盘失败被说成他自己的操作。
 
 use serde::{Deserialize, Serialize};
 
@@ -27,12 +21,6 @@ use crate::protocol::ResumeRejectReason;
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "code", rename_all = "camelCase")]
 pub enum FailureCode {
-    /// 落盘最终化失败 —— 含 bao 逐块验签不通过、sink 写入失败。
-    ///
-    /// 用户能做的是重新传一次，所以三端文案落在「文件没能完整保存，请重新接收」。
-    #[serde(rename_all = "camelCase")]
-    FileFinalizeFailed { file_name: String },
-
     /// 超过保留期仍未恢复，被启动清理回收。
     ///
     /// `retention_days` 进文案（「超过 N 天」），所以它是参数而不是常量 ——
@@ -53,6 +41,16 @@ pub enum FailureCode {
     /// 两个调用点的技术细节（IO 错误、响应类型）对用户是同一件事：对方没收到你的请求。
     /// 细节进 `warn!`。
     OfferFailed,
+
+    /// 对端不认识本机的数据面协议名——**版本不兼容**。
+    ///
+    /// 这是唯一一个「重试一万次也不会好」的网络类失败，所以它必须是 fatal 而不是
+    /// Interrupted。此前它被压成 `AppError::Transfer(String)` 走可恢复中断，于是续传
+    /// 机器拿同一个协议名一次次重试，用户看到的是「传输老是断」——而真相是有一端需要
+    /// 升级。协议名换代（`transfer-data/3` → `/4`）时旧端全都撞这条路。
+    ///
+    /// 把不兼容前移到协商阶段是 bump 协议名的全部价值；那份信息在这里才算真正到达用户。
+    PeerProtocolUnsupported,
 
     /// **存量数据**：本判别码引入之前写入的自由文本。
     ///
@@ -96,10 +94,12 @@ mod tests {
     #[test]
     fn round_trips_through_the_column() {
         for code in [
-            FailureCode::FileFinalizeFailed {
-                file_name: "季度报告.pdf".into(),
-            },
             FailureCode::SessionExpired { retention_days: 7 },
+            FailureCode::ResumeRejected {
+                reason: ResumeRejectReason::FatalError,
+            },
+            FailureCode::OfferFailed,
+            FailureCode::PeerProtocolUnsupported,
         ] {
             assert_eq!(FailureCode::from_column(&code.to_column()), code);
         }
@@ -120,19 +120,21 @@ mod tests {
         assert_eq!(decoded.to_column(), raw);
     }
 
-    /// 这条钉的是本判别码存在的**第二个**理由（第一个是 i18n）。
+    /// 存量库里 `FileFinalizeFailed` 的行必须仍然能读出来、能展示。
     ///
-    /// 旧实现把 `file_id` 和底层错误一起拼进用户可见的串，移动端又拿整串做英文关键词
-    /// 匹配，于是文件名里的 `cancel` / `network` 会决定用户看到什么原因。判别码只带
-    /// 文件名一个字段，匹配这件事根本不存在了——但如果将来有人往里加 `detail: String`，
-    /// 这条测试不会红。**红的是没有测试能防住的设计倒退，所以理由写在这里。**
+    /// 该变体已随「接收侧落地失败改走 Interrupted」退役，但历史会话的 `error_message`
+    /// 列里还留着它的 JSON。`from_column` 的 `Legacy` 兜底负责接住——这正是那条
+    /// 「解析失败不是错误，是存量数据」的设计要覆盖的第二种情形（第一种是判别码引入
+    /// 之前的裸中文串）。**不为此写迁移**：失败原因是过程账本上的一句解释，
+    /// 随历史滚动自然消失。
     #[test]
-    fn finalize_failure_carries_only_what_the_ui_renders() {
-        let code = FailureCode::FileFinalizeFailed {
-            file_name: "Q3-cancel.xlsx".into(),
-        };
-        let json = code.to_column();
-        assert!(json.contains("Q3-cancel.xlsx"), "文件名要显示，必须在");
-        assert!(!json.contains("file_id"), "file_id 只对开发者有意义");
+    fn retired_variant_falls_back_to_legacy_instead_of_failing() {
+        let raw = r#"{"code":"fileFinalizeFailed","fileName":"季度报告.pdf"}"#;
+        assert_eq!(
+            FailureCode::from_column(raw),
+            FailureCode::Legacy {
+                message: raw.to_string()
+            }
+        );
     }
 }

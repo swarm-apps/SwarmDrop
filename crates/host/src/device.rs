@@ -466,14 +466,58 @@ pub enum DeviceStatus {
     Offline,
 }
 
-/// 连接类型。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// 连接类型：给所有人看的一句话结论。**与 [`PathKind`] 一一对应**，本层不做推断。
+///
+/// # [`Direct`](Self::Direct) 与 [`Dcutr`](Self::Dcutr) 是两件事，不能合并
+///
+/// 两者的数据面质量相同（一个字节都不过中继），分开只为回答「怎么建起来的」，
+/// 而这两条的排查方向相反：「打洞」意味着 NAT 穿透成功、该去看 ICE 与信令；
+/// 「直连」意味着压根没打洞，该去看那条地址是谁给的、隧道底下又是什么。
+///
+/// 此前 [`PathKind::Direct`] 一档同时装着这两种来路，且被一对一映射成 `Dcutr`，
+/// 于是任何非私网非中继的连接都被 UI 标成「打洞」——一条
+/// `/ip4/100.x/udp/…/webtransport` 的 Tailscale 直拨会显示成「打洞 + WebTransport」。
+/// 现在区分由内核给出（[`PathKind::HolePunched`]），本枚举照搬。
+///
+/// ⚠️ 那次修复中途走过一条弯路，别再走回去：**不要用「传输是不是 WebRTC」反推打洞**。
+/// 原生端 libp2p 自己的 `dcutr` behaviour 是开着的，它打出的是 TCP/QUIC 直连，
+/// 按传输反推会把真打洞判成「没打洞」。判据的唯一归属是 [`PathKind`]，
+/// 它当前的识别范围与缺口写在那个枚举的文档里。
+///
+/// [`PathKind`]: swarmdrop_net_base::PathKind
+/// [`PathKind::Direct`]: swarmdrop_net_base::PathKind::Direct
+/// [`PathKind::HolePunched`]: swarmdrop_net_base::PathKind::HolePunched
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum ConnectionType {
+    /// 局域网直连（私网地址或 loopback）。
     Lan,
+    /// 直连，但不是打洞来的：公网地址直拨，或经 mesh VPN 隧道（Tailscale 等）。
+    Direct,
+    /// WebRTC 打洞建立的直连：**信令**经 relay，数据面一个字节不过中继。
     Dcutr,
+    /// 经 circuit relay 中继：数据面整条经第三方转发。
     Relay,
+}
+
+impl ConnectionType {
+    /// 跨 FFI 的 wire 名，**与 serde 的 camelCase 逐字一致**。
+    ///
+    /// 与 [`TransportKind::wire_name`] 同一体例、同一理由：移动端隔着 uniffi 的
+    /// `Option<String>`，此前那份是手抄的。手抄的失败模式格外隐蔽——JS 侧按字符串查表，
+    /// 对不上就把整枚徽标收成 `null` 静默丢掉，编得过、跑得动、只是那类连接的设备卡上
+    /// 少一块。一致性由 `wire_names_match_serde` 钉死。
+    ///
+    /// 用 `match` 而非 `_` 分支：加变体时这里编译失败，那正是要的。
+    pub const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Lan => "lan",
+            Self::Direct => "direct",
+            Self::Dcutr => "dcutr",
+            Self::Relay => "relay",
+        }
+    }
 }
 
 /// 链路详情：当前连接的可核对事实。
@@ -551,14 +595,25 @@ pub struct DeviceListResult {
 /// 基于地址分析推断连接类型。
 ///
 /// 分类谓词收口于 [`Addr`]（迁自旧栈散落三处的手写位运算）：私网/loopback→局域网，
-/// 公网可路由→打洞直连，circuit→中继。优先级 LAN > DCUtR > Relay。
+/// 公网可路由或隧道→直连，circuit→中继。优先级 LAN > Direct > Relay。
+///
+/// **这里永远推不出 [`Dcutr`](ConnectionType::Dcutr)**，这是判据决定的而非疏漏：
+/// 打洞连接的地址形如 `<relay>/p2p-circuit/webrtc/p2p/<target>`，含 circuit 段，
+/// 在第一个分支就被算作中继。要把它认出来必须看**最后一个 circuit 段之后还有没有
+/// 传输段**（`Addr::dial_tier` 那套），而本函数只是断连宽限期的回退推断——那时内核
+/// 已经不报 `path` 了，与其在这里重造一份易错的地址解析，不如让它落到中继这个
+/// 保守结论上。准确的判定在 `path_to_connection`，它拿的是内核报的 `PathKind`。
+///
+/// 隧道地址（Tailscale 等 mesh VPN 的 `100.64.0.0/10`）归 `Direct`：它既不是私网
+/// （`is_private_lan` 只认 RFC1918）也不是公网（`is_public_routable` 显式排除了
+/// 共享地址空间），漏掉这一条它会一档都不占，宽限期内徽标凭空消失。
 pub fn infer_connection_type(addrs: &[Addr]) -> Option<ConnectionType> {
     if addrs.is_empty() {
         return None;
     }
 
     let mut has_lan = false;
-    let mut has_dcutr = false;
+    let mut has_direct = false;
     let mut has_relay = false;
 
     for addr in addrs {
@@ -566,15 +621,15 @@ pub fn infer_connection_type(addrs: &[Addr]) -> Option<ConnectionType> {
             has_relay = true;
         } else if addr.is_private_lan() || addr.is_loopback() {
             has_lan = true;
-        } else if addr.is_public_routable() {
-            has_dcutr = true;
+        } else if addr.is_public_routable() || addr.is_shared_address_space() {
+            has_direct = true;
         }
     }
 
     if has_lan {
         Some(ConnectionType::Lan)
-    } else if has_dcutr {
-        Some(ConnectionType::Dcutr)
+    } else if has_direct {
+        Some(ConnectionType::Direct)
     } else if has_relay {
         Some(ConnectionType::Relay)
     } else {
@@ -597,6 +652,35 @@ mod tests {
             arch: "aarch64".to_string(),
             capabilities: Vec::new(),
         }
+    }
+
+    /// 「name → hostname」这条回退是**三端、收发双向共用**的：接收侧由
+    /// `TransferCtrlService` 落进传输记录，发送侧由各壳（Web 的 `send_files`、桌面/移动的
+    /// 前端）填同一个字段。分叉的表现是同一台设备在「他发给我的」与「我发给他的」两条记录里
+    /// 叫不同的名字，而那种不一致没有任何报错。
+    #[test]
+    fn display_name_prefers_user_set_name_over_hostname() {
+        assert_eq!(
+            sample(Some("书房的 Mac"), "Chrome").display_name(),
+            "书房的 Mac"
+        );
+    }
+
+    /// 空串与纯空白都算「没设」：内核允许传空串清空设备名，之后落成 `Some("")` 还是 `None`
+    /// 取决于路径，这条回退不该被那个差别绊到（前端 `deviceDisplayName` 同义）。
+    #[test]
+    fn display_name_treats_blank_as_unset() {
+        assert_eq!(sample(None, "Chrome").display_name(), "Chrome");
+        assert_eq!(sample(Some(""), "Chrome").display_name(), "Chrome");
+        assert_eq!(sample(Some("  "), "Chrome").display_name(), "Chrome");
+    }
+
+    /// 两级都空时返回空串，**不在这里编一个占位名**——回落到短 PeerId 是展示层的事
+    /// （`@swarmdrop/shared-view` 的 `shortPeerId`）。写死的占位会跟着记录一起落库，
+    /// 将来换措辞、换语言都改不动它。
+    #[test]
+    fn display_name_leaves_the_placeholder_to_the_view_layer() {
+        assert_eq!(sample(None, "").display_name(), "");
     }
 
     #[test]
@@ -826,5 +910,73 @@ mod tests {
         });
         let policy: super::DeviceReceivePolicy = serde_json::from_value(json).unwrap();
         assert!(!policy.allow_mcp_accept_from_device);
+    }
+
+    /// 地址推断分三档，且**永远推不出打洞**——判据见 `infer_connection_type` 的文档。
+    ///
+    /// 隧道那条（`100.64.0.0/10`）尤其要钉：它既不是 RFC1918 私网也不是公网可路由，
+    /// 少了 `is_shared_address_space` 那半个条件就一档都不占，宽限期内徽标凭空消失。
+    #[test]
+    fn address_inference_covers_lan_direct_tunnel_and_relay() {
+        use super::{ConnectionType, infer_connection_type};
+        let addrs = |s: &str| vec![s.parse::<swarmdrop_net_base::Addr>().expect("合法地址")];
+
+        assert_eq!(
+            infer_connection_type(&addrs("/ip4/192.168.1.5/tcp/4001")),
+            Some(ConnectionType::Lan)
+        );
+        assert_eq!(
+            infer_connection_type(&addrs("/ip4/47.115.172.218/udp/4001/quic-v1")),
+            Some(ConnectionType::Direct),
+            "公网直拨是直连，不是打洞"
+        );
+        assert_eq!(
+            infer_connection_type(&addrs("/ip4/100.112.160.47/udp/62829/quic-v1")),
+            Some(ConnectionType::Direct),
+            "Tailscale 隧道地址必须落进某一档，否则徽标会整枚消失"
+        );
+        assert_eq!(
+            infer_connection_type(&addrs(
+                "/ip4/1.2.3.4/tcp/4001/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp/p2p-circuit"
+            )),
+            Some(ConnectionType::Relay)
+        );
+
+        assert_eq!(infer_connection_type(&[]), None);
+    }
+
+    /// `wire_name` 与 serde 表示必须逐字一致——它是移动端 FFI 那份字符串的事实源。
+    #[test]
+    fn connection_type_wire_names_match_serde() {
+        use super::ConnectionType;
+        for kind in [
+            ConnectionType::Lan,
+            ConnectionType::Direct,
+            ConnectionType::Dcutr,
+            ConnectionType::Relay,
+        ] {
+            assert_eq!(
+                serde_json::to_string(&kind).unwrap(),
+                format!("\"{}\"", kind.wire_name()),
+                "{kind:?} 的 wire_name 与 serde 表示不一致"
+            );
+        }
+    }
+
+    /// 局域网优先级最高：同时看到私网与公网地址时按局域网算。
+    #[test]
+    fn address_inference_prefers_lan_over_direct() {
+        use super::{ConnectionType, infer_connection_type};
+        let addrs: Vec<swarmdrop_net_base::Addr> =
+            ["/ip4/47.115.172.218/tcp/4001", "/ip4/192.168.1.5/tcp/4001"]
+                .iter()
+                .map(|s| s.parse().expect("合法地址"))
+                .collect();
+
+        assert_eq!(
+            infer_connection_type(&addrs),
+            Some(ConnectionType::Lan),
+            "优先级 LAN > Direct > Relay"
+        );
     }
 }

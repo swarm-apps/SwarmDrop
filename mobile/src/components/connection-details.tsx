@@ -71,7 +71,9 @@ export function ConnectionDetailsSection({
         // 这一句把两种在徽标上完全同形的状态分开——对端本来就在外网 vs 对端就在同一
         // 网段却连不上。移动端不提浏览器权限（那是 Web 端的成因），只说防火墙。
         <View className="flex-row gap-2 rounded-lg bg-warning/15 px-3 py-2.5">
-          <TriangleAlert color={colors.warning} size={14} />
+          {/* ink 变体：图标坐在 `bg-warning/15` 上，用琥珀原色几乎看不出形状；
+              同一块里的文字本来就是 `text-warning-ink`，这样两者也一致。 */}
+          <TriangleAlert color={colors.warningInk} size={14} />
           <View className="min-w-0 flex-1 gap-0.5">
             <Text className="text-[12px] font-medium text-warning-ink">
               <Trans>对方就在同一网段，但直连没建起来</Trans>

@@ -51,10 +51,13 @@ pub struct PairInvitePreview {
 
 /// 生成 canonical 邀请链接的二维码 SVG（三端统一编码规范：原样编码 + 最优分段 + ECL::M
 /// + quiet zone，见 `swarmdrop_invite::qr`）。前端 `dangerouslySetInnerHTML` 塞入白卡。
+///
+/// `face_px` 是二维码**实际占据的边长**（不是白卡外框）。它同时是地址提示的预算：
+/// 码面放不下时后端按价值反序回收地址，所以传小了不会失败、只会让邀请少几条可拨路径。
 #[tauri::command]
 #[specta::specta]
-pub fn invite_qr_svg(invite: String) -> AppResult<String> {
-    swarmdrop_invite::invite_qr_svg(&invite)
+pub fn invite_qr_svg(invite: String, face_px: u32) -> AppResult<String> {
+    swarmdrop_invite::invite_qr_svg(&invite, face_px)
         .map_err(|e| AppError::invalid_argument(format!("二维码生成失败: {e}")))
 }
 
@@ -91,7 +94,7 @@ pub async fn generate_pair_invite(
     net: State<'_, NetManagerState>,
     local_only: Option<bool>,
 ) -> AppResult<String> {
-    // 身份「还没就绪」不是「读写身份失败」——用户的正确动作是重启应用，不是去查钥匙串。
+    // 身份「还没就绪」不是「读写身份失败」——用户的正确动作是重启应用，不是去查身份文件。
     let secret = app
         .try_state::<SecretKey>()
         .ok_or_else(AppError::identity_not_ready)?
@@ -104,9 +107,9 @@ pub async fn generate_pair_invite(
     };
     // display 名取 `PairingManager` 持有的本机 OsInfo（组合根从 DeviceConfig 端口装配），
     // 此处不再另传一份 `OsInfo::default()` —— 那正是邀请卡上恒显示占位主机名的成因。
-    with_manager!(net, |m| AppResult::Ok(
-        m.pairing().encode_invite(&secret, policy).await
-    ))
+    //
+    // 本机零可拨地址时这里会以 `NoDialableAddrs` 失败，而不是交出一张拨不动的码。
+    with_manager!(net, |m| m.pairing().encode_invite(&secret, policy).await)
 }
 
 /// 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
@@ -198,7 +201,7 @@ fn parse_invite_id(text: &str) -> AppResult<[u8; 32]> {
 /// 配对成功后由 core 落盘并 emit `paired-device-added`。
 ///
 /// 返回 [`PairingOutcome`]：`response` 是对端的答复，`persisted` 为 `false` 时表示
-/// **配对成功了但这条记录没写进钥匙串** —— 本次运行内可用，重启后这台设备会从列表消失
+/// **配对成功了但这条记录没落盘** —— 本次运行内可用，重启后这台设备会从列表消失
 /// （对端仍记着）。UI 必须如实告知，不能当成普通成功。
 #[tauri::command]
 #[specta::specta]
@@ -340,7 +343,7 @@ pub async fn update_paired_device_policy(
 ///
 /// 接受后由 core 落盘并 emit `paired-device-added` 事件通知前端。
 ///
-/// **返回是否已落盘**（响应本身是入参，不必回传）：`false` = 配对成功但记录没写进钥匙串，
+/// **返回是否已落盘**（响应本身是入参，不必回传）：`false` = 配对成功但记录没落盘，
 /// 重启后这台设备会不见（对端仍记着）。语义与 [`PairingOutcome::persisted`] 同。
 #[tauri::command]
 #[specta::specta]

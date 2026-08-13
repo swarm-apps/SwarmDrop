@@ -60,7 +60,7 @@ async fn wait_webrtc_direct_addrs(endpoint: &Endpoint) -> Vec<Addr> {
 async fn webrtc_direct_listener_and_stable_certhash() {
     init_tracing();
 
-    // 持久化证书：两次 bind 的 certhash 必须一致（模拟 keychain 存量）
+    // 持久化证书：两次 bind 的 certhash 必须一致（模拟身份存储里的存量）
     let cert_pem = swarmdrop_net::generate_webrtc_certificate_pem().expect("generate cert");
 
     let mut hashes = Vec::new();
@@ -140,4 +140,56 @@ async fn dial_own_webrtc_direct_listen_addr() {
     router.shutdown().await;
     server.close().await;
     client.close().await;
+}
+
+/// **删除 `webrtc_direct_addr_from_pem` 的前提**：`external_ip` 映射出来的公网地址必须
+/// 带着与监听地址逐字相同的 certhash。
+///
+/// 那个函数曾是「从 PEM 第二次派生 certhash」的独立路径，公网 bootstrap 靠它静态声明
+/// webrtc-direct 公网地址。改成从监听地址映射之后，如果监听地址**不带** certhash（或
+/// 映射把它吃掉了），bootstrap 就会通告一条浏览器根本拨不通的地址——而这件事没有任何
+/// 报错，浏览器只是连不上而已。这条测试是那个假设的唯一证据。
+#[tokio::test]
+async fn external_ip_mapping_carries_the_listener_certhash() {
+    init_tracing();
+
+    let public_ip = "203.0.113.10";
+    let endpoint = Endpoint::builder()
+        .listen(vec![
+            "/ip4/127.0.0.1/udp/0/webrtc-direct".parse().expect("valid"),
+        ])
+        .external_ip(public_ip.parse().expect("valid ip"))
+        .bind()
+        .await
+        .expect("bind");
+
+    let listen_hash =
+        certhash_of(&wait_webrtc_direct_addrs(&endpoint).await).expect("监听地址必须带 certhash");
+
+    let mut watcher = endpoint.watch_addrs();
+    let external = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let external = watcher.get().external;
+            if certhash_of(&external).is_some() {
+                return external;
+            }
+            watcher.updated().await.expect("watch closed");
+        }
+    })
+    .await
+    .expect("公网地址里始终没出现 webrtc-direct");
+
+    assert_eq!(
+        certhash_of(&external).as_deref(),
+        Some(listen_hash.as_str()),
+        "映射出来的公网地址必须带监听地址那个 certhash：{external:?}"
+    );
+    assert!(
+        external
+            .iter()
+            .any(|a| a.to_string().starts_with(&format!("/ip4/{public_ip}/udp/"))),
+        "公网地址的 IP 段必须是配置的公网 IP：{external:?}"
+    );
+
+    endpoint.close().await;
 }

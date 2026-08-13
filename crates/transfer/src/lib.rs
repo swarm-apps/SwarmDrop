@@ -18,6 +18,7 @@ pub mod incoming;
 pub mod manager;
 pub mod peer;
 pub mod policy;
+pub(crate) mod probe;
 pub mod progress;
 pub mod protocol;
 pub mod runtime;
@@ -71,12 +72,64 @@ pub fn expired_receive_reason(retention_secs: u64) -> crate::failure::FailureCod
     }
 }
 
+/// `[offset, end)` 是否落在传输块边界上（尾块可以短）。
+///
+/// # 这条判据有四个消费者，必须只有一份
+///
+/// 两道协商阶段的关（**计划级**，一次计划校验一次）：
+///
+/// 1. 接收侧 `actor::receiver::ReceiverActor::validate_fetch_plan` —— 对端 Hello 里的计划；
+/// 2. 发送侧 `flow::resume::validation::validate_fetch_plan` —— 对端 `ResumeCommit` 的计划。
+///
+/// 两道数据面的防御（**块级**，兜住协商没拦住的）：
+///
+/// 3. 接收侧 `actor::checkpoint::validate_block_range` —— 入站 `BlockData` 的 range；
+/// 4. `bao::encode_proof` —— 生成证明前的前置条件。
+///
+/// 三者恒等，因为 [`bao::BLOCK_SIZE`](crate::bao::BLOCK_SIZE) 就是从 [`CHUNK_SIZE`]
+/// 推导的（每个传输块恰好一个验签叶子）。**chunk group 与传输块对齐之前它们不恒等**
+/// ——那时 group 是 16 KiB，非对齐输入有 16 倍冗余可以蒙混过去，于是 (2) 一直缺着都没
+/// 人发现：对端提交一个非对齐 offset 的续传计划，本端会接受、建 actor、开流、读盘，
+/// 一路走到 (3) 才抛一句泛型错误 → abort → Interrupted → 对端拿同一个计划再来一次。
+/// 冗余归零之后，那个洞必须在协商阶段就堵上。
+pub fn is_chunk_aligned_range(offset: u64, end: u64, file_size: u64) -> bool {
+    let chunk = CHUNK_SIZE as u64;
+    offset.is_multiple_of(chunk) && (end.is_multiple_of(chunk) || end == file_size)
+}
+
 /// 计算文件总分块数。
 pub fn calc_total_chunks(file_size: u64) -> u32 {
     if file_size == 0 {
         return 1;
     }
     file_size.div_ceil(CHUNK_SIZE as u64) as u32
+}
+
+/// 把一条 `fetch_plan` range 展开成逐个传输块的 `(offset, length)`。
+///
+/// **`length == 0` 产出恰好一个空块**，那是零字节文件唯一的块（`full_fetch_plan` 会为
+/// `size == 0` 的文件给出一条长度为 0 的 range，对端据此建 sink 并发布）。
+///
+/// 这条规则在整个定义域上成立，**前提是非空文件的零长 range 已在协商阶段被拒**——
+/// 收发两侧的 `validate_fetch_plan` 各有一条 `file.size > 0 && length == 0` ⇒ 拒。
+/// 少了那道关，这里就会为一个非空文件产出一个空块，接收端收到后既写不进东西也推不动
+/// bitmap，会话卡在「对端说发完了、位图却不完整」上。
+///
+/// `offset + length` 不得溢出（同样由协商阶段的校验保证）——**故意不 `pub`**：
+/// 前置条件与它的守卫都住在本 crate 内，暴露出去就成了一条只能靠文档维系的约定。
+pub(crate) fn blocks_in_range(offset: u64, length: u64) -> impl Iterator<Item = (u64, usize)> {
+    let chunk = CHUNK_SIZE as u64;
+    // 零长 ⇒ `div_ceil` 给 0，而那正是必须产出一个空块的情形，单列。
+    let count = if length == 0 {
+        1
+    } else {
+        length.div_ceil(chunk)
+    };
+    (0..count).map(move |index| {
+        let consumed = index * chunk;
+        let len = (length - consumed).min(chunk) as usize;
+        (offset + consumed, len)
+    })
 }
 
 /// 尽力清理过期回收会话遗留的 `.part` 文件。
@@ -120,4 +173,79 @@ pub struct HostEnumeratedFile {
     pub name: String,
     pub relative_path: String,
     pub size: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn blocks(offset: u64, length: u64) -> Vec<(u64, usize)> {
+        blocks_in_range(offset, length).collect()
+    }
+
+    #[test]
+    fn splits_a_range_on_chunk_boundaries() {
+        let chunk = CHUNK_SIZE as u64;
+        assert_eq!(blocks(0, chunk), vec![(0, CHUNK_SIZE)]);
+        assert_eq!(
+            blocks(0, chunk * 3),
+            vec![
+                (0, CHUNK_SIZE),
+                (chunk, CHUNK_SIZE),
+                (chunk * 2, CHUNK_SIZE)
+            ]
+        );
+        // 续传的 range 不从 0 起：块边界跟着 range 的起点走。
+        assert_eq!(
+            blocks(chunk * 2, chunk * 2),
+            vec![(chunk * 2, CHUNK_SIZE), (chunk * 3, CHUNK_SIZE)]
+        );
+    }
+
+    #[test]
+    fn last_block_may_be_short() {
+        let chunk = CHUNK_SIZE as u64;
+        assert_eq!(
+            blocks(0, chunk + 777),
+            vec![(0, CHUNK_SIZE), (chunk, 777)],
+            "尾块短于 CHUNK_SIZE 是合法的（文件末尾）"
+        );
+        assert_eq!(blocks(0, 1), vec![(0, 1)]);
+    }
+
+    /// 零长 range 产出**恰好一个**空块，而不是零个。
+    ///
+    /// 零个的后果是零字节文件永远等不到自己的块：接收端不会为它建 sink、也不会
+    /// 发布，而 `ensure_files_complete` 对 `size == 0` 直接放行 —— 会话报完成，
+    /// 文件却从未落地。
+    #[test]
+    fn zero_length_range_yields_exactly_one_empty_block() {
+        assert_eq!(blocks(0, 0), vec![(0, 0)]);
+    }
+
+    /// 非零长 range 绝不产出空块。
+    ///
+    /// 空块会让接收端的 bitmap 推不动，而对端已经把这一块算作发过了。
+    #[test]
+    fn non_empty_range_never_yields_an_empty_block() {
+        let chunk = CHUNK_SIZE as u64;
+        for length in [1, chunk - 1, chunk, chunk + 1, chunk * 4 + 3] {
+            assert!(
+                blocks(0, length).iter().all(|(_, len)| *len > 0),
+                "length={length} 产出了空块"
+            );
+        }
+    }
+
+    #[test]
+    fn block_lengths_sum_back_to_the_range() {
+        let chunk = CHUNK_SIZE as u64;
+        for length in [1, chunk, chunk * 5 + 12_345] {
+            let total: u64 = blocks(chunk * 7, length)
+                .iter()
+                .map(|(_, l)| *l as u64)
+                .sum();
+            assert_eq!(total, length, "切分不得增删字节");
+        }
+    }
 }

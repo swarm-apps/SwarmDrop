@@ -1,5 +1,5 @@
 import { Download, FileText, Loader2 } from "lucide-react";
-import { type ReactNode, useEffect } from "react";
+import type { ReactNode } from "react";
 import { ReleaseNotesView } from "@/components/release-notes-view";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { useUpdate } from "@/hooks/use-update";
+import { progressView } from "@/lib/update-dialog-visibility";
 import { resolveUpdateTexts, type UpdateLocale, type UpdateTexts } from "@/lib/update-texts";
 
 export interface PromptUpdateDialogProps {
@@ -38,21 +39,19 @@ export function PromptUpdateDialog({
 
   const isDownloading = status === "downloading";
   const isReady = status === "ready";
-  const busy = isDownloading || isReady;
-
-  // 下载完成(ready)→ 自动安装 + 重启(复刻蓝本的一体 UX)。
-  useEffect(() => {
-    if (status === "ready") void install();
-  }, [status, install]);
 
   // 任意方式关闭弹窗(Esc / 点遮罩 / Close X / 「稍后」按钮)都记一次 postpone(),避免下次 window
-  // focus 复核时立刻重弹;busy(下载中 / ready)时只隐藏 UI、不 postpone。
+  // focus 复核时立刻重弹;下载中 / ready 时只隐藏 UI、不 postpone。
   const handleOpenChange = (next: boolean) => {
-    if (!next && !busy) void postpone();
+    if (!next && !isDownloading && !isReady) void postpone();
     onOpenChange(next);
   };
 
-  const percent = progress ? Math.round(progress.percent * 100) : 0;
+  // **ready 的主按钮必须可点**(No Dead End 规则):安装失败或被取消后,它是用户唯一的
+  // 重试入口。从前它与 downloading 共用一个 disabled 判据,于是一旦停在 ready 就没救了。
+  const onAction = isReady ? install : download;
+
+  const { percent, speedMb } = progressView(status, progress);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -86,25 +85,27 @@ export function PromptUpdateDialog({
             <Progress value={percent} />
             <div className="flex justify-between text-xs text-muted-foreground">
               <span>{percent}%</span>
-              {progress.speed ? (
-                <span>{(progress.speed / 1024 / 1024).toFixed(1)} MB/s</span>
-              ) : null}
+              {speedMb ? <span>{speedMb} MB/s</span> : null}
             </div>
           </div>
         )}
 
         <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={busy}>
+          <Button
+            variant="outline"
+            onClick={() => handleOpenChange(false)}
+            disabled={isDownloading}
+          >
             {t.laterButton}
           </Button>
-          <Button onClick={() => void download()} disabled={busy}>
+          <Button onClick={() => void onAction()} disabled={isDownloading}>
             {isDownloading ? (
               <>
                 <Loader2 className="mr-2 size-4 animate-spin" />
                 {t.downloadingButton}
               </>
             ) : isReady ? (
-              t.restartingButton
+              t.installButton
             ) : (
               t.updateButton
             )}

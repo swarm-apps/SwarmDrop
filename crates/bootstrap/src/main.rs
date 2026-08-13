@@ -35,12 +35,27 @@ enum Command {
         /// 给浏览器使用的 WebRTC Direct UDP 监听端口。
         #[arg(long, env = "SWARM_BOOTSTRAP_WEBRTC_PORT", default_value_t = 4003)]
         webrtc_port: u16,
+        /// 给浏览器使用的 WebTransport UDP 监听端口。
+        ///
+        /// **独占端口，与 4003 并存**：两条浏览器入口同时提供，可对比吞吐后再决定
+        /// 是否下线 webrtc-direct。
+        #[arg(
+            long,
+            env = "SWARM_BOOTSTRAP_WEBTRANSPORT_PORT",
+            default_value_t = 4004
+        )]
+        webtransport_port: u16,
         /// 身份密钥文件；默认在二进制所在目录创建 identity.key。
         #[arg(long, env = "SWARM_BOOTSTRAP_KEY_FILE")]
         key_file: Option<PathBuf>,
         /// WebRTC Direct 证书文件；默认与身份密钥同目录的 webrtc.pem。
         #[arg(long, env = "SWARM_BOOTSTRAP_WEBRTC_CERT_FILE")]
         webrtc_cert_file: Option<PathBuf>,
+        /// WebTransport 证书对文件；默认与身份密钥同目录的 webtransport.pem。
+        ///
+        /// 与 webrtc.pem 不同，**这个文件会被周期性重写**（证书每 14 天轮换一次）。
+        #[arg(long, env = "SWARM_BOOTSTRAP_WEBTRANSPORT_CERT_FILE")]
+        webtransport_cert_file: Option<PathBuf>,
         /// 监听 IP 地址。
         #[arg(long, env = "SWARM_BOOTSTRAP_LISTEN_IP", default_value = "0.0.0.0")]
         listen_ip: IpAddr,
@@ -86,6 +101,10 @@ fn resolve_webrtc_cert_file(cert_file: Option<PathBuf>, key_file: &Path) -> Path
     cert_file.unwrap_or_else(|| key_file.with_file_name("webrtc.pem"))
 }
 
+fn resolve_webtransport_cert_file(cert_file: Option<PathBuf>, key_file: &Path) -> PathBuf {
+    cert_file.unwrap_or_else(|| key_file.with_file_name("webtransport.pem"))
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
@@ -97,8 +116,10 @@ fn main() -> Result<()> {
             tcp_port,
             quic_port,
             webrtc_port,
+            webtransport_port,
             key_file,
             webrtc_cert_file,
+            webtransport_cert_file,
             listen_ip,
             external_ip,
             idle_timeout_secs,
@@ -125,6 +146,12 @@ fn main() -> Result<()> {
             let secret_key = util::identity::load_or_generate_secret_key(&key_file)?;
             let webrtc_certificate_pem =
                 util::identity::load_or_generate_webrtc_certificate(&cert_file)?;
+            // WebTransport 走端口而不是「读一份 PEM」：证书每 14 天轮换、内核要回写。
+            // 实现是三端共用的那份（原子写 + 0600 + 读失败不降级），bootstrap 不另写。
+            let webtransport_store =
+                std::sync::Arc::new(swarmdrop_net::WebTransportFileCertificateStore::new(
+                    resolve_webtransport_cert_file(webtransport_cert_file, &key_file),
+                ));
             let relay_limits = RelayServerConfig {
                 max_reservations,
                 max_reservations_per_peer,
@@ -150,6 +177,8 @@ fn main() -> Result<()> {
                     tcp_port,
                     quic_port,
                     webrtc_port,
+                    webtransport_port,
+                    webtransport_store,
                     idle_timeout: Duration::from_secs(idle_timeout_secs),
                     relay_limits,
                 }))?;

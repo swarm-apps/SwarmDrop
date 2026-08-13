@@ -76,9 +76,88 @@ html:not(.dark) {
 
 ### 连接类型徽章三色保持语义可辨
 
-设备卡的连接类型徽章是语义状态色，不跟品牌色走：局域网=green、打洞=sky、中继=amber。品牌主色现在也是青绿色，任何新的 success/online 语义用法都要先确认与 `text-brand` / `bg-primary` 拉得开距离；赤铜只留给 logo/品牌小点缀，不参与状态编码。
+设备卡的连接类型徽章是语义状态色，不跟品牌色走：局域网=`success`、打洞=`info`、中继=`warning`
+（分别是 green / sky / amber 的 token 形态）。品牌主色现在也是青绿色，任何新的 success/online
+语义用法都要先确认与 `text-brand` / `bg-primary` 拉得开距离；赤铜只留给 logo/品牌小点缀，
+不参与状态编码。
 
-**相关文件**：`src/routes/_app/devices/-components/device-card.tsx`（`connectionConfig`）
+**`--info` 是 2026-08-07 才有的**。此前 sky 这一档三端谁都没 token：桌面写 `sky-100/sky-600`、
+Web 写 `sky-500/12`、移动索性改用 `primary`——于是「打洞」在手机上是青绿、另两端是天蓝，
+而且把品牌色借给了一个非品牌含义。它**只服务这一组三色**，别处再冒出「信息蓝」就是第二个
+强调色，One Accent Rule 依旧拦着。
+
+**相关文件**：`src/routes/_app/devices/-components/connection-badge.tsx`（`connectionConfig`）、
+`docs/app/app/_lib/device-presentation.ts`（`CONNECTION_META`）、
+`mobile/src/components/connection-badge.tsx`
+
+### 桌面此前整个缺 success / warning / -ink token（2026-08-07 补齐）
+
+`DESIGN.md` 的 State Ink Rule 从 2026-08-04 起就写着「三端都已采纳」，但 `src/index.css` 里
+**一个 `--success` / `--warning` / `-ink` 都没有**。桌面代码不是不守规矩，是无处可守：
+19 个文件、159 处 Tailwind 调色板直用（在线 `text-green-600`、暂停 `bg-amber-100`、
+分段选中态 `bg-zinc-950 text-white`），同一句「在线」在三端是三个绿。
+
+现在桌面 `src/index.css` 与 `docs/app/global.css` 的这组值**逐字相同**，移动端是同一组的 HSL
+写法。改一个值必须三份一起动。
+
+**正确做法**：
+- **大色块**填充 / 圆点 → `bg-success` `bg-warning` `bg-destructive` `bg-info`（常配 `/12`~`/15`）
+- 任何**文字** → `text-success-ink` / `text-warning-ink` / `text-destructive-ink` / `text-info-ink`
+- **图标、以及要跟浅底分清的细填充（进度条填充等）→ 也用 `-ink`**，见下条
+
+#### `-ink` 的适用面比「文字」大：图标和细填充也要用（2026-08-10 实测修正）
+
+上面那条原先把**图标**归在「填充」一侧，写作 `bg-warning`/`color={colors.warning}`。
+实测下来那是错的——琥珀原色在亮色下根本够不上 WCAG 2.2 SC 1.4.11 对非文本内容的 3:1：
+
+| 组合（亮 / 暗） | `--warning` 原色 | `--warning-ink` |
+|---|---|---|
+| 图标 vs 卡片底 | **2.14** ❌ / 9.85 | 5.05 ✓ / 8.90 |
+| 进度条填充 vs 自身 20% 轨道 | **1.83** ❌ / 6.03 | 4.33 ✓ / 5.45 |
+| 进度条填充 vs `bg-muted` 轨道 | **1.96** ❌ / 8.29 | 4.63 ✓ / 7.50 |
+
+`src/index.css` 顶部那条注释其实早就说了「状态色本身当小字过不了 AA——白底上 warning
+只有 2.13:1」，只是当时只把结论用在了「文字」上。**图标是靠形状识别的小图形，和小字
+一样吃不住 2:1 的对比**；细填充同理。
+
+⚠️ **暗色两边都过（6~10:1），只看暗色主题会以为没事。** 本仓的琥珀档在移动端就这么错了
+一整个版本（暂停态的进度条填充 + `CirclePause` 图标都用原色），2026-08-10 才被算出来。
+
+**例外**：装饰性图标不受此约束——`folder-row.tsx` 那个黄色文件夹图标用的就是原色，
+它靠**形状**表意（"这是个文件夹"），颜色只是惯例，不承载「必须看清」的信息。
+判据是「这个颜色一旦看不清，用户会漏掉什么信息吗」。
+
+**相关文件**：`packages/file-browser/src/progress.tsx`、
+`mobile/src/components/transfer/shared.tsx`、`mobile/src/hooks/useThemeColors.ts`
+- token 自己随主题切换，**不要再写 `dark:` 分支**——原先那种 `bg-green-100 dark:bg-green-500/15`
+  的双份写法是硬编码时代的产物，token 化后是纯噪音
+
+**不要做**：`text-green-600` / `bg-amber-100` / `bg-zinc-950` / `bg-foreground text-background`。
+最后那个尤其隐蔽——它在浅色下是一块纯黑，会比同屏的主 CTA 还抢眼（引导节点的 Multiaddr
+徽标、附近设备的「发送」按钮、分段控件选中态都栽在这上面）。
+
+**三处例外**（都是刻意的「主题真空区」，各自带注释）：二维码白卡、相机扫码屏、
+设置页的主题预览缩略图——它们画的是「一张白纸 / 一块取景框 / 一个主题的样子」，
+跟着主题变反而错。
+
+**相关文件**：`src/index.css`、`docs/app/global.css`、`mobile/src/global.css`
+
+### 三端同一概念必须同一个图标（2026-08-07 立表）
+
+`DESIGN.md` 的 "Section names are cross-platform" 一直写着「同名同图标」，但没人对过表。
+一次全扫的结果：传输在桌面是 `ArrowRightLeft`、另两端是镜像的 `ArrowLeftRight`，移动的传输记录
+空态干脆是 `Activity`；收件箱三个空态在移动端画成 `FileArchive`（一个压缩包）；「发送」在移动端
+是 `SendHorizontal`；传输方向三端凑出**四套**箭头（移动端自己内部就有两套）。
+
+完整绑定表在 `DESIGN.md` 的「The icon table」，改一处就是改三处。两条容易踩的：
+
+- **通用文件图标是 `File` 不是 `FileArchive`**。共享映射在
+  `packages/file-browser/src/file-icon.ts`（桌面 + Web）与
+  `mobile/src/components/file-browser/file-icon.ts`；收件箱详情页曾**另写一份**三档映射，
+  fallback 给了压缩包图标。要用就 import 现成的，别再抄一份。
+- **`Github` 在 `lucide-react-native` 里不存在**。lucide 已把品牌图标移出核心集，
+  `lucide-react` 那个是尚存的 deprecated 别名。移动端因此用 `Code`，这是库能力差异，
+  代码里有注释，别「修」回去。
 
 ## 窗口装饰 (macOS)
 
@@ -155,6 +234,26 @@ babel 宏认的是**词法作用域**里的 `const { t } = useLingui()`，`t` �
 展开。三端同一个写法（`src/components/.../transfer-labels`、Web 的 `_lib/view-types.ts`、
 移动的 `file-row.tsx`）。
 
+### 枚举 → 文案**不许写三元链**，也不许留 `default`（2026-08-08 实测踩过）
+
+多于两个分支时一律走上面那张 `Record` 表；需要逻辑分支时用 `switch` 且**逐个变体列出、
+不写 `default`**。两分支的布尔三元（`ok ? t\`是\` : t\`否\``）不在此列。
+
+**为什么不是审美**：三元链和 `default` 都天然带一个兜底分支，新增枚举变体时**静默**落进
+兜底而不是编译报错。`BootstrapCandidateSource` 从两个变体长到三个之后，`learned` 在**三处**
+同时掉进兜底：
+
+- `stop-node-sheet.tsx` 的 `relaySourceLabel`（两级三元 + `null`）→ 渲染成「等待中」，
+  于是中继明明 `Active`、界面却说它还没就绪；（该文件已于 2026-08-08 与 `StartNodeSheet`
+  合并为 `src/components/network/node-status-sheet.tsx`，判例本身不变）
+- 移动 `network.tsx` / `node-control-sheet.tsx` 的两个 `switch` 有 `default`
+  → `learned` 被显示成「配置节点」，归因是错的；而它们各自的 `default` 分支
+  （本来写着「公网」，正是给 `learned` 准备的）**永不可达**，成了死代码；
+- 更早一层：`candidateSourceKey` 的 `default` 把 `Learned` 和 `HostConfigured` 折成同一个
+  返回值，于是两种来源同时在列表里时 React `key` 直接碰撞。
+
+`Record<Enum, T>` 在类型上要求键齐全，加变体即编译期红——这三处一处都不会漏。
+
 ## Zustand selector 与派生数组
 
 ### filter / map 派生值必须套 useShallow
@@ -196,6 +295,54 @@ const update = () => {
 值不变时**返回同一份引用**让 bailout 继续生效（过期后定时器照跑，但不空转重渲）。
 
 **相关文件**：`src/hooks/use-countdown.ts`
+
+### 一次性的启动意图不能写成依赖状态的 effect（2026-08-11 实锤：用户停不掉节点）
+
+桌面「自动启动节点」曾是这样：
+
+```tsx
+// src/routes/_app.tsx —— 注释写着「首次进入时检查」，代码不是
+useEffect(() => {
+  if (autoStart && networkStatus === "stopped") void startNetwork();
+}, [autoStart, networkStatus, startNetwork]);   // ← networkStatus 在依赖里
+```
+
+`stopNetwork()` 的最后一步正是 `set({ status: "stopped" })`，于是这个 effect 立刻重新命中
+条件、把节点拉回去——**开关打开时「已停止」是一个不可达状态**，用户点停止只看到状态一闪
+就回。一个一次性的意图被实现成了 `stopped → running` 的**持续收敛环**。
+
+**判据**：问这句话——「这个 effect 表达的是**一次动作**还是**一条不变量**？」
+
+| 意图 | 正确形态 |
+|---|---|
+| 「启动时做一次 X」 | 冷启动序列里命令式调一次（`src/main.tsx`），**不订阅任何状态** |
+| 「只要 A 就必须 B」 | 才是收敛环，effect 依赖 A 是对的 |
+
+「自动启动」是前者：设置文案（「解锁后自动启动」）说的是下次启动的行为，不是「保持在线」。
+后者是另一个需求（掉线自动重连），要做得先改文案。
+
+**顺带**：这个 effect 还让 `useNodeRestart.restart()`（`await stopNetwork()` →
+`await startNetwork()`）一直在空转——stop 落地时 effect 抢先启动，restart 自己那次撞上
+`status === "starting"` 的幂等门禁直接返回 `true`，真正生效的是 effect 那次。**幂等门禁会
+掩盖这类竞态**，它不红不报，只是让你以为编排是自己写的那份。
+
+三端对照（本次让桌面回到同一形态）：Web 是空依赖 `useEffect`
+（`docs/app/app/_components/web-node-bootstrap.tsx`），移动端在冷启动序列里命令式读一次
+（`mobile/src/stores/mobile-core-store.ts`）。
+
+护栏是 **`pnpm check:node-lifecycle`**（`scripts/check-node-lifecycle.mjs`）：扫 `src/` 与
+`docs/app/app`，禁止 `useEffect` 内出现启停调用。禁的是**响应式**调用而不是「组件调启停」
+——用户点「停止节点」按钮当然要调，那是事件处理器，一次点击一次调用。
+
+> 这条护栏的形态换过两次，过程本身是判据：先写成 `renderHook` 测 `restart()`（测不到真正
+> 的回归源，因为它不渲染布局），再写成单测里 `readFileSync("_app.tsx")` + 正则（**只扫一个
+> 文件**——同一个环长在别处照绿，而注释读起来像已经全覆盖了）。换成脚本后**第一次跑就抓到
+> 了第二个实例**（`share-target.lazy.tsx`，那处有 ref 守卫且产品语义要求启动，已白名单）。
+> 教训：跨文件的架构约束归 `pnpm check:*`，不归单测——**部分覆盖的护栏比没有护栏更糟**，
+> 它会让人以为这件事已经有人管了。
+
+**相关文件**：`src/stores/network-store.ts`（`autoStartNodeIfEnabled`）、`src/main.tsx`、
+`src/routes/_app.tsx`、`scripts/check-node-lifecycle.mjs`
 
 ### 弹窗 seeding effect 别依赖整个 store 对象（否则弹窗内改 store 会冲掉编辑态）
 
@@ -485,4 +632,4 @@ timeout，有的只 toast），需先统一语义再抽。
 
 **Zustand 派生别踩坑**：selector 只取稳定的 `s.networkStatus` 引用，`filter/map` 放 `useMemo` 里——直接在 selector 里派生数组每次返回新引用会无限 re-render（见本文件「Zustand selector 与派生数组」）。
 
-**相关文件**：`src/components/network/lan-helper-address.tsx`（`LanHelperAddress` + `useLanHelperAddresses`），装配在 `stop-node-sheet.tsx`（首页状态弹窗）和 `settings/-network-settings-section.tsx`
+**相关文件**：`src/components/network/lan-helper-address.tsx`（`LanHelperAddress` + `useLanHelperAddresses`），装配在 `node-status-sheet.tsx`（节点状态面的诊断层）和 `settings/-network-settings-section.tsx`

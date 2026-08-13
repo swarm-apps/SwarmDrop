@@ -6,9 +6,12 @@ import { InviteQr } from "./invite-qr";
 
 const inviteQrSvg = vi.fn();
 
+// ⚠️ **两个参数都要转发。** 第一版写成 `(invite) => inviteQrSvg(invite)`，于是组件传没传
+// `facePx`、传的是码面还是外框，测试一律绿——而那个数是后端的地址预算，传错的症状只有
+// 真机扫不出来。
 vi.mock("@/lib/bindings", () => ({
   commands: {
-    inviteQrSvg: (invite: string) => inviteQrSvg(invite),
+    inviteQrSvg: (invite: string, facePx: number) => inviteQrSvg(invite, facePx),
   },
 }));
 
@@ -29,6 +32,26 @@ describe("InviteQr 状态呈现", () => {
     const image = await screen.findByRole("img");
     expect(image.getAttribute("aria-label")).toBeTruthy();
     expect(image.querySelector("svg")).not.toBeNull();
+  });
+
+  it("把码面边长（不是白卡外框）传给后端——它同时是地址预算", async () => {
+    inviteQrSvg.mockResolvedValue("<svg><rect /></svg>");
+    renderQr(<InviteQr invite="sd:abc" size={240} />);
+
+    await waitFor(() => expect(inviteQrSvg).toHaveBeenCalledWith("sd:abc", 240));
+  });
+
+  it("尺寸变了要重新问一次后端——预算跟着码面走", async () => {
+    inviteQrSvg.mockResolvedValue("<svg><rect /></svg>");
+    const { rerender } = renderQr(<InviteQr invite="sd:abc" size={240} />);
+    await waitFor(() => expect(inviteQrSvg).toHaveBeenCalledWith("sd:abc", 240));
+
+    rerender(
+      <I18nProvider i18n={i18n}>
+        <InviteQr invite="sd:abc" size={196} />
+      </I18nProvider>,
+    );
+    await waitFor(() => expect(inviteQrSvg).toHaveBeenCalledWith("sd:abc", 196));
   });
 
   it("过期时保留码面但压暗到扫不动，状态就地说明", async () => {

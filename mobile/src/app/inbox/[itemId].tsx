@@ -1,7 +1,12 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { File } from "expo-file-system";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useVideoPlayer, VideoView } from "expo-video";
+import {
+  useFocusEffect,
+  useLocalSearchParams,
+  useNavigation,
+  useRouter,
+} from "expo-router";
+import { useVideoPlayer, type VideoPlayer, VideoView } from "expo-video";
 import {
   Archive,
   ArchiveRestore,
@@ -12,19 +17,19 @@ import {
   Database,
   ExternalLink,
   Eye,
-  FileArchive,
   FileText,
   FileWarning,
   FolderOpen,
-  Image as ImageIcon,
+  Inbox,
   type LucideIcon,
   MoreHorizontal,
   Package,
+  Send,
   Share2,
   Smartphone,
   Tag,
   Trash2,
-  Video,
+  TriangleAlert,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
@@ -38,6 +43,7 @@ import { useShallow } from "zustand/react/shallow";
 import {
   FileBrowser,
   type FileBrowserActions,
+  fileBrowserIcon,
   fromInboxFiles,
   inboxFileId,
   isImageFile,
@@ -57,6 +63,11 @@ import {
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
+import {
+  ensureAvailable,
+  isMissingFileError,
+  selectForwardable,
+} from "@/core/inbox-file-availability";
 import { canOpenSaveFolder } from "@/core/saf-intent";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { inboxItemTitle } from "@/lib/inbox-title";
@@ -65,6 +76,7 @@ import { openSaveFolderOrToast } from "@/lib/save-folder";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { type InboxFileEntry, useInboxStore } from "@/stores/inbox-store";
+import { useShareStore } from "@/stores/share-store";
 
 export default function InboxDetailScreen() {
   const { t } = useLingui();
@@ -101,6 +113,8 @@ export default function InboxDetailScreen() {
       markFileMissing: s.markFileMissing,
     })),
   );
+
+  const setSharedFiles = useShareStore((s) => s.setSharedFiles);
 
   useFocusEffect(
     useCallback(() => {
@@ -218,6 +232,40 @@ export default function InboxDetailScreen() {
     [itemId, markFileMissing, t],
   );
 
+  /**
+   * 转发到另一台设备 —— 复用「文件已定 → 挑设备」这条既有反向流（系统分享入口与
+   * 「重新发送」走的也是它），不新增传输概念。
+   *
+   * 在**发起前**筛掉已不在原位的文件：`prepareSend` 会为每个文件算 BLAKE3，一个死 URI
+   * 会让整批准备失败，而用户看到的错误与「哪个文件没了」毫无关系。
+   */
+  const forwardFiles = useCallback(
+    async (entries: readonly InboxFileEntry[]) => {
+      if (!itemId || entries.length === 0) return;
+      const { files, missing } = selectForwardable(entries);
+      // `allSettled` 而非串行 await：这些写彼此独立（store 用函数式 set，并发安全），
+      // 而串行版每次都会替换 `selectedDetail`、把整个文件列表重画一遍。
+      //
+      // 更要紧的是**不能让标记失败挡住转发**：`markFileMissing` 会 rethrow，串行 await
+      // 的第一次失败就会抛出整个 `forwardFiles`，而调用点是 `void forwardFiles(...)`
+      // ——用户看不到任何提示，转发也没发生。文件确实不在了这件事已经判定完毕，记录没
+      // 更新上不该改变结论。
+      await Promise.allSettled(
+        missing.map((entry) => markFileMissing(itemId, entry.id, true)),
+      );
+      if (files.length === 0) {
+        toast.error(t`文件已不在原位置`);
+        return;
+      }
+      if (missing.length > 0) {
+        toast.info(t`已跳过 ${missing.length} 个不在原位置的文件`);
+      }
+      setSharedFiles(files);
+      router.push("/send/share-target" as never);
+    },
+    [itemId, markFileMissing, setSharedFiles, router, t],
+  );
+
   // 「打开」= 让用户看到内容:iOS QuickLook / Android 系统应用。
   // 打不开(无处理应用)降级到分享面板 —— 至少能把文件带去别的应用,
   // 这也是分享路径仍然保留的原因(design R4)。
@@ -246,7 +294,8 @@ export default function InboxDetailScreen() {
   );
 
   // 打开文件夹:直接用记录的真实容器目录 rootPath(core 以 finalize_sink 的文件父目录
-  // URI 为事实源算出)。canOpenSaveFolder=false(Android 私有目录)时入口不渲染。
+  // URI 为事实源算出)。canOpenSaveFolder=false 时入口不渲染 —— 落点治本后这只剩
+  // 「历史记录里的旧形态 URI」一种情形，当前配置产出的落点两端都恒可打开。
   const folderTarget = detail?.item.rootPath ?? null;
   const canOpenFolder = folderTarget != null && canOpenSaveFolder(folderTarget);
   const openFolder = useCallback(() => {
@@ -274,6 +323,9 @@ export default function InboxDetailScreen() {
   }, [openFile, primaryFile]);
 
   const canShare = primaryFile != null && !primaryFile.missing;
+  // 整条记录级的转发：只要还有一个文件没被标记缺失就给入口，具体哪些能发由
+  // `selectForwardable` 在发起时逐个探活决定。
+  const canSend = (detail?.files ?? []).some((file) => !file.missing);
   const sharePrimaryFile = useCallback(() => {
     if (!primaryFile) return;
     void shareFile(primaryFile);
@@ -315,17 +367,28 @@ export default function InboxDetailScreen() {
         );
         if (file) void shareFile(file);
       },
+      sendItem: (item) => {
+        const file = detail?.files.find(
+          (candidate) =>
+            itemId && inboxFileId(itemId, candidate.id) === item.id,
+        );
+        if (file) void forwardFiles([file]);
+      },
     }),
-    [detail, itemId, openFile, shareFile],
+    [detail, itemId, openFile, shareFile, forwardFiles],
   );
 
   return (
-    <AppScreen testID="inbox-detail-screen" contentClassName="px-0 pb-0 pt-0">
-      <SettingsHeader
-        title={t`收件箱详情`}
-        right={detail ? <MoreButton onPress={openActionsSheet} /> : null}
-      />
-
+    <AppScreen
+      testID="inbox-detail-screen"
+      header={
+        <SettingsHeader
+          title={t`收件箱详情`}
+          right={detail ? <MoreButton onPress={openActionsSheet} /> : null}
+        />
+      }
+      bare
+    >
       {detailLoading && !detail ? (
         // 骨架屏镜像正常分支布局:类型 chip + 标题块 → 详情卡行
         <View
@@ -392,7 +455,7 @@ export default function InboxDetailScreen() {
             className="items-center gap-3 py-12"
             testID="inbox-detail-missing-state"
           >
-            <FileArchive color={colors.mutedForeground} size={30} />
+            <TriangleAlert color={colors.mutedForeground} size={30} />
             <Text className="text-[14px] font-semibold text-foreground">
               <Trans>收件箱记录不存在</Trans>
             </Text>
@@ -497,6 +560,12 @@ export default function InboxDetailScreen() {
           onShare={() =>
             runAfterSheetDismiss(() => {
               sharePrimaryFile();
+            })
+          }
+          canSend={canSend}
+          onSend={() =>
+            runAfterSheetDismiss(() => {
+              void forwardFiles(detail.files);
             })
           }
           onArchive={() =>
@@ -661,6 +730,8 @@ function InboxActionsSheet({
   canOpenFolder,
   canShare,
   onShare,
+  canSend,
+  onSend,
   onArchive,
   onOpenFolder,
   onOpenTransfer,
@@ -675,6 +746,8 @@ function InboxActionsSheet({
   canOpenFolder: boolean;
   canShare: boolean;
   onShare: () => void;
+  canSend: boolean;
+  onSend: () => void;
   onArchive: () => void;
   onOpenFolder: () => void;
   onOpenTransfer: () => void;
@@ -694,6 +767,17 @@ function InboxActionsSheet({
         </View>
 
         <View className="overflow-hidden rounded-lg border border-border bg-background">
+          {canSend ? (
+            <>
+              <SheetActionRow
+                icon={Send}
+                label={<Trans>发送到设备</Trans>}
+                onPress={onSend}
+                testID="inbox-detail-send-action"
+              />
+              <Divider />
+            </>
+          ) : null}
           {canShare ? (
             <>
               <SheetActionRow
@@ -859,14 +943,36 @@ function ImagePreview({ file }: { file: InboxFileEntry }) {
 
 /** 视频:同图片占大预览位,内联原生控制条,不自动播放(spec: Inline video playback)。 */
 function VideoPreview({ file }: { file: InboxFileEntry }) {
+  const navigation = useNavigation();
+
+  // ⚠️ 下面这个 effect **必须声明在 useVideoPlayer 之前**,这是整段的要害:
+  // cleanup 按 hook 声明顺序执行,声明在前 → destroy 先跑 → pause 打在**还活着**的 player 上。
+  // 顺序反过来(此前用 useFocusEffect 就是)则 useVideoPlayer 的 release 先执行,pause 撞上
+  // 已释放的 SharedObject,抛 NativeSharedObjectNotFoundException —— 补 ErrorBoundary 之前
+  // 那就是整个 App 闪退,症状是「打开带视频的收件箱条目,返回即崩」。
+  //
+  // 用 ref 间接持有 player 是这个顺序的代价:声明在前就没法直接闭包引用它(TDZ)。
+  // 换来的是两条路径都真实生效、且**不需要任何 try/catch**:
+  //   ① 路由失焦(app 内跳走,本屏仍挂载)—— 不暂停音频会跟到别的页面;
+  //   ② 卸载(返回,或 detail 刷新后不再渲染本组件)。
+  // ② 尤其不能省:expo-video 56 靠 release() 顺带停播,而 SDK 57 把这条性质回归掉了
+  // (native 对象活到 JS GC,expo/expo#47569),届时只剩这次 pause 能停住。
+  // 详见 knowledge/toolchain.md 的「expo-video 的停播依赖」。
+  const playerRef = useRef<VideoPlayer | null>(null);
+  useEffect(() => {
+    const pause = () => playerRef.current?.pause();
+    const unsubscribe = navigation.addListener("blur", pause);
+    return () => {
+      unsubscribe();
+      pause();
+    };
+  }, [navigation]);
+
   const player = useVideoPlayer(file.localPath);
-  // 路由失焦即暂停:expo-video 只在 app 退后台自动停,app 内导航跳走后
-  // 本屏仍挂载,不暂停的话音频会跟到别的页面。
-  useFocusEffect(
-    useCallback(() => {
-      return () => player.pause();
-    }, [player]),
-  );
+  useEffect(() => {
+    playerRef.current = player;
+  }, [player]);
+
   return (
     <View
       className="overflow-hidden rounded-lg border border-border bg-card"
@@ -968,8 +1074,8 @@ function TypeChip({
     : multi
       ? Package
       : primaryFile
-        ? fileIcon(primaryFile.name)
-        : FileArchive;
+        ? fileBrowserIcon(primaryFile.name)
+        : Inbox;
   return (
     <View
       className={cn(
@@ -1191,49 +1297,6 @@ function DetailLine({
   );
 }
 
-function ensureAvailable(file: InboxFileEntry): void {
-  if (file.missing) {
-    throw new MissingFileError();
-  }
-  // file:// 与 SAF content:// 都先查存在性：文件被删时在这里拦下并给「文件已
-  // 不在原位置」，而不是把死 URI 交给系统（打开失败我们拿不到信号）。
-  // 只有**明确查到不存在**才判缺失；查询本身抛错(provider 瞬时故障、授权状态
-  // 未知)不算——missing 是持久化且无解除路径的单向标记，一次抖动误判会永久锁死
-  // 好文件，宁可当普通错误让用户重试。
-  if (fileExists(file.localPath) === false) {
-    throw new MissingFileError();
-  }
-}
-
-/** expo-fs File 对 file:// 与 SAF document URI 都能查 exists。
- *  true=存在 / false=确定不存在 / null=查询失败(未知，不可判缺失)。 */
-function fileExists(localPath: string): boolean | null {
-  try {
-    return new File(localPath).exists;
-  } catch {
-    return null;
-  }
-}
-
-class MissingFileError extends Error {
-  constructor() {
-    super("missing inbox file");
-  }
-}
-
-function isMissingFileError(err: unknown, file: InboxFileEntry): boolean {
-  if (err instanceof MissingFileError) return true;
-  // 不靠错误文案判断（本地化 / 不同平台下英文子串会漏判）：复查文件是否还在原位。
-  // 同样只认「明确不存在」，查询失败不判缺失。
-  return fileExists(file.localPath) === false;
-}
-
-function fileIcon(name: string): LucideIcon {
-  if (isImageFile(name)) return ImageIcon;
-  if (isVideoFile(name)) return Video;
-  return FileArchive;
-}
-
 const detailStyles = StyleSheet.create({
   previewFrame: {
     aspectRatio: 1.08,
@@ -1243,3 +1306,6 @@ const detailStyles = StyleSheet.create({
     height: "100%",
   },
 });
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

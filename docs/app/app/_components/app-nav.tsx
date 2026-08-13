@@ -153,18 +153,28 @@ export function AppSidebar() {
              三枚并排时最长的状态词（"failed to start"）会溢出 32px，把第三枚图标切掉一半。
              实测数据与取舍写在 `rail-tools.tsx` 头部。图标档（64px 宽）横竖都放不下两个
              36px，仍竖排。
-          2. **左边线对齐。** 容器 `px-2.5`(10)：导航图标落在 8+12=20，状态点落在
+          2. **左边线对齐。** lg 档容器 `px-2.5`(10)：导航图标落在 8+12=20，状态点落在
              10+1(pill 边框)+10=21。实测 20/21，那 1px 是 pill 自己的描边，不值得为它写个
-             越界的 padding。动任一侧的 padding 都要重算这两个数。
+             越界的 padding。动 lg 档任一侧的 padding 都要重算这两个数。
+             （md 档是 `items-center` 的竖排，不吃这条；它的横向内边距另有算法，见下。）
           3. **不要退回 `items-stretch`。** 它曾是这里的写法，而 `<button>` 默认居中内容
              ——70px 的 pill 会被拉成 199px 的按钮再居中，圆点飘到 x=88，与上方导航图标
-             差了 66px。焦点环同样跟着整行走，与看得见的那 70px 对不上。这是本轮修的起点。 */}
-      <div className="flex shrink-0 flex-col gap-3 border-t px-2.5 py-3 md:items-center lg:flex-row lg:justify-between lg:gap-2">
-        {/* 图标档（768–1023）把 pill 收成 36×36 的正圆，与下面那枚菜单按钮同尺寸竖排对齐——
-            此前那一档是个 26×26、只剩边框没有文字的空胶囊，像没画完。 */}
+             差了 66px。焦点环同样跟着整行走，与看得见的那 70px 对不上。这是本轮修的起点。
+
+          md 档的横向内边距是 `px-1`(4) 而不是 `px-2.5`：状态**词**在那一档也必须出现
+          （契约信息位 1，理由见 `node-status-pill.tsx`），而 64px 的栏宽要挤出这个词，
+          能让的都得让——4px 的边距 + pill 自己的 2px 内边距 + 1px 描边，正好留下 50px 文字宽，
+          刚够最长的英文串。这一档没有左边线要对，让掉不亏。 */}
+      <div className="flex shrink-0 flex-col gap-3 border-t px-1 py-3 md:items-center lg:flex-row lg:justify-between lg:gap-2 lg:px-2.5">
+        {/* 图标档（768–1023）把 pill 收成 56px 宽的**竖排方块**：点在上、状态词在下，
+            同窄屏底部导航「图标 + 小标签」的排法。它此前是个 36×36 的正圆——只有一个裸色点，
+            契约明令不算数（`node-status-pill.tsx` 头部记了这笔）。56px = 栏宽 64 − 容器 px-1 两侧，
+            于是它与下面那枚 36×36 的菜单按钮共用一条中轴。
+            外框（焦点环 / hover 底色）随之从胶囊换成圆角方块，两者必须一起改。 */}
         <NodeStatusDialog
-          labelClassName="hidden lg:inline"
-          pillClassName="md:size-9 md:justify-center md:px-0 lg:h-auto lg:w-auto lg:justify-start lg:px-2.5"
+          labelClassName="md:text-[10px] md:leading-tight md:tracking-tight md:break-words lg:text-xs lg:tracking-normal"
+          pillClassName="md:w-14 md:flex-col md:gap-1 md:rounded-lg md:px-0.5 md:py-1.5 md:text-center lg:w-auto lg:flex-row lg:gap-1.5 lg:rounded-full lg:px-2.5 lg:py-1 lg:text-left"
+          triggerClassName="md:rounded-lg lg:rounded-full"
         />
         <RailTools />
       </div>

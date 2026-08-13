@@ -17,6 +17,9 @@ android/gradlew.bat
 android/local.properties
 android/settings.gradle
 android/gradle.properties
-SwarmdropCoreFramework.xcframework/ios-arm64/
-SwarmdropCoreFramework.xcframework/ios-arm64-simulator/
+# 整个 xcframework 都是本机构建产物,别只忽略 slice 目录:
+# `Info.plist` 描述的正是这些被忽略的 `.a`,单独跟踪它意味着 clone 下来会拿到一份
+# 「声明了两个 slice、底下却什么都没有」的元数据;而且它的内容随构建了哪些 target 变化
+# (少构一个模拟器架构就重写一次),会按机器 churn。
+SwarmdropCoreFramework.xcframework/
 android/src/main/jniLibs/

@@ -25,7 +25,16 @@ import { remainingLabel, remainingSeconds } from "../_lib/invite";
 import { useCopyToClipboard } from "../_lib/use-copy";
 import { getNode } from "../_lib/node-runtime";
 
-/** 码面边长（px）。手机扫描距离 20–30cm 下够用，也不至于把面板撑开。 */
+/**
+ * 码面边长（px）。手机扫描距离 20–30cm 下够用，也不至于把面板撑开。
+ *
+ * ⚠️ **它同时是后端的地址预算**：这个数直接传给 `invite_qr_svg`，wasm 侧按
+ * `QR_SIZE / 2px每模块` 决定这张码放得下几条地址提示，放不下时按价值反序回收
+ * （circuit 永不丢）。所以**改小它 = 邀请里的可拨路径变少**，不是渲染变糊。
+ *
+ * 以前这里还得手工与 Rust 侧一个 `INVITE_QR_MAX_MODULES = 98` 保持一致，且没有任何门禁
+ * 会拦——那条对应关系已经取消，各端传自己的数即可。链接不受影响：那条路径没有密度上限。
+ */
 const QR_SIZE = 196;
 /** 白卡内边距（px），须与下面的 `p-3` 一致——尺寸由它派生，改一处不会静默错位。 */
 const CARD_PADDING = 12;
@@ -85,7 +94,7 @@ export const InviteShare = memo(function InviteShare({
     if (invite === null) return null;
     try {
       // 空串不能进 `{__html}`——那个对象恒为真值，会渲染出一个既没码也没文字的空白卡。
-      const svg = getNode()?.invite_qr_svg(invite);
+      const svg = getNode()?.invite_qr_svg(invite, QR_SIZE);
       return svg ? { __html: svg } : null;
     } catch (e) {
       console.error("[web] 二维码生成失败", e);

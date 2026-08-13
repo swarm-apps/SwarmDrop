@@ -1,14 +1,16 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useRouter } from "expo-router";
-import { ArrowLeft, Smartphone } from "lucide-react-native";
+import { Smartphone } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { Pressable, TextInput, View } from "react-native";
+import { TextInput, View } from "react-native";
+import { HeaderBackButton } from "@/components/header-back-button";
 import {
   OnboardingButton,
   OnboardingDots,
   OnboardingScreen,
 } from "@/components/onboarding/onboarding-scaffold";
 import { Text } from "@/components/ui/text";
+import { nextRouteAfter } from "@/core/onboarding-flow";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import {
   applyDeviceName,
@@ -16,14 +18,12 @@ import {
   suggestedDeviceName,
 } from "@/lib/device-name";
 import { getErrorMessage } from "@/lib/errors";
-import { useOnboardingStore } from "@/stores/onboarding-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 
 export default function DeviceName() {
   const { t } = useLingui();
   const router = useRouter();
   const colors = useThemeColors();
-  const nextStep = useOnboardingStore((s) => s.nextStep);
   const existing = usePreferencesStore((s) => s.deviceName);
 
   const [name, setName] = useState("");
@@ -45,8 +45,7 @@ export default function DeviceName() {
       // onboarding 阶段节点还没起来,core 的改名编排走「只落盘」分支并正常返回;
       // 名字会在随后 startNode 时进本机 OsInfo。存不住会 throw,走下面的 catch。
       await applyDeviceName(trimmed);
-      nextStep();
-      router.push("/onboarding/setup" as never);
+      router.push(nextRouteAfter("device-name") as never);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -66,20 +65,16 @@ export default function DeviceName() {
             accessibilityLabel={t`继续`}
             testID="onboarding-device-name-continue-button"
           />
-          <OnboardingDots step={1} />
+          <OnboardingDots stepId="device-name" />
         </>
       }
     >
       <View className="gap-6">
-        <Pressable
-          onPress={() => router.back()}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel={t`返回`}
-          className="-ml-2 size-11 items-center justify-center self-start active:opacity-70"
-        >
-          <ArrowLeft color={colors.foreground} size={24} />
-        </Pressable>
+        {/* 引导流没有导航条,但返回入口仍用同一个组件(自带 44px 与 ChevronLeft);
+            `self-start` 让它不被父级的 gap-6 拉伸。 */}
+        <View className="self-start">
+          <HeaderBackButton />
+        </View>
 
         <View className="size-24 items-center justify-center self-center rounded-full bg-primary/10">
           <Smartphone color={colors.primary} size={48} strokeWidth={1.5} />
@@ -117,3 +112,6 @@ export default function DeviceName() {
     </OnboardingScreen>
   );
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

@@ -32,14 +32,14 @@ import { usePairingSuccess } from "@/hooks/use-pairing-success";
 import { commands } from "@/lib/bindings";
 import { getErrorMessage } from "@/lib/errors";
 import { OfflineEmptyState } from "./-components/offline-empty-state";
-import { StartNodeSheet } from "@/components/network/start-node-sheet";
-import { StopNodeSheet } from "@/components/network/stop-node-sheet";
+import { NodeStatusSheet } from "@/components/network/node-status-sheet";
 import { deviceDisplayName } from "@/lib/device-name";
 import {
   deviceGroupNames,
   deviceIdentityHint,
   hasDuplicateOrganizedName,
   organizedDeviceName,
+  sortByTimelineDesc,
   sortDeviceGroups,
   type DeviceOrganization,
 } from "@swarmdrop/shared-view";
@@ -78,9 +78,8 @@ function DevicesPage() {
   // directPairing 成功后自动跳转到设备页面(刷新列表)
   usePairingSuccess();
 
-  // 节点控制弹窗状态
-  const [startSheetOpen, setStartSheetOpen] = useState(false);
-  const [stopSheetOpen, setStopSheetOpen] = useState(false);
+  // 节点控制弹窗状态（启停合并在同一个面里，动作随状态切换）
+  const [nodeSheetOpen, setNodeSheetOpen] = useState(false);
   const [organizingDevice, setOrganizingDevice] = useState<Device | null>(null);
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState("all");
@@ -175,9 +174,7 @@ function DevicesPage() {
 
   const activeItems = useMemo(
     () =>
-      Object.values(projections)
-        .filter(isProjectionActive)
-        .sort((a, b) => b.startedAt - a.startedAt),
+      sortByTimelineDesc(Object.values(projections).filter(isProjectionActive)),
     [projections],
   );
 
@@ -236,12 +233,11 @@ function DevicesPage() {
         onOrganizeDevice={setOrganizingDevice}
         onSelectedGroupChange={setSelectedGroupId}
         onManageGroups={() => setGroupsOpen(true)}
-        onStartClick={() => setStartSheetOpen(true)}
+        onStartClick={() => setNodeSheetOpen(true)}
       />
 
-      {/* 节点控制弹窗 */}
-      <StartNodeSheet open={startSheetOpen} onOpenChange={setStartSheetOpen} />
-      <StopNodeSheet open={stopSheetOpen} onOpenChange={setStopSheetOpen} />
+      {/* 节点状态面（启动 / 停止 / 诊断同一个面） */}
+      <NodeStatusSheet open={nodeSheetOpen} onOpenChange={setNodeSheetOpen} />
       <DeviceOrganizationDialog
         open={organizingDevice !== null}
         onOpenChange={(open) => !open && setOrganizingDevice(null)}

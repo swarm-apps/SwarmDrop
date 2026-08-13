@@ -45,6 +45,7 @@ import { renameDevice } from "../_lib/node-runtime";
 import { IDENTITY_LOCATION, selectReservation, useWebNode, webNodeActions } from "../_lib/store";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useCopyToClipboard } from "../_lib/use-copy";
+import { Disclosure } from "./disclosure";
 import { NodeStatusDialog } from "./node-status-dialog";
 import { SettingsCard, SettingsSection } from "./settings-primitives";
 import { WebErrorCard } from "./web-error-view";
@@ -264,16 +265,24 @@ export function NodePanel() {
         </div>
 
         {/* 「身份存在哪儿」是**诊断**不是设置：它回答的是「我刷新后还是我吗」。
-            这条是 Web 独有的（另外两端的身份在系统钥匙串里，没有这个疑问）。 */}
-        <details className="border-t px-4 py-2.5 text-xs">
-          <summary className="focus-ring cursor-pointer rounded text-muted-foreground">
-            <Trans>身份存在哪里？</Trans>
-          </summary>
-          <p className="mt-2 text-muted-foreground">
-            <span className="font-mono">{t(IDENTITY_LOCATION)}</span>{" "}
-            <Trans>· 刷新后保持不变。清除浏览器数据会让本机换一个新身份，已配对的设备需要重新配对。</Trans>
+            这条疑问是 Web 独有的：另外两端的身份**不会被用户日常操作清掉**——移动端在
+            系统安全存储里，桌面端在应用数据目录下一个 0600 的文件里（那边这一行给的是
+            可复制的文件路径，用途是备份与迁移，不是「还在不在」）。
+
+            两处与此前不同，都不是为了好看：
+
+            · **标题是名词短语，答案摆在收起态的右边。** 原来它是一句问句
+              「身份存在哪里？」——这张卡上唯一的疑问式标签——而答案只是一个 API 名，
+              却非点开不可。折叠该藏的是**后果**（清掉浏览器数据会换身份），
+              那才是需要一段话的部分；一个词不该收门票。
+            · **走 `Disclosure` 而不是裸 `<details>`。** 裸的那版顶着浏览器默认的 ▶，
+              命中区只有那行 12px 文字高，且 `py-2.5` 比上面的指标条还窄，
+              整张卡的下缘看着像少写了点什么。理由见 disclosure.tsx 的文件头。 */}
+        <Disclosure className="border-t" label={<Trans>身份存储</Trans>} value={IDENTITY_LOCATION}>
+          <p className="text-xs leading-5 text-muted-foreground">
+            <Trans>刷新后保持不变。清除浏览器数据会让本机换一个新身份，已配对的设备需要重新配对。</Trans>
           </p>
-        </details>
+        </Disclosure>
       </SettingsCard>
     </SettingsSection>
   );

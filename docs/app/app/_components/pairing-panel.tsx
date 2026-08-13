@@ -21,10 +21,15 @@ import {
   INVITE_TTL_HOURS,
   INVITE_URL_PREFIX,
   remainingLabel,
+  remainingSeconds,
   extractInviteLink,
 } from "../_lib/invite";
 import { NAV } from "../_lib/nav";
 import { getNode, refreshPairedDevices } from "../_lib/node-runtime";
+import {
+  PAIRING_READINESS_TIMEOUT_MS,
+  waitForPairingReadiness,
+} from "../_lib/pair-readiness";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
 import { selectReservation, useWebNode } from "../_lib/store";
@@ -109,6 +114,19 @@ export function PairingPanel({
     null,
   );
   const consumeAction = useAsyncAction();
+  /**
+   * 握手还没发出，正在等本机连上中继（`pair-readiness.ts`）。
+   *
+   * **不进 `useAsyncAction`**：那个 hook 表达的是「有没有一个动作在跑」，而这是那个动作
+   * **内部**的第一个子阶段。塞进去就得给它加一个通用的「阶段」概念，而另外六个调用点
+   * 一个都用不上。
+   */
+  const [awaitingNetwork, setAwaitingNetwork] = useState(false);
+  /**
+   * 中断在途的那次配对尝试。**只在等待中继那一段真的能中断** —— 握手一旦发出，对端就
+   * 可能已经 CAS 消费掉邀请，此时「取消」只能是本地忘掉结果，不是撤回请求。
+   */
+  const consumeAbort = useRef<AbortController | null>(null);
   /** 这条是剪贴板感知填进来的（#105）——要说一句，否则输入框会莫名其妙自己有了内容。 */
   const [pastedFromClipboard, setPastedFromClipboard] = useState(false);
 
@@ -131,6 +149,21 @@ export function PairingPanel({
    * 同一条教训在本文件的折叠逻辑里已经记过一次（见 `dismissed`）。
    */
   const [confirmDismissed, setConfirmDismissed] = useState(false);
+
+  /**
+   * **握手失败要把确认卡请回来。** 「收起」说的是「这一条我看过了」，不是「出了错也别
+   * 告诉我」——与「新邀请压过收起」是同一条规则。
+   *
+   * 这条路径不是假想的：等中继那最长二十秒里 Esc 是**放行**的（见对话框的
+   * `onOpenChange`，那是刻意的：收起 ≠ 放弃），于是失败很可能落在卡片已经收起之后。
+   * 而 `consumeAction.error` 的唯一消费者就是那张卡：不请回来，用户看到的是「什么都
+   * 没发生」，而一次性邀请此刻可能已经被对端消费掉了。内联入口那行只写「已识别到
+   * 「X」的邀请 · 查看」，一个字都不提出过错。
+   */
+  useEffect(() => {
+    if (consumeAction.error) setConfirmDismissed(false);
+  }, [consumeAction.error]);
+
   /** 三格永远一起变——收口成一个函数，免得某条路径漏清其中一格留下前一次的残影。 */
   const resetPreview = () => {
     setPreview(null);
@@ -155,7 +188,14 @@ export function PairingPanel({
     // 这条路径不是假想的：确认对话框打开时 `document` 上的 paste 监听照常工作（事件目标是
     // 对话框里的按钮，不匹配那个 `input/textarea/contenteditable` 早退条件），而握手走 relay
     // 时界面上好几秒没有动静，再按一次 Cmd+V 是很自然的动作。
-    if (consumeAction.pending) return;
+    //
+    // **但等中继那一段不适用**：那时 `pending` 已经为真而握手还没发出，上面那个理由
+    // 一条都不成立。照旧拦下的话，用户在长达二十秒里换不掉一条粘错的邀请——输入框看着
+    // 还能打字（它只按 `ready` 禁用），敲进去的字却一个都不生效。
+    if (consumeAction.pending && !awaitingNetwork) return;
+    // 走到这里说明要换邀请了：把在途那次等待掐掉，否则它会照常走完并发出握手，
+    // 用一条**用户已经换掉**的邀请去配对（而邀请是一次性的）。
+    consumeAbort.current?.abort();
     setInviteInput(link);
     setConsumeOutcome(null);
     resetPreview();
@@ -211,6 +251,10 @@ export function PairingPanel({
     setConfirmDismissed(false);
     // 同 `setInviteAndPreview`：错误跟着它所属的那条邀请一起走。
     consumeAction.cancel();
+    // 还在等中继时按下取消：真的把它掐掉。少了这行，那次等待会照常走完 20 秒然后
+    // **发出握手**，把一条用户已经放弃的邀请消费掉——而邀请是一次性的。
+    consumeAbort.current?.abort();
+    setAwaitingNetwork(false);
   };
 
   // 从配对落地页（/p/）过来时把邀请接过来预填。
@@ -263,8 +307,60 @@ export function PairingPanel({
     // 只有确认卡在场（解码验签过、不是自己的、也没配过）才允许出网。
     if (!node || preview === null) return;
     setConsumeOutcome(null);
+    const link = inviteInput.trim();
+    // `preview` 在 await 之后不能再读闭包外的那个 state（用户可能已经换了一条），
+    // 但这一趟要用的两件事此刻就定了：串本身与它是不是 LocalOnly。
+    // 名字带 `invite` 前缀是必须的——本组件里另有一个**生成**侧的 `localOnly` state
+    // （「我要发的这条限同网」），两者都是布尔、主语相反，撞名不会有任何编译错误。
+    const inviteIsLocalOnly = preview.localOnly;
+    const inviteExpiresAt = preview.expiresAt;
+    const abort = new AbortController();
+    consumeAbort.current = abort;
     consumeAction.run(
-      () => node.connect_invite(inviteInput.trim()),
+      async () => {
+        // **LocalOnly 邀请里没有 circuit 地址**（`select_invite_addrs` 只放私网那一桶），
+        // 等中继纯属白等；何况这类场景常常压根连不上公网。
+        if (!inviteIsLocalOnly) {
+          setAwaitingNetwork(true);
+          try {
+            // 等不到也照常握手 —— 它只推迟，不否决，理由见 `pair-readiness.ts` 文件头。
+            await waitForPairingReadiness(PAIRING_READINESS_TIMEOUT_MS, abort.signal);
+          } finally {
+            setAwaitingNetwork(false);
+          }
+        }
+        // 等待期间用户按了取消：此刻一个字节都还没出网，邀请仍然可用，就此打住。
+        // 抛出去而不是安静返回 —— `consumeAction.cancel()` 已经推过 seq，这个 reject
+        // 会被判过期直接丢弃，不会渲染成一张错误卡。
+        abort.signal.throwIfAborted();
+        // **等完再查一次 TTL。** 上面那段最长等二十秒，而邀请可能只剩几秒 —— 界面上
+        // 确认按钮已经因为 `expired` 重算而自己消失了（用户唯一的反馈），握手却照发，
+        // 拿一条过期凭证去撞对端的 TTL 检查。让结果与 UI 已经声称的事情一致。
+        if (remainingSeconds(inviteExpiresAt, Math.floor(Date.now() / 1000)) <= 0) {
+          throw {
+            kind: "invalidInput",
+            message: t`这条邀请已经过期，请让对方重新生成。`,
+          } satisfies WebError;
+        }
+        // **句柄要重新取一次，不能用闭包里那个。** 等待可以长达二十秒，其间用户完全
+        // 可能在节点状态弹窗里按下停止 —— `closeNode()` 会 `close(self)` **释放 wasm
+        // 侧的指针**，再拿旧句柄调方法得到的是一句 `null pointer passed to rust`，
+        // 用户看不懂，日志里也指不回真正的原因。
+        //
+        // 比对实例而不只是判空：重启后 `spawnNode()` 给的是**另一个**节点，它没有这条
+        // 邀请所属的那套上下文，照样不该拿来续这一趟。
+        const live = getNode();
+        // 抛 `WebError` 而不是裸 `Error`：`toWebError` 的兜底分支一律给 `kind: "network"`，
+        // 于是这句会顶着一张标题写「网络错误」的卡片出现 —— 把用户指向他的网络，
+        // 而实际原因是他刚按下的那个停止按钮。
+        if (live !== node) {
+          throw {
+            kind: "aborted",
+            message: t`节点已停止，重新启动后再试一次。`,
+          } satisfies WebError;
+        }
+        return node.connect_invite(link);
+      },
       (outcome) => {
         setConsumeOutcome(outcome);
         clearInvite();
@@ -396,8 +492,19 @@ export function PairingPanel({
   // 于是三条来路一视同仁，不会有哪条漏掉。这里仍然只**预填**、不弹横幅、不自动发起：
   // 在能看清对方是谁之前，越安静越好。
   //
-  // 依赖为空即可：`setInviteAndPreview` 只用稳定的 setter 与 `getNode()` 现读，
-  // 捕获到哪一次渲染的实例都等价。
+  // ⚠️ **必须经 ref 转发，不能让空依赖的 effect 直接闭包住 `setInviteAndPreview`。**
+  // 它现在读渲染态（`consumeAction.pending` / `awaitingNetwork`），而空依赖的 effect 只在
+  // mount 跑一次、捕获的是**首帧**那份——那一份里 `pending` 恒为 `false`，于是
+  // 「握手在途时不换邀请」这条守卫在 paste 这条路径上**完全不生效**，而它的注释点名
+  // 保护的正是这条路径（对话框上再按一次 Cmd+V）。失效的后果是真结果被 `cancel()` 丢弃：
+  // 邀请已被对端消费，用户却什么都看不到，重试只会拿到「已被使用」。
+  //
+  // 用 latest-ref 而不是把函数放进依赖数组：后者每次渲染都会重新注册 document 监听。
+  const setInviteAndPreviewRef = useRef(setInviteAndPreview);
+  useEffect(() => {
+    setInviteAndPreviewRef.current = setInviteAndPreview;
+  });
+
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       // 从整段文本里**提取**链接，而不是要求整段就是链接：IM 里复制常常连着说明文字
@@ -413,7 +520,7 @@ export function PairingPanel({
       ) {
         return;
       }
-      setInviteAndPreview(link);
+      setInviteAndPreviewRef.current(link);
       setPastedFromClipboard(true);
     };
     document.addEventListener("paste", onPaste);
@@ -777,6 +884,7 @@ export function PairingPanel({
         preview={confirmDismissed ? null : preview}
         now={now}
         pending={consumeAction.pending}
+        awaitingNetwork={awaitingNetwork}
         error={consumeAction.error}
         onConfirm={doConsumeInvite}
         onCancel={clearInvite}

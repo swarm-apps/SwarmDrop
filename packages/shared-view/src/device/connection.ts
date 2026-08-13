@@ -30,6 +30,8 @@ export function transportLabel(
       return "WebRTC";
     case "webrtcDirect":
       return "WebRTC Direct";
+    case "webtransport":
+      return "WebTransport";
     default:
       return transport;
   }

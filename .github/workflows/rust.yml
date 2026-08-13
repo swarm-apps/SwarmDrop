@@ -60,6 +60,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          # 产物新鲜度检查要跟 base 比 diff，默认的浅克隆够不着。
+          fetch-depth: 0
+
+      # docs.yml 不再在 CI 里重新生成 wasm（那条路上 apt 的 binaryen 停在 108，会把
+      # __wbindgen_externrefs 的导出索引指到不可 grow 的 funcref 表上），线上吃的是
+      # 入库产物。于是「改了源码忘了重建」这条风险要在这里拦。
+      - name: WASM 产物新鲜度
+        run: ./scripts/check-wasm-artifact.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
 
       - uses: dtolnay/rust-toolchain@stable
         with:

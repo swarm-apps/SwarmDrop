@@ -3,7 +3,8 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import {
   AlertTriangle,
   ChevronRight,
-  FileArchive,
+  Inbox,
+  Package,
   Search,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -145,26 +146,29 @@ export default function InboxSearchScreen() {
   const showFilterRail = items.length > 0;
 
   return (
+    // 搜索头进 header 槽:留在 scroll 分支里的话它会跟着结果一起滚,改个关键词还得先翻回顶部。
+    // `pt-4` 是导航条与内容之间的标准间距(与列表页的 LIST_CONTENT_PADDING_UNDER_HEADER 同值)。
     <AppScreen
       scroll
       testID="inbox-search-screen"
-      contentClassName="gap-4 pt-1"
+      header={
+        <SearchHeader
+          value={query}
+          onChangeText={setQuery}
+          placeholder={
+            serverSearch ? t`搜索标题、来源、文件名…` : t`搜索标题或来源`
+          }
+          inputLabel={t`搜索收件箱`}
+          testIDPrefix="inbox-search"
+          trailing={
+            searching ? (
+              <ActivityIndicator size="small" color={colors.mutedForeground} />
+            ) : null
+          }
+        />
+      }
+      contentClassName="gap-4 pt-4"
     >
-      <SearchHeader
-        value={query}
-        onChangeText={setQuery}
-        placeholder={
-          serverSearch ? t`搜索标题、来源、文件名…` : t`搜索标题或来源`
-        }
-        inputLabel={t`搜索收件箱`}
-        testIDPrefix="inbox-search"
-        trailing={
-          searching ? (
-            <ActivityIndicator size="small" color={colors.mutedForeground} />
-          ) : null
-        }
-      />
-
       {showFilterRail ? (
         <FilterRail value={filter} counts={filterCounts} onChange={setFilter} />
       ) : null}
@@ -241,7 +245,7 @@ function SearchBody({
 
       {items.length === 0 ? (
         <EmptyState
-          icon={FileArchive}
+          icon={Inbox}
           title={<Trans>收件箱还是空的</Trans>}
           description={<Trans>完成接收后，可以在这里搜索标题或来源。</Trans>}
           testID="inbox-search-empty-state"
@@ -362,7 +366,7 @@ function InboxHitRow({
       className="min-h-20 flex-row items-center gap-3 rounded-lg border border-border bg-card p-3.5 active:bg-muted/50"
     >
       <View className="size-12 items-center justify-center rounded-xl bg-primary/10">
-        <FileArchive color={colors.primary} size={20} />
+        <Package color={colors.primary} size={20} />
       </View>
       <View className="min-w-0 flex-1 gap-1">
         <View className="flex-row items-center gap-2">
@@ -399,3 +403,6 @@ function InboxHitRow({
     </Pressable>
   );
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

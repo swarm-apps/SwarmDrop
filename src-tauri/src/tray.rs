@@ -40,22 +40,29 @@ const ICON_OFFLINE: &[u8] = include_bytes!("../icons/tray/offline.png");
 const ICON_ONLINE: &[u8] = include_bytes!("../icons/tray/online.png");
 const ICON_PAUSED: &[u8] = include_bytes!("../icons/tray/paused.png");
 
-/// 托盘三态：离线 / 在线 / 暂停接收。状态首行文字与图标的唯一状态来源——以后
-/// 加新消费者（比如 tooltip）时只在这里加方法，不要在别处再对 `(online, paused)`
-/// 单独 match，否则新增状态容易漏改其中一处。
+/// 托盘四态：离线 / 在线 / 暂停接收 / 连不上网络。状态首行文字与图标的唯一状态
+/// 来源——以后加新消费者（比如 tooltip）时只在这里加方法，不要在别处再对
+/// `(online, paused, isolated)` 单独 match，否则新增状态容易漏改其中一处。
 #[derive(Clone, Copy)]
 enum TrayStatus {
     Offline,
     Online,
     Paused,
+    /// 节点在跑，但整体健康度是 `Isolated`——连不上任何网络。
+    Isolated,
 }
 
 impl TrayStatus {
-    fn from_flags(online: bool, paused: bool) -> Self {
-        match (online, paused) {
-            (false, _) => Self::Offline,
-            (true, true) => Self::Paused,
-            (true, false) => Self::Online,
+    /// 优先级：离线 > 暂停 > 孤立 > 在线。
+    ///
+    /// **暂停压过孤立**是报警三条件里「确实挡住了用户此刻的动作」的直接推论：
+    /// 已经暂停接收时，连不连得上都收不到东西，此刻报警只是多一个红点。
+    fn from_flags(online: bool, paused: bool, isolated: bool) -> Self {
+        match (online, paused, isolated) {
+            (false, _, _) => Self::Offline,
+            (true, true, _) => Self::Paused,
+            (true, false, true) => Self::Isolated,
+            (true, false, false) => Self::Online,
         }
     }
 
@@ -63,14 +70,18 @@ impl TrayStatus {
         match self {
             Self::Offline => t!("tray.status.offline"),
             Self::Paused => t!("tray.status.paused"),
+            Self::Isolated => t!("tray.status.isolated"),
             Self::Online => t!("tray.status.online"),
         }
         .to_string()
     }
 
+    /// 孤立态复用离线图标：托盘只有三张图，而「连不上任何网络」在**后果**上与离线
+    /// 一致（别人送不进来）。状态首行的文字负责区分二者——不给它一张绿图标是本条
+    /// 契约的要求（「整体进入 Isolated 时托盘不得呈现正常在线」）。
     fn icon_bytes(self) -> &'static [u8] {
         match self {
-            Self::Offline => ICON_OFFLINE,
+            Self::Offline | Self::Isolated => ICON_OFFLINE,
             Self::Paused => ICON_PAUSED,
             Self::Online => ICON_ONLINE,
         }
@@ -91,6 +102,10 @@ pub struct TrayState {
     tray_icon: TrayIcon<Wry>,
     online: AtomicBool,
     paused: AtomicBool,
+    /// 整体健康度是否为 `Isolated`。由 [`refresh_tray_health`] 从
+    /// `NetworkStatusChanged` 推送里更新——`online` 只说「节点起来了」，
+    /// 说不出「它连得上东西吗」，而托盘此前就只有前者。
+    isolated: AtomicBool,
 }
 
 /// 在 `setup` 阶段创建托盘。`MenuItem` 句柄存入 [`TrayState`] 长存。
@@ -163,6 +178,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         // 初始态 = 离线 / 未暂停，与 status_item / 图标的初始态一致。
         online: AtomicBool::new(false),
         paused: AtomicBool::new(false),
+        isolated: AtomicBool::new(false),
     });
     Ok(())
 }
@@ -173,17 +189,50 @@ pub fn refresh_tray(app: &AppHandle, online: bool, paused: bool) {
         // 缓存当前状态，供语言切换时（relocalize_tray）重新派生状态行 / 暂停项文案。
         state.online.store(online, Ordering::Relaxed);
         state.paused.store(paused, Ordering::Relaxed);
-        let status = TrayStatus::from_flags(online, paused);
-        let _ = state.status_item.set_text(status.text());
-        let _ = state.pause_item.set_text(pause_label(paused));
+        // 节点停下时清掉健康度结论：它是上一次会话的观测，留着会让下次启动的头几百
+        // 毫秒（第一个 NetworkStatusChanged 到达之前）顶着一个陈旧的警示。
+        if !online {
+            state.isolated.store(false, Ordering::Relaxed);
+        }
         // 节点未启动时无从暂停，禁用暂停项。
         let _ = state.pause_item.set_enabled(online);
-        match Image::from_bytes(status.icon_bytes()) {
-            Ok(icon) => {
-                let _ = state.tray_icon.set_icon(Some(icon));
-            }
-            Err(e) => warn!("托盘图标解码失败，保留上一次的图标: {e}"),
+        apply_status(&state);
+    }
+}
+
+/// 用最新的整体健康度刷新托盘（由 `NetworkStatusChanged` 推送驱动）。
+///
+/// 与 [`refresh_tray`] 分开是因为两者的事实源不同：那个由生命周期命令写死传入，
+/// 这个每次状态推送重算。合并成一个函数会逼调用方去查它不该关心的另一半。
+pub fn refresh_tray_health(app: &AppHandle, isolated: bool) {
+    if let Some(state) = app.try_state::<TrayState>() {
+        // 节点没起来时健康度无意义，别让它把 Offline 覆盖掉。
+        if !state.online.load(Ordering::Relaxed) {
+            return;
         }
+        if state.isolated.swap(isolated, Ordering::Relaxed) == isolated {
+            return;
+        }
+        apply_status(&state);
+    }
+}
+
+/// 按当前缓存的三个 flag 重设状态首行 + 图标。
+fn apply_status(state: &TrayState) {
+    let status = TrayStatus::from_flags(
+        state.online.load(Ordering::Relaxed),
+        state.paused.load(Ordering::Relaxed),
+        state.isolated.load(Ordering::Relaxed),
+    );
+    let _ = state.status_item.set_text(status.text());
+    let _ = state
+        .pause_item
+        .set_text(pause_label(state.paused.load(Ordering::Relaxed)));
+    match Image::from_bytes(status.icon_bytes()) {
+        Ok(icon) => {
+            let _ = state.tray_icon.set_icon(Some(icon));
+        }
+        Err(e) => warn!("托盘图标解码失败，保留上一次的图标: {e}"),
     }
 }
 
@@ -194,7 +243,8 @@ pub fn relocalize_tray(app: &AppHandle) {
     if let Some(state) = app.try_state::<TrayState>() {
         let online = state.online.load(Ordering::Relaxed);
         let paused = state.paused.load(Ordering::Relaxed);
-        let status = TrayStatus::from_flags(online, paused);
+        let isolated = state.isolated.load(Ordering::Relaxed);
+        let status = TrayStatus::from_flags(online, paused, isolated);
         let _ = state.status_item.set_text(status.text());
         let _ = state.open_item.set_text(t!("tray.open"));
         let _ = state.pause_item.set_text(pause_label(paused));

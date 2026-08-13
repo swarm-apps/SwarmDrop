@@ -75,6 +75,10 @@
   降回 `0.20.0-rc.*` 仍然等于把这五个坑一起请回来
 - **决策背景**：[`dev-notes/research/2026-07-webrtc-native-ice.md`](../../research/2026-07-webrtc-native-ice.md)
 - **姊妹系列**：
+  - [`webtransport/`](../webtransport/) —— **浏览器的第二条门**（2026-08）。同样是自签名
+    证书 + 哈希进地址 + 之后跑 Noise，但认证绑定的机制**与本系列互斥**（那边用 Noise 扩展，
+    这边用 prologue），且它多了一个本系列完全没有的维度：证书会过期。
+    **两条入口是并存关系不是替代**，理由见那边 03 篇
   - [`browser-platform/`](../browser-platform/) —— 浏览器平台侧的约束（能不能 listen、
     secure context、mixed content），与本系列同题不同层
   - [`wasm-debugging/`](../wasm-debugging/) —— 同样是「全绿却不工作」的静默 bug 复盘，

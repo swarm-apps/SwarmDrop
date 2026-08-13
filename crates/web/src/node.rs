@@ -8,7 +8,6 @@
 //! [`WebEventBus`](crate::event_bus)（consume-invite 路径的确认在邀请方桌面，浏览器侧暂不 surface）。
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,9 +15,9 @@ use futures::StreamExt;
 use swarmdrop_core::device_manager::DeviceFilter;
 use swarmdrop_core::host::EventBus;
 use swarmdrop_core::network::event_loop::spawn_event_loop;
-use swarmdrop_core::network::{DiscoveryMode, NetManager, NetworkRuntimeConfig};
+use swarmdrop_core::network::{CandidateRoles, NetManager, NetworkRuntimeConfig};
 use swarmdrop_core::protocol::pairing::{PairingRefuseReason, PairingResponse};
-use swarmdrop_core::runtime::{EndpointProfile, start_node};
+use swarmdrop_core::runtime::{EndpointProfile, HostPorts, NodeCredentials, start_node};
 use swarmdrop_host::device::{DeviceName, DeviceReceivePolicy, DeviceTrustLevel};
 use swarmdrop_host::{CoreSaveLocation, FileAccess, FileSourceId, PairedDeviceStore};
 use swarmdrop_invite::{
@@ -44,7 +43,7 @@ use crate::paired_devices::WebPairedDeviceStore;
 use crate::store::{WebStore, WebTransferStore};
 use crate::types::{
     ConnectionJson, InviteListItemJson, OfferJson, PairInvitePreviewJson, PairingOutcomeJson,
-    PairingRefusedJson, PendingPairingJson, RelayInfoJson, RelayStateKind,
+    PairingRefusedJson, PendingPairingJson,
 };
 
 /// 浏览器连接与 reservation 的最大等待时间。超时会通过 Endpoint 的取消路径
@@ -77,18 +76,18 @@ extern "C" {
     /// `paired_devices()` 的返回：`Device[]`。
     #[wasm_bindgen(typescript_type = "Device[]")]
     pub type DeviceArray;
-    /// `relays_state()` 的返回：`RelayInfoJson[]`。
-    #[wasm_bindgen(typescript_type = "RelayInfoJson[]")]
-    pub type RelayInfoArray;
+    /// `infra_links()` 的返回：`InfraLink[]`。
+    #[wasm_bindgen(typescript_type = "InfraLink[]")]
+    pub type InfraLinkArray;
     /// `list_invites()` 的返回：`InviteListItemJson[]`。
     #[wasm_bindgen(typescript_type = "InviteListItemJson[]")]
     pub type InviteListArray;
     /// `decode_invite_preview()` 的返回。
     #[wasm_bindgen(typescript_type = "PairInvitePreviewJson")]
     pub type PairInvitePreviewJs;
-    /// `relays_changed()` 的返回：每次 relay 状态变化产出一份全量快照。
-    #[wasm_bindgen(typescript_type = "ReadableStream<RelayInfoJson[]>")]
-    pub type RelayChangedStream;
+    /// `infra_changed()` 的返回：每次 relay 状态变化产出一份全量 `InfraLink` 快照。
+    #[wasm_bindgen(typescript_type = "ReadableStream<InfraLink[]>")]
+    pub type InfraChangedStream;
     /// `transfer_history()` 的返回：`TransferProjection[]`。
     #[wasm_bindgen(typescript_type = "TransferProjection[]")]
     pub type TransferProjectionArray;
@@ -123,27 +122,15 @@ extern "C" {
 /// connect 超时）联动——调用方要更短的耐心用 `AbortSignal.timeout()` 表达。
 const UNTIL_ACTIVE_CAP: Duration = Duration::from_secs(30);
 
-/// `watch_relays` 快照 → JS 投影（`RelayInfoJson[]`）。
-fn relay_info_json(map: &BTreeMap<NodeId, RelayState>) -> Vec<RelayInfoJson> {
-    map.iter()
-        .map(|(id, state)| {
-            let (kind, circuit_addr, last_error) = match state {
-                RelayState::Connecting => (RelayStateKind::Connecting, None, None),
-                RelayState::Active { circuit_addr } => {
-                    (RelayStateKind::Active, Some(circuit_addr.to_string()), None)
-                }
-                RelayState::Failed { last_error } => {
-                    (RelayStateKind::Failed, None, Some(last_error.clone()))
-                }
-            };
-            RelayInfoJson {
-                id: id.to_string(),
-                state: kind,
-                circuit_addr,
-                last_error,
-            }
-        })
-        .collect()
+/// 提交前校验的判别码 → JS reject 值。
+///
+/// **不并进 [`WebError`]**：那七个 kind 说的是「哪一层出了错」，而这六个说的是
+/// 「你这条地址哪里不对、该怎么改」。压成 `invalidInput` + 一句自由文本，前端就只能
+/// 原样贴出来——而 `UnsupportedTransport` 还带着「本端支持哪些传输」这份用户真正需要的
+/// 清单。两者的 `kind` 取值互不重叠，JS 侧同一个 `switch` 分得开。
+fn infra_addr_err(e: swarmdrop_core::infra::InfraAddrError) -> JsValue {
+    crate::serialize::to_js(&e)
+        .unwrap_or_else(|_| WebError::invalid_input(format!("地址校验失败: {e:?}")).into())
 }
 
 /// serde 可序列化值 → 具名 TS 类型的 JsValue（`unchecked_into` 到 typescript_type 包装）。
@@ -234,6 +221,8 @@ pub struct WebNode {
             futures::channel::mpsc::UnboundedReceiver<swarmdrop_transfer::events::TransferEvent>,
         >,
     >,
+    /// 上一次转发中取不到、因而被跳过的 OPFS 路径，等 UI 来取（见 `send_inbox_files`）。
+    skipped_forward_paths: RefCell<Vec<String>>,
 }
 
 #[wasm_bindgen]
@@ -282,25 +271,30 @@ impl WebNode {
         let store_for_factory = store_port.clone();
         let events_for_factory = transfer_events.clone();
         let started = start_node(
-            secret.clone(),
-            None,
-            os_info,
-            // 设备名的事实源：IndexedDB 的 `kv` store。`start_node` 自己 load 并填进
-            // `OsInfo.name`，浏览器侧不再有第二份本机 OsInfo 副本。
-            Arc::new(crate::device_config::IdbDeviceConfig),
-            paired_store.clone(),
-            // LanOnly：浏览器拨不了 TCP/QUIC 内置 bootstrap，跳过它免得 infra 反复空拨刷屏；
-            // LAN 配对经直连 ws + invite，不需 DHT bootstrap（公网可达待 webrtc-direct bootstrap）。
-            NetworkRuntimeConfig {
-                discovery_mode: DiscoveryMode::LanOnly,
-                ..NetworkRuntimeConfig::default()
+            NodeCredentials {
+                secret_key: secret.clone(),
+                // 浏览器只拨号，两份服务端证书都无处可存 —— 它那侧的 WebTransport 启用
+                // 判据是「有没有 `WebTransport` API」，与这两项无关。
+                webrtc_certificate_pem: None,
+                webtransport: None,
             },
+            os_info,
+            // `bootstrap_nodes` 留空：浏览器拨不了 TCP/QUIC 内置 bootstrap。公网入口
+            // 由前端的 `ensureConfiguredRelays` 用 webrtc-direct 地址经 `addInfraNode`
+            // 补，走的是候选表而不是这份启动配置。
+            NetworkRuntimeConfig::default(),
             EndpointProfile::Browser,
-            event_bus.clone(),
-            None, // 浏览器无系统通知
-            // 邀请注册表落盘：刷新页面比重启桌面 App 频繁得多，内存态会让刚发出的邀请
-            // 立刻变成「不认识」（openspec: invite-persistence）。
-            Arc::new(crate::invite_store::IdbInviteStore),
+            HostPorts {
+                // 设备名的事实源：IndexedDB 的 `kv` store。`start_node` 自己 load 并填进
+                // `OsInfo.name`，浏览器侧不再有第二份本机 OsInfo 副本。
+                device_config: Arc::new(crate::device_config::IdbDeviceConfig),
+                paired_device_store: paired_store.clone(),
+                event_bus: event_bus.clone(),
+                notifier: None, // 浏览器无系统通知
+                // 邀请注册表落盘：刷新页面比重启桌面 App 频繁得多，内存态会让刚发出的邀请
+                // 立刻变成「不认识」（openspec: invite-persistence）。
+                invite_store: Arc::new(crate::invite_store::IdbInviteStore),
+            },
             move |endpoint| {
                 TransferManager::new(
                     endpoint,
@@ -367,6 +361,7 @@ impl WebNode {
             session_store,
             file_access: file_access_impl,
             events_rx: RefCell::new(Some(events_rx)),
+            skipped_forward_paths: RefCell::new(Vec::new()),
         })
     }
 
@@ -394,7 +389,7 @@ impl WebNode {
     /// 而 autonat 是 native-only（见 `crates/net/src/actor.rs` 的 `WatchSenders::nat`，
     /// 那里挂着 `cfg_attr(wasm_browser, expect(dead_code))`），wasm 下它恒为 `Unknown`。
     /// 导出一个永远不变的常量只是给界面添一行假状态；浏览器版的「别人能不能拨到我」
-    /// 由 circuit 预留回答，那条已经有了（`relays_state`）。
+    /// 由 circuit 预留回答，那条已经有了（`infra_links`）。
     pub fn connected_peers(&self) -> usize {
         self.net_manager.devices().connected_count()
     }
@@ -428,13 +423,19 @@ impl WebNode {
     }
 
     /// 拨任意 multiaddr（`.../ws` 或 `.../webrtc-direct/certhash/...`，须带 `/p2p/<id>`）。
-    /// 返回结构化的连接信息（`{ path: "local"|"direct"|"relayed", addr }`）。
+    /// 返回结构化的连接信息（`{ path: "local"|"direct"|"holePunched"|"relayed", addr }`）。
     ///
     /// `signal`（可选）：标准 `AbortSignal`——超时组合用平台原语表达
     /// （`AbortSignal.timeout(5000)` / `AbortSignal.any([...])`）。abort 时 Promise
     /// 立即以 `{ kind: "aborted" }` reject；**abort ≠ 撤回拨号**（在途拨号继续到
     /// 自然失败，无常驻意图残留）。不传 signal 时由内核兜底超时（Browser 15s）
     /// 保证有限时间内 settle。
+    ///
+    /// ⚠️ **不要拿它判定引导节点或中继的可达性。** 三条理由：它会把候选地址**永久**写进
+    /// 地址簿且没有失败回滚；对**已连接**的对端它直接返回既有连接快照，于是对已经连上的
+    /// 内置节点永远返回成功——一个不可能失败的测试比没有测试更坏；而且它测的是直连链路，
+    /// 中继的实际用法是 reservation，两条链路不同。可达性看
+    /// [`infra_links`](Self::infra_links) 里那条关系的状态。
     pub async fn connect(
         &self,
         addr: String,
@@ -562,8 +563,13 @@ impl WebNode {
     ///
     /// `local_only=true` 走 LocalOnly（受邀方只用私网地址）。邀请自包含本机 dialable 地址提示——
     /// 浏览器不 listen 本地 socket，其可达地址来自 **relay reservation**（circuit 地址）；故桌面要
-    /// 拨得到本机，本机需先经 [`relays_ensure`](Self::relays_ensure) 在某 helper 上建 reservation
-    /// （等到 `active`），否则邀请里无可拨地址、消费方连不上。
+    /// 拨得到本机，本机需先经 [`infra_ensure`](Self::infra_ensure) 在某引导节点上建 reservation
+    /// （等到 `active`）。
+    ///
+    /// reservation 没建好时**这里直接失败**（`NoDialableAddrs` → `WebError::Network`），不再
+    /// 交出一条零地址邀请 —— 三端里浏览器最容易撞上这条：它一条本地监听地址都没有，所以
+    /// 「可拨地址」在 reservation 落定之前是**空集**而不是「少几条」。
+    ///
     /// **async 化于 invite-persistence**：生成时要把邀请写穿进 IndexedDB，否则刷新页面
     /// 后本机就不认识刚发出去的那条邀请了（注册表 fail-closed，查不到即拒绝）。
     pub async fn generate_invite(&self, local_only: bool) -> Result<String, JsValue> {
@@ -576,7 +582,8 @@ impl WebNode {
             .net_manager
             .pairing()
             .encode_invite(&self.secret, policy)
-            .await)
+            .await
+            .map_err(WebError::from)?)
     }
 
     /// 邀请二维码的 SVG 字符串（深模块 + 透明背景，渲染端自己套白卡）。
@@ -593,11 +600,15 @@ impl WebNode {
     /// 加这套机器不值，而 `getNode()` 是现成的。
     ///
     /// 同步返回：纯计算，不碰 IndexedDB 也不碰网络。
-    pub fn invite_qr_svg(&self, invite: String) -> Result<String, JsValue> {
-        // 不用 `js_err`（它一律映射成 `kind: "network"`）：编码失败是纯计算的「输入装不下」
-        // ——QR 在 ECL::M 下的容量上限约 2KB wire，而本机产出的邀请最坏 327 字节，够不着。
-        // 真报出来时若顶着「网络错误」的标题，只会把排查引到完全无关的方向。
-        swarmdrop_invite::invite_qr_svg(&invite)
+    ///
+    /// `face_px` 是二维码实际占据的边长（不是白卡外框），同时是地址提示的预算 ——
+    /// 放不下时按价值反序回收地址。
+    pub fn invite_qr_svg(&self, invite: String, face_px: u32) -> Result<String, JsValue> {
+        // 不用 `js_err`（它一律映射成 `kind: "network"`）：这里的失败都是纯计算的输入问题
+        // ——码面传得太小、或者传进来的根本不是一条有效邀请。容量则从来不是约束：QR 在
+        // ECL::M 下能装约 2KB wire，而邀请即便满配也只有几百字节，且渲染前还会按码面回收
+        // 地址。真报出来时若顶着「网络错误」的标题，只会把排查引到完全无关的方向。
+        swarmdrop_invite::invite_qr_svg(&invite, face_px)
             .map_err(|e| WebError::invalid_input(e.to_string()).into())
     }
 
@@ -751,73 +762,109 @@ impl WebNode {
         to_js_typed(&devices, "已配对设备")
     }
 
-    // ── relay 意图（声明式集合，替代一次性 RPC 形态的 reserve()）──
+    // ── 基础设施意图（声明式集合，替代一次性 RPC 形态的 reserve()）──
     //
     // reservation 是「持续维持的可达状态」而非「一次完成的动作」：命令（ensure/
-    // drop）改期望状态、同步返回；实际状态经查询（relays_state）与订阅
-    // （relays_changed）到达。意图生命周期与单次等待的耐心（AbortSignal）解耦。
+    // drop）改期望状态、同步返回；实际状态经查询（infra_links）与订阅
+    // （infra_changed）到达。意图生命周期与单次等待的耐心（AbortSignal）解耦。
+    //
+    // **命名从 `relays_*` 改成 `infra_*`**：登记的是一段「基础设施关系」，relay 只是它
+    // 可能承担的角色之一（另一个是 kad 路由种子）。两个角色在内核里从第一天起就正交，
+    // 是本仓自建的那台恰好兼任，才让上层一路把它当成一个东西。
 
-    /// 登记一个 relay helper 的常驻可达意图（幂等，同步返回）。
+    /// 登记一个基础设施节点的常驻意图（校验 + 登记，同步返回）。
     ///
     /// 浏览器被动接收连接的唯一入口。拨号 / reservation / 断线重建由 core 的
     /// InfraSupervisor 统一收敛（最迟 1s 内启动第一轮，失败退避重试）；进度经
-    /// [`relays_state`](Self::relays_state) / [`relays_changed`](Self::relays_changed)
-    /// 观测，或用 [`relays_until_active`](Self::relays_until_active) 等首次建立。
+    /// [`infra_links`](Self::infra_links) / [`infra_changed`](Self::infra_changed)
+    /// 观测，或用 [`infra_until_active`](Self::infra_until_active) 等首次建立。
     ///
-    /// 返回 helper 的 base58 NodeId——即 `relays_drop` / `relays_until_active` 的
-    /// 入参，调用方直接串联，无需自行解析 multiaddr 的 `/p2p/` 段。
-    pub fn relays_ensure(&self, helper_addr: String) -> Result<String, JsValue> {
-        let (id, addr) = split_p2p_addr(&helper_addr)?;
-        self.net_manager
-            .ensure_relay_intent(NodeAddr::with_addrs(id, vec![addr]));
-        Ok(id.to_string())
+    /// **校验走 core 的 `add_infra_node`，前端不重写一份规则。** 三条判据里有两条要
+    /// 认识内核事实（合法 peer id 形状、本端点**实际装配了哪些 transport**），后者正是
+    /// 浏览器最容易踩的——粘一条 `/tcp/` 进来今天会被静静收下，然后永远连不上且毫无提示。
+    /// 失败时 reject 一个 `InfraAddrError`（`{ kind, … }`，形状见 bindings.ts），
+    /// **不是** `WebError`：它要回答的是「这条地址哪里不对」，而不是「哪一层出了错」。
+    ///
+    /// **`Duplicate` 也照常 reject。** 它曾被这里吞成成功，理由是「回放要幂等」——不成立：
+    /// 回放（`replayInfraNodes`）本来就 try/catch 且只 `console.error`，而且它跑在一张空的
+    /// 候选表上，压根产不出重复。代价却是实打实的：用户粘一条已在清单里的地址会看到
+    /// 「已添加引导节点，正在连接…」而其实什么都没发生，`duplicate` 那句文案成了死代码。
+    /// 登记的**效果**仍然幂等（core 的 upsert 会合并），幂等的是状态不是回执。
+    ///
+    /// 全部规则零网络往返。「它到底连不连得上」由提交后的收敛环回答——那测的才是后续
+    /// 真正会走的那条链路（旧的「测试连通性」按钮走直连，对已连上的节点永远绿）。
+    ///
+    /// 返回节点的 base58 NodeId——即 `infra_drop` / `infra_until_active` 的入参，
+    /// 调用方直接串联，无需自行解析 multiaddr 的 `/p2p/` 段。
+    pub fn infra_ensure(&self, addr: String) -> Result<String, JsValue> {
+        // 角色给全（kad + relay）：浏览器同样要靠它进 kad 路由表做 DHT 查询。
+        // 此前只给 relay 角色，kad 那半是靠 `learn_candidate` 在 identify 之后补回来的
+        // ——巧合，不是设计。
+        match self
+            .net_manager
+            .add_infra_node(&addr, CandidateRoles::kad_and_relay())
+        {
+            Ok(peer) => Ok(peer.id.to_string()),
+            // `Duplicate` 不再单独截胡（理由见上），与其余判别码同路 reject。
+            Err(e) => Err(infra_addr_err(e)),
+        }
     }
 
-    /// 撤销 relay 意图（[`relays_ensure`](Self::relays_ensure) 的对称面）。
+    /// 撤销基础设施意图（[`infra_ensure`](Self::infra_ensure) 的对称面）。
     ///
     /// **真撤销**而非停止等待：停止后台收敛重试、关闭 circuit listener、立刻
-    /// 断开与该 helper 的连接（含中止在途拨号），条目从状态集合消失。
-    pub async fn relays_drop(&self, helper_id: String) -> Result<(), JsValue> {
-        let id = parse_node_id(&helper_id)?;
+    /// 断开与该节点的连接（含中止在途拨号），条目从状态集合消失。
+    pub async fn infra_drop(&self, peer_id: String) -> Result<(), JsValue> {
+        let id = parse_node_id(&peer_id)?;
         self.net_manager
-            .remove_relay_intent(id)
+            .remove_infra_intent(id)
             .await
             .map_err(WebError::from)?;
         Ok(())
     }
 
-    /// 全量 relay 状态快照（`{ id, state, circuitAddr?, lastError? }[]`）。
-    pub fn relays_state(&self) -> Result<RelayInfoArray, JsValue> {
+    /// 全量基础设施关系快照（[`InfraLink`](swarmdrop_core::infra::InfraLink)`[]`）。
+    ///
+    /// 每条同时带**意图侧**（地址 / 来源 / 角色 / scope / 首末次见到 / 能否移除）与
+    /// **观测侧**（是否已连、relay 轨道状态与失败原文）。零存储读模型，现场 join
+    /// 候选表与内核两条 watch——所以「状态粘死」在物理上不可能发生。
+    pub fn infra_links(&self) -> Result<InfraLinkArray, JsValue> {
         to_js_typed(
-            &relay_info_json(&self.endpoint.watch_relays().get()),
-            "relay 状态",
+            &swarmdrop_core::infra::build_infra_links(&self.net_manager.shared_refs()),
+            "基础设施状态",
         )
     }
 
-    /// relay 状态变化流：每次变化产出一份全量快照（可直接 setState）。
+    /// 基础设施状态变化流：每次变化产出一份全量快照（可直接 setState）。
     /// 可多次调用（每次独立订阅），与 `events()` 的单点消费不同。
-    pub fn relays_changed(&self) -> RelayChangedStream {
+    ///
+    /// **触发源是 `watch_relays`**：内核不外露候选表与在途拨号的变化，而 relay 轨道的
+    /// 每一次翻转（Connecting / Active / Failed）都从那里出。意图侧的增删由调用方自己
+    /// 知道（它就是发起方），补一次 `infra_links()` 即可。
+    pub fn infra_changed(&self) -> InfraChangedStream {
         let watcher = self.endpoint.watch_relays();
-        let stream = futures::stream::unfold(watcher, |mut w| async move {
-            let map = w.updated().await?;
-            let value = crate::serialize::to_js(&relay_info_json(&map)).unwrap_or(JsValue::NULL);
-            Some((Ok::<JsValue, JsValue>(value), w))
+        let shared = self.net_manager.shared_refs();
+        let stream = futures::stream::unfold((watcher, shared), |(mut w, shared)| async move {
+            w.updated().await?;
+            let links = swarmdrop_core::infra::build_infra_links(&shared);
+            let value = crate::serialize::to_js(&links).unwrap_or(JsValue::NULL);
+            Some((Ok::<JsValue, JsValue>(value), (w, shared)))
         });
         JsValue::from(wasm_streams::ReadableStream::from_stream(stream).into_raw()).unchecked_into()
     }
 
-    /// 等待某 relay 首次进入 `active`，resolve 出 circuit 可达地址（内核拼装）。
+    /// 等待某条关系的 relay 首次进入 `active`，resolve 出 circuit 可达地址（内核拼装）。
     ///
     /// 观察到 `failed` 时**立即 reject**（把「要不要再等下一轮退避」还给调用方），
-    /// 意图保留——要停止后台收敛请调 [`relays_drop`](Self::relays_drop)。
+    /// 意图保留——要停止后台收敛请调 [`infra_drop`](Self::infra_drop)。
     /// `signal`（可选）：abort 只是不再等待，同样不改变意图生命周期。
     /// 不传 signal 时 30s 兜底超时保证 Promise 有限时间内 settle。
-    pub async fn relays_until_active(
+    pub async fn infra_until_active(
         &self,
-        helper_id: String,
+        peer_id: String,
         signal: Option<web_sys::AbortSignal>,
     ) -> Result<String, JsValue> {
-        let id = parse_node_id(&helper_id)?;
+        let id = parse_node_id(&peer_id)?;
         let mut relays = self.endpoint.watch_relays();
         let wait = async move {
             // 首轮读快照，此后消费 updated() 的返回值——每次唤醒只做一份 map 拷贝
@@ -903,10 +950,89 @@ impl WebNode {
 
         let result = self
             .manager
-            .send_offer(&prepared_id, &to, "web", &file_ids, TransferOrigin::Human)
+            .send_offer(
+                &prepared_id,
+                &to,
+                &self.paired_device_name(&to),
+                &file_ids,
+                TransferOrigin::Human,
+            )
             .await
             .map_err(WebError::from)?;
         Ok(result.session_id.to_string())
+    }
+
+    /// 转发已接收的文件：把 OPFS 里的条目取回成 `File`，之后与用户选文件发送**完全同路**。
+    ///
+    /// `paths` 是收件箱条目的 OPFS 相对路径（落盘时写的那个）。`FileSystemFileHandle::get_file()`
+    /// 返回的正是 `send_files` 已经在吃的 `web_sys::File`，所以读分块那条路径一行都不用动——
+    /// 转发在后端从来不缺能力，缺的只是一个入口。
+    ///
+    /// 拿到的 `File.name()` 是路径末段，`webkitRelativePath` 为空，于是 `relative_path` 回落
+    /// 到文件名。这是要的行为：转发是一次新的发送，把上一次传输的目录结构带给第三台设备
+    /// 只会让对方莫名其妙（移动端同此约定）。
+    /// **取不到的条目被跳过，而不是让整批失败。** OPFS 是配额存储，条目可能被浏览器驱逐；
+    /// 「一个死路径 → 整次转发失败 → 用户看到一条没有文件名的 DOMException」正是
+    /// Received File Reuse Contract 里「发起前筛掉」要杜绝的。移动端由 `selectForwardable`
+    /// 承担这件事，浏览器这边没有对应的 per-path 原语可用，所以筛在这里。
+    ///
+    /// 被跳过的路径经 [`Self::take_skipped_forward_paths`] 取回，由 UI 告诉用户。全部取不到
+    /// 才算失败——那时确实没有任何东西可发。
+    pub async fn send_inbox_files(
+        &self,
+        to: String,
+        paths: Vec<String>,
+    ) -> Result<String, JsValue> {
+        if paths.is_empty() {
+            return Err(WebError::invalid_input("未选择文件").into());
+        }
+        let mut files = Vec::with_capacity(paths.len());
+        let mut skipped = Vec::new();
+        for path in &paths {
+            match crate::opfs::open_file(path).await {
+                Ok(file) => files.push(file),
+                Err(err) => {
+                    tracing::warn!(path, error = %err, "转发跳过取不到的文件");
+                    skipped.push(path.clone());
+                }
+            }
+        }
+        if files.is_empty() {
+            *self.skipped_forward_paths.borrow_mut() = Vec::new();
+            return Err(WebError::storage("这些文件都已不在浏览器存储里").into());
+        }
+        *self.skipped_forward_paths.borrow_mut() = skipped;
+        self.send_files(to, files).await
+    }
+
+    /// 取回上一次转发中被跳过的路径，**取过即清**。
+    ///
+    /// 单独一个方法而不是塞进 `send_inbox_files` 的返回值：那个返回的是 session_id，
+    /// 换成结构体会让所有既有调用点跟着改，而这条信息只有转发这一个入口关心。
+    pub fn take_skipped_forward_paths(&self) -> Vec<String> {
+        std::mem::take(&mut self.skipped_forward_paths.borrow_mut())
+    }
+
+    /// 发送记录里存的对端显示名。
+    ///
+    /// 这里曾经是字面量 `"web"`，于是**发出去的每一条记录都叫「web」**——传输页里几行除了
+    /// 时间戳完全同形，同一个文件发两次根本认不出哪条是哪条（而 `peerName` 正是那一行用来
+    /// 回答「发给谁」的唯一字段）。桌面与移动没有这个毛病：它们的 `start_send` /
+    /// `send_prepared` 都由调用方传设备名。
+    ///
+    /// **在 Rust 侧查而不是给 `send_files` 加参数**：查询与规则都与接收侧同源——同一份
+    /// `paired_devices` 表（接收侧经 `PeerDirectory::get_paired_device` 拿，见
+    /// `TransferCtrlService`）、同一个 [`OsInfo::display_name`]。前端手上那个名字是展示层的
+    /// （`organizedDeviceName` 把本机别名也算进去），那是「我怎么称呼它」，不该写进记录。
+    ///
+    /// 查不到时返回空串，回落交给展示层（`peerLabel` → `shortPeerId`）：写死的占位会跟着
+    /// 记录一起落库，将来换措辞、换语言都改不动它。
+    fn paired_device_name(&self, peer_id: &str) -> String {
+        parse_node_id(peer_id)
+            .ok()
+            .and_then(|id| self.net_manager.pairing().get_paired_device(&id))
+            .map(|device| device.os_info.display_name())
+            .unwrap_or_default()
     }
 
     /// 当前挂起（待确认）的入站 offer 列表。
@@ -1326,7 +1452,7 @@ fn parse_uuid(s: &str, what: &str) -> Result<Uuid, JsValue> {
         .map_err(|e| WebError::invalid_input(format!("非法 {what}: {e}")).into())
 }
 
-/// 解析 base58 身份串为 [`NodeId`]（`relays_drop` / `relays_until_active` 入参）。
+/// 解析 base58 身份串为 [`NodeId`]（`infra_drop` / `infra_until_active` 入参）。
 fn parse_node_id(s: &str) -> Result<NodeId, JsValue> {
     s.trim()
         .parse::<NodeId>()

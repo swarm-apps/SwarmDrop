@@ -98,25 +98,18 @@ impl PartFile {
         *guard = None;
     }
 
-    /// 校验 BLAKE3 并最终化文件
+    /// 发布：关闭写入句柄 → 重命名 `.part` → 最终路径。
     ///
-    /// 1. 关闭写入句柄
-    /// 2. 流式计算 BLAKE3 校验和
-    /// 3. 校验通过：重命名 .part → 最终路径
-    /// 4. 校验失败：删除临时文件
-    pub async fn verify_and_finalize(
-        &self,
-        expected_checksum: &str,
-        _app: &tauri::AppHandle,
-    ) -> AppResult<PathBuf> {
+    /// **不做完整性校验**，理由见 [`path_ops::publish`]。
+    pub async fn publish(&self) -> AppResult<PathBuf> {
         self.close_write_handle();
-        path_ops::verify_and_finalize(self, expected_checksum).await
+        path_ops::publish(self).await
     }
 
     /// 清理临时文件（静默忽略错误）
     ///
     /// 传输取消或失败时调用，删除未最终化的临时文件。
-    pub async fn cleanup(&self, _app: &tauri::AppHandle) {
+    pub async fn cleanup(&self) {
         self.close_write_handle();
         let _ = tokio::fs::remove_file(&self.part_path).await;
     }

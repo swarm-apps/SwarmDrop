@@ -15,15 +15,23 @@ mod queries;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::StreamExt;
 use libp2p::core::transport::ListenerId;
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::{ConnectionId, SwarmEvent};
 use libp2p::{PeerId, Swarm, identify, kad, ping};
+// 双 target 的 Instant：native 是 `tokio::time::Instant`（std 的薄封装），
+// wasm 是 `web_time::Instant`（performance.now()）。
+// **native 那半边不等于 std `Instant`**——kad 的 `Record::expires` 要的正是 std 那个，
+// 所以 `handle_dht_command` 里那处仍得按 target 分叉，不能顺手换成这里的别名。
+use n0_future::time::Instant;
 #[cfg(not(wasm_browser))]
 use swarmdrop_net_base::DiscoverySource;
-use swarmdrop_net_base::{Addr, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId, TransportKind};
+use swarmdrop_net_base::{
+    Addr, DialTier, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId, TransportKind,
+};
 use tokio::sync::{mpsc, oneshot, watch};
 use tracing::{debug, info, trace, warn};
 
@@ -40,6 +48,24 @@ use self::queries::{PendingQueries, PendingQuery};
 /// 订阅者事件队列深度。满时丢弃并计数（presence 有 watch_conns 差分兜底）。
 const SUBSCRIBER_QUEUE: usize = 256;
 
+/// 单个 peer 在地址簿里保留的地址上限。
+///
+/// # 为什么必须有上限
+///
+/// 地址簿是拨号候选的来源，而进簿的四条路径（mDNS / DHT presence record / identify /
+/// 显式注入）**都会随时间产出新地址**：对端换 Wi-Fi 或 DHCP 续租就是一批新 IP，而带
+/// `certhash` 的地址（webrtc-direct、WebTransport）更是每次证书轮换必变一条。只去重不
+/// 淘汰的话，一个长期在线的对端会在簿里累积到几十上百条，其中绝大多数早已拨不通。
+///
+/// 后果与「本机通告的外部地址只增不删」是同一枚硬币的两面（见
+/// [`Endpoint::set_external_addrs`](crate::Endpoint::set_external_addrs)）：那边撑爆的是
+/// identify payload，这边占满的是拨号预算——libp2p 默认并发拨 8 条，死地址排在前面就
+/// 意味着每次连接都要先超时几轮。
+///
+/// 32 的取法：一台设备的合理地址数在 10 条上下（TCP/QUIC 各 v4+v6、webrtc-direct、
+/// WebTransport、多网卡，外加每个 relay 一条 circuit），留 3 倍余量。
+const MAX_ADDRS_PER_PEER: usize = 32;
+
 /// 一次 LAN 升级里，**每种传输**最多带几个候选地址。
 ///
 /// **必须按传输分组，不能简单取前 N 个。** 原生端的 preset 同时监听
@@ -54,6 +80,32 @@ const SUBSCRIBER_QUEUE: usize = 256;
 /// 分组取仍然挡得住原来要挡的东西：对端报一长串地址时，一次升级不会变成对内网的
 /// 批量探测。
 const LAN_UPGRADE_MAX_PER_TRANSPORT: usize = 2;
+
+/// reservation **同步失败**后的重试闸门间隔：2s → 5s → 10s → 30s，上限 75s。
+///
+/// 档位与 core `InfraSupervisor::rebuild_backoff` 刻意取同一套。两者治的是同一件事的
+/// 两层——那边管「还要不要维持这条链路的意图」，这边管「同一个同步失败要不要立刻重放」
+/// ——档位分叉只会让两份日志的节奏对不上，排障时被当成两个独立问题追。
+fn reservation_retry_backoff(attempts: u32) -> Duration {
+    match attempts {
+        0 | 1 => Duration::from_secs(2),
+        2 => Duration::from_secs(5),
+        3 => Duration::from_secs(10),
+        4 => Duration::from_secs(30),
+        _ => Duration::from_secs(75),
+    }
+}
+
+/// 一个 relay 的 reservation 同步失败记账（[`Actor::relay_retry`] 的值）。
+struct RelayRetry {
+    /// 连续同步失败次数，只用来查 [`reservation_retry_backoff`] 的档位。
+    attempts: u32,
+    /// 早于此刻的尝试一律短路。
+    retry_after: Instant,
+    /// 上次失败原因。闸门短路时用它把 [`Actor::ensure_relay`] 刚翻上去的
+    /// `Connecting` 压回 `Failed`——否则退避期内 UI 会停在「正在连接…」却说不出原因。
+    last_error: String,
+}
 
 pub(crate) enum ActorMessage {
     Connect {
@@ -76,9 +128,9 @@ pub(crate) enum ActorMessage {
         addrs: Vec<Addr>,
         reply: oneshot::Sender<Result<(), Error>>,
     },
-    /// 显式登记本节点的外部可达地址（公网 relay / 动态 WebRTC 地址）。
-    AddExternalAddr {
-        addr: Addr,
+    /// 整份声明宿主认定的外部可达地址（幂等替换）。
+    SetExternalAddrs {
+        addrs: Vec<Addr>,
         reply: oneshot::Sender<Result<(), Error>>,
     },
     /// 运行期改写 identify 的 agent_version，并立刻向已连接对端主动 push。
@@ -156,7 +208,10 @@ pub(crate) struct Actor {
     /// 广播给各 behaviour——没有 behaviour 存储它就没有任何效果；dial 的候选
     /// 地址来自 behaviour 的 `handle_pending_outbound_connection`。内核不依赖
     /// 特定 behaviour 兼职地址簿（旧栈靠 kad 路由表兼职），自己维护。
-    address_book: HashMap<PeerId, Vec<libp2p::Multiaddr>>,
+    address_book: HashMap<PeerId, Vec<AddrEntry>>,
+    /// 地址簿的逻辑时钟：每次地址被上报或连通时递增一格，用来判断「谁更久没被提及」。
+    /// 见 [`AddrEntry`] 关于「为什么不是时间戳」。
+    addr_clock: u64,
     /// 活跃连接明细（一个 peer 可能同时有 TCP+QUIC / relay+direct 多条连接）。
     conns: HashMap<PeerId, Vec<(ConnectionId, ConnInfo)>>,
     subscribers: Vec<mpsc::Sender<NetEvent>>,
@@ -181,12 +236,52 @@ pub(crate) struct Actor {
     upgrading_direct: HashSet<PeerId>,
     /// 承担 relay 角色的基础设施节点——identify 到达时幂等重建 reservation。
     infra_relay_peers: HashSet<PeerId>,
+    /// reservation **同步失败**后的重试闸门：peer → 记账（见 [`RelayRetry`]）。
+    ///
+    /// **这不是重试策略**——重试策略仍是 core `InfraSupervisor` 的内账（它决定还要不要
+    /// 维持这条链路的意图），本表挡的是另一件事：`listen_on` 的同步失败与「地址簿里没有
+    /// 可用 circuit 基址」都是**当前输入的确定性结果**，上层再催一遍必然得到同一个答案。
+    ///
+    /// 没有它时，mDNS 每刷新一次候选就把 supervisor 的退避清零
+    ///（`candidate_seen` 重置），同一条注定失败的地址被以秒级频率重放几十次、每次刷一条
+    /// warn（2026-08-10 真机实测）。轮数不外露、不进 `RelayState`，只用来算下次允许的时刻；
+    /// 地址簿一有**能当 circuit 基址**的新条目就整条清掉（见 [`Actor::record_addr`]），
+    /// 新事实到达不必等退避走完——而新进簿的 circuit 地址不算新事实，它对这两个失败原因
+    /// 的答案与上一轮完全相同。
+    relay_retry: HashMap<PeerId, RelayRetry>,
+    /// **宿主声明的**外部可达地址（`SetExternalAddrs` 整份替换）。
+    ///
+    /// 与 [`confirmed_external`](Self::confirmed_external) 分开存，是为了让「声明」这个
+    /// 动作可以是幂等的整份替换而不误伤自动发现的结果——合成一个集合的话，宿主每声明
+    /// 一次就会把 AutoNAT 刚确认的地址抹掉，而下一轮 AutoNAT 再把它加回来，视图于是
+    /// 永久抖动。
+    declared_external: Vec<Addr>,
+    /// **自动确认的**外部可达地址（AutoNAT / identify 观测，由 Swarm 事件驱动）。
+    confirmed_external: Vec<Addr>,
+    /// 由 [`EndpointConfig::external_ip`] 从监听集合映射出来的外部地址（未配置时恒空）。
+    ///
+    /// 独立一份而不并进 `declared_external`：它是内核**派生**的，随监听地址增删自动
+    /// 重算；混进宿主声明的那份，宿主下一次整份声明就会把它抹掉，而下一条监听事件又把
+    /// 它加回来 —— 视图于是永久抖动。判据见 [`Actor::recompute_mapped_external`]。
+    mapped_external: Vec<Addr>,
+    /// LanHelper 模式下作为 external 登记的**私网/回环监听地址**。
+    ///
+    /// 单独一份而不并进 `declared_external`：它们不属于「公网地址诊断」，不该出现在
+    /// 视图里（那会让 UI 显示一串 192.168.x.x），但**必须**进 Swarm —— relay 的
+    /// reservation 应答就靠它给客户端可拨地址，没有会被判 `NoAddressesInReservation`。
+    lan_announced: Vec<Addr>,
+    /// 当前**实际推给 Swarm** 的 external 集合 = 视图那份 ∪ [`lan_announced`]。
+    ///
+    /// 差量的基准是它而不是视图，理由见 [`resync_external`](Self::resync_external)。
+    swarm_external: Vec<Addr>,
     /// pull 型地址解析源（bind 尾声注入）。
     lookups: Arc<Vec<Box<dyn AddressLookup>>>,
     /// 自发端（lookup 任务解析完回注用）。
     self_tx: mpsc::Sender<ActorMessage>,
     config: EndpointConfig,
     node_id: NodeId,
+    /// 活跃流计数（与 `Endpoint` 共用同一份）。只读，用来判断关掉一条连接安不安全。
+    registry: crate::stream::StreamRegistry,
 }
 
 impl Actor {
@@ -197,13 +292,16 @@ impl Actor {
         self_tx: mpsc::Sender<ActorMessage>,
         config: EndpointConfig,
         node_id: NodeId,
+        registry: crate::stream::StreamRegistry,
     ) -> Self {
         Self {
+            registry,
             swarm,
             rx,
             dials: HashMap::new(),
             resolving_connects: HashSet::new(),
             address_book: HashMap::new(),
+            addr_clock: 0,
             conns: HashMap::new(),
             subscribers: Vec::new(),
             dropped_events: 0,
@@ -214,11 +312,109 @@ impl Actor {
             upgrading_lan: HashSet::new(),
             upgrading_direct: HashSet::new(),
             infra_relay_peers: HashSet::new(),
+            relay_retry: HashMap::new(),
+            // 组合根声明的初值。Swarm 侧在 `bind` 里已登记过（reservation 应答要在
+            // actor 起前就能带上公网地址），视图初值同样在那里给，故此处只建账本、
+            // 不重复下发——`resync_external` 的差集因此从零开始就是空的。
+            declared_external: config.external_addrs.clone(),
+            confirmed_external: Vec::new(),
+            // 监听地址此刻一条都还没到（`0.0.0.0` 尚未展开），故初值必为空——
+            // 第一批 `NewListenAddr` 到达时才有内容。
+            mapped_external: Vec::new(),
+            lan_announced: Vec::new(),
+            // 与 `bind` 里给的视图初值一致：那里已经把 `external_addrs` 推给 Swarm 了。
+            swarm_external: crate::addrset::dedup_preserving_order(&config.external_addrs),
             lookups: Arc::new(Vec::new()),
             self_tx,
             config,
             node_id,
         }
+    }
+
+    /// 重算外部地址视图 = 宿主声明的 ∪ 自动确认的 ∪ 公网 IP 映射的，并把差量下发给 Swarm。
+    ///
+    /// **视图自身就是「上次同步了什么」的账本**，不另存第三份——多存一份就多一个会与
+    /// 视图漂移的真值。
+    ///
+    /// ⚠️ **差量以 `swarm_external`（本 actor 自己的账本）为基准，不能拿视图代替。**
+    /// 视图只装「公网地址诊断」那一部分（声明的 ∪ 自动确认的），而推给 Swarm 的集合还多
+    /// 一类：LanHelper 把私网监听地址也登记为 external（`NewListenAddr` 分支），那是
+    /// relay reservation 应答的可拨地址来源，刻意不进视图——混入私网地址会让 UI 显示得
+    /// 莫名其妙。
+    ///
+    /// 拿视图当账本时那类地址**谁都撤不掉**：它从没进过视图，差量算不到它。以前无害
+    /// （tcp/quic/webrtc-direct 的监听地址恒定），但 WebTransport 的地址带 certhash、
+    /// 每 14 天变一次 —— 于是每轮换一次就多留一条死地址，随 identify 广播给每个对端。
+    ///
+    /// **通知 lookup 的动作交给调用方**（返回值就是「要不要通知」）：监听地址与外部地址
+    /// 常常在同一个事件里一起变（`NewListenAddr` 会同时改监听视图和公网 IP 映射），
+    /// 本函数自己 publish 的话那个事件就发两轮——而每轮都会连带触发一次 DHT publish。
+    #[must_use = "视图变了就要 publish_addrs()，否则 lookup 拿到的是旧地址"]
+    fn resync_external(&mut self) -> bool {
+        let view_external = crate::addrset::union_preserving_order(
+            &self.declared_external,
+            &crate::addrset::union_preserving_order(
+                &self.confirmed_external,
+                &self.mapped_external,
+            ),
+        );
+        // Swarm 侧还要带上 LanHelper 那部分。
+        let desired = crate::addrset::union_preserving_order(&view_external, &self.lan_announced);
+
+        for stale in self
+            .swarm_external
+            .iter()
+            .filter(|a| !desired.contains(a))
+            .cloned()
+            .collect::<Vec<_>>()
+        {
+            self.swarm.remove_external_address(stale.as_multiaddr());
+        }
+        for fresh in desired.iter().filter(|a| !self.swarm_external.contains(a)) {
+            self.swarm
+                .add_external_address(fresh.as_multiaddr().clone());
+        }
+        self.swarm_external = desired;
+
+        // 视图只在内容真变时才广播 —— 「没变」是常态（宿主每次重试都会把同一份声明重发
+        // 一遍），白广播会连带触发一轮 DHT publish。
+        self.watches.addrs.send_if_modified(|info| {
+            if info.external == view_external {
+                false
+            } else {
+                info.external = view_external;
+                true
+            }
+        })
+    }
+
+    /// 按 [`EndpointConfig::external_ip`] 重算「监听地址的公网形态」，返回是否有变化。
+    ///
+    /// **不自己 `resync_external`**：它的两个调用点都还有别的 external 来源要同时变
+    /// （`NewListenAddr` 可能同时登记 LanHelper 地址、`remove_listen_addrs` 可能同时撤销
+    /// 它），各自 resync 一次就是把整轮差量算两遍、并可能对外广播两次「地址变了」。
+    ///
+    /// 每次都从 `listen` 视图整份重算，而不是按事件增删自己维护一份：视图是监听地址的
+    /// 唯一真相源，整份派生天然不会与它漂移，也就没有「漏处理某条失效路径」这种缺陷
+    /// ——`ListenerClosed` 与 `ExpiredListenAddr` 是两条独立路径，本仓已经在
+    /// `lan_announced` 上踩过一次「只处理了其中一条」。
+    ///
+    /// 映射本身（含 circuit 排除与去重）在 [`crate::addrset::map_to_public_ip`]。
+    fn recompute_mapped_external(&mut self) -> bool {
+        let Some(ip) = self.config.external_ip else {
+            return false;
+        };
+        // borrow 必须在 `resync_external` 之前放掉——那里要写同一个 watch。
+        let mapped = {
+            let info = self.watches.addrs.borrow();
+            crate::addrset::map_to_public_ip(&info.listen, ip)
+        };
+
+        if mapped == self.mapped_external {
+            return false;
+        }
+        self.mapped_external = mapped;
+        true
     }
 
     pub(crate) async fn run(mut self) {
@@ -261,19 +457,11 @@ impl Actor {
                 }
                 let _ = reply.send(Ok(()));
             }
-            ActorMessage::AddExternalAddr { addr, reply } => {
-                self.swarm.add_external_address(addr.as_multiaddr().clone());
-                // 显式地址是组合根提供的可自证配置；Swarm 不保证为它回发
-                // ExternalAddrConfirmed，因此此处同步到唯一状态视图。
-                let changed = self.watches.addrs.send_if_modified(|info| {
-                    if info.external.contains(&addr) {
-                        false
-                    } else {
-                        info.external.push(addr);
-                        true
-                    }
-                });
-                if changed {
+            ActorMessage::SetExternalAddrs { addrs, reply } => {
+                // 账本原样记「宿主声明了什么」，规范化（去重/排序）留给 `resync_external`
+                // 的输出——两处都做等于有两份规范。
+                self.declared_external = addrs;
+                if self.resync_external() {
                     self.publish_addrs();
                 }
                 let _ = reply.send(Ok(()));
@@ -346,7 +534,7 @@ impl Actor {
                     self.ensure_relay(peer_id);
                 } else {
                     // 非 relay 角色也主动建连（kad server 的路由表活性）
-                    let candidates = self.address_book.get(&peer_id).cloned().unwrap_or_default();
+                    let candidates = self.peer_addrs(&peer_id);
                     if !candidates.is_empty()
                         && let Err(e) = self
                             .swarm
@@ -493,7 +681,7 @@ impl Actor {
             self.request_relay_reservation(peer_id);
             return;
         }
-        let candidates = self.address_book.get(&peer_id).cloned().unwrap_or_default();
+        let candidates = self.peer_addrs(&peer_id);
         if candidates.is_empty() {
             warn!(%peer_id, "no addresses for relay, cannot connect");
             self.set_relay_failed(peer_id, "no addresses for relay");
@@ -513,6 +701,8 @@ impl Actor {
     fn handle_remove_infra_peer(&mut self, node: NodeId) {
         let peer = *node.as_peer_id();
         self.infra_relay_peers.remove(&peer);
+        // 意图已撤销，闸门记账一并清掉——留着会让日后重新登记这个节点白等一轮退避
+        self.relay_retry.remove(&peer);
         self.swarm
             .behaviour_mut()
             .keep_alive
@@ -590,18 +780,46 @@ impl Actor {
         );
     }
 
+    /// 该 relay 在地址簿里第一条**能当 circuit 基址**的地址（已拼好 `/p2p-circuit`）。
+    ///
+    /// 三个调用点（reservation listen / `/webrtc` 打洞 listen / 本机 circuit 可达地址）
+    /// 共用它，而不是各自 `addrs.first()`：地址簿里混着 circuit 地址是常态（对端经第三方
+    /// 中转可达时就会进来一条），`first()` 撞上那条就会拼出双层 circuit——判据与后果见
+    /// [`circuit_base`]。
+    fn circuit_base_for(&self, relay: PeerId) -> Option<libp2p::Multiaddr> {
+        // 借着找，不物化整本簿 —— 它只要第一条能当基址的。
+        first_circuit_base(
+            self.address_book.get(&relay)?.iter().map(|e| &e.addr),
+            relay,
+        )
+    }
+
     /// 本机经某 relay 的完整 circuit 可达地址（`<relay>/p2p-circuit/p2p/<本机>`）。
     /// 单一事实源：调用方（web/桌面）不再自行拼接。
     fn circuit_addr_for(&self, relay: PeerId) -> Addr {
-        let first = self
-            .address_book
-            .get(&relay)
-            .and_then(|addrs| addrs.first())
-            .cloned()
-            .unwrap_or_else(libp2p::Multiaddr::empty);
+        // 地址簿为空、或簿里只剩 circuit 地址时，退化成不带传输段的
+        // `/p2p/<relay>/p2p-circuit/p2p/<本机>`。
+        //
+        // ⚠️ **这是展示值，不是可拨地址，不可当作可达地址分发给对端。** 此处此前写作
+        // 「对端用自己认识的 relay 地址补前半段即可」——**libp2p 不做这件事**：缺前半段的
+        // 地址进对端的 `relay::client::Transport::dial` 会以 `MissingRelayAddr` 当场被拒，
+        // 而那个判别码同样落在 `TransportError::Other` 上、Display 是空串，对端日志里只会
+        // 留下一条 `error=` 的空字段。它是一条死地址。
+        //
+        // 留着它是因为消费者只有状态展示（`RelayState::Active` → 节点状态弹窗的
+        // 「circuit 可达地址」诊断与 `publicReachable` 布尔），而「有 reservation 却还没有
+        // relay 的传输地址」是暂态：identify / mDNS 把地址报上来就补齐。真正要拨的那条走
+        // `circuit_base_for`，那条路径没有这个退化分支。
+        //
+        // 不复用 `circuit_base(Multiaddr::empty(), …)`：空地址没有传输段，按判据它就该给
+        // `None`（见 [`circuit_base`] 的第 2 条）。退化值只在这里显式拼一次。
+        let base = self.circuit_base_for(relay).unwrap_or_else(|| {
+            libp2p::Multiaddr::empty()
+                .with(libp2p::multiaddr::Protocol::P2p(relay))
+                .with(libp2p::multiaddr::Protocol::P2pCircuit)
+        });
         Addr::from_multiaddr(
-            circuit_base(first, relay)
-                .with(libp2p::multiaddr::Protocol::P2p(*self.node_id.as_peer_id())),
+            base.with(libp2p::multiaddr::Protocol::P2p(*self.node_id.as_peer_id())),
         )
     }
 
@@ -623,34 +841,82 @@ impl Actor {
         if self.config.webrtc_p2p.is_none() || self.webrtc_listeners.contains_key(&relay) {
             return;
         }
-        let Some(addr) = self
-            .address_book
-            .get(&relay)
-            .and_then(|addrs| addrs.first())
-            .cloned()
-        else {
+        let Some(base) = self.circuit_base_for(relay) else {
             return;
         };
         // 与 circuit_addr_for 同一套拼装规则，只多一个 /webrtc 段——格式由
         // webrtc-p2p 自己的构造函数保证，与它的 split 天然对称。
-        let listen_addr = webrtc_p2p::protocol::addr::from_circuit(
-            &circuit_base(addr, relay),
-            *self.node_id.as_peer_id(),
-        );
+        let listen_addr =
+            webrtc_p2p::protocol::addr::from_circuit(&base, *self.node_id.as_peer_id());
         match self.swarm.listen_on(listen_addr.clone()) {
             Ok(id) => {
                 self.webrtc_listeners.insert(relay, id);
                 info!(%listen_addr, "webrtc hole-punching listener registered");
             }
-            Err(e) => warn!(%listen_addr, error = %e, "webrtc circuit listen failed"),
+            // `?e` 而非 `%e`：理由同 request_relay_reservation——TransportError 的
+            // Display 在 `Other` 分支上是空串，`%` 会渲染出一条没有错误内容的日志。
+            Err(e) => warn!(%listen_addr, error = ?e, "webrtc circuit listen failed"),
         }
     }
 
     /// 该 peer 当前是否只挂在中转上——两条升级路径共同的前提。
-    fn only_relayed(&self, peer: PeerId) -> bool {
+    /// 当前与该 peer 的所有连接里**最好的那一档**。没连接时 `None`。
+    ///
+    /// 这是所有「要不要升级」判断的唯一依据。它取代了此前的 `only_relayed`——那条判据
+    /// 问的是「有没有直连」，而不是「有没有**更快的**直连」，于是一旦落到 webrtc-direct
+    /// （`DirectSlow`）就再也不会往 `DirectFast` 升，永久锁死在慢传输上。
+    fn best_tier(&self, peer: PeerId) -> Option<DialTier> {
         self.conns
             .get(&peer)
-            .is_some_and(|c| !c.is_empty() && c.iter().all(|(_, i)| i.path == PathKind::Relayed))
+            .filter(|c| !c.is_empty())
+            .and_then(|c| c.iter().map(|(_, i)| i.addr.dial_tier()).min())
+    }
+
+    /// 升级到 `target` 档是否有意义：当前已连上，且 `target` 严格更优。
+    ///
+    /// 未连接时返回 `false`——那时该走正常拨号，不是升级。
+    fn wants_upgrade_to(&self, peer: PeerId, target: DialTier) -> bool {
+        self.best_tier(peer).is_some_and(|current| target < current)
+    }
+
+    /// 升级成功之后，关掉留在劣档上的那些连接。
+    ///
+    /// # 不关的话，升级只是把「走慢连接」的概率从 100% 降到 50%
+    ///
+    /// `libp2p-stream` 的 `Shared::sender()` 在该 peer 的**所有**连接里
+    /// `.choose(&mut rand::thread_rng())` —— 均匀随机。所以只要劣档连接还在，
+    /// 每条新流都在掷硬币。而 UI 侧 `best_conn` 按 `path_rank` 取最好的那条上报，
+    /// 于是界面显示「直连」、一半的流在走中继：一半诚实一半撒谎。
+    ///
+    /// # 判据只能是「该 peer 一条流都没有」
+    ///
+    /// 想关得更准就得知道「哪条流在哪条连接上」，而 `libp2p-stream` 随机挑完并不回报，
+    /// 从我们这侧观测不到（见 [`StreamRegistry::is_idle`](crate::stream::StreamRegistry::is_idle)）。
+    /// 所以宁可保守：有任何活跃流就整轮跳过，**绝不打断正在传的数据**。
+    ///
+    /// 代价是「传输途中升级成功」那一格要等到下一次触发才收敛。可接受——那条正在传的流
+    /// 本来就已经绑在旧连接上，早关晚关都救不了它，而早关会直接打断它。
+    ///
+    /// 调用点有两处：连接建立后（**主路径**：升级通常发生在 identify 首帧，此时用户还没
+    /// 开始传，一关就干净）与每次 identify（自愈：补上被活跃流挡掉的那些轮次）。
+    fn prune_inferior_conns(&mut self, peer: PeerId) {
+        let inferior = inferior_conns(self.conns.get(&peer).map_or(&[], Vec::as_slice));
+        if inferior.is_empty() {
+            return;
+        }
+        if !self.registry.is_idle(peer) {
+            debug!(
+                %peer,
+                pending = inferior.len(),
+                "defer pruning inferior connections: peer still has active streams"
+            );
+            return;
+        }
+        for id in inferior {
+            if self.swarm.close_connection(id) {
+                info!(%peer, ?id, "closed inferior connection after upgrade");
+            }
+        }
     }
 
     /// 清掉该 peer 的两个升级在途标记（连接建立 / 拨号失败时调）。
@@ -686,10 +952,20 @@ impl Actor {
     /// （`PairingMethod::Direct` 的唯一授权依据）读的仍然只有 mDNS 来源的地址，
     /// 本函数一个字节都不往那张表里写。
     fn try_upgrade_to_lan(&mut self, peer: PeerId, candidates: &[libp2p::Multiaddr]) {
-        if self.upgrading_lan.contains(&peer) || !self.only_relayed(peer) {
+        if self.upgrading_lan.contains(&peer) {
             return;
         }
-        let lan = lan_candidates(candidates);
+        let Some(current) = self.best_tier(peer) else {
+            return;
+        };
+        // **只拨比现状更好的那一档，且只拨最好的那一档。**
+        //
+        // 「只拨更好的」把中继→直连与 webrtc-direct→WebTransport 收敛成同一条规则；
+        // 「只拨一档」是因为 libp2p 并发拨号是延迟竞速——把 webrtc-direct 和
+        // WebTransport 一起发出去，赢的多半是前者（后者要多一次 QUIC 握手），
+        // 于是升级"成功"了，却落在慢的那一档上，而且从此 `current` 不再劣于任何候选，
+        // 再也不会有第二次机会。
+        let lan = lan_candidates(candidates, current);
         if lan.is_empty() {
             return;
         }
@@ -729,7 +1005,10 @@ impl Actor {
         };
         // 走到这里说明「本可以打洞」，后面每个否决点都留痕——否则「为什么没打洞」
         // 在一条有五个否决条件的链上根本无从查起（实测吃过这个亏）。
-        if !self.only_relayed(peer) {
+        //
+        // 打洞落在 `DirectSlow`，所以这条等价于旧的 `only_relayed`：已有任何直连时
+        // 不再打洞。换成统一判据只是让「升级」这件事全域只有一处定义。
+        if !self.wants_upgrade_to(peer, DialTier::DirectSlow) {
             debug!(%peer, "skip webrtc upgrade: already has a non-relayed path");
             return;
         }
@@ -774,6 +1053,20 @@ impl Actor {
             debug!(%peer_id, "relay reservation already active, skip");
             return;
         }
+        // 同步失败后的重试闸门（见 `relay_retry`）。地址簿没变的前提下，重放必然
+        // 得到同一个失败，唯一的产出是一条 warn——真机上被上层以秒级频率催了几十次。
+        let backing_off = self
+            .relay_retry
+            .get(&peer_id)
+            .filter(|retry| Instant::now() < retry.retry_after)
+            .map(|retry| (retry.attempts, retry.last_error.clone()));
+        if let Some((attempts, last_error)) = backing_off {
+            debug!(%peer_id, attempts, "relay reservation backing off, skip");
+            // `ensure_relay` 在调本函数前刚把状态翻成 Connecting；不压回去，退避期内
+            // UI 会一直显示「正在连接…」，而真相是它压根没在试。
+            self.set_relay_failed(peer_id, last_error);
+            return;
+        }
         // **每个 relay 只申请一份 reservation**，哪怕地址簿里有它十几个地址。
         //
         // 曾对每个地址各 listen 一次，后果是把 relay 的配额吃光——它是 per-peer 的
@@ -786,20 +1079,19 @@ impl Actor {
         // 分支，我们传的地址只用来拼那条要通告的 external 地址，**不参与建连**。
         // 它的 `reservation_addresses` 又以 ConnectionId 为键——多份本就互相覆盖，
         // 最终生效的只有一份。
-        let Some(addr) = self
-            .address_book
-            .get(&peer_id)
-            .and_then(|addrs| addrs.first())
-            .cloned()
-        else {
-            warn!(%peer_id, "no addresses for relay, cannot request reservation");
-            self.set_relay_failed(peer_id, "no addresses for relay");
+        //
+        // 取的是第一条**能当基址**的地址，不是第一条地址：地址簿里混着 circuit 地址时，
+        // 拿它当基址会拼出双层 circuit（见 `circuit_base`）。
+        let Some(relay_addr) = self.circuit_base_for(peer_id) else {
+            warn!(%peer_id, "no usable circuit base address for relay, cannot request reservation");
+            self.fail_relay_reservation(peer_id, "no usable relay address");
             return;
         };
-        let relay_addr = circuit_base(addr, peer_id);
         match self.swarm.listen_on(relay_addr.clone()) {
             Ok(listener_id) => {
                 self.relay_listeners.insert(listener_id, peer_id);
+                // 走到这一步说明地址是能用的，闸门记账作废
+                self.relay_retry.remove(&peer_id);
                 info!(%relay_addr, "requesting relay reservation");
                 // 覆盖写：identify 幂等重建路径要把 Failed 翻回 Connecting；
                 // 此处必无活跃 listener（函数开头已 skip），不会覆盖 Active
@@ -807,10 +1099,32 @@ impl Actor {
                 self.ensure_webrtc_listener(peer_id);
             }
             Err(e) => {
-                warn!(%relay_addr, error = %e, "relay circuit listen failed");
-                self.set_relay_failed(peer_id, "circuit listen failed");
+                // `?e` 而非 `%e`：`TransportError` 的 Display 在 `Other` 分支上写的是
+                // **空串**（libp2p `core/src/transport.rs`），而 relay client 拒地址正落在
+                // 那个分支——真机日志里几十条全是 `error=`，判别码只有 Debug 带得出来。
+                warn!(%relay_addr, error = ?e, "relay circuit listen failed");
+                self.fail_relay_reservation(peer_id, "circuit listen failed");
             }
         }
+    }
+
+    /// 记一次 reservation 的**同步**失败：翻 `Failed` + 抬高重试闸门。
+    ///
+    /// 只给同步失败用。异步失败（reservation 被 relay 拒、listener 事后关闭）走
+    /// `RelayReservationLost` + core `InfraSupervisor` 的退避，不经此处——那类失败
+    /// 换个时机重试确实可能成功，而同步失败在输入不变时永远是同一个答案。
+    fn fail_relay_reservation(&mut self, peer: PeerId, error: impl Into<String>) {
+        let error = error.into();
+        let now = Instant::now();
+        let entry = self.relay_retry.entry(peer).or_insert(RelayRetry {
+            attempts: 0,
+            retry_after: now,
+            last_error: String::new(),
+        });
+        entry.attempts = entry.attempts.saturating_add(1);
+        entry.retry_after = now + reservation_retry_backoff(entry.attempts);
+        entry.last_error = error.clone();
+        self.set_relay_failed(peer, error);
     }
 
     /// 清除超时 connect 对应的等待者。libp2p 的
@@ -841,6 +1155,8 @@ impl Actor {
     fn cancel_relay_reservation(&mut self, relay: NodeId) {
         let peer = *relay.as_peer_id();
         self.infra_relay_peers.remove(&peer);
+        // 同 handle_remove_infra_peer：意图撤销后闸门记账不该留到下一次登记
+        self.relay_retry.remove(&peer);
 
         let listeners: Vec<_> = self
             .relay_listeners
@@ -884,7 +1200,7 @@ impl Actor {
 
         // 候选 = 显式传入 + 地址簿既有；behaviour 侧（kad 路由表等）的候选经
         // DialOpts 默认的 extend_addresses_through_behaviour 自动补充。
-        let candidates = self.address_book.get(&peer).cloned().unwrap_or_default();
+        let candidates = self.peer_addrs(&peer);
 
         // 无候选且配置了 pull 型 lookup：先解析再回注（ConnectResolved）
         if candidates.is_empty() && !self.lookups.is_empty() {
@@ -946,6 +1262,14 @@ impl Actor {
             } => {
                 let addr = Addr::from_multiaddr(endpoint.get_remote_address().clone());
                 let path = classify_path(&addr, endpoint.is_relayed());
+
+                // 这条地址刚被证明可用——刷新它的「最近提及」序号，免得日后被新涌入的
+                // 地址淘汰掉。**仅出站**：入站连接的远端地址是对端的临时源端口
+                //（TCP 随机高位端口），它连可拨地址都不是，进簿只会挤掉真候选。
+                if endpoint.is_dialer() {
+                    self.refresh_addr(peer_id, endpoint.get_remote_address());
+                }
+
                 let info = ConnInfo {
                     path,
                     addr,
@@ -958,9 +1282,11 @@ impl Actor {
                     .push((connection_id, info.clone()));
                 self.publish_conns();
 
-                // 本轮升级已有结果（无论这条是不是升级建出来的）；成功则 only_relayed
-                // 转 false 自然不再重试，失败则等下一次 identify / mDNS 重来。
+                // 本轮升级已有结果（无论这条是不是升级建出来的）；成功则 best_tier
+                // 转好、`wants_upgrade_to` 自然不再重试，失败则等下一次 identify / mDNS。
                 self.clear_upgrade_marks(&peer_id);
+                // **主路径**：升级刚落地就把劣档连接关掉，否则新流会在两条连接间掷硬币。
+                self.prune_inferior_conns(peer_id);
 
                 let node = NodeId::from_peer_id(peer_id);
                 if u32::from(num_established) == 1 {
@@ -1077,18 +1403,29 @@ impl Actor {
                 //    地址，否则 client 侧报 NoAddressesInReservation 拒绝
                 //    整个 reservation（master 实测）。
                 // loopback 一并放行：仅本机可达，生产无害，测试环境必需。
-                if self
+                let announces_lan = self
                     .config
                     .relay_server
                     .as_ref()
                     .is_some_and(|s| s.announce_private_addrs)
-                    && (addr.is_private_lan() || addr.is_loopback())
-                {
-                    self.swarm.add_external_address(addr.as_multiaddr().clone());
+                    && (addr.is_private_lan() || addr.is_loopback());
+                // 经账本登记而不是直接推给 Swarm —— 直接推的话它就成了「视图不知道、
+                // 因而永远撤不掉」的那一类。WebTransport 的监听地址带 certhash、
+                // 每 14 天变一次，撤不掉就会一直累积。
+                let mut external_changed = false;
+                if announces_lan && !self.lan_announced.contains(&addr) {
+                    self.lan_announced.push(addr.clone());
+                    external_changed = true;
                 }
                 self.watches
                     .addrs
                     .send_modify(|info| info.listen.push(addr));
+                // 公网 IP 映射跟着监听集合走，必须在视图更新**之后**重算。
+                external_changed |= self.recompute_mapped_external();
+                if external_changed {
+                    // 返回值可丢：监听视图已经变了，下面那句 publish 无论如何都要发。
+                    let _ = self.resync_external();
+                }
                 self.publish_addrs();
             }
             SwarmEvent::ListenerClosed {
@@ -1126,25 +1463,28 @@ impl Actor {
             }
             SwarmEvent::ExternalAddrConfirmed { address } => {
                 let addr = Addr::from_multiaddr(address);
-                // 去重：已收录则不触发 watch / lookup 重发（send_if_modified 返回是否真变）
-                let changed = self.watches.addrs.send_if_modified(|info| {
-                    if info.external.contains(&addr) {
-                        false
-                    } else {
-                        info.external.push(addr);
-                        true
+                if !self.confirmed_external.contains(&addr) {
+                    self.confirmed_external.push(addr);
+                    if self.resync_external() {
+                        self.publish_addrs();
                     }
-                });
-                if changed {
-                    self.publish_addrs();
                 }
             }
             SwarmEvent::ExternalAddrExpired { address } => {
                 let addr = Addr::from_multiaddr(address);
-                self.watches
-                    .addrs
-                    .send_modify(|info| info.external.retain(|a| *a != addr));
-                self.publish_addrs();
+                self.confirmed_external.retain(|a| *a != addr);
+                // ⚠️ **账本里也要摘掉**：上游发这个事件之前**已经**自己
+                // `remove_external_address` 了（`swarm/src/lib.rs` 的
+                // `ToSwarm::ExternalAddrExpired` 分支无条件执行），Swarm 里此刻已经没有它。
+                //
+                // 不摘的话账本就与 Swarm 不一致，而差量是按账本算的：若这条地址同时还被
+                // 宿主声明着（`declared_external`），`resync_external` 会认为「desired 有、
+                // 账本也有 ⇒ 无需动作」而**跳过重新登记** —— 于是 Swarm 永久不再通告它，
+                // 视图与 UI 却仍然说它可达。摘掉之后差量才会把它重新 add 回去。
+                self.swarm_external.retain(|a| *a != addr);
+                if self.resync_external() {
+                    self.publish_addrs();
+                }
             }
             SwarmEvent::Behaviour(ev) => self.handle_behaviour_event(ev),
             other => debug!(?other, "swarm event"),
@@ -1197,6 +1537,8 @@ impl Actor {
                 // 换的是「LAN 拨不通时不用再等 5 分钟才轮到打洞」。
                 self.try_upgrade_to_lan(peer_id, &info.listen_addrs);
                 self.try_upgrade_to_direct(peer_id, &info.listen_addrs);
+                // 自愈：补上此前被活跃流挡掉的清理轮次。
+                self.prune_inferior_conns(peer_id);
                 let protocols = info
                     .protocols
                     .iter()
@@ -1331,17 +1673,59 @@ impl Actor {
     /// 从 listen 视图移除一批地址，有变化时 republish（ListenerClosed /
     /// ExpiredListenAddr 共用——两处失效路径同一套规则）。
     fn remove_listen_addrs(&mut self, removed: &[libp2p::Multiaddr]) {
-        let changed = self.watches.addrs.send_if_modified(|info| {
+        // LanHelper 登记过的那几条要跟着撤：上游的 `ExpiredListenAddr` **不动**
+        // external 集合（`swarm/src/lib.rs` 只从 `listened_addrs` 摘），所以撤销只能由
+        // 这里发起。漏了它，证书轮换后的旧 WebTransport 地址会永久留在通告集合里。
+        let before = self.lan_announced.len();
+        self.lan_announced
+            .retain(|a| !removed.contains(a.as_multiaddr()));
+        let mut external_changed = self.lan_announced.len() != before;
+
+        let listen_changed = self.watches.addrs.send_if_modified(|info| {
             let before = info.listen.len();
             info.listen.retain(|a| !removed.contains(a.as_multiaddr()));
             info.listen.len() != before
         });
-        if changed {
+        // 同上，公网 IP 映射从更新后的 listen 视图整份重算，与 LanHelper 那份合并成
+        // 一次 resync、一次 publish。
+        external_changed |= self.recompute_mapped_external();
+        let view_changed = external_changed && self.resync_external();
+        if listen_changed || view_changed {
             self.publish_addrs();
         }
     }
 
-    /// 地址进簿（去重）+ 广播给 behaviour（kad 等各自决定是否收录）。
+    /// 取下一个地址簿逻辑时刻。**自增与使用绑在一起**，调用方不必记住「先自增」这个约定。
+    fn next_addr_clock(&mut self) -> u64 {
+        self.addr_clock += 1;
+        self.addr_clock
+    }
+
+    /// 刷新一条**已在簿中**地址的「最近提及」序号；不在簿里则什么都不做。
+    ///
+    /// 与 [`record_addr`](Self::record_addr) 的区别：这里不新增。用于「这条地址刚被证明
+    /// 可用」——把一条从没进过簿的临时源地址塞进去只会挤掉真候选。
+    fn refresh_addr(&mut self, peer: PeerId, addr: &libp2p::Multiaddr) {
+        let clock = self.next_addr_clock();
+        if let Some(book) = self.address_book.get_mut(&peer)
+            && let Some(entry) = book.iter_mut().find(|e| same_dial_target(&e.addr, addr))
+        {
+            entry.touched = clock;
+        }
+    }
+
+    /// 某对端的候选地址（按进簿顺序，最新的在前）。
+    ///
+    /// 顺序即 libp2p 的拨号优先级，故**不**按 [`AddrEntry::touched`] 重排——那个序号只
+    /// 决定淘汰谁，让它同时决定拨号顺序的话，顺序会随 mDNS 的广播节奏抖动。
+    fn peer_addrs(&self, peer: &PeerId) -> Vec<libp2p::Multiaddr> {
+        self.address_book
+            .get(peer)
+            .map(|book| book.iter().map(|e| e.addr.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    /// 地址进簿（去重 + 有界）+ 广播给 behaviour（kad 等各自决定是否收录）。
     ///
     /// **以本机为中转的 circuit 地址一律丢弃。** 它是四条进簿路径（`AddAddrs` /
     /// `AddInfraPeer` / `Connect` 显式候选 / mDNS）的共同下游，故过滤收在这一处。
@@ -1353,9 +1737,24 @@ impl Actor {
             trace!(%peer, %addr, "skip circuit address relayed by self");
             return;
         }
+        let clock = self.next_addr_clock();
         let entry = self.address_book.entry(peer).or_default();
-        if !entry.contains(&addr) {
-            entry.push(addr.clone());
+        if touch_addr(entry, addr.clone(), clock) {
+            // 新的**可用基址** = 新事实：reservation 的同步失败闸门立刻解除，不必等退避
+            // 走完（与 `InfraSupervisor` 在候选 `last_seen` 刷新时重置退避同构）。
+            //
+            // 判据是「这条能当 circuit 基址」而不是「这条进簿了」：闸门挡的两个失败
+            //（`no usable relay address` / `circuit listen failed`）都由基址决定，而新进簿
+            // 的若本身是 circuit 地址，`circuit_base` 对它必然仍是 `None`——它**证明不了
+            // 任何新事实**，清闸只是立刻重放一次注定相同的失败：同一条 warn + 一次
+            // Connecting→Failed 的 watch 抖动（三端跟着重渲染）。真机形态是 R 既被配对
+            // 又当 relay、簿里只剩到它的 circuit 地址，于是 R 的中转路径每变一次抖一次。
+            //
+            // 仍放在去重的 `if` 内部——mDNS 秒级重报同一条地址靠上面那层挡掉，
+            // 挪到 if 外面就等于没有闸门。
+            if circuit_base(addr.clone(), peer).is_some() {
+                self.relay_retry.remove(&peer);
+            }
         }
         self.swarm.add_peer_address(peer, addr);
     }
@@ -1436,16 +1835,60 @@ pub(crate) fn subscriber_channel() -> (mpsc::Sender<NetEvent>, mpsc::Receiver<Ne
 
 /// circuit 基址归一化：确保携带 `/p2p/<relay>` 段后接 `/p2p-circuit`。
 /// reservation listen 与 `Active` 状态下发共用（单一拼装规则，两处不漂移）。
-fn circuit_base(addr: libp2p::Multiaddr, relay: PeerId) -> libp2p::Multiaddr {
-    let base = if addr
-        .iter()
-        .any(|p| matches!(p, libp2p::multiaddr::Protocol::P2p(_)))
-    {
+///
+/// **`None` = 这条地址当不了 circuit 基址**，两种情形，libp2p 的 relay client transport
+/// 都是在 `dial` / `listen_on` 里当场拒收：
+///
+/// 1. **它自己就含 `/p2p-circuit` 段**——再追加一层会拼出
+///    `…/p2p/<A>/p2p-circuit/p2p/<B>/p2p-circuit` 这种双层地址，判别码
+///    `MultipleCircuitRelayProtocolsUnsupported`。2026-08-10 真机实测刷屏几十条。
+/// 2. **circuit 段之前没有任何传输段**（一条裸 `/p2p/<relay>`）——relay client 没有
+///    前半段可拨，判别码 `MissingRelayAddr`。四条进簿路径里暂时还没见过这种形状
+///    （`AddAddrs` / `Connect` 的显式候选不做形状校验，是个理论缺口），故属防御性拦截。
+///
+/// 两个判别码都落在 [`TransportError::Other`](libp2p::TransportError) 分支上、
+/// **Display 写的是空串**（`core/src/transport.rs`），于是日志里只剩一条 `error=` 的空
+/// 字段，谁也看不出发生了什么。所以判在这里，不留给 `listen_on` 去拒。
+///
+/// 与 `record_addr` 那条「以本机为中转的 circuit 地址一律丢弃」（2026-08-06，见
+/// [`is_relayed_by`]）是同一族问题的两面：那条治「中转跳是自己」，本条治「拿一条中转地址
+/// 当新中转的基址」。中转跳是第三方时前者按设计放行——本次的双层地址正是从那儿漏过来的。
+fn circuit_base(addr: libp2p::Multiaddr, relay: PeerId) -> Option<libp2p::Multiaddr> {
+    let mut has_p2p = false;
+    let mut has_transport = false;
+    for p in addr.iter() {
+        match p {
+            libp2p::multiaddr::Protocol::P2pCircuit => return None,
+            libp2p::multiaddr::Protocol::P2p(_) => has_p2p = true,
+            // 传输段 = 身份段与 circuit 段之外的任何一段（`/ip4`、`/dns4`、`/tcp`、
+            // `/quic-v1`、`/webrtc-direct`…）。这里不逐个白名单：新传输随时会加，
+            // 漏一个就是把一条本来能用的基址判死。
+            _ => has_transport = true,
+        }
+    }
+    if !has_transport {
+        return None;
+    }
+    let base = if has_p2p {
         addr
     } else {
         addr.with(libp2p::multiaddr::Protocol::P2p(relay))
     };
-    base.with(libp2p::multiaddr::Protocol::P2pCircuit)
+    Some(base.with(libp2p::multiaddr::Protocol::P2pCircuit))
+}
+
+/// 一组候选里第一条能当 circuit 基址的地址——[`Actor::circuit_base_for`] 的挑选规则本体。
+///
+/// 拆成自由函数是为了让护栏测试打在**真正被调用的那份挑选逻辑**上：它只需要一组地址，
+/// 而 `circuit_base_for` 要一整个 `Actor`（进而要一个 Swarm），测试够不到，于是原先在
+/// 测试里另抄了一份 `find_map`——那样一来「改回 `first()`」这类回归它一条都拦不住。
+fn first_circuit_base<'a>(
+    addrs: impl IntoIterator<Item = &'a libp2p::Multiaddr>,
+    relay: PeerId,
+) -> Option<libp2p::Multiaddr> {
+    addrs
+        .into_iter()
+        .find_map(|a| circuit_base(a.clone(), relay))
 }
 
 /// 这条地址的中转跳是不是 `node`。
@@ -1463,6 +1906,85 @@ fn is_relayed_by(addr: &libp2p::Multiaddr, node: NodeId) -> bool {
     Addr::from_multiaddr(addr.clone()).relay_node_id() == Some(node)
 }
 
+/// 两条地址是不是同一个拨号目标 —— 忽略末位的 `/p2p/<id>` 差异。
+///
+/// # 为什么需要它
+///
+/// `Swarm::dial` 会把每条候选地址做一次 `with_p2p(peer)` 之后才交给 transport，而
+/// `ConnectedPoint::Dialer{ address }` 回报的正是**加过 `/p2p/` 的那一份**。地址簿里的
+/// 条目却未必带这个后缀：mDNS 与硬编码 bootstrap 清单带，而 **DHT presence record 来的
+/// 不带**（那是对端的 `dialable()`，libp2p 的监听地址天然没有 `/p2p/`）。
+///
+/// 直接 `==` 比较的后果很隐蔽：跨网对端经 presence 发现、拨通，这条「刚被证明可用」的
+/// 地址**永远拿不到刷新**，于是恰恰是它先被地址簿上限淘汰掉 —— 而那正是
+/// [`touch_addr`] 的 LRU 想保护的东西。
+fn same_dial_target(a: &libp2p::Multiaddr, b: &libp2p::Multiaddr) -> bool {
+    a == b || strip_trailing_p2p(a) == strip_trailing_p2p(b)
+}
+
+/// 去掉末位的 `/p2p/<id>` 段（没有就原样返回）。
+///
+/// **只去末位**：circuit 地址中间那个 `/p2p/<relay>` 是中转身份，去掉它会把两条经不同
+/// relay 的地址判成同一条。
+fn strip_trailing_p2p(addr: &libp2p::Multiaddr) -> libp2p::Multiaddr {
+    let mut out = addr.clone();
+    if matches!(out.iter().last(), Some(libp2p::multiaddr::Protocol::P2p(_))) {
+        out.pop();
+    }
+    out
+}
+
+/// 地址簿条目：地址 + 最近一次被「提及」的逻辑序号。
+///
+/// **序号是计数器而不是时间戳**，因为这里要回答的只是「谁更久没被提及」这个相对问题，
+/// 而绝对时间在本内核里恰恰是最不该依赖的东西：wasm target 下没有可靠的单调时钟
+/// （kad 的 `Instant` 就为此在两个 target 上分叉过）。计数器在两处都是同一份代码。
+#[derive(Debug, Clone)]
+struct AddrEntry {
+    addr: libp2p::Multiaddr,
+    touched: u64,
+}
+
+/// 新地址进簿，或刷新已有地址的「最近提及」序号。返回是否**新增**（而非刷新）。
+///
+/// 三条判据：
+///
+/// - **物理顺序 = 进簿顺序，最新的排最前。** 候选顺序决定 libp2p 的拨号优先级，
+///   对端刚换的 IP、刚轮换出的 certhash 地址比簿里躺了很久的那条更可能拨得通。
+/// - **重报只刷新序号、不挪位置。** mDNS 秒级重报同一条，挪位置会让拨号顺序随广播
+///   节奏抖动，而重报并不代表这条比别的更该先试。
+/// - **超限时淘汰序号最小的，而不是排最后的。** 这两者的区别就是这个函数的全部价值：
+///   一条一直可用的公网地址进簿最早、物理上排最后，但只要对端还在 identify / DHT 里
+///   持续上报它，它的序号就一直是新的 —— 被淘汰的于是是那些「既不新、也再没人提起」
+///   的死地址。按物理位置淘汰的话，恰恰是那条唯一还能用的地址被新涌入的私网地址挤掉。
+fn touch_addr(book: &mut Vec<AddrEntry>, addr: libp2p::Multiaddr, clock: u64) -> bool {
+    if let Some(entry) = book.iter_mut().find(|e| e.addr == addr) {
+        entry.touched = clock;
+        return false;
+    }
+
+    book.insert(
+        0,
+        AddrEntry {
+            addr,
+            touched: clock,
+        },
+    );
+
+    if book.len() > MAX_ADDRS_PER_PEER {
+        // 淘汰最久没被提及的那条。簿最大 32 条，线性扫比维护堆简单得多。
+        if let Some(pos) = book
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, e)| e.touched)
+            .map(|(i, _)| i)
+        {
+            book.remove(pos);
+        }
+    }
+    true
+}
+
 /// 由连接的远端地址与端点信息推断路径分类。
 ///
 /// `relayed` 取自 [`ConnectedPoint::is_relayed`](libp2p::core::ConnectedPoint::is_relayed)，
@@ -1476,7 +1998,7 @@ fn classify_path(addr: &Addr, relayed: bool) -> PathKind {
     // 一个字节都不过中继。故必须排在 `relayed` 之前判：否则打洞成功反而被记成
     // Relayed，既让 UI 显示与实情相反，也让 path_rank 把真直连排在中转之下。
     if is_hole_punched(addr) {
-        return PathKind::Direct;
+        return PathKind::HolePunched;
     }
     if relayed {
         return PathKind::Relayed;
@@ -1484,6 +2006,9 @@ fn classify_path(addr: &Addr, relayed: bool) -> PathKind {
     if addr.is_private_lan() || addr.is_loopback() {
         PathKind::Local
     } else {
+        // 剩下的是「拨通了对端自报的地址」：公网 IP，或 Tailscale 之类 mesh VPN 的隧道。
+        // **不是打洞** —— 上面那个分支才是，且它只认得出 webrtc-p2p 那条路径
+        // （libp2p DCUtR 的产物在地址上认不出来，见 `PathKind` 文档的已知缺口）。
         PathKind::Direct
     }
 }
@@ -1499,23 +2024,73 @@ fn should_initiate(local: &PeerId, remote: &PeerId, local_reachable: bool) -> bo
     !local_reachable || local < remote
 }
 
-/// 从对端自报的地址里挑出 LAN 升级候选。
+/// 一组连接里**档位严格劣于最好那一档**的那些。没有可关的（只有一条、或全都同档）
+/// 时返回空。
 ///
-/// **每种传输各留几个**（`LAN_UPGRADE_MAX_PER_TRANSPORT`），而不是笼统取前 N 个——
-/// 理由见那个常量：截掉 webrtc-direct 等于把浏览器那一格整个关掉。
-fn lan_candidates(addrs: &[libp2p::Multiaddr]) -> Vec<libp2p::Multiaddr> {
-    let mut taken: HashMap<Option<TransportKind>, usize> = HashMap::new();
-    addrs
+/// 抽成自由函数只为可测：真正的 `prune_inferior_conns` 要一个 `Swarm` 才能跑，
+/// 而「该关哪些」这个决策本身是纯的。
+fn inferior_conns(conns: &[(ConnectionId, ConnInfo)]) -> Vec<ConnectionId> {
+    let Some(best) = conns.iter().map(|(_, i)| i.addr.dial_tier()).min() else {
+        return Vec::new();
+    };
+    conns
         .iter()
-        .filter(|a| is_lan_candidate(a))
-        .filter(|a| {
+        .filter(|(_, info)| info.addr.dial_tier() > best)
+        .map(|(id, _)| *id)
+        .collect()
+}
+
+/// 从对端自报的地址里挑出 LAN 升级候选：**严格优于 `current` 的那一档里最好的一档**。
+///
+/// 两条筛选各有各的理由，缺一条都会退回原来的毛病：
+///
+/// - **只要严格更优的档**：等于现状或更差的地址拨了也白拨（成功了也不算升级，还占一条连接）。
+/// - **只取其中最好的一档**：libp2p 并发拨号是延迟竞速，同时发出 webrtc-direct 与
+///   WebTransport，赢的多半是前者；而升级成功后就不再有第二次机会。**层内竞速、层间有序**
+///   这条规则就落在这一行。
+///
+/// 档内仍然**每种传输各留几个**（`LAN_UPGRADE_MAX_PER_TRANSPORT`）而不是笼统取前 N 个——
+/// 同一档里 IPv4/IPv6、多网卡会挤掉彼此，理由见那个常量。
+fn lan_candidates(addrs: &[libp2p::Multiaddr], current: DialTier) -> Vec<libp2p::Multiaddr> {
+    lan_candidates_by(addrs, current, crate::transport::can_dial)
+}
+
+/// [`lan_candidates`] 的纯逻辑内核，「本端拨得动吗」由参数注入。
+///
+/// 注入而不是直接调 [`crate::transport::can_dial`]，是为了让**浏览器那一格能在 native 上测**
+/// ——本 crate 的测试只跑 native，而那一格恰恰是唯一会出错的一格（见
+/// `dialable_filter_runs_before_tier_selection`）。
+fn lan_candidates_by(
+    addrs: &[libp2p::Multiaddr],
+    current: DialTier,
+    can_dial: impl Fn(&Addr) -> bool,
+) -> Vec<libp2p::Multiaddr> {
+    let better: Vec<(DialTier, &libp2p::Multiaddr)> = addrs
+        .iter()
+        .map(|a| (Addr::from_multiaddr(a.clone()), a))
+        // **筛「拨得动」必须排在挑档之前。** 浏览器最快的一档恰好是它唯一拨不动的
+        // （对端自报的 `/tcp` / `/quic-v1`），先挑档再筛就会永远挑中拨不动的那条。
+        .filter(|(addr, _)| is_lan_candidate(addr) && can_dial(addr))
+        .map(|(addr, raw)| (addr.dial_tier(), raw))
+        .filter(|(tier, _)| *tier < current)
+        .collect();
+
+    let Some(best) = better.iter().map(|(tier, _)| *tier).min() else {
+        return Vec::new();
+    };
+
+    let mut taken: HashMap<Option<TransportKind>, usize> = HashMap::new();
+    better
+        .into_iter()
+        .filter(|(tier, _)| *tier == best)
+        .filter(|(_, a)| {
             let slot = taken
                 .entry(Addr::from_multiaddr((*a).clone()).transport())
                 .or_default();
             *slot += 1;
             *slot <= LAN_UPGRADE_MAX_PER_TRANSPORT
         })
-        .cloned()
+        .map(|(_, a)| a.clone())
         .collect()
 }
 
@@ -1524,8 +2099,7 @@ fn lan_candidates(addrs: &[libp2p::Multiaddr]) -> Vec<libp2p::Multiaddr> {
 /// 排除 circuit 那半边不是多余的——LAN helper（局域网内的中继）自己就监听在
 /// 私网地址上，它派发的 circuit 地址前半段同样 `is_private_lan()`，不排除就会
 /// 把「换一条中继」当成「升级为直连」。
-fn is_lan_candidate(addr: &libp2p::Multiaddr) -> bool {
-    let addr = Addr::from_multiaddr(addr.clone());
+fn is_lan_candidate(addr: &Addr) -> bool {
     addr.is_private_lan() && !addr.is_circuit()
 }
 
@@ -1539,10 +2113,15 @@ fn is_hole_punched(addr: &Addr) -> bool {
     webrtc_p2p::protocol::addr::is_webrtc(addr.as_multiaddr())
 }
 
+/// `best_conn` 挑「最好的那条连接」用的序。
+///
+/// **`Direct` 与 `HolePunched` 同分是刻意的**：两者的数据面质量相同（都不过中继），
+/// 分列只为在 UI 上说清来路。给打洞更高的分等于让 `max_by_key` 在两条等价的连接之间
+/// 偏心，而今天多条 `Direct` 之间本来就是任意打破平局。
 fn path_rank(path: PathKind) -> u8 {
     match path {
         PathKind::Local => 3,
-        PathKind::Direct => 2,
+        PathKind::Direct | PathKind::HolePunched => 2,
         PathKind::Relayed => 1,
     }
 }
@@ -1553,6 +2132,23 @@ mod tests {
 
     const RELAY: &str = "12D3KooWCkajTewJhupefZpVK7LwYfjG8bDJyXNtCgQYxiH1utep";
     const PEER: &str = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
+    /// 真实 certhash：占位串不是合法 multibase multihash，地址会解析失败。
+    const H1: &str = "uEiBuBPteUjlXiXM9izTtEdpg3C0QHFZ0A2m6aSjsbv2oeA";
+    const H2: &str = "uEiDSOtFQBoepe-LRH2mZPMLHGoMcxnmaM8a02_72my1v9Q";
+
+    fn multiaddrs(items: &[&str]) -> Vec<libp2p::Multiaddr> {
+        items
+            .iter()
+            .map(|s| s.parse().expect("valid multiaddr"))
+            .collect()
+    }
+
+    fn transports(addrs: &[libp2p::Multiaddr]) -> Vec<Option<TransportKind>> {
+        addrs
+            .iter()
+            .map(|a| Addr::from_multiaddr(a.clone()).transport())
+            .collect()
+    }
 
     fn addr(s: &str) -> Addr {
         Addr::from_multiaddr(s.parse().expect("valid multiaddr"))
@@ -1569,11 +2165,40 @@ mod tests {
             "/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit/p2p/{PEER}"
         ));
 
-        assert_eq!(classify_path(&punched, true), PathKind::Direct);
+        assert_eq!(classify_path(&punched, true), PathKind::HolePunched);
         assert_eq!(classify_path(&relayed, true), PathKind::Relayed);
         assert!(
             path_rank(classify_path(&punched, true)) > path_rank(classify_path(&relayed, true)),
             "打洞成功后必须优于中转，否则最优连接会选错"
+        );
+    }
+
+    /// **打洞与直拨是两档，但同分。**
+    ///
+    /// 分档是因为排查方向相反（穿透成功 vs 压根没穿透）；同分是因为数据面质量相同，
+    /// 给谁加分都会让 `best_conn` 在两条等价连接之间偏心。
+    ///
+    /// 这条同时钉死「拨通对端地址 ≠ 打洞」：修复前 `classify_path` 把两者都返回
+    /// `Direct`，产品层于是把 Tailscale 隧道上的 WebTransport 直连标成了「打洞」。
+    #[test]
+    fn dialed_address_is_direct_not_hole_punched() {
+        // 现场抓到的那条：Tailscale 的 100.64/10 隧道地址 + WebTransport。
+        let tunneled = addr(&format!(
+            "/ip4/100.112.160.47/udp/62829/quic-v1/webtransport/certhash/{H1}/certhash/{H2}/p2p/{PEER}"
+        ));
+        let public = addr(&format!("/ip4/47.115.172.218/udp/4001/quic-v1/p2p/{PEER}"));
+        let punched = addr(&format!(
+            "/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit/webrtc/p2p/{PEER}"
+        ));
+
+        assert_eq!(classify_path(&tunneled, false), PathKind::Direct);
+        assert_eq!(classify_path(&public, false), PathKind::Direct);
+        assert_eq!(classify_path(&punched, true), PathKind::HolePunched);
+
+        assert_eq!(
+            path_rank(PathKind::Direct),
+            path_rank(PathKind::HolePunched),
+            "两者数据面等价，排序上不该分高下"
         );
     }
 
@@ -1638,11 +2263,261 @@ mod tests {
         );
     }
 
+    /// circuit 基址不得从一条 circuit 地址上再长一层。
+    ///
+    /// 它红了意味着 `listen_on` 会收到 `…/p2p/<A>/p2p-circuit/p2p/<B>/p2p-circuit`，
+    /// libp2p 的 relay client 以 `MultipleCircuitRelayProtocolsUnsupported` 当场拒收——
+    /// 而那个判别码落在 `TransportError::Other` 上、Display 是空串，日志里只剩
+    /// `error=`。2026-08-10 真机上它以秒级频率刷了几十条，谁也看不出发生了什么。
+    #[test]
+    fn circuit_base_never_nests() {
+        let relay = RELAY.parse::<PeerId>().expect("valid peer id");
+        let base = |s: &str| circuit_base(s.parse().expect("valid multiaddr"), relay);
+
+        // 真机日志里那条地址的形状：经 A 中转到 B，B 又被当成新的 relay
+        assert_eq!(
+            base(&format!(
+                "/ip4/192.168.50.105/udp/4001/quic-v1/p2p/{PEER}/p2p-circuit/p2p/{RELAY}"
+            )),
+            None,
+            "已含 circuit 段的地址当不了基址"
+        );
+        assert_eq!(
+            base(&format!("/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit")),
+            None,
+            "以 /p2p-circuit 结尾的同理——再追加就是两段"
+        );
+
+        // circuit 段之前没有传输段：relay client 无从拨起，`MissingRelayAddr`。
+        // 这两格是防御性的（暂无进簿路径产出这种形状），但拒的判据与上面同源。
+        assert_eq!(
+            base(&format!("/p2p/{RELAY}")),
+            None,
+            "裸 /p2p/<relay> 没有传输段，当不了基址"
+        );
+        assert_eq!(
+            circuit_base(libp2p::Multiaddr::empty(), relay),
+            None,
+            "空地址同理——`circuit_addr_for` 的退化展示值因此自己拼，不走这里"
+        );
+
+        // 正常地址仍要正常拼
+        let direct = base(&format!("/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}"))
+            .expect("直连地址必须能当基址")
+            .to_string();
+        assert_eq!(
+            direct,
+            format!("/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit")
+        );
+
+        // 不带 /p2p/ 的地址补上 relay 身份后再接 circuit
+        let bare = base("/ip4/1.2.3.4/tcp/4001")
+            .expect("裸地址必须能当基址")
+            .to_string();
+        assert_eq!(
+            bare,
+            format!("/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit")
+        );
+
+        // 结果永远只有一段 circuit——这是本测试要钉的不变量
+        for out in [direct, bare] {
+            assert_eq!(out.matches("/p2p-circuit").count(), 1, "{out}");
+        }
+    }
+
+    /// 地址簿里混着 circuit 地址时，基址要跳过它而不是撞上它。
+    ///
+    /// `first()` 版本的失败模式极隐蔽：地址簿的顺序取决于哪条先被 identify / mDNS /
+    /// DHT 报上来，于是同一份代码在某些网络下正常、在另一些下 reservation 永远建不起来。
+    #[test]
+    fn circuit_base_skips_circuit_entries_in_address_book() {
+        let relay = RELAY.parse::<PeerId>().expect("valid peer id");
+        let book: Vec<libp2p::Multiaddr> = [
+            // 排第一的是经第三方中转到该 relay 的地址（`record_addr` 按设计放行：
+            // 中转跳不是本机）
+            format!("/ip4/192.168.50.105/udp/4001/quic-v1/p2p/{PEER}/p2p-circuit/p2p/{RELAY}"),
+            format!("/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}"),
+        ]
+        .iter()
+        .map(|s| s.parse().expect("valid multiaddr"))
+        .collect();
+
+        let picked = first_circuit_base(&book, relay).expect("应挑出第二条");
+        assert_eq!(
+            picked.to_string(),
+            format!("/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit")
+        );
+    }
+
+    fn maddr(n: usize) -> libp2p::Multiaddr {
+        format!("/ip4/10.0.0.{}/tcp/4001", n % 256)
+            .parse()
+            .expect("valid multiaddr")
+    }
+
+    fn addrs_of(book: &[AddrEntry]) -> Vec<libp2p::Multiaddr> {
+        book.iter().map(|e| e.addr.clone()).collect()
+    }
+
+    /// 地址簿必须有界：只去重不淘汰的话，长期在线的对端会累积几十条早已拨不通的地址，
+    /// 占满 libp2p 默认 8 条的并发拨号预算。
+    #[test]
+    fn address_book_is_bounded() {
+        let mut book = Vec::new();
+        for n in 0..(MAX_ADDRS_PER_PEER + 10) {
+            touch_addr(&mut book, maddr(n), n as u64);
+        }
+
+        assert_eq!(book.len(), MAX_ADDRS_PER_PEER);
+        // 最新的排最前 —— 物理顺序即拨号优先级。
+        assert_eq!(book[0].addr, maddr(MAX_ADDRS_PER_PEER + 9));
+        assert!(
+            !addrs_of(&book).contains(&maddr(0)),
+            "最久没被提及的应被淘汰"
+        );
+    }
+
+    /// 重复上报同一条地址不增长、不挪位置，但**要刷新序号** —— mDNS 是秒级重报的，
+    /// 而「还在被重报」正是这条地址仍然活着的证据。
+    #[test]
+    fn re_recording_a_known_address_refreshes_without_reordering() {
+        let mut book = Vec::new();
+        touch_addr(&mut book, maddr(1), 1);
+        touch_addr(&mut book, maddr(2), 2);
+        let order_before = addrs_of(&book);
+
+        assert!(!touch_addr(&mut book, maddr(1), 99), "已知地址不算新增");
+
+        assert_eq!(addrs_of(&book), order_before, "重报不得改变拨号顺序");
+        let refreshed = book.iter().find(|e| e.addr == maddr(1)).expect("仍在簿中");
+        assert_eq!(
+            refreshed.touched, 99,
+            "重报必须刷新序号，否则它会被当成死地址淘汰"
+        );
+    }
+
+    /// **本次修复的核心护栏。**
+    ///
+    /// 场景：对端在局域网里频繁换 IP（每次 mDNS 报一条新地址），而真正一直可用的是那条
+    /// 最早进簿、物理上排在最后的公网地址 —— 它仍在被 identify 持续上报。
+    ///
+    /// 按物理位置淘汰的话，被挤掉的恰恰是它，对端从此再也拨不通；按「最近被提及」淘汰，
+    /// 被挤掉的才是那些既不新、也再没人提起的死地址。
+    #[test]
+    fn still_advertised_address_survives_a_flood_of_new_ones() {
+        let live = maddr(200);
+        let mut clock = 0u64;
+        let mut tick = || {
+            clock += 1;
+            clock
+        };
+
+        let mut book = Vec::new();
+        touch_addr(&mut book, live.clone(), tick());
+
+        // 用新地址把簿填满，`live` 因此被推到**物理最末位** —— 这一步是本测试的关键：
+        // 若让它留在前面，按物理位置淘汰的实现也能让它存活，测试就测不出区别了。
+        for n in 0..(MAX_ADDRS_PER_PEER - 1) {
+            touch_addr(&mut book, maddr(n), tick());
+        }
+        assert_eq!(book.len(), MAX_ADDRS_PER_PEER);
+        assert_eq!(book[MAX_ADDRS_PER_PEER - 1].addr, live, "live 应在最末位");
+
+        // 对端的 identify 仍在上报它 —— 只刷新序号，不改变物理位置。
+        touch_addr(&mut book, live.clone(), tick());
+
+        // 随后又涌入一批新地址。
+        for n in 100..110 {
+            touch_addr(&mut book, maddr(n), tick());
+        }
+
+        assert!(
+            addrs_of(&book).contains(&live),
+            "仍在被上报的地址不该被淘汰（按物理位置淘汰就会挤掉它）：{:?}",
+            addrs_of(&book)
+        );
+        assert_eq!(book.len(), MAX_ADDRS_PER_PEER);
+    }
+
+    /// 反面：不再被上报的地址**应该**被淘汰掉，否则上限就形同虚设。
+    #[test]
+    fn silent_address_is_evicted_under_pressure() {
+        let stale = maddr(200);
+        let mut book = Vec::new();
+        touch_addr(&mut book, stale.clone(), 0);
+
+        for n in 0..(MAX_ADDRS_PER_PEER * 2) {
+            touch_addr(&mut book, maddr(n), (n + 1) as u64);
+        }
+
+        assert!(
+            !addrs_of(&book).contains(&stale),
+            "再没被提及过的地址应被淘汰"
+        );
+    }
+
+    /// **护栏：`/p2p/` 后缀的有无不影响「是不是同一个拨号目标」。**
+    ///
+    /// `Swarm::dial` 会给候选地址补 `with_p2p(peer)` 再交给 transport，而回报的
+    /// `ConnectedPoint::Dialer{address}` 是补过的那份。地址簿里 DHT presence 来的条目
+    /// 却不带后缀 —— 直接 `==` 比的话，跨网对端那条刚拨通的地址永远刷新不到序号，
+    /// 于是恰恰是它先被上限淘汰（正是 LRU 想保护的东西）。
+    #[test]
+    fn dial_target_matching_ignores_trailing_p2p() {
+        let bare: libp2p::Multiaddr = "/ip4/1.2.3.4/udp/4001/quic-v1".parse().unwrap();
+        let with_p2p: libp2p::Multiaddr = format!("/ip4/1.2.3.4/udp/4001/quic-v1/p2p/{PEER}")
+            .parse()
+            .unwrap();
+
+        assert!(same_dial_target(&bare, &with_p2p));
+        assert!(same_dial_target(&with_p2p, &bare));
+        assert!(same_dial_target(&bare, &bare));
+    }
+
+    /// 反面：**只去末位**的 `/p2p/`。circuit 地址中间那个是中转身份，两条经不同 relay
+    /// 的地址不是同一个拨号目标。
+    #[test]
+    fn dial_target_matching_keeps_relay_identity() {
+        let via_a: libp2p::Multiaddr = format!("/ip4/1.2.3.4/tcp/4001/p2p/{RELAY}/p2p-circuit")
+            .parse()
+            .unwrap();
+        let via_b: libp2p::Multiaddr = format!("/ip4/1.2.3.4/tcp/4001/p2p/{PEER}/p2p-circuit")
+            .parse()
+            .unwrap();
+
+        assert!(!same_dial_target(&via_a, &via_b));
+    }
+
+    /// 不同端口仍是不同目标 —— 别把它写成「只比 IP」。
+    #[test]
+    fn dial_target_matching_still_distinguishes_addresses() {
+        let a: libp2p::Multiaddr = "/ip4/1.2.3.4/udp/4001/quic-v1".parse().unwrap();
+        let b: libp2p::Multiaddr = "/ip4/1.2.3.4/udp/4002/quic-v1".parse().unwrap();
+
+        assert!(!same_dial_target(&a, &b));
+    }
+
+    /// 闸门档位随连续失败递增并封顶，且与 core `InfraSupervisor::rebuild_backoff` 同一套。
+    ///
+    /// 它退化成常数（或漏了封顶）就回到本次要修的那个形态：注定失败的地址被秒级重放。
+    #[test]
+    fn reservation_backoff_escalates_and_caps() {
+        let steps: Vec<u64> = (0..7)
+            .map(|n| reservation_retry_backoff(n).as_secs())
+            .collect();
+        assert_eq!(steps, vec![2, 2, 5, 10, 30, 75, 75]);
+        assert!(
+            steps.windows(2).all(|w| w[1] >= w[0]),
+            "退避不得回落，否则失败越久重试越密"
+        );
+    }
+
     /// LAN 升级只认「私网且非 circuit」。少了后半个条件，LAN helper 派发的
     /// circuit 地址（前半段也是私网）会被当成直连候选——那只是换了条中继。
     #[test]
     fn lan_upgrade_candidates_exclude_circuit_and_unreachable() {
-        let lan = |s: &str| is_lan_candidate(&s.parse().expect("valid multiaddr"));
+        let lan =
+            |s: &str| is_lan_candidate(&Addr::from_multiaddr(s.parse().expect("valid multiaddr")));
 
         assert!(lan("/ip4/192.168.1.5/tcp/4001"));
         assert!(lan("/ip4/10.0.0.7/udp/4001/quic-v1"));
@@ -1659,38 +2534,137 @@ mod tests {
         );
     }
 
-    /// **浏览器那一格全靠这条**：浏览器拨不了裸 TCP/QUIC，webrtc-direct 是它够到
-    /// 局域网内原生端的唯一路径；而 webrtc-direct 是 native preset 里最后注册的
-    /// listener，对端自报的地址表里它排在最后。笼统「取前 N 个」正好把它截掉，
-    /// 于是「浏览器 ↔ 同网段的手机」永远停在中继——症状是纯粹的「就是不升级」，
-    /// 没有任何报错可查。
+    /// **升级只拨「本端拨得动的、严格更好的那一档」，且只拨那一档。**
+    ///
+    /// 层内竞速没问题（同档差别不大），层间必须有序：libp2p 并发拨号是**延迟**竞速，
+    /// webrtc-direct 与 WebTransport 一起发出去赢的多半是前者，而升级成功后
+    /// `current` 就不再劣于任何候选，**再没有第二次机会**。
     #[test]
-    fn lan_candidates_keep_one_of_every_transport() {
-        // 一张网卡上的典型自报：三种传输 × IPv4/IPv6 ULA
-        let addrs: Vec<libp2p::Multiaddr> = [
-            "/ip4/192.168.1.5/tcp/54321",
-            "/ip6/fd00::5/tcp/54321",
-            "/ip4/192.168.1.5/udp/54322/quic-v1",
-            "/ip6/fd00::5/udp/54322/quic-v1",
+    fn lan_candidates_take_only_the_best_dialable_tier() {
+        let addrs = multiaddrs(&[
             "/ip4/192.168.1.5/udp/54323/webrtc-direct",
-            "/ip6/fd00::5/udp/54323/webrtc-direct",
-        ]
-        .iter()
-        .map(|s| s.parse().expect("valid multiaddr"))
-        .collect();
+            &format!("/ip4/192.168.1.5/udp/54324/quic-v1/webtransport/certhash/{H1}/certhash/{H2}"),
+        ]);
 
-        let picked = lan_candidates(&addrs);
-        let kinds: Vec<_> = picked
-            .iter()
-            .map(|a| Addr::from_multiaddr(a.clone()).transport())
-            .collect();
+        let picked = lan_candidates(&addrs, DialTier::Relayed);
+        let kinds = transports(&picked);
+
+        assert_eq!(
+            kinds,
+            vec![Some(TransportKind::Webtransport)],
+            "两档同时可拨时只能拨快的那一档，否则竞速会落到 webrtc-direct：{picked:?}"
+        );
+    }
+
+    /// **浏览器那一格全靠这条。** 浏览器拨不了裸 TCP/QUIC——而那恰好是对端自报里
+    /// 最快的一档。先挑档再筛「拨不拨得动」，浏览器会永远挑中拨不动的那条：
+    /// 拨号立刻失败 → 在途标记清掉 → 5 分钟后 identify 再来一轮挑同一条，
+    /// **永远升不上去**，且每一步看起来都在正常工作。
+    #[test]
+    fn dialable_filter_runs_before_tier_selection() {
+        // 对端是原生端的典型自报：最快的一档（TCP/QUIC）浏览器一条都拨不动，
+        // 而它同时还给了 webrtc-direct。
+        let addrs = multiaddrs(&[
+            "/ip4/192.168.1.5/tcp/54321",
+            "/ip4/192.168.1.5/udp/54322/quic-v1",
+            "/ip4/192.168.1.5/udp/54323/webrtc-direct",
+        ]);
+        // 浏览器：拨不了 TCP/QUIC。
+        let browser = |a: &Addr| {
+            !matches!(
+                a.transport(),
+                Some(TransportKind::Tcp) | Some(TransportKind::Quic)
+            )
+        };
+
+        let picked = lan_candidates_by(&addrs, DialTier::Relayed, browser);
+        assert_eq!(
+            transports(&picked),
+            vec![Some(TransportKind::WebrtcDirect)],
+            "浏览器只能拿到它拨得动的那一档；挑中 TCP/QUIC 等于永远升不上去：{picked:?}"
+        );
+
+        // 原生端在同一份地址上应当挑到更快的那一档。
+        let native = |_: &Addr| true;
+        let picked = lan_candidates_by(&addrs, DialTier::Relayed, native);
+        assert!(
+            !transports(&picked).contains(&Some(TransportKind::WebrtcDirect)),
+            "原生端拨得动 TCP/QUIC，就不该退到 webrtc-direct：{picked:?}"
+        );
+    }
+
+    /// 已经在最好的一档上时不再拨——拨了也不是升级，只会白占一条连接。
+    #[test]
+    fn lan_candidates_never_sidegrade_or_downgrade() {
+        let addrs = multiaddrs(&["/ip4/192.168.1.5/udp/54323/webrtc-direct"]);
 
         assert!(
-            kinds.contains(&Some(TransportKind::WebrtcDirect)),
-            "webrtc-direct 被截掉 = 浏览器再也升级不了：{picked:?}"
+            lan_candidates(&addrs, DialTier::DirectSlow).is_empty(),
+            "同档不算升级"
         );
-        assert!(kinds.contains(&Some(TransportKind::Tcp)));
-        assert!(kinds.contains(&Some(TransportKind::Quic)));
+        assert!(
+            lan_candidates(&addrs, DialTier::DirectFast).is_empty(),
+            "更差的一档更不该拨"
+        );
+        assert!(
+            !lan_candidates(&addrs, DialTier::Relayed).is_empty(),
+            "中继 → 直连仍然要拨"
+        );
+    }
+
+    fn conn(id: usize, addr: &str) -> (ConnectionId, ConnInfo) {
+        let addr: Addr = addr.parse().expect("valid multiaddr");
+        (
+            ConnectionId::new_unchecked(id),
+            ConnInfo {
+                path: classify_path(&addr, addr.is_circuit()),
+                addr,
+                rtt: None,
+            },
+        )
+    }
+
+    /// **升级必须伴随关掉劣档连接。** 不关的话，`libp2p-stream` 的
+    /// `.choose(&mut rand::thread_rng())` 会让每条新流在两条连接间掷硬币——
+    /// 升级只是把「走慢连接」的概率从 100% 降到 50%。
+    #[test]
+    fn inferior_conns_lists_everything_below_the_best_tier() {
+        let relayed = format!("/ip4/47.115.172.218/tcp/4001/p2p/{RELAY}/p2p-circuit/p2p/{PEER}");
+        let conns = [
+            conn(1, &relayed),
+            conn(2, "/ip4/192.168.1.5/udp/54323/webrtc-direct"),
+            conn(
+                3,
+                &format!(
+                    "/ip4/192.168.1.5/udp/54324/quic-v1/webtransport/certhash/{H1}/certhash/{H2}"
+                ),
+            ),
+        ];
+
+        assert_eq!(
+            inferior_conns(&conns),
+            vec![
+                ConnectionId::new_unchecked(1),
+                ConnectionId::new_unchecked(2)
+            ],
+            "只留最好的那一档，其余全关"
+        );
+    }
+
+    /// 同档不关：它们之间掷硬币无所谓，而多一条连接是有价值的冗余。
+    #[test]
+    fn inferior_conns_keeps_every_connection_in_the_best_tier() {
+        let conns = [
+            conn(1, "/ip4/192.168.1.5/tcp/4001"),
+            conn(2, "/ip4/192.168.1.5/udp/4001/quic-v1"),
+        ];
+        assert!(inferior_conns(&conns).is_empty());
+
+        assert!(inferior_conns(&[]).is_empty(), "没连接时不该 panic");
+        assert!(
+            inferior_conns(&[conn(1, "/ip4/192.168.1.5/udp/54323/webrtc-direct")]).is_empty(),
+            "只有一条时无论多差都不能关——关了就断线了"
+        );
     }
 
     /// 分组取仍要挡住「对端报一长串地址 → 一次升级变成对内网批量探测」。
@@ -1704,7 +2678,10 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(lan_candidates(&addrs).len(), LAN_UPGRADE_MAX_PER_TRANSPORT);
+        assert_eq!(
+            lan_candidates(&addrs, DialTier::Relayed).len(),
+            LAN_UPGRADE_MAX_PER_TRANSPORT
+        );
     }
 
     fn peer(seed: u8) -> PeerId {

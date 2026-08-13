@@ -125,6 +125,17 @@ pub(crate) struct UdpMux {
     /// 一次 `poll_recv` 可能带回多个数据报（见 [`UdpMux::poll`] 里的 GRO 拆分），
     /// 而 `poll` 一次只产出一个事件，故先切分入队、再逐个 dispatch。
     pending: VecDeque<Datagram>,
+    /// 支路满导致的累计丢包数（见 [`BRANCH_CAPACITY`] 与 [`UdpMux::deliver`]）。
+    ///
+    /// **持续丢包会把 SCTP 的拥塞窗口压塌**，表现为「吞吐从第一秒起就恒定在一个远低于
+    /// 链路能力的值上、但传输仍能完成」——2026-08-10 观测到的浏览器→桌面恒定 3.3 MB/s
+    /// 正是这个形状（等效 cwnd ≈ 3 个 MTU）。
+    ///
+    /// 这里原先只有一句 `debug!`，而桌面与移动的默认 filter 是
+    /// `swarmdrop=debug,swarmdrop_net=debug`（`EnvFilter` 按 target **前缀**匹配），
+    /// **`webrtc_p2p` 一条都进不去**——这条路径在生产日志里完全隐形，诊断时只能靠推理。
+    /// 现在计数并按 2 的幂次打 `warn!`。
+    dropped_full: u64,
 }
 
 /// 一个数据报：内容 + 来源。
@@ -168,6 +179,7 @@ impl UdpMux {
             announced: HashSet::new(),
             recv_buf,
             pending: VecDeque::new(),
+            dropped_full: 0,
         })
     }
 
@@ -221,8 +233,13 @@ impl UdpMux {
     ///
     /// 由 `Transport::poll` 调用——与官方实现一致，本 crate 全程无 `spawn`。
     pub(crate) fn poll(&mut self, cx: &mut Context<'_>) -> Poll<UdpMuxEvent> {
+        // 本轮**是否真的推进过**（派发了 pending，或从内核收下了数据报）。
+        // 它唯一的用途是决定收尾要不要自唤醒，见函数末尾。
+        let mut progressed = false;
+
         for _ in 0..MAX_RECV_BURST {
             while let Some((packet, from)) = self.pending.pop_front() {
+                progressed = true;
                 if let Some(event) = self.dispatch(packet, from) {
                     return Poll::Ready(event);
                 }
@@ -241,12 +258,20 @@ impl UdpMux {
                 }
             };
 
-            // 契约上 `Ok(0)` 是「什么都没准备好」，**不是**「收到 0 条消息」。当成后者
-            // 会转出一轮没有 waker 的空循环——socket 不会再唤醒我们，而我们也不会停。
-            // 让出并自唤醒：既不空转，也不挂死。
+            // 契约上 `Ok(0)` 是「什么都没准备好」，**不是**「收到 0 条消息」。
+            //
+            // **不能 `break` 到下面的收尾**——那条收尾会自唤醒，而这一轮什么都没干成，
+            // 于是变成「Pending → 立刻被自己唤醒 → 再 poll → 还是 `Ok(0)`」的死循环。
+            // 自唤醒 + 立即 Pending 并不比原地 `loop` 省 CPU，它只是把忙循环搬到 executor
+            // 上绕了一圈。**这正是 2026-08-11 那次 718% CPU 的形状**，只不过那次发生在
+            // 上游 webrtc driver 里（见根 `Cargo.toml` 的 `[patch.crates-io]`）。
+            //
+            // 转下一轮：`poll_recv` 要么给出数据，要么返回 `Pending` 并**登记 waker**，
+            // 后者会让上面的 `ready!` 就地退出——不经过收尾，也就不会自唤醒。
             if count == 0 {
-                break;
+                continue;
             }
+            progressed = true;
 
             // `count` 与 `len` / `stride` 一样来自 socket 实现，一律不盲信：
             // 越界切片会 panic，而这条路径上跑的是公网端口的收包循环。
@@ -255,9 +280,14 @@ impl UdpMux {
             }
         }
 
-        // 读满一轮 burst（或撞上 `Ok(0)`）就让出，别把 swarm 的 poll 线程占住。
-        // `pending` 里可能还有货，所以必须自唤醒——否则这些包要等下一个数据报才被处理。
-        cx.waker().wake_by_ref();
+        // 读满一轮 burst 就让出，别把 swarm 的 poll 线程占住；`pending` 里可能还有货，
+        // 所以要自唤醒——否则这些包要等下一个数据报才被处理。
+        //
+        // **但只在真推进过时唤醒。** 没推进就说明没活可干，该老实挂起、等 socket 的
+        // waker 把我们叫醒；此时自唤醒纯粹是空转烧核（理由同上面 `count == 0` 那段）。
+        if progressed {
+            cx.waker().wake_by_ref();
+        }
         Poll::Pending
     }
 
@@ -316,7 +346,19 @@ impl UdpMux {
         match tx.try_send((packet, from)) {
             Ok(()) => {}
             Err(e) if e.is_full() => {
-                tracing::debug!(%ufrag, "支路缓冲已满，丢弃数据报");
+                self.dropped_full += 1;
+                // 按 2 的幂次报告（第 1、2、4、8… 次）：真丢包时日志行数只有 log₂ 级，
+                // 既不刷屏，又保证**第一次丢包一定被记下来**——定频报告（每 N 次一条）
+                // 会把「只丢了几个」这种更值得警惕的情形整个吞掉。
+                if self.dropped_full.is_power_of_two() {
+                    tracing::warn!(
+                        %ufrag,
+                        %from,
+                        dropped = self.dropped_full,
+                        capacity = BRANCH_CAPACITY,
+                        "udp mux 支路缓冲已满，丢弃数据报（累计数按 2 的幂次报告）"
+                    );
+                }
             }
             Err(_) => {
                 // 对端已 drop：连接没了，清掉映射免得一直占着 ufrag。
@@ -923,5 +965,157 @@ mod tests {
         let (_tx, socket) = branch();
         assert_eq!(socket.max_gro_segments(), 1);
         assert_eq!(socket.max_gso_segments(), DummyShared.max_gso_segments());
+    }
+
+    // ── UdpMux::poll 的自唤醒纪律 ─────────────────────────────────────────
+    //
+    // 自唤醒（`wake_by_ref` + `Poll::Pending`）**不比原地 `loop` 省 CPU**，它只是把忙
+    // 循环搬到 executor 上绕一圈。所以它只有一个正当理由：「我主动让出了，但活没干完」。
+    // 没推进却自唤醒 = 100% 烧一个核，而且看起来完全正常（任务在 Pending，没有死锁、
+    // 没有报错）。2026-08-11 那次 718% CPU 就是这个形状，只不过发生在上游 driver 里。
+    //
+    // 下面两条把「什么时候该唤醒」两个方向都钉死：漏唤醒 → 数据滞留，多唤醒 → 烧核。
+
+    /// `poll_recv` 的脚本化回应。
+    #[derive(Clone, Copy)]
+    enum RecvStep {
+        /// `Ok(0)`：契约上是「什么都没准备好」，**不是**「收到 0 条」。
+        Zero,
+        /// 收到一个 `usize` 字节的数据报。
+        Packet(usize),
+        /// 没数据，并已登记 waker。
+        Pending,
+    }
+
+    /// 按脚本回应 `poll_recv` 的 socket 桩；脚本用尽后恒定重复 `tail`。
+    #[derive(Debug)]
+    struct ScriptedSocket {
+        script: Mutex<VecDeque<RecvStep>>,
+        tail: RecvStep,
+    }
+
+    impl fmt::Debug for RecvStep {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("RecvStep")
+        }
+    }
+
+    impl ScriptedSocket {
+        fn new(script: impl IntoIterator<Item = RecvStep>, tail: RecvStep) -> Arc<Self> {
+            Arc::new(Self {
+                script: Mutex::new(script.into_iter().collect()),
+                tail,
+            })
+        }
+    }
+
+    impl AsyncUdpSocket for ScriptedSocket {
+        fn local_addr(&self) -> io::Result<SocketAddr> {
+            Ok("0.0.0.0:4003".parse().unwrap())
+        }
+        fn poll_send(&self, _: &mut Context<'_>, t: &Transmit<'_>) -> Poll<io::Result<usize>> {
+            Poll::Ready(Ok(t.contents.len()))
+        }
+        fn poll_recv(
+            &self,
+            _: &mut Context<'_>,
+            bufs: &mut [IoSliceMut<'_>],
+            meta: &mut [RecvMeta],
+        ) -> Poll<io::Result<usize>> {
+            let step = self
+                .script
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .pop_front()
+                .unwrap_or(self.tail);
+            match step {
+                RecvStep::Zero => Poll::Ready(Ok(0)),
+                RecvStep::Pending => Poll::Pending,
+                RecvStep::Packet(len) => {
+                    bufs[0][..len].fill(0xAB); // 非 STUN → dispatch 丢弃，不产出事件
+                    meta[0] = RecvMeta::default();
+                    meta[0].addr = "203.0.113.7:1234".parse().unwrap();
+                    meta[0].len = len;
+                    meta[0].stride = len;
+                    Poll::Ready(Ok(1))
+                }
+            }
+        }
+    }
+
+    /// 记录被唤醒了几次。
+    #[derive(Default)]
+    struct CountingWaker(AtomicUsize);
+
+    impl std::task::Wake for CountingWaker {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    fn mux_over(socket: Arc<dyn AsyncUdpSocket>) -> UdpMux {
+        UdpMux {
+            socket,
+            listen_addr: "0.0.0.0:4003".parse().unwrap(),
+            conns: HashMap::new(),
+            by_addr: HashMap::new(),
+            announced: HashSet::new(),
+            recv_buf: vec![0u8; RECEIVE_MTU],
+            pending: VecDeque::new(),
+            dropped_full: 0,
+        }
+    }
+
+    /// poll 一次，返回 `(结果, 被唤醒次数)`。
+    fn poll_once(mux: &mut UdpMux) -> (Poll<UdpMuxEvent>, usize) {
+        let counter = Arc::new(CountingWaker::default());
+        let waker = std::task::Waker::from(counter.clone());
+        let mut cx = Context::from_waker(&waker);
+        let out = mux.poll(&mut cx);
+        (out, counter.0.load(Ordering::SeqCst))
+    }
+
+    /// **没收到任何东西时不许自唤醒**——那是把忙循环包装成 executor 的一次往返。
+    ///
+    /// `Ok(0)` 必须转下一轮（而不是 `break` 到自唤醒收尾），好让 `poll_recv` 有机会
+    /// 返回 `Pending` 并登记 waker。这条红了就说明公网端口上一次 `Ok(0)` 就能让
+    /// `Transport::poll` 100% 占满一个核，且全链路零报错。
+    #[test]
+    fn idle_poll_does_not_self_wake() {
+        // 真实 socket 的形状：偶发一次 `Ok(0)`，随后老实 Pending 并登记 waker。
+        let socket = ScriptedSocket::new([RecvStep::Zero], RecvStep::Pending);
+        let mut mux = mux_over(socket);
+
+        let (out, wakes) = poll_once(&mut mux);
+        assert!(matches!(out, Poll::Pending));
+        assert_eq!(wakes, 0, "空转一轮却自唤醒 = 100% 烧一个核");
+    }
+
+    /// 连一个数据报都读不到时同样不许自唤醒，哪怕 burst 被 `Ok(0)` 耗尽。
+    #[test]
+    fn burst_of_zero_counts_does_not_self_wake() {
+        let socket = ScriptedSocket::new([], RecvStep::Zero); // 病态：恒定 Ok(0)
+        let mut mux = mux_over(socket);
+
+        let (out, wakes) = poll_once(&mut mux);
+        assert!(matches!(out, Poll::Pending));
+        assert_eq!(wakes, 0, "一直没数据就该挂起，等 socket 的 waker");
+    }
+
+    /// 反向护栏：**真读到数据、且被 burst 上限打断时必须自唤醒**，否则这些包要
+    /// 干等下一个数据报才被处理（低速链路上就是肉眼可见的卡顿）。
+    ///
+    /// 与上面两条配对——只有它们时，把 `wake_by_ref` 整个删掉也能全绿。
+    #[test]
+    fn burst_exhausted_with_data_self_wakes() {
+        let socket = ScriptedSocket::new([], RecvStep::Packet(64)); // 恒定有包
+        let mut mux = mux_over(socket);
+
+        let (out, wakes) = poll_once(&mut mux);
+        assert!(matches!(out, Poll::Pending), "burst 用满应让出而不是死读");
+        assert_eq!(wakes, 1, "还有货没读完，必须自唤醒");
     }
 }

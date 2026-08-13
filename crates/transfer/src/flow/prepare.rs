@@ -1,24 +1,118 @@
-//! 发送方 prepare 阶段：流式 BLAKE3 hash + 进度事件推送。
+//! 发送方 prepare 阶段：**一遍**流式读同时产出 checksum 与 bao outboard，并推进度事件。
 //!
 //! 这里只挂载 `TransferManager::prepare` 一个方法，结构体定义和其他生命周期方法
 //! 仍在 [`crate::manager`]。
+//!
+//! # 为什么是一遍
+//!
+//! 2026-08 之前这里读两遍：先逐 chunk 跑一遍扁平 `blake3::Hasher` 得 `checksum`，
+//! 再调 `build_outboard_from_source` 重读一遍建验签树，靠 `debug_assert_eq!` 互证。
+//! 但 bao 树根**就是**标准 blake3 整文件 hash，第一遍在语义上是纯冗余——它当时唯一的
+//! 作用是产出进度事件（所有 emit 都写在它的循环里，建树那遍一个事件都不发）。
+//!
+//! 现在进度经 [`ReadProgress`] 挂在建树那遍的 reader 上，于是：读盘量减半、进度覆盖
+//! 全部真实工作量（不再有「进度条走完后再静默等一倍时间」）、且 checksum 与 outboard
+//! 同源——「两遍之间源文件被改」产出互不匹配二者的那类事故在构造上不可能。
+
+use std::sync::Arc;
 
 use n0_future::time::Instant;
 
 use uuid::Uuid;
 
-use crate::events::TransferEvent;
+use crate::HostEnumeratedFile;
+use crate::bao::ReadProgress;
+use crate::events::{TransferEvent, TransferEventSink};
 use crate::manager::{PreparedFile, PreparedTransfer, TransferManager};
 use crate::progress::PrepareProgressEvent;
 use crate::{AppError, AppResult};
-use crate::{CHUNK_SIZE, HostEnumeratedFile, calc_total_chunks};
+
+/// PrepareProgress 的节流间隔，避免大文件刷屏。
+///
+/// 与 [`crate::progress`] 里传输进度用的那个同值：两段**背靠背**出现（prepare 一完就进传输），
+/// 刷新节奏漂移用户直接看得见。
+///
+/// ⚠️ **但两者不是同一条进度条。** 这里此前写作「两者在 UI 上是同一条进度条的前后两段」——
+/// 那是**错的设计意图**（2026-08-10 更正）：prepare 是本机在算、还没上网，传输是字节真的在动，
+/// 三端必须让两者**视觉可区分**（灰 = 准备中，teal = 传输中）。共用同一个视觉原语正是那次
+/// 「用户把 1.99 GB 的 prepare 读成传输、进而把新会话读成『续传从 0% 重来』」的直接原因。
+/// 判据写在 `DESIGN.md` 的 **Transfer Progress Contract (cross-platform)**。
+const PROGRESS_THROTTLE: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// 把 bao 构建的读取进度翻译成 [`TransferEvent::PrepareProgress`]。
+///
+/// **跨文件存活**：节流时刻与已完成字节都是整批的量，每文件新建一个会让小文件批量
+/// 刷屏、也会让进度在文件边界上归零。
+struct PrepareReporter<'a> {
+    events: &'a Arc<dyn TransferEventSink>,
+    prepared_id: Uuid,
+    /// 当前正在读的文件名，随外层循环推进。
+    current_file: String,
+    /// 已完成的文件数（= 当前文件的 file_id）。
+    completed_files: u32,
+    total_files: u32,
+    /// **此前**已完成文件的累计字节，不含当前文件。
+    completed_bytes: u64,
+    total_bytes: u64,
+    /// `None` = 还没发过，**第一条必发**（与 `ProgressTracker::progress_event` 同语义）。
+    ///
+    /// 曾初始化为 `Instant::now()`，于是开头 200ms 一条都不发：小批量准备在 200ms 内跑完时
+    /// 用户先看到一段空白、然后直接跳到收尾那条 100%。
+    last_emit: Option<Instant>,
+}
+
+impl PrepareReporter<'_> {
+    /// 按当前字段发一条事件，**不判节流**。
+    async fn emit(&self, bytes_in_file: u64) {
+        // 事件总线抖动不该中断一次正常的准备：吞掉。
+        let _ = self
+            .events
+            .emit(TransferEvent::PrepareProgress {
+                event: PrepareProgressEvent {
+                    prepared_id: self.prepared_id,
+                    current_file: self.current_file.clone(),
+                    completed_files: self.completed_files,
+                    total_files: self.total_files,
+                    bytes_hashed: self.completed_bytes + bytes_in_file,
+                    total_bytes: self.total_bytes,
+                },
+            })
+            .await;
+    }
+
+    /// 整批结束时那一条，不受节流。
+    ///
+    /// **`current_file` 保持最后一个文件的名字，不置空。** 曾经置空，代价落在三端 UI 上：
+    /// 各写一处 `currentFile ? <文件名行> : null`，于是进度条冲到 100% 的同一帧里文件名
+    /// 行凭空消失、整条操作栏高度跳一下；Web 那边还为「没有文件名」这个只存在几毫秒的
+    /// 状态多养了一条 msgid。哨兵值的代价从来不在产生它的地方。
+    async fn emit_final(&mut self) {
+        self.completed_files = self.total_files;
+        self.completed_bytes = self.total_bytes;
+        self.emit(0).await;
+    }
+}
+
+impl ReadProgress for PrepareReporter<'_> {
+    async fn on_read(&mut self, bytes_in_file: u64) {
+        let now = Instant::now();
+        if self
+            .last_emit
+            .is_some_and(|last| now.duration_since(last) < PROGRESS_THROTTLE)
+        {
+            return;
+        }
+        self.last_emit = Some(now);
+        self.emit(bytes_in_file).await;
+    }
+}
 
 impl TransferManager {
-    /// 准备发送：流式 BLAKE3 hash + 进度事件推送
+    /// 准备发送：一遍流式读产出 checksum + bao outboard，并推进度事件。
     ///
-    /// - `prepared_id` 由 caller 生成，便于 host 关联进度推送通道
-    /// - hash 计算通过 `FileAccess::read_source_chunk` 走，平台无关
-    /// - PrepareProgress 事件按 200ms 节流推送，避免大文件刷屏
+    /// - `prepared_id` 由 caller 生成，宿主据此关联进度事件
+    /// - 读取通过 `FileAccess::read_source_chunk` 走，平台无关
+    /// - PrepareProgress 事件按 200ms 节流推送
     pub async fn prepare(
         &self,
         prepared_id: Uuid,
@@ -31,73 +125,35 @@ impl TransferManager {
         let total_files = entries.len() as u32;
         let total_bytes: u64 = entries.iter().map(|e| e.size).sum();
         let mut files = Vec::with_capacity(entries.len());
-        let mut completed_bytes: u64 = 0;
-        let mut last_emit = Instant::now();
-        const PROGRESS_THROTTLE: std::time::Duration = std::time::Duration::from_millis(200);
+
+        let mut reporter = PrepareReporter {
+            events: &self.events,
+            prepared_id,
+            current_file: String::new(),
+            completed_files: 0,
+            total_files,
+            completed_bytes: 0,
+            total_bytes,
+            last_emit: None,
+        };
 
         for (idx, entry) in entries.into_iter().enumerate() {
             let file_id = idx as u32;
-            let mut hasher = blake3::Hasher::new();
+            reporter.current_file = entry.name.clone();
+            reporter.completed_files = file_id;
 
-            let total_chunks = calc_total_chunks(entry.size);
-            for chunk_idx in 0..total_chunks {
-                let offset = chunk_idx as u64 * CHUNK_SIZE as u64;
-                let remaining = entry.size.saturating_sub(offset);
-                let length = (remaining as usize).min(CHUNK_SIZE);
-                if length == 0 && entry.size != 0 {
-                    break;
-                }
-                let chunk = self
-                    .file_access
-                    .read_source_chunk(&entry.source_id, offset, length)
-                    .await?;
-                // length 已按 entry.size 预算，长度不符 = 宿主违约或文件被外部修改。
-                // 静默吞掉会算出错误 checksum，拖到接收端验签才暴露，这里提前响错。
-                if chunk.len() != length {
-                    return Err(AppError::Transfer(format!(
-                        "read_source_chunk 返回长度异常: 请求 {length}B@{offset}，得到 {}B ({})",
-                        chunk.len(),
-                        entry.relative_path
-                    )));
-                }
-                hasher.update(&chunk);
-                let bytes_in_file = offset + chunk.len() as u64;
-
-                let now = Instant::now();
-                if now.duration_since(last_emit) >= PROGRESS_THROTTLE {
-                    last_emit = now;
-                    let _ = self
-                        .events
-                        .emit(TransferEvent::PrepareProgress {
-                            event: PrepareProgressEvent {
-                                prepared_id,
-                                current_file: entry.name.clone(),
-                                completed_files: file_id,
-                                total_files,
-                                bytes_hashed: completed_bytes + bytes_in_file,
-                                total_bytes,
-                            },
-                        })
-                        .await;
-                }
-            }
-
-            let checksum = hasher.finalize().to_hex().to_string();
-            completed_bytes += entry.size;
-
-            // 逐块验签的 bao outboard：流式建（内存有界），root 必等于上面的扁平 blake3
-            // checksum（16KiB chunk group 不改 root）。debug 下核验两者一致。
-            let (root, outboard) = crate::bao::build_outboard_from_source(
+            // 一遍流式读：root == 标准 blake3 整文件 hash == FileInfo.checksum。
+            // 宿主违约（返回长度不等于请求长度）在 reader 内即响错，带文件名可归因。
+            let (root, outboard) = crate::bao::build_outboard_from_source_with_progress(
                 &self.file_access,
                 &entry.source_id,
                 entry.size,
+                &entry.relative_path,
+                &mut reporter,
             )
             .await?;
-            debug_assert_eq!(
-                root.to_hex().to_string(),
-                checksum,
-                "bao root 必须等于扁平 blake3 checksum"
-            );
+
+            reporter.completed_bytes += entry.size;
 
             files.push(PreparedFile {
                 file_id,
@@ -105,25 +161,12 @@ impl TransferManager {
                 relative_path: entry.relative_path,
                 source_id: entry.source_id,
                 size: entry.size,
-                checksum,
+                checksum: root.to_hex().to_string(),
                 outboard,
             });
         }
 
-        // 最终完成事件（不受节流限制）
-        let _ = self
-            .events
-            .emit(TransferEvent::PrepareProgress {
-                event: PrepareProgressEvent {
-                    prepared_id,
-                    current_file: String::new(),
-                    completed_files: total_files,
-                    total_files,
-                    bytes_hashed: total_bytes,
-                    total_bytes,
-                },
-            })
-            .await;
+        reporter.emit_final().await;
 
         let prepared = PreparedTransfer {
             prepared_id,

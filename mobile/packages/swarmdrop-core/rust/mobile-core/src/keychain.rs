@@ -13,9 +13,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use swarmdrop_core::device::PairedDeviceInfo;
-use swarmdrop_core::host::{
-    DeviceIdentityBytes, IdentityMigrationState, KeychainProvider, PairedDeviceStore,
-};
+use swarmdrop_core::host::{DeviceIdentityBytes, KeychainProvider, PairedDeviceStore};
 use swarmdrop_core::{AppError, AppResult};
 
 use crate::error::FfiError;
@@ -84,15 +82,6 @@ impl KeychainProvider for MobileKeychainAdapter {
             .delete_webrtc_certificate_pem()
             .await
             .map_err(Into::into)
-    }
-
-    // mobile 没有 Stronghold → keychain 迁移路径,直接返回 Completed
-    async fn load_migration_state(&self) -> AppResult<IdentityMigrationState> {
-        Ok(IdentityMigrationState::Completed)
-    }
-
-    async fn save_migration_state(&self, _state: IdentityMigrationState) -> AppResult<()> {
-        Ok(())
     }
 }
 

@@ -2,4 +2,6 @@
 
 pub mod manager;
 
-pub use manager::{PairedDeviceCommit, PairingManager, PairingService, persisted_or_absent};
+pub use manager::{
+    PairedDeviceCommit, PairingManager, PairingPorts, PairingService, persisted_or_absent,
+};

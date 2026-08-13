@@ -27,6 +27,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useConfirmAction } from "./confirm-action";
 import { CenteredEmptyState, PanelSkeleton, RailEmptyHint } from "./empty-state";
+import { EtaText } from "./eta-text";
 import { NodeNotReadyState } from "./node-not-ready-state";
 import { PanelFallback } from "./panel-fallback";
 import { ProgressBar } from "./progress-bar";
@@ -34,8 +35,8 @@ import { RelativeTime } from "./relative-time";
 import { StatusDot } from "./status-dot";
 import { WebErrorCard } from "./web-error-view";
 import {
+  isCompletedSession,
   sessionEndedAt,
-  sortByUpdatedDesc,
   transferSample,
 } from "../_lib/format";
 import type { MessageDescriptor } from "@lingui/core";
@@ -46,15 +47,12 @@ import {
   PHASE_META,
   connectionByPeer,
   connectionLabel,
-  groupSessions,
+  matchesSessionFilter,
   phaseLabel,
   type SessionFilter,
 } from "./transfer-labels";
 import { Trans, useLingui } from "@lingui/react/macro";
-import {
-  formatFileSize,
-  formatTransferRate,
-} from "@swarmdrop/shared-view";
+import { formatFileSize, sortByTimelineDesc } from "@swarmdrop/shared-view";
 import { cn } from "@/lib/cn";
 import { PANEL_SURFACE, selectedRowClass } from "./section";
 import { MasterDetail, OpenListButton } from "./master-detail";
@@ -62,10 +60,13 @@ import { MasterDetail, OpenListButton } from "./master-detail";
 import { SessionTitle } from "./session-title";
 import { TransferDetailPanel } from "./transfer-detail";
 import { NAV, PARAM, transferSessionHref } from "../_lib/nav";
+import { peerLabel } from "../_lib/device-presentation";
 import { getNode } from "../_lib/node-runtime";
 import { useWebNode, webNodeActions } from "../_lib/store";
 import { useAsyncAction } from "../_lib/use-async-action";
 import { useKeyedAsyncAction } from "../_lib/use-keyed-async-action";
+import { useSessionPublishing } from "../_lib/use-session-publishing";
+import { useUsableRates } from "../_lib/use-usable-rates";
 import { type TransferProgressEvent, type TransferProjection } from "../_lib/view-types";
 
 export function TransferActivityPanel() {
@@ -96,9 +97,17 @@ function TransferActivityPanelInner() {
 
   const [filter, setFilter] = useState<SessionFilter>("all");
 
-  // 排序只依赖 projections；分组才依赖筛选。分两个 memo，换筛选不会连排序一起重跑。
-  const sorted = useMemo(() => sortByUpdatedDesc(Object.values(projections)), [projections]);
-  const { active, history, total } = useMemo(() => groupSessions(sorted, filter), [sorted, filter]);
+  // 排序只依赖 projections；筛选才依赖 filter。分两个 memo，换筛选不会连排序一起重跑。
+  const sorted = useMemo(() => sortByTimelineDesc(Object.values(projections)), [projections]);
+  const items = useMemo(
+    () => sorted.filter((p) => matchesSessionFilter(p, filter)),
+    [sorted, filter],
+  );
+  /** 「清空记录」删的是所有终态会话，所以按钮显隐与当前档位无关。 */
+  const hasEnded = useMemo(
+    () => sorted.some((p) => matchesSessionFilter(p, "ended")),
+    [sorted],
+  );
   /** 会话总数（不受筛选影响）——空态要靠它区分「一条都没有」与「这一档是空的」。 */
   const grandTotal = sorted.length;
   const connections = useMemo(() => connectionByPeer(devices), [devices]);
@@ -237,7 +246,7 @@ function TransferActivityPanelInner() {
             <h2 className="text-sm font-semibold text-foreground">
               <Trans>会话</Trans>
             </h2>
-            {history.length > 0 && clearConfirm.trigger}
+            {hasEnded && clearConfirm.trigger}
           </div>
 
           {/* 筛选。只在有会话时出现——一条都没有时，四个筛选档全是空的，纯占版面。
@@ -275,32 +284,17 @@ function TransferActivityPanelInner() {
             <RailEmptyHint>
               <Trans>还没有传输会话。</Trans>
             </RailEmptyHint>
-          ) : total === 0 ? (
+          ) : items.length === 0 ? (
             // 「这一档是空的」与「一条会话都没有」是两件事。合成一句「还没有传输会话」
             // 会让刚点了「可恢复」的用户以为自己的历史没了。
             <RailEmptyHint>
               <Trans>这个筛选下没有会话。</Trans>
             </RailEmptyHint>
           ) : (
-            <div className="flex min-h-0 flex-col gap-4 overflow-y-auto">
-              {active.length > 0 && (
-                <ul className="flex flex-col gap-1.5">
-                  {active.map(renderRow)}
-                </ul>
-              )}
-              {history.length > 0 && (
-                <div className={cn(active.length > 0 && "border-t pt-3")}>
-                  {active.length > 0 && (
-                    <p className="text-xs font-medium text-muted-foreground">
-                      <Trans>已结束</Trans>
-                    </p>
-                  )}
-                  <ul className={cn("flex flex-col gap-1.5", active.length > 0 && "mt-2")}>
-                    {history.map(renderRow)}
-                  </ul>
-                </div>
-              )}
-            </div>
+            <ul className="flex min-h-0 flex-col gap-1.5 overflow-y-auto">
+              {/* 一条纯时间线，不再切成 active / history 两段（Transfer List Order Contract） */}
+              {items.map(renderRow)}
+            </ul>
           )}
         </div>
         );
@@ -400,7 +394,8 @@ const TransferActivityItem = memo(function TransferActivityItem({
 }: {
   projection: TransferProjection;
   progress?: TransferProgressEvent;
-  connection: MessageDescriptor;
+  /** `null` = 连接方式查不到（历史会话的常态），此时整段不渲染。 */
+  connection: MessageDescriptor | null;
   selected: boolean;
   onSelect: (sessionId: string) => void;
 }) {
@@ -408,9 +403,26 @@ const TransferActivityItem = memo(function TransferActivityItem({
   // 「终态以 projection 为准」的取舍收在 `transferSample` 里（见那里的说明）。
   const { live, done, total, percent } = transferSample(projection, liveProgress);
   const DirectionIcon = projection.direction === "send" ? ArrowUpFromLine : ArrowDownToLine;
-  // 速率只在真的在传时才有意义。其余阶段（等待接受 / 已中断 / 已结束）给时间——
-  // 「什么时候的事」在那些阶段正是用户要问的（同桌面 `-session-row.tsx` 的右列）。
-  const rate = projection.phase === "active" ? formatTransferRate(live?.speed) : null;
+  /**
+   * 剩余时间**只在真的在传时才有意义**——其余阶段（等待接受 / 已中断 / 已结束）没有速率，
+   * 给一个剩余时间等于报告一段并不存在的等待，那里问的是「什么时候的事」。
+   */
+  const active = projection.phase === "active";
+  // 剩余时间过一遍时效：那一帧躺得太久就退回占位（见 `useUsableRates`）。
+  const { eta } = useUsableRates(projection.sessionId, live);
+  // 此刻正在保存哪个文件（接收的「暂存 → 发布」第二段）；没有则 null。
+  // 「只有 active 会话才谈得上发布」这条收窄折在 hook 里（见那里的说明）。
+  const publishing = useSessionPublishing(projection);
+  const peer = peerLabel(projection.peerName, projection.peerId);
+  /**
+   * 传完了的那一条，「进度」这件事整套退场：满格进度条、`9.3 KB / 9.3 KB` 的两边同数、
+   * 恒为 `100%` 的尾巴——三样说的都是行首那枚状态点与「已完成」已经说过的话。
+   *
+   * 历史列表里绝大多数是这一类，所以这三笔冗余的实际效果是**让每一条都长得一样**：
+   * 一列等长的满格绿条，扫过去认不出哪条是哪条。剪掉之后，还在传的那几条反而是唯一
+   * 带进度条的行，一眼就能挑出来。
+   */
+  const completed = isCompletedSession(projection);
 
   return (
     <li>
@@ -428,8 +440,12 @@ const TransferActivityItem = memo(function TransferActivityItem({
             colorClass={PHASE_META[projection.phase].dot}
             pulse={projection.phase === "active"}
           />
-          <SessionTitle files={projection.files} fallback={projection.peerName} />
-          <span className="shrink-0 text-[11px] text-muted-foreground">{t(phaseLabel(projection))}</span>
+          <SessionTitle files={projection.files} fallback={peer} />
+          {/* 发布期换掉阶段词：那一刻字节已经收齐，仍说「传输中」是在描述一件已经结束的事，
+              真正还在跑的是本机的落盘。 */}
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {publishing ? t`正在保存…` : t(phaseLabel(projection))}
+          </span>
         </div>
 
         <div className="mt-1 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
@@ -441,33 +457,75 @@ const TransferActivityItem = memo(function TransferActivityItem({
               role="img"
               aria-label={t(DIRECTION_LABEL[projection.direction])}
             />
-            <span className="truncate">{projection.peerName}</span>
+            <span className="truncate">{peer}</span>
           </span>
-          <span className="shrink-0 font-mono tabular-nums">
-            {formatFileSize(done)} / {formatFileSize(total)}
+          {/* 传完的会话第三行整行退场，所以「什么时候的事」并到这一行的右端来——
+              一条只剩一个时间戳的行，读起来像上一行掉队的尾巴。 */}
+          <span className="flex shrink-0 items-center gap-1.5">
+            <span className="font-mono tabular-nums">
+              {completed ? formatFileSize(total) : `${formatFileSize(done)} / ${formatFileSize(total)}`}
+            </span>
+            {completed && (
+              <>
+                <span aria-hidden>·</span>
+                <RelativeTime timestamp={sessionEndedAt(projection)} />
+              </>
+            )}
           </span>
         </div>
 
         {/* 整行是个 `<button>`，而 button 的后代角色会被辅助技术整个丢弃
             （ARIA Children Presentational: True）。所以这里必须走装饰模式——
             进度由按钮自己的可访问名承担，下面那行的百分比数字就在名字里。
-            详情侧（非按钮内）那条才是真的 `role="progressbar"`。 */}
-        <ProgressBar percent={percent} className="mt-1.5" label={null} />
+            详情侧（非按钮内）那条才是真的 `role="progressbar"`。
 
-        <div className="mt-1 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-          <span className="truncate">{t(connection)}</span>
-          {/* 同一个位置轮流放两样东西，而不是各占一行：正在传时问「多快」，其余阶段问
-              「什么时候的事」——两个问题不会同时成立，所以也不该同时占版面。 */}
-          <span className="flex shrink-0 items-center gap-1">
-            {rate ? (
-              <span className="font-mono tabular-nums">{rate}</span>
-            ) : (
-              <RelativeTime timestamp={sessionEndedAt(projection)} />
+            它与下面那行**同进同退**（判据同为 `completed`），所以「装饰模式靠可访问名兜底」
+            这条不会落空：进度条在的时候，那个数字一定也在。 */}
+        {!completed && (
+          <ProgressBar
+            percent={percent}
+            tone={publishing ? "local" : "transfer"}
+            className="mt-1.5"
+            label={null}
+          />
+        )}
+
+        {/* 第三行只服务「还没传完」的会话：连接方式、剩余时间、百分比在传完之后要么恒为未知、
+            要么恒为 100%。连接方式查不到时（`connectionLabel` 返回 null）这一行只剩右端，
+            所以对齐方式跟着换——留一个空 `<span>` 占位会在 `justify-between` 下把内容
+            推到中间。 */}
+        {!completed && (
+          <div
+            className={cn(
+              "mt-1 flex items-center gap-3 text-[11px] text-muted-foreground",
+              connection ? "justify-between" : "justify-end",
             )}
-            <span aria-hidden>·</span>
-            <span className="font-mono tabular-nums">{percent}%</span>
-          </span>
-        </div>
+          >
+            {connection && <span className="truncate">{t(connection)}</span>}
+            {/* 同一个位置轮流放两样东西，而不是各占一行：正在传时问「还要多久」，其余阶段问
+                「什么时候的事」——两个问题不会同时成立，所以也不该同时占版面。
+
+                轮流的那两样此前是**速率**与相对时间。换成剩余时间是因为速率并不回答问题：
+                「12.4 MB/s」要用户拿剩余字节自己除一遍才变成他想知道的数，而这一行只放得下
+                一个。速率没有消失，它下放到了详情侧（那里两格并排，读的人是在排查）。
+                算不出剩余时间时给「计算中」而不是让这一格塌掉——它恰好在传输停滞时算不出来，
+                也就是最需要说点什么的时候。
+
+                发布期同样给占位：那一刻字节已经收齐、网上什么都没在跑，报一个「剩余 5s」
+                与这一行上方刚说完的「正在保存…」正面打架。 */}
+            <span className="flex shrink-0 items-center gap-1">
+              {active ? (
+                <span className="tabular-nums">
+                  <EtaText seconds={publishing ? null : eta} />
+                </span>
+              ) : (
+                <RelativeTime timestamp={sessionEndedAt(projection)} />
+              )}
+              <span aria-hidden>·</span>
+              <span className="font-mono tabular-nums">{percent}%</span>
+            </span>
+          </div>
+        )}
       </button>
     </li>
   );

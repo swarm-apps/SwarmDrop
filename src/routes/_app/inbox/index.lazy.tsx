@@ -20,7 +20,7 @@ import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   Archive,
   ArchiveRestore,
-  ArrowRightLeft,
+  ArrowLeftRight,
   Bot,
   ChevronDown,
   Copy,
@@ -73,7 +73,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { copyText } from "@/lib/clipboard";
-import { formatFileSize, formatRelativeTime } from "@/lib/format";
+import { formatFileSize, relativeTimeMessage } from "@/lib/format";
 import {
   groupByTimeBucket,
   type TimeBucket,
@@ -784,7 +784,7 @@ function RailRowShell({
       </span>
       <span className="min-w-0 flex-1">{children}</span>
       <span className="shrink-0 self-start pt-0.5 text-[11px] tabular-nums text-muted-foreground">
-        {formatRelativeTime(receivedAt)}
+        {t(relativeTimeMessage(receivedAt))}
       </span>
     </button>
   );
@@ -1062,7 +1062,7 @@ function ReaderContent({
               </span>
               <Dot />
               <span className="tabular-nums">
-                {formatRelativeTime(detail.receivedAt)}
+                {t(relativeTimeMessage(detail.receivedAt))}
               </span>
             </p>
           </div>
@@ -1079,7 +1079,7 @@ function ReaderContent({
               {detail.transfer ? ` · ${projectionStatusLabel(detail.transfer)}` : ""}
             </p>
             {detail.missing && (
-              <span className="flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-800 dark:text-amber-300">
+              <span className="flex items-center gap-1 rounded-full bg-warning/15 px-2 py-1 text-xs font-medium text-warning-ink">
                 <TriangleAlert className="size-3.5" />
                 <Trans>本地内容缺失</Trans>
               </span>
@@ -1118,7 +1118,7 @@ function ReaderContent({
               className="gap-1.5"
               onClick={onOpenTransfer}
             >
-              <ArrowRightLeft className="size-4" />
+              <ArrowLeftRight className="size-4" />
               <Trans>打开传输记录</Trans>
             </Button>
           )}
@@ -1276,7 +1276,7 @@ function Pill({
       className={cn(
         "shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium",
         tone === "amber" &&
-          "bg-amber-500/15 text-amber-800 dark:text-amber-300",
+          "bg-warning/15 text-warning-ink",
         tone === "muted" &&
           "bg-foreground/[0.08] text-foreground/70 dark:bg-white/[0.08] dark:text-white/70",
       )}
@@ -1287,7 +1287,7 @@ function Pill({
 }
 
 function ItemIcon({ title, count }: { title: string; count: number }) {
-  if (count > 1) return <FileArchive className="size-4.5 text-amber-500" />;
+  if (count > 1) return <FileArchive className="size-4.5 text-warning" />;
   const { icon: Icon, color } = getFileIconStyle(title);
   return <Icon className={`size-4.5 ${color}`} />;
 }

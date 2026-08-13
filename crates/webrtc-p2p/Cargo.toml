@@ -49,10 +49,20 @@ unsigned-varint = { workspace = true }
 # 规则（`poll_recv` 的 `# Errors`、`max_gro_segments` 的 `# Buffer sizing`）。
 # 细节与护栏测试见那个文件顶部的注释块。
 #
-# ⚠️ **不要降回 0.20.0-rc.\***：本仓依赖的五个补丁（rtc #137 / #138 / #140、
-# webrtc #825 / #828）直到 0.20.0 正式版才进 crates.io。少了它们 direct 监听端起不来、
-# 数据面静默丢包，且全链路零报错——复盘见 `dev-notes/blogs/webrtc/`。
-webrtc = "0.20.0"
+# ⚠️ **版本下限 0.20.2 是硬的，别往下调**。两批修复卡在两个不同的下限上：
+#
+# - **≥ 0.20.0（不要回 `0.20.0-rc.*`）**：五个补丁（rtc #137 / #138 / #140、
+#   webrtc #825 / #828）到正式版才进 crates.io。少了它们 direct 监听端起不来、
+#   数据面静默丢包，且全链路零报错——复盘见 `dev-notes/blogs/webrtc/`。
+# - **≥ 0.20.2**：[rtc#159](https://github.com/webrtc-rs/rtc/pull/159) /
+#   [#161](https://github.com/webrtc-rs/rtc/pull/161) 修的「终态仍上报已过期 deadline」。
+#   少了它，ICE 进 `Failed` 后 `PeerConnectionDriver::event_loop` 会拿 `handle_timeout`
+#   + `continue` 空转——那条 `continue` 跳过整个 `select!`，于是 driver 既占满一个核，
+#   **又再也读不到命令通道**（`close()` 送不进去，连接永久泄漏）。实测桌面端接过几次
+#   浏览器连接后 CPU 718%、`swarmdrop_net` 的 actor 被饿死、7GB 传输卡死。
+#   2026-08-11 曾以 `[patch.crates-io]` 指 git 应急，0.20.2 发布后已删除。
+#   因果链见 `dev-notes/research/2026-08-11-webrtc-driver-busy-loop.md`。
+webrtc = "0.20.2"
 # 只为**打开 pem feature**：`RTCCertificate::{from_pem, serialize_pem}` 挂在它下面，
 # 而 rtc 的默认 feature 不含 pem、`webrtc` 也没有透传它。direct 模式要把证书持久化
 # （certhash 写在 multiaddr 里，换一次证书存量地址就全失效），少了它做不到。
@@ -62,8 +72,10 @@ webrtc = "0.20.0"
 #
 # **不要改成直接依赖 `rtc-ice` / `rtc-stun`。** 那样一旦两边解析到不同版本，同名类型
 # 就分叉成两个，报「expected rtc::rtc_ice::X, found rtc_ice::X」这种极绕的错
-# （曾经 rtc 被 `[patch]` 换成 git 源时必然如此）。经 `rtc::` 转一手就天然同源。
-rtc = { version = "0.20.0", features = ["pem"] }
+# （2026-08-11 那次 `[patch]` 指 git 时实测撞到：只换 `rtc-ice` 会让它经仓内 path 依赖
+# 拉进自己那份 rtc-shared / rtc-stun / rtc-mdns，与 crates.io 那份并存）。
+# 经 `rtc::` 转一手就天然同源。
+rtc = { version = "0.20.2", features = ["pem"] }
 # `RTCCertificate::from_key_pair` 收的是 `rcgen::KeyPair`，而 rtc 不 re-export rcgen，
 # 只能直接依赖。**版本必须与 rtc 同线**（当前 0.14），否则是两个不同的 `KeyPair` 类型。
 # `default-features = false`：加密后端（ring / aws-lc-rs）由 rtc 的 feature 决定，

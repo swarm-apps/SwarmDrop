@@ -172,6 +172,13 @@ jobs:
         working-directory: mobile
         run: pnpm install --frozen-lockfile
 
+      # 见 mobile-build-android.yml 同名步骤：pnpm patch 打在预编译 AAR / XCFramework 上
+      # 会静默失效。回归的第一道拦截在 PR 触发的 mobile-checks.yml；这里是发版当天的
+      # 最后一道，绝不能省——tag 上跑的是 PR 之后可能又漂过的那份 lockfile。
+      - name: Assert expo patches actually enter the build
+        working-directory: mobile
+        run: pnpm check:expo-patches
+
       - name: Build Rust bridge (ubrn android, mobile-release profile)
         working-directory: mobile
         env:

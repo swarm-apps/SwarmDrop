@@ -12,12 +12,12 @@ import ReorderableList, {
   useIsActive,
   useReorderableDrag,
 } from "react-native-reorderable-list";
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
 import { useShallow } from "zustand/react/shallow";
-import { EmptyState } from "@/components/mobile/screen";
+import {
+  AppScreen,
+  BottomActionBar,
+  EmptyState,
+} from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
@@ -45,7 +45,6 @@ import { usePreferencesStore } from "@/stores/preferences-store";
 export default function DeviceGroupsScreen() {
   const { t } = useLingui();
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
 
   const {
     organization,
@@ -160,9 +159,7 @@ export default function DeviceGroupsScreen() {
   const trimmedNew = newGroup.trim();
 
   return (
-    <SafeAreaView edges={["top"]} style={{ flex: 1 }} className="bg-background">
-      <SettingsHeader title={t`设备分组`} />
-
+    <AppScreen header={<SettingsHeader title={t`设备分组`} />} bare>
       <View style={{ flex: 1 }}>
         {groups.length === 0 ? (
           <View className="flex-1 justify-center px-5">
@@ -198,13 +195,11 @@ export default function DeviceGroupsScreen() {
         )}
       </View>
 
-      {/* 底部固定新建栏 —— 键盘弹出时随 KeyboardStickyView 贴合键盘;键盘收起时留安全区。 */}
+      {/* 底部固定新建栏 —— 键盘弹出时随 KeyboardStickyView 贴合键盘;键盘收起时留安全区
+          (安全区由 BottomActionBar 自己吃,所以它留在 children、不进 AppScreen 的 footer 槽)。 */}
       <KeyboardStickyView>
-        <View
-          className="border-t border-border bg-background px-5 pt-3"
-          style={{ paddingBottom: Math.max(insets.bottom, 12) }}
-        >
-          <View className="flex-row items-center gap-2">
+        <BottomActionBar>
+          <View className="flex-1 flex-row items-center gap-2">
             <Input
               value={newGroup}
               onChangeText={setNewGroup}
@@ -233,7 +228,7 @@ export default function DeviceGroupsScreen() {
               />
             </Pressable>
           </View>
-        </View>
+        </BottomActionBar>
       </KeyboardStickyView>
 
       <ConfirmDialog
@@ -259,7 +254,7 @@ export default function DeviceGroupsScreen() {
         contentTestID="device-group-delete-dialog"
         actionTestID="device-group-delete-confirm-button"
       />
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 
@@ -385,3 +380,6 @@ function cnRow(active: boolean): string {
     active ? "shadow-lg shadow-black/15" : "shadow-sm shadow-black/5",
   ].join(" ");
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

@@ -20,13 +20,48 @@
 
 import { cn } from "@/lib/cn";
 
+/**
+ * 进度所处的阶段。**颜色是这两者之间唯一的视觉差别，别再共用一种**：
+ *
+ * - `transfer` —— 数据真的在网上跑，品牌青绿；
+ * - `local` —— 纯本机阶段（准备 / 校验 / 打包），中性灰，还没上网。
+ *
+ * 此前 prepare 与传输同色同形，且背靠背出现（prepare 走完立刻换成传输条从 0 起），
+ * 大文件上用户会把 prepare 读成传输、再把新发送读成「续传倒回 0%」。
+ *
+ * 语义的事实源是 DESIGN.md 的 `Transfer Progress Contract`——三端共用那一份判据，只有机制
+ * 各不相同（桌面 `src/components/ui/progress.tsx` 有同名的 `tone`，但轨道自带品牌色，
+ * 查的是「轨道 + 填充」成对的表；移动端轨道本就中性，只换填充）。改这里的取值或加第三种
+ * 阶段前先改那里，否则三份实现会各自漂移。
+ */
+type ProgressTone = "transfer" | "local";
+
+/**
+ * 查表而不是三元：将来加一种阶段（如「校验中」）会在这里编译期报缺项。
+ *
+ * 灰档用满不透明度的 `bg-muted-foreground` 而不是 `/60`：填充与轨道（`bg-muted`）的
+ * 对比度是这条子唯一能被看出「走到哪了」的线索，`/60` 在亮色下只有 2.2:1，够不上
+ * WCAG 2.2 SC 1.4.11 对非文本组件的 3:1；满不透明度是 4.3:1（暗色 6.6:1）。
+ * 青绿档同理要守住这条线（亮色 3.7:1）——换 `--brand-solid` 的值时一起复核。
+ */
+const TONE_FILL: Record<ProgressTone, string> = {
+  transfer: "bg-[var(--brand-solid)]",
+  local: "bg-muted-foreground",
+};
+
 export function ProgressBar({
   percent,
   className,
+  tone = "transfer",
   label,
 }: {
   percent: number;
   className?: string;
+  /**
+   * 见 {@link ProgressTone}。默认 `transfer`——它是绝大多数调用点，
+   * 但**任何本机阶段都必须显式传 `local`**。
+   */
+  tone?: ProgressTone;
   /**
    * 可访问名（如「传输进度」「file.zip 的进度」）。
    *
@@ -48,7 +83,10 @@ export function ProgressBar({
       <div
         // 时长显式给出：默认的 150ms 在 1s 一帧的进度事件下会走走停停，300ms 刚好把两帧接上。
         // `motion-reduce` 下直接跳变——降级路径与本仓其它动效同一条纪律（PRODUCT.md 无障碍段）。
-        className="h-full rounded-full bg-[var(--brand-solid)] transition-[width] duration-300 motion-reduce:transition-none"
+        className={cn(
+          "h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none",
+          TONE_FILL[tone],
+        )}
         style={{ width: `${percent}%` }}
       />
     </div>

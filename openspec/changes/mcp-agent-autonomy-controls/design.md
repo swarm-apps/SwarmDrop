@@ -17,7 +17,7 @@
 
 前端 `start(pairedDevices, networkOptions)` 的参数来自前端 store。MCP 场景下 agent 无法（也不该）提供这些。因此 `ensure_node_running` SHALL：
 
-- 后端自行加载已配对设备（keychain/store）与持久化网络设置（发现模式 / 引导节点 / LAN 协助等），复用 app 冷启动同源装配逻辑；
+- 后端自行加载已配对设备（keychain/store）与持久化网络设置（引导节点 / 公网可达性 / LAN 协助等），复用 app 冷启动同源装配逻辑；
 - 已在运行 → 幂等返回当前网络状态，不重复启动；
 - 未运行 → 装配参数并启动，返回启动后状态。
 
@@ -31,7 +31,7 @@
 
 **不暴露 `shutdown`**：上线是"让 agent 能干活"，下线是用户级运维决定，价值低风险高，保持 app-only。
 
-**启动参数**：`ensure_node_running` 复用既有 `commands::start`——它内部已从 keychain 自取已配对设备（前端传参仅作 fallback），故 agent 侧传空；`network_options=None` 走默认网络设置（用户的自定义 bootstrap / 发现模式等暂不透传，见 Open Questions）。
+**启动参数**：`ensure_node_running` 复用既有 `commands::start`——它内部已从 keychain 自取已配对设备（前端传参仅作 fallback），故 agent 侧传空；`network_options=None` 走默认网络设置（用户的自定义 bootstrap / 公网可达性等暂不透传，见 Open Questions）。
 
 ### 决策 4：接收暂停——只读消除盲区，写受控且可逆
 
@@ -51,6 +51,6 @@
 ## Open Questions
 
 - **`allow_mcp_start_node` preference（已决定本期不做）**：本期采用身份已解锁门控。若日后需要更保守的"显式授权 agent 上线"，再补 preference + 设置 UI + Rust 侧 store 读取（一整条垂直切片）。
-- **`ensure_node_running` 的网络设置来源**：本期启动走默认 `NetworkRuntimeConfig`，不透传用户在前端 preferences store 里的自定义 bootstrap / 发现模式 / LAN 协助。若 agent 启动的节点需要尊重用户自定义网络设置，需让 Rust 侧读取该 store 或把网络设置持久化到 core 可达处——另议。
+- **`ensure_node_running` 的网络设置来源**：本期启动走默认 `NetworkRuntimeConfig`，不透传用户在前端 preferences store 里的自定义 bootstrap / 公网可达性 / LAN 协助。若 agent 启动的节点需要尊重用户自定义网络设置，需让 Rust 侧读取该 store 或把网络设置持久化到 core 可达处——另议。
 - **`export_inbox_item` 的冗余度**：agent 拿到 `get_inbox_file` 的本地路径后本可自行 `cp`，`export_inbox_item` 的增量价值主要是"整条条目一次导出 + 复用 app 的命名/去重逻辑"。若价值不足可降级或后置。
 - **`list_paired_devices` 与 `list_available_devices` 是否合并**：后者是前者的"在线子集"。是否用一个带 `filter` 参数的工具统一？倾向保留两个（`list_available_devices` 语义窄、发送前用；`list_paired_devices` 全量、解释用），不破坏既有工具。

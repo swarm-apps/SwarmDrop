@@ -24,7 +24,12 @@ impl From<AppError> for WebError {
         // 新增变体会在这里编译失败，逼调用方想一下「浏览器该怎么说这件事」。
         let message = e.to_string();
         match &e {
-            AppError::Network(_) | AppError::NodeNotStarted => Self::Network { message },
+            // `NoDialableAddrs` 归网络类而非另起一档：浏览器上它几乎恒等于「relay
+            // reservation 还没建好」，与其他网络失败一样是等一等就好的瞬态，用户动作也
+            // 一样（看一眼节点状态、稍后重试）。
+            AppError::Network(_) | AppError::NodeNotStarted | AppError::NoDialableAddrs => {
+                Self::Network { message }
+            }
             // 身份类：密钥材料读写失败 / 还没就绪；邀请凭证本身的问题（过期、无效）
             // 沿用既有归类。
             AppError::Identity(_)

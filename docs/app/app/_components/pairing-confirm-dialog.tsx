@@ -32,6 +32,7 @@ export function PairingConfirmDialog({
   preview,
   now,
   pending,
+  awaitingNetwork,
   error,
   onConfirm,
   onCancel,
@@ -42,6 +43,14 @@ export function PairingConfirmDialog({
   /** 当前 Unix 秒，与面板其余倒计时共用同一个时钟（见 `useNowSeconds`）。 */
   now: number;
   pending: boolean;
+  /**
+   * `pending` 的第一个子阶段：还在等本机连上中继，握手尚未发出（见 `pair-readiness.ts`）。
+   *
+   * **必须与 `pending` 分开显示**，不能笼统一句「配对中…」：这一段可以持续十几秒，
+   * 而它与对方毫无关系 —— 说成「配对中」会让用户以为对方那边迟迟不点确认，
+   * 于是去催一个根本还没收到请求的人。
+   */
+  awaitingNetwork: boolean;
   error: WebError | null;
   onConfirm: () => void;
   /**
@@ -79,8 +88,13 @@ export function PairingConfirmDialog({
       open={preview !== null}
       // Esc / 点遮罩 = 收起，**不是**放弃（见 `onDismiss`）。在途请求不打断：一次误触不该让
       // 「已发出的 connect_invite」和随后的放弃抢跑。
+      //
+      // ⚠️ 等中继那一段要**放行**，与下面「取消」按钮同一个判据。少了它，这段长达二十秒的
+      // 等待里唯一可用的控件就只剩破坏性的那个（`onCancel` 会连邀请串一起清掉，而
+      // `/p/` 落地页那条来路里它是世上唯一的副本）——把安全出口锁上、只留危险出口，
+      // 比两个都锁上更糟。收起后等待照常跑完，那正是「收起 ≠ 放弃」的意思。
       onOpenChange={(open) => {
-        if (!open && !pending) onDismiss();
+        if (!open && (!pending || awaitingNetwork)) onDismiss();
       }}
       icon={deviceIcon(shown?.displayPlatform ?? "")}
       title={<Trans>确认配对</Trans>}
@@ -114,6 +128,10 @@ export function PairingConfirmDialog({
           <span className="text-warning-ink">
             <Trans>这条邀请已过期，让对方重新生成一条。</Trans>
           </span>
+        ) : awaitingNetwork ? (
+          // 说清楚在等谁：等的是**本机**的网络，不是对方的回应。用户此刻最想知道的
+          // 就是「该催对方，还是该等我自己」——文案不回答这个，他只能瞎猜。
+          <Trans>浏览器要先连上中继才拨得到对方，通常几秒。连上后会自动继续。</Trans>
         ) : (
           <Trans>配对之后双方都能互发文件。确认这是你认识的设备再继续。</Trans>
         )
@@ -122,7 +140,22 @@ export function PairingConfirmDialog({
       error={error}
       footer={
         <>
-          <Button variant="outline" onClick={onCancel} disabled={pending} className="flex-1">
+          {/*
+            等中继那一段**照样能取消**：那时一个字节都还没出网，而它可能长达二十秒。
+            只有握手真的发出去之后才锁住 —— 那时对端可能已经 CAS 消费掉邀请，「取消」
+            就只是本地忘掉结果，给不出用户以为的那个撤回。
+
+            ⚠️ 「没出网」说的是**协议层**：那串邀请在对端眼里仍然没被用过。但 `onCancel`
+            会连本地那份副本一起清掉（`clearInvite`），而 `/p/` 落地页那条来路里它是世上
+            唯一的副本 —— 所以这颗按钮在等待期是**破坏性**的，Esc / 点遮罩那条非破坏性的
+            出口必须同时可用（见上面的 `onOpenChange`）。两个出口，用户挑一个。
+          */}
+          <Button
+            variant="outline"
+            onClick={onCancel}
+            disabled={pending && !awaitingNetwork}
+            className="flex-1"
+          >
             <Trans>取消</Trans>
           </Button>
           {!expired && (
@@ -132,7 +165,13 @@ export function PairingConfirmDialog({
               className="flex-1"
               data-testid="pairing-confirm"
             >
-              {pending ? <Trans>配对中…</Trans> : <Trans>确认配对</Trans>}
+              {awaitingNetwork ? (
+                <Trans>正在连接中继…</Trans>
+              ) : pending ? (
+                <Trans>配对中…</Trans>
+              ) : (
+                <Trans>确认配对</Trans>
+              )}
             </Button>
           )}
         </>

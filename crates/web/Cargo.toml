@@ -13,10 +13,15 @@ crate-type = ["cdylib", "rlib"]
 [features]
 # TS 类型导出（native `cargo test -p swarmdrop-web --features specta` 生成
 # static/types/bindings.ts；wasm production 构建不开，specta 不进 wasm 二进制）
-specta = ["dep:specta", "swarmdrop-transfer/specta"]
+specta = ["dep:specta", "swarmdrop-transfer/specta", "swarmdrop-core/specta"]
 
 [dependencies]
 specta = { version = "=2.0.0-rc.25", features = ["derive", "uuid"], optional = true }
+# **全 target 依赖，不只是 wasm。** `types.rs` 要把 core 的 `InfraLink` / `InfraAddrError`
+# 抬进 JS 可见类型层，而生成 bindings.ts 的 specta 导出 test 跑在 **native** 上
+# （`crates/web` 本体在 native 下是空壳，那个 test 不是）。core 只是编进 native 的
+# dev/测试路径，不进 wasm 产物之外的任何东西。
+swarmdrop-core = { workspace = true }
 swarmdrop-net = { workspace = true }
 swarmdrop-net-base = { workspace = true }
 swarmdrop-invite = { workspace = true }
@@ -35,8 +40,8 @@ uuid = { workspace = true }
 # ============ wasm：浏览器壳 ============
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 # 浏览器节点包一层 core 的组合根（start_node + NetManager + PairingManager），与桌面/移动
-# 同源装配。core 已 wasm-ready（check-wasm 门禁含 -p swarmdrop-core），仅 wasm 侧需要。
-swarmdrop-core = { workspace = true }
+# 同源装配。core 已 wasm-ready（check-wasm 门禁含 -p swarmdrop-core）。
+# **依赖声明本身已上移到 `[dependencies]`**（理由见那里），此处不再重复。
 wasm-bindgen = "0.2"
 # master 的 libp2p-swarm 精确 pin =0.4.58，必须跟着钉。
 wasm-bindgen-futures = "=0.4.58"

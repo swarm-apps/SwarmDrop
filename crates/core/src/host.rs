@@ -7,7 +7,7 @@
 //! （且反向引用 transfer wire 类型），[`EventBus`] 以它为消息，[`MemoryHost`] 为测试替身。
 //! 三者引用上层类型，无法随端口层下沉——否则 host ↔ transfer 成环。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -19,9 +19,9 @@ pub use swarmdrop_host::*;
 use swarmdrop_host::device::{Device, DeviceName, PairedDeviceInfo};
 use swarmdrop_transfer::incoming::TransferOfferEvent;
 use swarmdrop_transfer::progress::{
-    PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent, TransferDbErrorEvent,
-    TransferFailedEvent, TransferPausedEvent, TransferProgressEvent, TransferRejectedEvent,
-    TransferResumedEvent,
+    FilePublishEvent, PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent,
+    TransferDbErrorEvent, TransferFailedEvent, TransferPausedEvent, TransferProgressEvent,
+    TransferRejectedEvent, TransferResumedEvent,
 };
 use swarmdrop_transfer::store::TransferProjection;
 
@@ -120,6 +120,14 @@ pub enum CoreEvent {
     PrepareProgress {
         event: PrepareProgressEvent,
     },
+    /// 单个文件正在从暂存位置发布到用户可见位置。
+    ///
+    /// 与 [`TransferProgress`](Self::TransferProgress) 刻意分开：那条是会话级、200ms 一帧，
+    /// 而发布是**逐文件**的（收齐即发布，散布在整条传输过程中），且发布期间没有新的字节
+    /// 样本——把它挂进进度事件会让同一帧里的 speed/eta 变成陈旧值却无从分辨。
+    FilePublish {
+        event: FilePublishEvent,
+    },
     Error {
         message: String,
     },
@@ -137,16 +145,29 @@ pub struct MemoryHost {
     inner: Arc<Mutex<MemoryHostInner>>,
 }
 
+/// sink 上发生过的操作，按发生顺序记录。
+///
+/// 存在的理由是**时序断言**：「单个文件收齐即发布」这条行为无法从终态观察——传完之后
+/// 无论哪种实现，两个文件都是已发布。只有序列能区分「f1 发布 → f2 开始写」与
+/// 「两个都写完 → 再一起发布」。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SinkOp {
+    Write(FileSinkId),
+    Finalize(FileSinkId),
+}
+
 #[derive(Debug, Default)]
 struct MemoryHostInner {
     identity: Option<DeviceIdentityBytes>,
     webrtc_certificate_pem: Option<String>,
-    migration_state: Option<IdentityMigrationState>,
     paired_devices: Vec<PairedDeviceInfo>,
     device_name: Option<DeviceName>,
     events: Vec<CoreEvent>,
     sources: HashMap<FileSourceId, (HostFileMetadata, Vec<u8>)>,
     sinks: HashMap<FileSinkId, Vec<u8>>,
+    sink_ops: Vec<SinkOp>,
+    /// 命中的 sink 在 `finalize_sink` 时报错，用于验证「发布失败 = 可重试」的语义。
+    fail_finalize: HashSet<FileSinkId>,
     notifications: Vec<Notification>,
     updates: Vec<UpdateInstallRequest>,
 }
@@ -187,6 +208,35 @@ impl MemoryHost {
             .sinks
             .get(sink)
             .cloned()
+    }
+
+    /// 让指定 sink 的 `finalize_sink` 报错，模拟「数据收齐了但落地失败」
+    /// （空间不足 / 权限被撤 / 外部 fd 失效）。
+    pub fn failing_finalize(self, sink: FileSinkId) -> Self {
+        self.inner
+            .lock()
+            .expect("memory host poisoned")
+            .fail_finalize
+            .insert(sink);
+        self
+    }
+
+    /// 解除 [`failing_finalize`](Self::failing_finalize) 注入的故障，用于验证重试路径。
+    pub fn clear_finalize_failures(&self) {
+        self.inner
+            .lock()
+            .expect("memory host poisoned")
+            .fail_finalize
+            .clear();
+    }
+
+    /// sink 操作的发生顺序，见 [`SinkOp`]。
+    pub fn sink_ops(&self) -> Vec<SinkOp> {
+        self.inner
+            .lock()
+            .expect("memory host poisoned")
+            .sink_ops
+            .clone()
     }
 }
 
@@ -233,23 +283,6 @@ impl KeychainProvider for MemoryHost {
             .lock()
             .expect("memory host poisoned")
             .webrtc_certificate_pem = None;
-        Ok(())
-    }
-
-    async fn load_migration_state(&self) -> AppResult<IdentityMigrationState> {
-        Ok(self
-            .inner
-            .lock()
-            .expect("memory host poisoned")
-            .migration_state
-            .unwrap_or(IdentityMigrationState::NotStarted))
-    }
-
-    async fn save_migration_state(&self, state: IdentityMigrationState) -> AppResult<()> {
-        self.inner
-            .lock()
-            .expect("memory host poisoned")
-            .migration_state = Some(state);
         Ok(())
     }
 }
@@ -362,6 +395,7 @@ impl FileAccess for MemoryHost {
         data: Vec<u8>,
     ) -> AppResult<()> {
         let mut inner = self.inner.lock().expect("memory host poisoned");
+        inner.sink_ops.push(SinkOp::Write(sink.clone()));
         let buf = inner
             .sinks
             .get_mut(sink)
@@ -379,6 +413,18 @@ impl FileAccess for MemoryHost {
     }
 
     async fn finalize_sink(&self, sink: &FileSinkId) -> AppResult<FinalizedSink> {
+        {
+            let mut inner = self.inner.lock().expect("memory host poisoned");
+            inner.sink_ops.push(SinkOp::Finalize(sink.clone()));
+            if inner.fail_finalize.contains(sink) {
+                // 注入的落地失败：**不动 sink 的字节**——数据是好的，只是搬不过去，
+                // 上层应当保留暂存并允许原地重试（见 receiver 的 publish_file）。
+                return Err(crate::AppError::Transfer(format!(
+                    "注入的发布失败: {}",
+                    sink.0
+                )));
+            }
+        }
         if self
             .inner
             .lock()
@@ -452,8 +498,7 @@ mod tests {
 
     use super::{
         CoreEvent, CoreSaveLocation, DeviceIdentityBytes, EventBus, FileAccess, FileSinkId,
-        FileSourceId, HostFileMetadata, IdentityMigrationState, KeychainProvider, MemoryHost,
-        PairedDeviceStore,
+        FileSourceId, HostFileMetadata, KeychainProvider, MemoryHost, PairedDeviceStore,
     };
     use crate::device::{OsInfo, PairedDeviceInfo};
     use crate::network::NetworkStatus;
@@ -488,18 +533,6 @@ mod tests {
         assert_eq!(host.load_identity().await.unwrap(), None);
         host.save_identity(identity.clone()).await.unwrap();
         assert_eq!(host.load_identity().await.unwrap(), Some(identity));
-
-        assert_eq!(
-            host.load_migration_state().await.unwrap(),
-            IdentityMigrationState::NotStarted
-        );
-        host.save_migration_state(IdentityMigrationState::Completed)
-            .await
-            .unwrap();
-        assert_eq!(
-            host.load_migration_state().await.unwrap(),
-            IdentityMigrationState::Completed
-        );
 
         let device = PairedDeviceInfo::new(peer_id(), os_info("phone"), 42);
         host.save_paired_devices(std::slice::from_ref(&device))

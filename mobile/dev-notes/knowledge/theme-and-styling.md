@@ -120,13 +120,62 @@ green ~3.3:1，red ~3.5:1，teal ~4.0:1）。所以 `global.css` 另有一套高
 `--success-ink` / `--warning-ink` / `--destructive-ink` / `--primary-ink`（亮=深一档、暗=亮一档，
 均 ≥4.5:1）。
 
-**规则**：状态色作**圆点 / 填充 / 图标** → 用基础 token（`bg-success`、`color={colors.success}`）；
-作**文字** → 用 ink 变体（`text-success-ink`、`text-destructive-ink`…）。集中映射处
+**规则（2026-08-10 修正了「图标」那半条）**：状态色作**大色块填充 / 圆点** → 用基础 token
+（`bg-success`）；作**文字、图标、以及要跟浅底分清的细填充（进度条填充等）** → 用 ink 变体
+（`text-success-ink`、`color={colors.warningInk}`…）。
+
+> **图标原先被归在「填充」一侧，那是错的。** 实测：琥珀原色图标在亮色卡片上只有 **2.14:1**、
+> 进度条填充对 `bg-muted` 轨道只有 **1.95:1**，都够不上 WCAG 2.2 SC 1.4.11 对非文本内容的
+> 3:1；换 ink 后是 5.04:1 / 4.60:1。图标是靠形状识别的小图形，和小字一样吃不住 2:1。
+> **暗色两边都过（6.8~10.6:1），只切暗色主题看会以为没事**——本仓的暂停态（进度条填充 +
+> `CirclePause` 图标）就这么错了一整个版本。`useThemeColors()` 为此补了 `warningInk`。
+> 装饰性图标不受此约束（`folder-row` 那个黄文件夹靠形状表意，颜色只是惯例）。
+
+集中映射处
 （`status-pill` TEXT_CLASS、`trust-badge` TRUST_META、`connection-badge` CONNECTION_META、
 `transfer/shared` STATUS_META、`file-tree-item` variantStyles）都已遵循；新写状态文案时别再用
 `text-destructive` 这类基础色（会渲染成低对比）。完整说明见 DESIGN.md 的「State Ink Rule」。
 
 **相关文件**：[src/global.css](../../src/global.css)，[DESIGN.md](../../DESIGN.md)
+
+### `--info`（sky）是连接徽章第三色，别再借 primary（2026-08-07）
+
+`CONNECTION_META` 的「打洞」此前用 `primary`——三端里只有这里是青绿，桌面与 Web 都是天蓝
+（DESIGN.md 的 One Accent Rule 点名 sky 作打洞色）。借品牌色的代价不只是不一致：青绿在这个产品里
+已经有确定含义（品牌 / 最高信任 / 进行中），再兼一个「连接方式」就谁都读不准了。
+
+现在 `global.css` 有 `--info` / `--info-ink`（= 桌面 Web 那组 oklch 的 HSL 写法，取自
+Tailwind sky-500 / sky-700），`useThemeColors()` 也导出 `colors.info` 供图标 `color` prop 用。
+**它只服务连接三色**（局域网 `success` · 打洞 `info` · 中继 `warning`），别处不要再冒出信息蓝。
+
+**相关文件**：[src/components/connection-badge.tsx](../../src/components/connection-badge.tsx)、
+[src/hooks/useThemeColors.ts](../../src/hooks/useThemeColors.ts)
+
+### 信任级别的 collaborator 是**中性**，不是 success
+
+`TRUST_META` 曾把 collaborator 涂成 `success` 绿。它是**默认**信任级别——多数设备都落在这档，
+于是设备列表里凭空多出一片第二饱和色，跟 owned 的品牌青绿抢注意力。三端现在同一套：
+owned `primary` · collaborator `muted` · temporary `warning` · blocked `destructive`。
+
+**相关文件**：[src/components/trust-badge.tsx](../../src/components/trust-badge.tsx)
+
+### 图标要先查 DESIGN.md 的跨端绑定表，别凭手感挑（2026-08-07）
+
+一次三端全扫查出来的：收件箱三个空态画的是 `FileArchive`（压缩包）而另两端是 `Inbox`；
+传输记录空态是 `Activity` 而另两端是 `ArrowLeftRight`；设备集合空态是 `Smartphone` 而另两端是
+`MonitorSmartphone`；「发送」按钮是 `SendHorizontal` 而另两端是 `Send`；连 Windows 设备都画成
+`Laptop`（另两端是 `Monitor`）。完整表在根 `DESIGN.md` 的「The icon table」。
+
+两条本端特有的：
+
+- **`Github` 在 `lucide-react-native` 里不存在**（lucide 已把品牌图标移出核心集；
+  `lucide-react` 里那个是 deprecated 别名）。关于页因此用 `Code`，代码里有注释——别「修」回去，
+  改成 `Github` 会直接 `TS2305: has no exported member`。
+- **文件类型图标用 `fileBrowserIcon()`**（`components/file-browser/file-icon.ts`，已从该包
+  index 导出）。收件箱详情页曾另写一份三档映射、fallback 给 `FileArchive`——通用文件是 `File`。
+
+**相关文件**：[src/components/file-browser/file-icon.ts](../../src/components/file-browser/file-icon.ts)、
+[DESIGN.md](../../../DESIGN.md)
 
 ### FlatList / SectionList 用 `contentContainerStyle`，不要用 `contentContainerClassName`
 
@@ -139,7 +188,12 @@ NativeWind 5 preview 给 `ScrollView` 注册了 `contentContainerClassName`（`A
 这类间接 prop 有注册盲区）。
 
 **相关文件**：[src/app/(main)/inbox.tsx](../../src/app/(main)/inbox.tsx)（FlatList），
-[src/app/activity.tsx](../../src/app/activity.tsx)（SectionList）
+[src/app/activity.tsx](../../src/app/activity.tsx)（FlatList）
+
+> `mobile/src` 里**现在已经没有 SectionList 了**——传输记录页 2026-08-12 随「三端传输
+> 列表改成一条时间线」从四组 SectionList 换成了扁平 FlatList。上面那条注册盲区对
+> SectionList 依然成立（`renderSectionHeader` 等间接 prop 同样绕过 NativeWind），
+> 只是本仓暂时找不到活的例子了。
 
 ### 内容区加载态用骨架屏镜像真实布局,spinner 只留给按钮/行内
 
@@ -218,6 +272,38 @@ ClipboardPaste 图标配「返回」文案、行为却是 `router.back()`,图标
 
 **相关文件**:[src/components/key-value-row.tsx](../../src/components/key-value-row.tsx)
 
+### `@rn-primitives/dialog` 的 Content 会掐死弹窗内所有 ScrollView(2026-08-08)
+
+`Dialog` 里放 `ScrollView`,内容再长也一行滚不动 —— 不是 `maxHeight` 或 `nestedScrollEnabled`
+写错,是被祖先抢走了触摸响应者:
+
+```js
+// @rn-primitives/dialog/dist/dialog.js
+function onStartShouldSetResponder() { return true; }   // 恒真
+var Content = (...) => <Component onStartShouldSetResponder={onStartShouldSetResponder} {...props} />
+```
+
+`onStartShouldSetResponder` 返回 true = 「这片区域的手势归我」。Android 上 JS responder 一旦
+授予就会 `blockNativeResponder`,原生 ScrollView 的滚动整个失效。**症状是「能看到内容被截断,
+但怎么划都不动」**,很容易误判成布局问题去调 maxHeight。
+
+**正确做法**:在本仓的 `ui/dialog.tsx` 里覆写掉(`{...props}` 排在原语的默认值之后,传值即可
+覆盖,不必 patch node_modules):
+
+```tsx
+<DialogPrimitive.Content onStartShouldSetResponder={() => false} {...props}>
+```
+
+**不要担心点击穿透**:那层防御在 native 上本就是空的 —— `Overlay` 走 `asChild`,`onPress` 被
+转发给 `Animated.View`,而 View 不支持 `onPress`,点遮罩压根不会触发关闭。
+
+**只有 `dialog` 有这个问题**。`alert-dialog` 的 Content 是纯 `View`,不抢 responder —— 所以
+AlertDialog 里的 ScrollView 一直是好的。`popover` / `select` / `tooltip` 与 dialog 同款,
+将来在它们里面放可滚区域会踩同一个坑。
+
+**相关文件**:[src/components/ui/dialog.tsx](../../src/components/ui/dialog.tsx)、
+[src/components/release-notes-view.tsx](../../src/components/release-notes-view.tsx)
+
 ### bottom sheet 串接(收起 A 再弹 B)用 onDismiss 回调,不要 setTimeout 猜动画时长
 
 BottomSheetModal 收起是异步动画,`dismiss()` 后立刻 `present()` 下一个会两 modal 叠加。
@@ -269,6 +355,116 @@ tab bar 处理安全区、按压反馈和切换动画，避免 `expo-router` JS 
 
 **相关文件**：`src/app/(main)/_layout.tsx`
 
+### 带返回入口的 header 必须在滚动容器**之外**;只有 tab 根页的大标题跟着滚(2026-08-08)
+
+两类 header 形态不同,归属也不同,不要混:
+
+| 组件 | 形态 | 位置 |
+|---|---|---|
+| `AppHeader` | 大标题 + 副标题,**无**返回入口 | tab 根页(设备/收件箱/设置),放进 `ListHeaderComponent` 或 `AppScreen scroll` 内,**跟着滚** |
+| `SettingsHeader` / `SearchHeader` | 56 高导航条,**带返回入口**(+ 操作图标 / 搜索框) | 二级页,进 `AppScreen` 的 `header` 槽,常驻不滚 |
+
+判据是**这一条是不是导航条**(iOS 的 nav bar 语义:带返回入口、贴屏幕顶、固定高度),不是
+页面深浅。导航条滚走后往下翻一屏,返回和右侧操作(清空、搜索)就都够不着了,只剩系统手势;
+搜索页更糟——改个关键词得先翻回顶部。大标题是另一套语义(iOS large title),跟着滚是原生行为。
+
+⚠️ **`(main)/inbox.tsx` 的 `AppHeader` 是这条规则下的一个未修缺陷**(不是"取舍"):它挂了
+搜索与刷新两个按钮却跟着列表滚,滚一屏就够不着——与判定 `activity.tsx` 不可接受的是同一件事。
+iOS 原生 large title 在滚动时 collapse 成小标题栏并**保留** bar button,本仓的 `AppHeader`
+没做 collapse,所以丢的是真入口。修法是给 `AppHeader` 补收起态,**不是**把整块钉死
+(钉死就变成两条导航条了)。在补上之前它是个已知 defect,别当先例引用。
+
+**正确做法:交给 `AppScreen` 的 `header` 槽,别自己手搭 SafeAreaView**(2026-08-08 重构)。
+槽里的东西渲染在滚动容器**之外**,常驻由组件保证:
+
+```tsx
+// 列表页(虚拟化):bare = 内容盒零内边距,让位给列表自己的 contentContainerStyle
+<AppScreen header={<SettingsHeader title={t`传输记录`} right={…} />} bare>
+  <SectionList contentContainerStyle={LIST_CONTENT_PADDING_UNDER_HEADER} … />
+</AppScreen>
+
+// 非列表页:走 scroll 分支,间距用 contentClassName
+<AppScreen scroll header={<SearchHeader … />} contentClassName="gap-4 pt-4">
+  …
+</AppScreen>
+```
+
+三条配套契约,都是为了让调用点不再心算:
+
+- **两个 header 都自带 `px-5`、整幅渲染**。`px-5`(20)与内容盒、`LIST_CONTENT_PADDING` 的
+  `paddingHorizontal` 同值,于是返回按钮的**左边缘与下方卡片列的左边缘落在同一条竖线上**。
+  导航条按 iOS 惯例本可以用 16——那是给裸图标的(图标自带视觉留白,差 4px 看不出来);
+  换成带底色的 44px 方钮后两条实边错开 4px 一眼可见。**别再往槽里包 padding**,会叠成 40。
+- **`bare` 而不是 `contentClassName="px-0 pb-0"`**。后者是纯为抵消默认值而写的魔法串,
+  **漏掉 `pb-0` 会静默多出 32+32=64px 底部死区**,没有任何门禁会拦。
+- **自带安全区的底部栏留在 `children`,不要进 `footer` 槽**。`BottomActionBar` 与
+  `device/groups` 的新建栏都已吃掉 bottom inset;进了槽会让
+  `AppScreen` 给 SafeAreaView 再加一次 bottom edge,底部垫两遍。`footer` 槽是给
+  **tab 屏的 HomeDock** 设计的(要避开 iOS 26 的浮动 tab 胶囊),不是通用底栏插槽。
+- **底距走 `useBottomSafePadding()`,不要手写 `Math.max(insets.bottom, N)`**(2026-08-10 修)。
+  取大在**所有现代设备上恒等于 `insets.bottom`**(Android 手势条 24dp / 三键 48dp、
+  iOS home indicator 34dp 全都 ≥ 呼吸位),于是主按钮与系统条之间**永远零间距**——
+  用户报的「按钮贴着屏幕底缘」就是它。系统占用与视觉呼吸位是**相加**关系。
+  仓内早就有两处相加的正确写法(`onboarding-scaffold.tsx`、三个配对页),这个 hook 只是把它收口。
+- **带固定底栏的页面,内容区必须是滚动容器**。底栏是流内兄弟节点、**从不 absolute**,
+  所以内容侧不需要补等高 `paddingBottom`,只留一段呼吸位。
+  `device/[peerId]` 曾经既没有滚动容器、又用错了组件(`BottomActionArea` 无背景不吃安全区),
+  展开「链路详情」后**「策略设置」按钮被顶出屏幕永久够不到**——而它是策略 sheet 的唯一入口,
+  里面装着取消配对。`BottomActionArea` 已于 2026-08-10 删除,`screen.tsx` 现在只剩
+  `BottomActionBar` 一个底栏组件,选错的可能性归零。
+- **`flex-1` 不得出现在底栏内部的纵向容器里**。底栏本身是 `flex-row`,其**直接**子节点加
+  `flex-1` 是横向撑满、正确;但再往里的纵向容器里 `flex-1` = `flexBasis:0%` 作用于**高度**,
+  基准尺寸 0 且无空间可长 ⇒ 塌高,内容对称溢出 content box(表现为进度条压在分割线上、
+  按钮被屏幕底缘切断)。两个发送页的 `PrepareProgressBar` 踩过。
+- **列表内边距看有没有 header 选常量**:`LIST_CONTENT_PADDING`(顶 4)/
+  `LIST_CONTENT_PADDING_UNDER_HEADER`(顶 16)。内容仍能滚到导航条下沿,不留固定空白带。
+
+列表不用显式 `flex:1`——RN 的 `ScrollView.baseVertical` 自带 `flexGrow:1/flexShrink:1`,
+作为 header 的兄弟节点会自己填满剩余空间。
+
+**返回入口只有一处定义:`HeaderBackButton`**(`components/header-back-button.tsx`)。
+两个 header 都用它,别再各画各的箭头——此前就是各画各的,结果**图标、形态、光心、触摸目标
+四样全不一样**(裸 `ArrowLeft` 22px + hitSlop vs `HeaderIconButton` + `ChevronLeft`),
+从传输记录 push 到搜索页时返回入口当场换个样子。2026-08-08 统一为后者,依据:
+
+- `DESIGN.md` 的 Radius Vocabulary Rule **点名列举**「图标方钮如 `HeaderIconButton`」,
+  裸箭头不属于该规则任何一类;
+- 44px 是**看得见**的触摸目标,`hitSlop` 撑出来的 46px 用户看不见(Material 3 要 ≥48dp、
+  iOS HIG 要 ≥44pt);
+- `ChevronLeft` 是识别率最高的返回图标(iOS 默认),`ArrowLeft` 是 Android 传统——自绘
+  header 跨两端只该有一套;iOS 26 的系统返回按钮本身也已是带背景的按钮而非裸 chevron;
+- 与右侧操作按钮同形,同一条导航条内左右视觉重量才均衡。
+
+**全 app 的返回入口都走它**,不止那两个 header:扫码屏的非相机态、配对确认页(居中标题那条,
+传 `onPress`/`disabled`)、引导流的设备命名页,都已换成同一个组件。
+
+**唯一正当的例外是取景画面上的浮层**(`pairing/scan.tsx` 的相机态):返回与手电筒成对,
+`rounded-full bg-black/40` + 白图标——`bg-muted` 的浅底压在相机画面上看不清,主题色图标同理。
+它的**图标仍是 `ChevronLeft`**,只有承载形态不同。加新的返回入口前先问:是不是压在媒体上?
+不是就用 `HeaderBackButton`。
+
+**现状(2026-08-08)**:两个 header 组件的形态、高度、内边距、返回入口已完全统一,19 个调用点
+行为一致,**写法也只剩一种**:全部 17 个 `SettingsHeader`/`SearchHeader` 调用点都走
+`AppScreen` 的 `header` 槽,没有任何页面再手搭 `SafeAreaView + header + 滚动容器`。
+这条很重要 —— `SettingsHeader` 自带 `px-5` 之后,手搭写法能不能对**全看它恰好被放进了
+一个无内边距的容器**,而这一点没有任何 lint / typecheck / 测试在守;塞进带 `px-5` 的容器
+(或没写 `bare` 的 `AppScreen`)就会静默得到 40px 双重缩进。收口到唯一入口后这个坑就不存在了。
+
+**唯一的例外是 `pairing/found-device.tsx`**,它**不该**迁:①那是确认流的**居中标题**形态,
+不是导航条族(返回入口倒是已统一用 `HeaderBackButton`);②它要 `edges={["top","bottom"]}`
+——底部双按钮需要下方安全区,而 `AppScreen` 只在用了 `footer` 槽时才开 bottom edge。
+
+> 这条初版曾断言「`inbox/search` 是固定的、全仓仅两个例外」,**是错的**:那份判断来自 grep
+> 输出漏看了 `<AppScreen` 后面单独一行的 `scroll`。三处才是全部,已一并改完。
+
+**相关文件**:[src/components/mobile/screen.tsx](../../src/components/mobile/screen.tsx)(`AppScreen` 的 `header` 槽 / `bare` / 两个常量),
+[src/components/header-back-button.tsx](../../src/components/header-back-button.tsx),
+[src/app/activity.tsx](../../src/app/activity.tsx),
+[src/app/transfer/search.tsx](../../src/app/transfer/search.tsx),
+[src/app/inbox/search.tsx](../../src/app/inbox/search.tsx),
+[src/components/settings-header.tsx](../../src/components/settings-header.tsx),
+[src/components/search-header.tsx](../../src/components/search-header.tsx)
+
 ### tab 屏里的常驻底部控件(footer/dock)要靠 SafeAreaView 的 bottom edge 避开 tab bar
 
 iOS 26 的 NativeTabs 是浮动 liquid glass 胶囊,悬浮在 RN 内容之上——贴屏幕底渲染的
@@ -312,6 +508,64 @@ navigationBars inset、**不按视图相交计算**——实测给 tab 内内容
 
 **相关文件**:[src/components/onboarding/onboarding-scaffold.tsx](../../src/components/onboarding/onboarding-scaffold.tsx)、
 [src/components/mobile/screen.tsx](../../src/components/mobile/screen.tsx)
+
+### BottomActionBar 的直接子元素必须自带 `flex-1`,否则整栏内容缩到左半边
+
+`BottomActionBar`([src/components/mobile/screen.tsx](../../src/components/mobile/screen.tsx))
+本身是 `flex-row`,但 **RN 的 View 默认 `flexGrow: 0`**(与 Web 的 `flex: 0 1 auto` 又不同,
+RN 连 `flexShrink` 都是 0)——子元素不写 `flex-1` 就按内容宽度排,整块贴左、右侧留一大截空白。
+子元素内部再写 `justify-between` 也没用:它分配的是那个"内容宽"容器,不是整栏。
+
+**正确做法**:传进 `BottomActionBar` 的那一层永远带 `flex-1`;栏内"左说明 + 右按钮组"的形态
+再给文本 `flex-1 numberOfLines={1}`、按钮组 `shrink-0`,长文案(文件数 + 体积)才会截断而不是挤按钮。
+
+```tsx
+<BottomActionBar>
+  <View className="flex-1 flex-row items-center justify-between gap-3">
+    <Text className="flex-1 text-[13px] text-muted-foreground" numberOfLines={1}>…</Text>
+    <View className="shrink-0 flex-row gap-2">{buttons}</View>
+  </View>
+</BottomActionBar>
+```
+
+**不要做**:只写 `<View className="flex-row items-center justify-between gap-3">`。发送准备页
+(`send/select-device.tsx`)最初就漏了 `flex-1`,「发送」按钮离右边缘差了小半屏——同文件的
+`PrepareProgressBar` 分支写了 `flex-1`,所以只在"未开始发送"这一态露出来。其余四处
+(transfer 详情 / inbox 详情 / shared-files / share-target)一直是对的。
+
+**相关文件**:[src/app/send/select-device.tsx](../../src/app/send/select-device.tsx)、
+[src/components/mobile/screen.tsx](../../src/components/mobile/screen.tsx)
+
+### 同一条规则也管弹窗 footer：`DialogFooter` / `AlertDialogFooter` 的**每个按钮**都要 `flex-1`
+
+与上一条同源（RN 的 View 默认 `flexGrow: 0`），但栽的是另一批文件。两个 footer 原语都是
+`flex-row` 且**不替调用方分配宽度**，按钮不写 `flex-1` 就缩到文字宽、挤在左边留一大片白。
+**单键也要写**——那样它才占满整行，而不是缩在左角。
+
+三个更新弹窗（`prompt-update-dialog` / `force-update-dialog` / `update-progress-dialog`）
+全都漏了，整整一个版本，直到 2026-08-10 真机截图才发现。同期 `ui/confirm-dialog.tsx`
+一直是对的——所以这不是「不知道规则」，是**靠调用方记得的约定迟早有人忘**。
+
+**不要试图让 footer 自动包一层 `flex-1` 的 View 来免掉这个约定。** 那会把已经写对的调用点
+弄坏：包裹层默认是**纵向**容器，按钮自己那个 `flex-1` 到了里面就变成 `flexBasis: 0%` 作用
+于**高度**，当场塌高——与根 `DESIGN.md` `Bottom Action Contract` 规则 4 记的是同一个坑。
+
+**相关文件**：[src/components/ui/dialog.tsx](../../src/components/ui/dialog.tsx)、
+[src/components/ui/alert-dialog.tsx](../../src/components/ui/alert-dialog.tsx)、
+[src/components/ui/confirm-dialog.tsx](../../src/components/ui/confirm-dialog.tsx)（正确示范）
+
+### `ui/progress.tsx` 的 native 与 web 分支默认色曾经分叉（native 画的是黑条）
+
+`Progress` 的 Indicator 按平台分成两份实现，模板自带的默认色**不一样**：
+`WebIndicator` 是 `bg-primary`，而 `NativeIndicator` 写的是 **`bg-foreground`**。
+移动端跑的当然是 native 那半边，于是轨道是 `bg-primary/20`（品牌色底纹）、填充却是一条
+纯黑——既不是主题色，也和同屏其他进度条对不上。更新弹窗因此画了很久的黑条
+（2026-08-10 真机截图发现）。已把 native 那半边对回 `bg-primary`。
+
+**教训**：从 shadcn / rn-primitives 抄来的组件，凡是**按平台分叉**的实现都要逐分支比对默认值——
+两个分支在同一个文件里，看起来像一份代码，实际只有一半会在真机上执行。
+
+**相关文件**：[src/components/ui/progress.tsx](../../src/components/ui/progress.tsx)
 
 ### Toast 走 burnt(各平台原生机制),门面在 lib/toast.ts
 

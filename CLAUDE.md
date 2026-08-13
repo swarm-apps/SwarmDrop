@@ -14,12 +14,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - [`dev-notes/knowledge/theme-and-styling.md`](dev-notes/knowledge/theme-and-styling.md) — shadcn/ui、Tailwind、macOS Overlay 标题栏、Zustand selector 派生数组陷阱、Lingui 源 locale
 - [`dev-notes/knowledge/rust-backend.md`](dev-notes/knowledge/rust-backend.md) — crates/core ↔ src-tauri 边界、specta + chrono、`#[expect]` 风格、IPC 时间类型选型
-- [`dev-notes/knowledge/toolchain.md`](dev-notes/knowledge/toolchain.md) — Cargo dev profile opt-level、Vite/Tauri 端口、Lingui 实际 locale、版本号三处同步
+- [`dev-notes/knowledge/toolchain.md`](dev-notes/knowledge/toolchain.md) — Cargo dev profile opt-level、`mobile-release` 的 blake3 单包例外、Vite/Tauri 端口、Lingui 实际 locale、版本号三处同步、**pnpm patch 打在有预编译产物的原生依赖上会静默失效**
 - [`dev-notes/knowledge/net-kernel.md`](dev-notes/knowledge/net-kernel.md) — 网络内核 swarmdrop-net（2026-07 重构产物）：架构速览与事件双轨制、libp2p git pin 校准坑、wasm 工程约定、wire v2 契约点、已知负债。**碰 crates/net、crates/net-base、协议注册、relay、DHT、升级 libp2p rev 时必读**
 - [`dev-notes/knowledge/libp2p-wasm.md`](dev-notes/knowledge/libp2p-wasm.md) — Web 端（wasm）可行性调研（2026-07）。**结论已落地**：`crates/web` + `docs/app/app` 是其产物
 - [`dev-notes/knowledge/web-app-frontend.md`](dev-notes/knowledge/web-app-frontend.md) — Web 应用区**表现层**（`docs/app/app`）：运行时单例只挂 layout、静态导出三限制（无 redirect / 无动态段 / useSearchParams 要 Suspense）、basePath 与 next/link、zustand store 的 selector 与 `setState` 约束。**碰 Web 端 React 代码时必读**
 - [`dev-notes/knowledge/storage-abstraction.md`](dev-notes/knowledge/storage-abstraction.md) — 把 sea-orm 从 core 摘出去。**已落地**：core 零 sea-orm，SQL 实现在 `crates/storage-sql`，Web 端是 IndexedDB 写穿的 `WebTransferStore`（`crates/web/src/store.rs` + `inbox.rs`）。另含端口体例：`SessionStore` / `InboxStore` 均已补全、收件箱领域规则住 `crates/transfer/src/inbox.rs` 由各存储实现调用、组装点建一次端口 `Arc` 注入与自持同一份
 - [`dev-notes/knowledge/iroh-migration.md`](dev-notes/knowledge/iroh-migration.md) — libp2p → iroh 迁移评估（2026-07 调研）。**已决策：不迁移**，但 iroh 的 API 形态被 `crates/net` 借鉴。碰 P2P 选型或有人提「迁 iroh」时先读
+- [`dev-notes/knowledge/app-update.md`](dev-notes/knowledge/app-update.md) — 应用内更新（SwarmHive）：`ready` 是持久静止态而非「正在等系统」、Android 10+ 后台安装框弹不出且**静默**失败、自动安装必须单点触发、状态判据要穷尽 8 态、续传与产物恢复。**碰更新 UI、`@swarm-hive/sdk`、两个 registry 分发的文件时必读**
 
 ## Design Context
 
@@ -33,8 +34,10 @@ Always respond in Chinese (简体中文). All output, including thinking, planni
 
 SwarmDrop is a decentralized, cross-network, end-to-end encrypted file transfer tool built with Tauri v2. It aims to be a "cross-network version of LocalSend" — no accounts, no servers, supporting both LAN and cross-network peer-to-peer file transfers.
 
-**Current Status:** 桌面 / 移动 / Web 三端。桌面与移动已发布；Web 端（wasm）是当前主战场。
-Current desktop release: **v0.12.1**（bootstrap 独立版本线，当前 `bootstrap-v0.7.2`；移动 `mobile-v0.12.1`）。
+**Current Status:** 桌面 / 移动 / Web 三端。桌面与移动已发布，Web 端（wasm）随文档站部署到
+GitHub Pages（Phase 5 仍在收敛，见下方 Development Phases）。当前重心已从「把 Web 端跑通」
+转到**三端传输链路的真机收敛**——吞吐、续传基线、接收落点。
+Current desktop release: **v0.16.0**（bootstrap 独立版本线，当前 `bootstrap-v0.7.2`；移动 `mobile-v0.16.0`）。
 
 ## Build and Development Commands
 
@@ -61,6 +64,12 @@ pnpm check:shared-view
 
 # 禁止绕过 src/lib/clipboard.ts 直接用 navigator.clipboard
 pnpm check:clipboard
+
+# 禁止绕过 src/lib/quit-app.ts 直接终止进程（退出/重启前必须 flush 偏好写入）
+pnpm check:quit-entry
+
+# 禁止在 useEffect 里调节点启停 —— 那会长成收敛环，用户点了停止立刻被拉回
+pnpm check:node-lifecycle
 
 # 配对落地页（docs/public/p/）体积 ≤10KB gzip（注释也算）+ en/zh-TW 字典完整性
 pnpm check:landing
@@ -100,6 +109,12 @@ pnpm wdio
 pnpm install
 pnpm ios / pnpm android
 pnpm typecheck
+pnpm lint:ci            # biome（import 排序 + 格式）。配置是 **biome.jsonc** 不是 .json
+                        #   —— 后者写注释会让整份配置**静默失效**并降级到默认值
+                        #   （表现是「全仓每个文件都要重新格式化」，见 toolchain.md）
+pnpm check:zustand-access
+                        # 以上三条 2026-08-13 起由 mobile-checks.yml 接管（此前零 CI
+                        # 覆盖，三条同时红着没人知道）
 pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 ```
 
@@ -117,16 +132,36 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 | Routing | TanStack Router (file-system based, auto code-splitting) |
 | State | Zustand 5 |
 | UI | shadcn/ui (new-york style), Lucide icons, Radix primitives |
-| i18n | **三端同为 Lingui 6**（桌面 Babel macro · Web SWC plugin · 移动 Metro transformer）。桌面与 Web 同一组 locale（zh / zh-TW / en），移动是 zh-Hans / en；**三份独立 catalog** + 后端 rust-i18n（托盘与系统通知等原生串） |
+| i18n | **三端同为 Lingui 6**（桌面 Babel macro · Web SWC plugin · 移动 Metro transformer）。桌面与 Web 同一组 locale（zh / zh-TW / en），移动是 zh-Hans / en；**四份独立 catalog**——三份前端 Lingui + 后端 rust-i18n（托盘与系统通知等原生串，`pnpm i18n:extract` **扫不到**它） |
 | IPC | tauri-specta v2 —— TS bindings 自动生成，**不手写 invoke 封装** |
 | Backend | Rust 2024, Tauri 2 |
 | P2P | 自研 `crates/net`（iroh 风格 API，libp2p 底层，native + wasm 双 target） |
-| Security | Ed25519 身份 · 系统钥匙串（keyring 4）· Noise/TLS 传输层加密 · BLAKE3 + bao-tree 逐块验签 |
+| Security | Ed25519 身份 · 桌面明文文件 0600 / 移动系统安全存储 · Noise/TLS 传输层加密 · BLAKE3 + bao-tree 逐块验签 |
 | Database | SeaORM 2.0 + SQLite（传输历史、断点续传 checkpoint、收件箱）——**仅 native** |
 | MCP | rmcp 2 + axum（桌面本地 MCP server） |
 
-> **Stronghold 已移除。** 私钥现由宿主 keychain 端口管理（桌面 = `keyring` 系统钥匙串），
-> 前端 `secret-store` 只是运行时镜像，不再持久化任何密钥。
+> **Stronghold 已移除。** 私钥由宿主 `KeychainProvider` 端口管理，前端 `secret-store`
+> 只是运行时镜像，不再持久化任何密钥。
+>
+> **桌面身份不在系统钥匙串里（2026-08-11 起）。** 三个桌面平台统一存
+> `app_local_data_dir` 下的 `identity.json`（unix 0600）+ `paired-devices.json`，
+> `keyring` 依赖已删除。根因是 `tauri.conf.json` 的 `"signingIdentity": "-"`（ad-hoc
+> 签名）没有稳定的 designated requirement——macOS 的 keychain ACL 按 DR 匹配调用方，
+> 每次构建 cdhash 都变，于是**每次启动都弹授权框、且「始终允许」写不进可信列表**
+> （启动读三条 item 就弹三次）。debug build 早就走文件后端（同一个签名问题，那侧的
+> 失败形态是 `errSecInteractionNotAllowed`），只是 release 一直没承认它。
+> 三平台统一而非只改 macOS：per-app ACL 只有 macOS 有（Windows 凭据管理器对同用户
+> 进程本来就不设防），换来的是不必永久携带一个 `cfg(target_os)` 存储后端分叉。
+>
+> 两条**把 dev 实现提为生产必须补上**的差异，改这块时不能退回去：**原子写**
+> （临时文件 + rename；私钥文件写到一半断电 = 身份不可恢复）与**读取失败不降级**
+> （解析失败必须 `Err`；dev 那版返回默认值，于是 core 会生成新身份**并覆盖原文件**，
+> 一次磁盘坏块就静默换掉身份，用户只看到「设备列表空了」）。两条各有一条护栏测试
+> 看守，见 `src-tauri/src/host/identity_store.rs`。
+>
+> 安全形态如实说：私钥**明文**，防的是「其他用户」，不防「同用户下的其他进程」，
+> 等同无口令的 `~/.ssh/id_ed25519`。将来若拿到 Developer ID 签名，切回 keychain 是
+> 换一个端口实现（`keychain.rs` 在 git 历史里完整可取）。
 >
 > **生物识别已移除（2026-07-27）。** 它随密码解锁流程一起失效后，依赖、插件注册和
 > capability 又空挂了一段时间，期间 README 与文档站一直在宣传一个不存在的功能。
@@ -140,6 +175,56 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 > 不变量就塌了）。删除后归属校验由传输层身份补上：数据面必须校验
 > `stream.remote() == session.peer`。完整推导见
 > [`blogs/transfer-architecture/05-removing-encryption-layer.md`](dev-notes/blogs/transfer-architecture/05-removing-encryption-layer.md)。
+>
+> **发送准备只读一遍源文件，且 bao chunk group == `CHUNK_SIZE`（2026-08-09）。**
+> `prepare` 一遍流式读同时产出 `checksum` 与验签树——`build_outboard_from_source` 返回的
+> root **就是** checksum，不是「另算一遍再断言相等」（此前是后者，靠 release 下不执行的
+> `debug_assert_eq!` 兜着，而四处文档已经宣称它是一遍了）。进度经 `bao::ReadProgress` 挂在
+> 那唯一一遍的 reader 上，因此**覆盖全部真实工作量**，不再有「进度条走完后再静默等一倍
+> 时间」。三条推论不能破：
+> ①**改 `bao::BLOCK_SIZE` 等于改 wire**（proof 树形状变，旧端第一个块就验签失败），必须
+> 同时 bump `TRANSFER_DATA_PROTOCOL`——数据面协议名同时承载「帧怎么编码」与「验签树什么
+> 形状」，判据写在 `openspec/specs/transfer-data-plane`；
+> ②持久化 outboard 的失效判据是**长度**（`bao::is_outboard_usable`）不是「是否为空」——
+> 格式作废的存量 BLOB 非空且看起来合法，用 `is_empty()` 判会让那条会话**永久**续不上传
+> 且不报错；
+> ③「bao 顺序读」是 bao-tree 的**实现事实而非契约**，进度单调性与读取等长判据都依赖它，
+> 由 `records_sequential_forward_reads` 那条护栏测试独家看守。
+> 推导见 [`blogs/transfer/02-chunk-group-realignment.md`](dev-notes/blogs/transfer/02-chunk-group-realignment.md)
+> 与 `openspec/changes/single-pass-prepare/`。
+>
+> **接收是「暂存 → 发布」两段，且 finalize 只发布不校验（2026-08-07）。** 数据块先随机写进
+> 一个**本进程完全拥有**的暂存位置（桌面 `<dst>/x.part`、移动 `<data_dir>/staging/`），
+> 单个文件**收齐即发布**到用户目标位置。两条不变量不能破：
+> ①「DB 里 bitmap 完整 ⟺ 该文件已发布」——所以末块**不刷** checkpoint，完整 bitmap 只由
+> 发布成功后的 `mark_file_completed` 写；②finalize 失败只意味着「数据是好的、只是搬不过去」，
+> **不得 reset checkpoint**（会让对端重传整个文件），直接上抛走可恢复的 Interrupted。
+> 移动端的接收写盘因此**整条在 Rust 侧**，`ForeignFileAccess` 只剩读发送源与 SAF 相关的三件事。
+>
+> ⚠️ **两段式要留着，但它当初的归因是错的（2026-08-10 更正）。** 这里此前写作「根因是
+> SAF 的 fd 不归本进程所有、`lseek` 必 `EBADF`」——那是误诊。真根因是 `expo-file-system`
+> 的 `forContentURI` 不持有 `ParcelFileDescriptor`，GC finalizer 把 fd 关了；**而本仓修这条
+> 的 pnpm patch 从未进过 Android 构建**（SDK 56 默认吃预编译 AAR），于是「改了三次都没修好」
+> 被反推成「SAF 的 fd 天生不能用」。两段式的理由换成与 fd bug 无关的这四条：SAF/FUSE 上随机
+> 写慢、用户目录不该出现半成品、暂存要跨「中断 → 过几天再恢复」存活、**部分 DocumentsProvider
+> 返回不可 seek 的 fd**（管道式 `openDocument`，`position()` 一律失败）——最后一条也是
+> 「发布只做顺序写、绝不 `setOffset`」这条规则**独立成立**的理由。
+> 完整推导见 [`knowledge/rust-backend.md`](dev-notes/knowledge/rust-backend.md)、
+> [`knowledge/toolchain.md`](dev-notes/knowledge/toolchain.md)（patch 为什么没生效）与
+> `openspec/changes/receive-staging-publish/`。
+>
+> **接收落点恒为用户可见位置，且与应用私有数据区分离（2026-08-09）。** 移动端曾把两者放在
+> 同一个 `Paths.document.uri` 下（库 + staging + 收到的文件），落点因此继承了「私有」属性：
+> Android 的 SAF 看不见它、iOS 没开文件共享也看不见它——收到的文件既在文件管理器里找不到，
+> 也无法在发送页被选中转发（发送侧四个来源全是系统 picker）。现在两个角色分开：
+> `getPrivateDataDir()`（iOS = `Library/Application Support/`，Android = `<internal>/files/`）
+> 装库与 staging；`@/core/receive-location` 管用户可见接收区（iOS = `Documents`，经
+> `UIFileSharingEnabled` 暴露；Android = 用户在引导流程里选定的 SAF tree）。
+> **没有私有目录回退**——落点是 `ready` / `unconfigured` / `revoked` 三态，未就绪时接收被拦。
+> 副产品是 `save_dir` 的第三态消失：iOS 恒 `file://`、Android 恒 `content://`，两条 publish
+> 路径各自对应一个平台。判据与三端形态写在 `DESIGN.md` 的 **Receive Location Contract**，
+> 「从收件箱转发」写在 **Received File Reuse Contract**。见
+> `openspec/changes/visible-receive-location/`。
 
 ## Architecture
 
@@ -155,11 +240,12 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 
 | Crate | 职责 |
 |---|---|
-| `crates/net-base` | 网络类型底座。`NodeId` / `Addr` / `NodeAddr` / `ProtocolId` / `NatStatus` —— libp2p 类型在此收口成 newtype，**不向上穿透** |
+| `crates/net-base` | 网络类型底座。`NodeId` / `Addr` / `NodeAddr` / `ProtocolId` / `NatStatus` —— libp2p 类型在此收口成 newtype，**不向上穿透**。另有 `compact`：地址列表的紧凑编解码（certhash / relay 身份跨地址去重），给二维码这类长度敏感的载体用 |
 | `crates/net` | 网络内核 `swarmdrop-net`。iroh 风格 `Endpoint` 门面 + 后台 actor，隐藏事件循环、连接管理、协议路由、地址选择 |
+| `crates/webtransport-p2p` | libp2p **WebTransport** 传输的 native 一半（listener + dialer）——上游只有浏览器侧的 `webtransport-websys`。底层 `wtransport` 0.7.1。同样不带 swarmdrop 前缀、零 swarmdrop 依赖，将来 subtree split。**重心在证书生命周期不在传输层**（14 天两张证书轮换 + 通告地址随之变化） |
 | `crates/webrtc-p2p` | libp2p WebRTC 传输，**两种模式**：打洞（`/webrtc`，spec `/webrtc-signaling/0.0.1`，三端默认开启——打洞要两端都支持，只开一边等于没开）+ direct（`/webrtc-direct`，**已完全取代官方 `libp2p-webrtc` 与 `libp2p-webrtc-websys`**，native 监听 + 拨号、浏览器拨号均已实测跑通）。刻意不带 swarmdrop 前缀、不依赖任何 swarmdrop crate，将来要 subtree split 出去独立发布 |
 | `crates/host` | 宿主端口层（platform-neutral ports + DTO + error + device 类型），供 core 与 transfer 共同依赖。现有 6 个端口：`KeychainProvider` / `PairedDeviceStore` / `DeviceConfig` / `FileAccess` / `Notifier` / `UpdateInstaller`（`AppPaths` 已删，零实现零消费）。设备名归一化的唯一入口 `DeviceName::parse` 也在这里 |
-| `crates/invite` | PairInvite 编解码 + 一次性状态表 + 二维码。**wasm-clean，不依赖 core** |
+| `crates/invite` | PairInvite 编解码 + 一次性状态表 + 二维码 + `compose`（邀请带哪些地址、密度不够时先丢哪条）。**wasm-clean，不依赖 core** |
 | `crates/transfer` | 文件传输域 + 收件箱领域模型（`inbox.rs` 的 DTO 与共享规则，各存储实现调它）。经端口 trait 依赖倒置，**不依赖 sea-orm / pairing / network** |
 | `crates/core` | 平台无关业务核心：identity / network / pairing / presence / device_manager / protocol / infra |
 | `crates/storage-sql` | `SessionStore` / `InboxStore` 端口的 SeaORM+SQLite 实现，**native-only** |
@@ -220,7 +306,7 @@ Rust 命令薄壳在 `src-tauri/src/commands/`，按业务域分文件：`lifecy
 - `index.tsx` — 重定向
 
 > **密码 / 解锁 / 生物识别登录流程已整体移除。** 不再有 `_auth` 布局、`auth-store`
-> 或 `isSetupComplete` 守卫。首启只问设备名，身份由后端 keychain 静默管理。
+> 或 `isSetupComplete` 守卫。首启只问设备名，身份由后端身份存储静默管理。
 
 **State Management** — Zustand stores：
 
@@ -279,7 +365,7 @@ src-tauri/src/
 ├── main.rs             # Binary entry point
 ├── commands.rs         # 命令薄壳入口 + with_manager! 宏
 ├── commands/           # lifecycle / inbox / identity / pairing / transfer / mcp / i18n / external_open
-├── host/               # Desktop adapter：keychain(keyring) / file_keychain / notifier / paths
+├── host/               # Desktop adapter：identity_store(文件) / notifier / paths
 │                       #   / update_installer / event_bus / file_source / file_sink / device_config
 ├── network.rs          # NetManager 类型别名 + Tauri 事件转发
 ├── database.rs         # SeaORM 连接初始化 + `TransferStoreState` 类型别名 + 启动清理
@@ -304,11 +390,58 @@ src-tauri/src/
 4. `PresenceSupervisor` / `InfraSupervisor` 由 core 自治拉起，host 层无需调用
 5. 事件经 tauri-specta typed events 转发前端
 
-**Tracing:** 默认 filter `swarmdrop=debug,swarmdrop_net=debug`，`RUST_LOG` 可覆盖。
+**Tracing:** 默认 filter
+`swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info,webrtc=warn,rtc=warn,webtransport_p2p=info,wtransport=warn,quinn=warn`，
+`RUST_LOG` 可覆盖。后六条**必须单列**——`EnvFilter` 按字符串前缀匹配，它们都不以
+`swarmdrop` 开头，而 `webrtc_p2p`（本仓传输 crate）与 `webrtc` / `rtc*`（webrtc-rs 全家桶）、
+`webtransport_p2p`（本仓传输 crate）与 `wtransport` / `quinn`（WebTransport 全家桶）又各自
+互不为前缀。漏掉哪条，那一层的日志在生产里就**一条都不出现**（已经踩过两次：udp_mux 丢包、
+driver 丢弃可靠消息）。桌面与移动是两份独立常量，**要一起改**，两边各有一条断言测试看守。
 
 **Bootstrap / relay node:** 自建，`47.115.172.218`——TCP 4001、QUIC 4001、
-**WebRTC Direct 4003**（后者是浏览器唯一入口：https 页面拨公网裸 IP 的 `ws://` 会被
-mixed content 拦，`wss://` 又要域名 + CA）。
+**WebRTC Direct 4003**、**WebTransport 4004**（后两者是浏览器入口：https 页面拨公网裸 IP
+的 `ws://` 会被 mixed content 拦，`wss://` 又要域名 + CA）。
+
+> **两条浏览器入口并存是刻意的**（2026-08-12）。WebTransport 回环吞吐是 webrtc-direct 的
+> 4.5 倍（322 vs 72 MiB/s，6 次中位数）且方差小一个数量级；**局域网真机已测**（Android ↔
+> 桌面 Chrome，2 GB）：手机发 **20 MB/s**、浏览器发 **9 MB/s** —— 前者落进了 native↔native
+> QUIC 的区间（12–23 MB/s），**浏览器在接收方向上已不是瓶颈**。
+>
+> **但 4003 不能下线，理由与吞吐无关**：① bootstrap 上它是**发现路径**——浏览器不写死
+> WebTransport 地址，先用 webrtc-direct 连上 bootstrap、经 identify 学到带当前 certhash 的
+> 那条，天然绕开「证书 14 天一换、清单里的地址会过期」；② **打洞只有 WebRTC 有**，跨网
+> 那格 WebTransport 至今没有对应机制、也还没测。
+>
+> 20 vs 9 的方向不对称，归因是**接收端流水线化了、发送端没有**；发送端已于 2026-08-12
+> 补上（备块 ‖ 发帧 + 有界队列 + `join`，openspec: `pipeline-send-path`）。
+> ⚠️ **天花板是 `proof`**：`join` 给的是并发不是并行，而 `encode_proof` 是 wasm 主线程上的
+> 同步 CPU，收益取决于它的占比，**至今未实测**。（此前写的「多两次跨 JS↔wasm 拷贝」是错的
+> ——两向都跨两次，不对称的是重叠。）量它不用改代码：探针已拆成 `send`（read/proof/enqueue）
+> 与 `send-frame`（queue/write/ack/rest）两条，都打在浏览器 console 上。判读表见
+> [`2026-08-12-webtransport-field-test.md`](dev-notes/research/2026-08-12-webtransport-field-test.md)。
+>
+> **桌面与移动端都监听 WebTransport（2026-08-12 起）**，端口由系统分配 —— 浏览器直连原生端
+> 走它，局域网内比 webrtc-direct 快 4.5 倍（回环数）。启用判据是**宿主给没给证书端口**
+> （`WebTransportCertificateStore`），不是「是不是原生端」：桌面写 `app_local_data_dir/`、
+> 移动端写 `data_dir/`（同名 `webtransport-cert.pem`），浏览器传 `None` 只拨号。
+> 读写实现是 `crates/net` 里两端共用的 `WebTransportFileCertificateStore`（原子写 + 0600 +
+> **读失败不降级**），各端只给路径 —— 与 `JsonFileDeviceConfig` 同一体例。
+> 那个端口**刻意不挂在 `KeychainProvider` 上**：那个 trait 的方法都是「读一次就完」，而这份
+> 证书要 14 天轮换并回写；顺带也就不必动 uniffi 跨 FFI 契约。判据与护栏测试见 net-kernel.md。
+>
+> **WebTransport 地址也进配对邀请**（2026-08-12 起，`append_invite_transports` 每桶三条：
+> native + WebTransport + WebRTC）。但邀请是**二维码承载**的，地址多到一定程度就扫不动，
+> 所以挑完地址还要过一道密度闸，按价值反序回收：**WebTransport 第一批丢**（丢了浏览器仍能
+> 靠 webrtc-direct 拨通，配对后 identify 会把它交回来）、**circuit 一条都不丢**（跨网唯一
+> 可达路径）。
+>
+> **这道闸在 wire v2（2026-08-13）之后基本不再触发**：地址走
+> `swarmdrop_net_base::compact` 的紧凑编码（certhash 与 relay 身份各建去重表），満配桌面
+> 地址区 663 → 约 252 字节，四档配置全留、一条不裁。**预算也不再是常量**——三端把自己的
+> 码面 px 传进 `invite_qr_*`，`crates/invite::qr` 只留 `MIN_PX_PER_MODULE = 2`，
+> 于是**裁剪发生在渲染侧、链接保留全部地址**。
+> ⚠️ 现在最坏情况的主导变量不是地址数而是**设备名**：`DeviceName::MAX_CHARS = 40`，
+> 40 个中文字 120 字节，比压缩后的整个地址区一半还多。判据、实测五档与回归钉见 net-kernel.md。
 
 客户端清单按端分两份，各自只列本端用得上的 transport（部署配置，不属于 P2P 内核）：
 `src/lib/bootstrap-nodes.ts` + `mobile/src/core/bootstrap-nodes.ts`（原生端：tcp + quic）、
@@ -321,12 +454,22 @@ mixed content 拦，`wss://` 又要域名 + CA）。
 > 副产品：Android 与桌面的 transport 栈终于一致（Android 曾因 JNI DNS 问题编不进 ws）。
 
 **配对：PairInvite（一次性签名邀请）。**
-6 位数字分享码已废弃。现在是自包含邀请串 `sd:…`（Ed25519 签名 + 128bit capability +
-TTL 24h + 一次性消费）；链接走 Base64URL，二维码走同一 wire 的 `SD…` Base32 表现。
+6 位数字分享码已废弃。现在是自包含邀请串（Ed25519 签名 + 128bit capability + TTL 24h +
+一次性消费），只有**一种**对外文本形态：canonical https 链接 + base32 payload
+（openspec: invite-url-canonical）——链接分享、二维码、剪贴板感知、深链共用同一个字符串。
 **24 小时（`INVITE_TTL_SECS = 86_400`）不是笔误**：邀请跨重启存活（openspec: invite-persistence），
 所以三端都必须提供「已发出的邀请」清单与撤销入口，位置统一贴着生成入口（不进设置页）。
-签名尾置以覆盖版本判别码防降级。
-实现在 `crates/invite`，设计见 `openspec/changes/pair-invite-protocol/design.md`。
+签名对象是 `域分隔标签 ‖ core 字节`（含版本标识，防降级）；**地址提示刻意不在签名覆盖
+范围内**——它是下游自证的（拨过去由传输层对已签名的 `inviter_id` 强制校验），换来的是
+「裁地址不需要私钥」。实现在 `crates/invite`（地址策略在 `compose.rs`），设计见
+`openspec/changes/pair-invite-protocol/design.md` 与 `openspec/changes/invite-wire-v2/`。
+
+**「至少一条可拨地址」是 `PairInvite` 的类型不变量**，两条构造路径各守一半：`generate`
+零地址报 `NoDialableAddrs`、`decode` 零地址报 `Verify`，外加 `drop_least_valuable_addr`
+裁剪绝不裁到零。零地址邀请编得出、扫得动、复制得走，唯独没有任何东西可拨——生成侧不挡的话，
+发起方拿到的是一张看起来完全正常的码，只有受邀方那边报错。浏览器最容易撞上（它没有本地
+监听地址，可拨地址全部来自 relay reservation）。`NoDialableAddrs` **不得**与
+`NodeNotStarted` 合并：用户动作相反（等一下 vs 去启动）。
 
 **DHT 的用途已变**：不再用于分享码查找，改为已配对设备的 **presence 在线记录**
 （`crates/core/src/presence/`）。
@@ -353,6 +496,11 @@ schema 变更**直接换，不写迁移 / 回填 / 双写**（Web 端还没有�
 
 wasm 是 CI 一等公民：`./scripts/check-wasm.sh` 在 PR 阶段拦截破坏浏览器 target 的改动。
 
+**wasm 产物入库，且线上吃的就是入库的那份**（`packages/swarmdrop-web/`）——文档站 CI
+**不重新生成**它（理由见下方 CI 表格与 toolchain.md）。所以改了 wasm 侧的 crate 就要
+`cd docs && pnpm build:wasm` 并把产物一起提交，否则线上 Web 端会静默停在旧代码上。
+`scripts/check-wasm-artifact.sh` 在 rust.yml 里拦这件事。
+
 **前端形态（#90 起）：持久侧边栏 + 五条路由**，分区对齐桌面端但导航形态有意分叉：
 
 | 路由 | 常驻导航 | 内容 |
@@ -375,7 +523,12 @@ device」，常驻入口只会把用户领到那条本用于纠错的目标选�
 
 **节点状态徽章可点**，弹出节点状态弹窗（`node-status-dialog.tsx`）：状态 / 运行时长 / 已配对与
 在线数 / 中继，诊断（节点 ID、circuit 可达地址、身份存放位置）折叠，并提供**启停节点**。
-三端同一件事的第三份实现（桌面 `StopNodeSheet`、移动 `NodeControlSheet`），信息分层一致。
+三端同一件事的第三份实现（桌面 `NodeStatusSheet`、移动 `NodeControlSheet`）——**这三份必须
+遵守的信息分层、状态语义与文案，写在 `DESIGN.md` 的 `### Node Status Contract (cross-platform)`**。
+> 此处此前写作「信息分层一致」，**是错的**（2026-08-08 核实修正）：桌面那份当时按
+> `windowHeight >= 700` 门控七处信息位，矮窗口下中继状态、引导节点、公网地址、监听地址
+> 整片消失。那正是「先写断言、实现没跟上」的产物——所以判据现在住在契约里，且与实现同 PR 合入。
+
 启停编排收在 `_lib/node-lifecycle.ts`——`WebNodeBootstrap` 与弹窗共用同一套启动序列。
 
 **底座与形态**（2026-08 的 `web-ux-alignment` 起）：组件走 **shadcn/ui**（不再手写原生元素），
@@ -424,7 +577,7 @@ token 经 `@theme inline` 映射层从 fumadocs 的 `--color-fd-*` 接过来；*
 | `e2e/` | 桌面 e2e（WebdriverIO + tauri-plugin-wdio）与演示录制脚本 |
 | `openspec/` | 变更提案（`changes/`）与规格（`specs/`）——需求与设计的落点 |
 | `video/` | Remotion 后期工程（Demo / Hero 素材） |
-| `scripts/` | `check-wasm.sh`、`check-zustand-store-access.mjs`、`web-bench` |
+| `scripts/` | `check-wasm.sh`、`check-wasm-artifact.sh`（入库产物新鲜度）、`check-zustand-store-access.mjs`、`web-bench` |
 | `dev-notes/` | 知识库、博客、调研、归档；`archive/` 存重构前设计与已完成 roadmap |
 | `dev-notes/prompts/` | **给新会话的启动提示词**（跨会话交接用）。与 `research/` 的区别：那边记「为什么这么决策」，这边记「接下来怎么开工」——含前置阅读、硬约束、已知坑、验收标准 |
 | `dev-notes/research/` | **未落地方案**的调研与 spike 结论，每篇带决策状态。与 `knowledge/` 分开是刻意的——后者被 `/dev-workflow` 当「现行架构的事实」加载，混入调研会让人把「评估中的方案」读成「已有的能力」 |
@@ -445,10 +598,11 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 
 | Workflow | 作用 |
 |---|---|
-| `rust.yml` | `cargo fmt --check` + `cargo check --workspace --all-targets` + `cargo test --workspace`；**wasm 双 target 门禁**（check + clippy）；clippy job 暂 `continue-on-error`（存量 warning 基线未清） |
+| `rust.yml` | `cargo fmt --check` + `cargo check --workspace --all-targets` + `cargo test --workspace`；**wasm 双 target 门禁**（check + clippy）；native 的 clippy job 暂 `continue-on-error`（存量 warning 基线未清）。⚠️ **但 `wasm` job 里的 clippy 是硬失败的**——它跑 `check-wasm.sh --clippy`（`-D warnings`），不受那条豁免保护。v0.16.0 就是这么红的（4 处 `needless_borrow`），而红着也照样发了版，因为 release.yml 由 tag 触发、不看 rust.yml 的脸色。**动了 wasm 七 crate 就本地跑一遍 `./scripts/check-wasm.sh --clippy`**，别指望 native 那条豁免 |
 | `release.yml` | `v*` tag 触发。generate-changelog → build-tauri（四目标 + 上传 SwarmHive draft）→ finalize-swarmhive → update-latest-json（仅手动 dispatch）→ publish-release |
 | `mobile-release.yml` | `mobile-v*` tag，仅 Android |
-| `mobile-build-android.yml` / `bootstrap-release.yml` / `docs.yml` | 移动构建 / 引导节点发布 / 文档站（含 develop → GitHub Pages） |
+| `mobile-checks.yml` | `mobile/**` 的 push / PR。typecheck + biome + zustand + expo-patches 四条，**全部硬失败**（前三条 2026-08-13 才接进来，此前零覆盖且三条同时红着） |
+| `mobile-build-android.yml` / `bootstrap-release.yml` / `docs.yml` | 移动构建 / 引导节点发布 / 文档站（含 develop → GitHub Pages）。⚠️ docs 那条**不再重新生成 wasm**，吃的是入库的 `packages/swarmdrop-web/`（2026-08-13 起）—— 此前两版分别栽在「wasm-pack 裸下 binaryen 无重试」与「apt 的 binaryen 停在 108，产出的 `__wbindgen_externrefs` 指向不可 grow 的 funcref 表，线上一加载就 `RangeError`」。产物新鲜度改由 rust.yml 的 `check-wasm-artifact.sh` 拦，详见 toolchain.md |
 
 > Rust CI 目前**只跑 ubuntu**，Windows / macOS 的编译问题要到打 tag 才暴露。
 
@@ -470,8 +624,19 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
   退出：PR 均 MERGED → 切官方 git；crates.io 发布 0.57 → 切版本号依赖。
   详见 [`net-kernel.md`](dev-notes/knowledge/net-kernel.md) 的「临时 fork 集成策略」。
   **升级 rev 必须走独立 PR + 全量测试 + wasm check**，并同步 Cargo.lock。
-- **webrtc-rs 现在零 pin，直接吃 crates.io `0.20.0`**（`rtc` 同版本）。五个功能补丁
-  （rtc #137 / #138 / #140、webrtc #825 / #828）已随 **0.20.0 正式版**进 crates.io。
+- **`webrtc` 与 `rtc` 全家桶吃 crates.io `0.20.2`，零 pin、零 patch。**
+  ⚠️ **`0.20.2` 是硬下限**，卡在两批各自独立的修复上，降版本会静默地把它们一起丢掉：
+  - **≥ 0.20.0**：五个功能补丁（rtc #137 / #138 / #140、webrtc #825 / #828）。
+  - **≥ 0.20.2**：[rtc#159](https://github.com/webrtc-rs/rtc/pull/159) /
+    [#161](https://github.com/webrtc-rs/rtc/pull/161) —— **ICE / TURN 在终态持续上报
+    「已过期的 deadline」，driver 的 event loop 因此 100% 烧一个核，并且再也读不到命令
+    通道——`close()` 送不进去，连接永远回收不掉**。实测桌面端接过几次浏览器连接后
+    CPU 718%、`swarmdrop_net` 的 actor 被饿死、日志整片消失、7GB 传输卡死。
+
+  修复合并时晚于所有已发布版本，故 v0.16.1 曾以 `[patch.crates-io]` 指 git 应急；
+  上游 2026-08-11 发布 `0.20.2` 后 patch 段已整体删除（`0.20.2` = 当时 pin 的 rev
+  加一个版本号 bump，内容逐字相同）。完整因果链见
+  [`2026-08-11-webrtc-driver-busy-loop.md`](dev-notes/research/2026-08-11-webrtc-driver-busy-loop.md)。
   2026-08-04 曾短暂 pin 过 fork 集成分支，为的是提前用上
   [webrtc#850](https://github.com/webrtc-rs/webrtc/pull/850) →
   [#853](https://github.com/webrtc-rs/webrtc/pull/853) 想公开的
@@ -485,7 +650,6 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
   1500，不按应用最大数据报）。**两者都没有反馈回路**（缓冲算小了内核静默丢尾部段、
   判据漏一种就把公网监听端口永久关掉），本仓最早那版两个都错了——那个文件里的两条护栏
   测试是唯一的兜底，**改实现必须同时改测试**。
-  ⚠️ **别降回 `0.20.0-rc.*`**——rc 版不含五个补丁。
   ⚠️ **别降回 `0.20.0-rc.*`**——rc 版不含五个补丁，direct 监听端会起不来、数据面静默丢包。
   0.20.0 把 `AsyncUdpSocket` 换成 quinn 式 poll API，适配时连带修掉 `udp_mux` 三个既有
   缺陷（GRO 合并包没拆、判据漏 `ConnectionRefused` 使 Linux 监听端口可被远程掀掉、
@@ -498,8 +662,17 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
   跨实现的证书兼容由 `certificate.rs` 的 `reads_official_pem_with_identical_certhash`
   钉死——**那条测试红了就说明存量地址会全部拨不通**。
 - **Dev profile optimization:** 所有依赖在 dev 下也用 `opt-level = 3`（加密依赖否则慢 10–100 倍）。
-  移动端 release 用单独的 `[profile.mobile-release]`（包体优先）——注意 **Cargo 会静默忽略
-  member 自己的 profile**，只有 workspace root 的算数。
+  移动端 release 用单独的 `[profile.mobile-release]`，**它也是 `opt-level = 3`，且没有任何
+  单包例外**（2026-08-10 从「包体优先 `opt-level = "z"` + blake3 单包覆写」改过来）。
+  改的理由是 `"z"` 在传输热路径上要付数量级的代价，而热点遍布整棵依赖树、逐包例外列不全：
+  blake3 的 `"z"` 会穿透进 build.rs 的 cc 调用按住 aarch64 NEON；WebRTC 的 DTLS 走 RustCrypto
+  的**纯 Rust** AES-GCM/GHASH（不是 ring 的 asm），被 `-Oz` 关掉内联后，**同一台 Android 手机
+  走 QUIC 有 12–23 MB/s、走 WebRTC 只剩 0.36–0.96 MB/s**。体积改由 `lto` + `codegen-units = 1`
+  + `strip` 承担（三者都不牺牲速度）。完整推导与**尚未分离的那个变量**见
+  [`toolchain.md`](dev-notes/knowledge/toolchain.md) 与
+  [`2026-08-10-v0.15.2-field-test.md`](dev-notes/research/2026-08-10-v0.15.2-field-test.md)。
+  注意 **Cargo 会静默忽略 member 自己的 profile**，只有 workspace root 的算数——
+  单包覆写（`profile.*.package.*`）同样只认 root。
 - **Vite port:** 固定 1420（Tauri 要求），HMR 1421。
 - **Path alias:** `@/` → `./src/`（tsconfig 与 vite 一致）。
 - **shadcn/ui:** `components.json` 用 `new-york` style、`rsc: false`、`neutral` base color、
@@ -523,6 +696,7 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | Tauri Builder 装配 / 命令注册 | `src-tauri/src/setup.rs` |
 | 自动生成的 IPC bindings | `src/lib/bindings.ts`（**勿手改**） |
 | 网络内核 | `crates/net/`、`crates/net-base/` |
+| WebTransport 传输（native） | `crates/webtransport-p2p/`（`certificate/rotation.rs` 是重心；`addr.rs` 零依赖纯函数） |
 | 传输域 | `crates/transfer/` |
 | 宿主端口层 | `crates/host/` |
 | 配对邀请（PairInvite） | `crates/invite/` |
@@ -544,6 +718,8 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | 重构系列博客 | `dev-notes/blogs/2026-07-net-refactor-series.md` |
 | 配对重构系列博客 | `dev-notes/blogs/pairing-invite/README.md` |
 | WebRTC 系列博客（零基础入门 + 上游补丁复盘） | `dev-notes/blogs/webrtc/README.md` |
+| WebTransport 系列博客（零基础入门 + 证书轮换设计） | `dev-notes/blogs/webtransport/README.md`（`serverCertificateHashes`、certhash 进地址与 Noise 子集判据、两张证书为什么必须重叠、28 天寿命、实测数字与三处未查清） |
+| 传输吞吐系列博客（2026-08-10 真机实测复盘） | `dev-notes/blogs/transfer-throughput/README.md`（探针 vs 排除法、bao 的 O(n²)、两套加密栈、停等流控、`try_join` 的取消语义） |
 | 产品需求 | `dev-notes/product-requirements.md` |
 | UI 设计文件 | `dev-notes/design/design.pen` |
 | 历史文档（重构前设计 / 已完成 roadmap / 早期调研） | `dev-notes/archive/` |

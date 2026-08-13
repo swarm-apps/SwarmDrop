@@ -1,7 +1,7 @@
 {
   "name": "swarmdrop-mobile",
   "main": "expo-router/entry",
-  "version": "0.12.2",
+  "version": "0.21.0",
   "private": true,
   "scripts": {
     "start": "expo start --dev-client",
@@ -9,15 +9,25 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "prebuild": "expo prebuild",
-    "lint": "biome check src/",
-    "lint:ci": "biome ci src/",
-    "format": "biome check --fix src/",
+    "lint": "biome check src/ modules/",
+    "lint:ci": "biome ci src/ modules/",
+    "format": "biome check --fix src/ modules/",
     "typecheck": "tsc --noEmit",
     "check:zustand-access": "node scripts/check-zustand-store-access.mjs",
     "i18n:extract": "lingui extract --clean",
     "e2e:ios": "wdio run ./e2e/webdriver/wdio.ios.conf.ts",
     "e2e:ios:driver": "appium driver list --installed",
-    "e2e:ios:doctor": "appium driver doctor xcuitest"
+    "e2e:ios:doctor": "appium driver doctor xcuitest",
+    "check:expo-patches": "node scripts/check-expo-patches.mjs"
+  },
+  "expo": {
+    "autolinking": {
+      "android": {
+        "buildFromSource": [
+          "expo-file-system"
+        ]
+      }
+    }
   },
   "dependencies": {
     "@expo/dom-webview": "^56.0.5",
@@ -46,7 +56,7 @@
     "@rn-primitives/toggle": "^1.4.0",
     "@rn-primitives/tooltip": "^1.4.0",
     "@shopify/flash-list": "^2.0.2",
-    "@swarm-hive/sdk": "^0.4.0",
+    "@swarm-hive/sdk": "^0.5.0",
     "burnt": "^0.13.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

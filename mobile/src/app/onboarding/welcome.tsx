@@ -8,14 +8,13 @@ import {
   OnboardingScreen,
 } from "@/components/onboarding/onboarding-scaffold";
 import { Text } from "@/components/ui/text";
+import { nextRouteAfter } from "@/core/onboarding-flow";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { useOnboardingStore } from "@/stores/onboarding-store";
 
 export default function Welcome() {
   const { t } = useLingui();
   const router = useRouter();
   const colors = useThemeColors();
-  const nextStep = useOnboardingStore((s) => s.nextStep);
 
   // 技术卖点降为次要:主视觉是"能帮我干嘛"的人话价值主张,这些是补充的安心感。
   const features = [
@@ -25,8 +24,8 @@ export default function Welcome() {
   ];
 
   const onNext = () => {
-    nextStep();
-    router.push("/onboarding/device-name" as never);
+    // 不写死下一屏：设备名早已填过的存量用户会被直接跨过去，不再被问一遍。
+    router.push(nextRouteAfter("welcome") as never);
   };
 
   return (
@@ -38,7 +37,7 @@ export default function Welcome() {
             onPress={onNext}
             testID="onboarding-start-button"
           />
-          <OnboardingDots step={0} />
+          <OnboardingDots stepId="welcome" />
         </>
       }
     >
@@ -73,3 +72,6 @@ export default function Welcome() {
     </OnboardingScreen>
   );
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

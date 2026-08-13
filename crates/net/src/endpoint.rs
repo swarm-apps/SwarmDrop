@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use libp2p::StreamProtocol;
-use swarmdrop_net_base::{Addr, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId};
+use swarmdrop_net_base::{Addr, NatStatus, NodeAddr, NodeId, PathKind, ProtocolId, TransportKind};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -55,13 +55,7 @@ impl AddrsInfo {
     ///
     /// 分享码 record / 在线宣告都靠它给对端一份可拨地址集。
     pub fn dialable(&self) -> Vec<Addr> {
-        let mut addrs = self.listen.clone();
-        for a in &self.external {
-            if !addrs.contains(a) {
-                addrs.push(a.clone());
-            }
-        }
-        addrs
+        crate::addrset::union_preserving_order(&self.listen, &self.external)
     }
 }
 
@@ -130,6 +124,8 @@ pub(crate) struct Inner {
     watch_relays: watch::Receiver<BTreeMap<NodeId, RelayState>>,
     /// Builder 启用 DHT 时为 Some。
     dht: Option<crate::dht::Dht>,
+    /// 本端点实际装配的可拨传输（bind 时按 target + 配置算一次，此后不变）。
+    supported_transports: Box<[TransportKind]>,
     connect_timeout: Duration,
     next_connect_request_id: AtomicU64,
     closed: CancellationToken,
@@ -153,6 +149,18 @@ impl Endpoint {
     /// 本节点身份。
     pub fn node_id(&self) -> NodeId {
         self.inner.node_id
+    }
+
+    /// 本端点实际装配的可拨传输种类。
+    ///
+    /// 用途是**提交前同步校验**：用户粘一条引导节点地址时，据此判断本端拨不拨得动
+    /// （浏览器收到 `/tcp/`、桌面收到只有对端才有的传输，都应当场拒掉而不是让它静静地
+    /// 永远连不上）。它是内核事实，不是部署配置——地址清单归各端的 bootstrap-nodes 表，
+    /// 两件事不要合并。
+    ///
+    /// circuit 地址取的是外层中继段的传输，正是本机要拨的那一跳。
+    pub fn supported_transports(&self) -> &[TransportKind] {
+        &self.inner.supported_transports
     }
 
     // ── 连接管理 ──
@@ -224,13 +232,31 @@ impl Endpoint {
             .await
     }
 
-    /// 动态登记一个本节点的外部可达地址。
+    /// 声明本节点当前的外部可达地址（**整份替换，幂等**）。
     ///
-    /// WebRTC Direct 的 `certhash` 只有 listener 实际启动后才会出现在
-    /// 地址中；公网 relay 可观察到该地址后通过此方法登记，使 reservation
-    /// 和 identify 都能向客户端公布完整可拨地址。
-    pub async fn add_external_addr(&self, addr: Addr) -> Result<(), Error> {
-        self.request(|reply| ActorMessage::AddExternalAddr { addr, reply })
+    /// WebRTC Direct 与 WebTransport 的 `certhash` 只有 listener 实际启动后才出现在地址里，
+    /// 公网节点观察到之后经此方法登记，使 reservation 与 identify 都能公布完整可拨地址。
+    ///
+    /// # 为什么是「声明整份」而不是 add / remove 一对
+    ///
+    /// 带 `certhash` 的地址会随证书轮换而失效，所以登记方**必须**能撤销。而命令式的
+    /// add/remove 会把一份易错的记账纪律推给每个调用方：要自己维护「已登记集合」、要在
+    /// 部分失败时只回滚失败的那些、还要保证「先记账后调用」这个顺序不写反（写反的后果是
+    /// 一次瞬时失败让某条地址**永久**不再重试，而日志只有一行 warn）。
+    ///
+    /// 声明式把这些全部消掉：调用方每轮把「现在应该通告什么」整份发过来，重试就是把同一
+    /// 份声明再发一次。差量由内核算，只算一次、只有一份实现。
+    ///
+    /// 不撤销失效地址的后果分两级，第二级是静默的：拨号预算（默认 8 条并发）会被死地址
+    /// 占满，使连接成功率随运行时长下降；而 identify payload 的 4096 字节上限**只在解码端
+    /// 检查**，超限时不是本机报错，是**每个对端**都解不出这条 identify。
+    ///
+    /// # 与自动发现的关系
+    ///
+    /// 本方法只替换**宿主声明的**那一份。AutoNAT / identify 观测确认的地址由内核单独持有，
+    /// 不受影响——两者的并集才是对外通告的集合。
+    pub async fn set_external_addrs(&self, addrs: Vec<Addr>) -> Result<(), Error> {
+        self.request(|reply| ActorMessage::SetExternalAddrs { addrs, reply })
             .await
     }
 

@@ -25,7 +25,8 @@
 //! squash 让所有已存在的库的 `seaql_migrations` 里出现 11 条本代码不认识的版本，
 //! `Migrator::up` 会直接 `DbErr::Custom("... is missing ...")`。宿主侧据此**删库重建**
 //! （`src-tauri/src/database.rs` 与 mobile-core 的 `app.rs`）。丢的是传输历史 / 收件箱 /
-//! 邀请注册表；设备身份与已配对设备存在 keychain，不在这个库里，配对关系不受影响。
+//! 邀请注册表；设备身份与已配对设备存在宿主身份存储（桌面 = `identity.json` /
+//! `paired-devices.json`，移动 = 系统安全存储），不在这个库里，配对关系不受影响。
 
 // `pub(crate)`：`m20260806_000001_inbox_title_to_file_name` 复用这份快照。两个迁移之间
 // **没有任何 DDL**（那条是纯数据回填），所以它看到的 schema 与本迁移建出来的逐字相同，

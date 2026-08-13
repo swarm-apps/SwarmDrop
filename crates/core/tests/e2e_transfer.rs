@@ -13,12 +13,14 @@ use std::time::Duration;
 
 use migration::MigratorTrait;
 use sea_orm::{
-    ActiveModelTrait, ConnectOptions, Database, DatabaseConnection, EntityTrait, IntoActiveModel,
-    Set,
+    ActiveModelTrait, ColumnTrait, ConnectOptions, Database, DatabaseConnection, EntityTrait,
+    IntoActiveModel, QueryFilter, Set,
 };
 use uuid::Uuid;
 
-use swarmdrop_net::{Addr, DhtConfig, Endpoint, NodeAddr, NodeId, Router, SecretKey};
+use swarmdrop_net::{
+    Addr, DhtConfig, Endpoint, NodeAddr, NodeId, OpenError, ProtocolId, Router, SecretKey,
+};
 
 use entity::{SuspendedReason, TerminalReason, TransferDirection, TransferPhase};
 
@@ -26,13 +28,14 @@ use swarmdrop_core::device::{OsInfo, PairedDeviceInfo};
 use swarmdrop_core::event_adapter::CoreTransferEvents;
 use swarmdrop_core::host::{
     CoreEvent, CoreSaveLocation, EventBus, FileAccess, FileSinkId, FileSourceId, HostFileMetadata,
-    MemoryHost,
+    MemoryHost, SinkOp,
 };
 use swarmdrop_core::network::NetManager;
 use swarmdrop_core::network::config::{NetworkRuntimeConfig, create_candidate_manager};
 use swarmdrop_core::network::event_loop::run_event_loop;
+use swarmdrop_core::pairing::PairingPorts;
 use swarmdrop_core::protocol::{
-    FileInfo, OfferRejectReason, TRANSFER_DATA_PROTOCOL, TRANSFER_DATA_PROTOCOL_V2, TransferOrigin,
+    FileInfo, OfferRejectReason, TRANSFER_DATA_PROTOCOL, TransferOrigin,
 };
 use swarmdrop_core::runtime::build_router;
 use swarmdrop_core::transfer::coordinator::{
@@ -138,10 +141,12 @@ async fn spawn_node(
         transfer,
         network_config,
         candidate_manager,
-        event_bus.clone(),
-        None,
-        std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
-        Arc::new(host.clone()),
+        PairingPorts {
+            event_bus: event_bus.clone(),
+            notifier: None,
+            invite_store: std::sync::Arc::new(swarmdrop_invite::NoopInviteStore),
+            paired_store: Arc::new(host.clone()),
+        },
     );
     let transfer = manager.transfer_arc();
 
@@ -357,26 +362,43 @@ async fn e2e_two_nodes_connect() {
     assert!(node_b.manager.devices().is_connected(&node_a.peer_id));
 }
 
-/// **旧版数据面协议必须继续被服务**。
+/// **当前数据面协议被服务，旧版一律不再被服务。**
 ///
-/// v0.12.0 及更早的客户端只会拨 `/swarmdrop/transfer-data/2`；`/3` 是这次为流控窗口帧新加
-/// 的名字（加 tag 必须换名，理由见 `TRANSFER_DATA_PROTOCOL` 的文档）。摘掉 v2 的注册等于
-/// 对所有存量客户端断供，而症状只会出现在跨版本的真机之间——CI 里两端永远同版本，别的测试
-/// 一条都不会红。
+/// 这条测试的语义在 2026-08 反转过一次。此前它守护「`/2` 必须继续被服务」——那时 `/3`
+/// 只是加了流控窗口帧，摘掉 `/2` 等于对 v0.12.0 及更早整体断供。
 ///
-/// 判据是 `open` 不返回 `UnsupportedProtocol`：能开出流就说明 Router 认这个名字。开完即丢，
-/// 不发 Hello——本条只管协商，传输本身由其余 e2e 覆盖。
+/// 现在 `/4` 把 bao chunk group 从 16KiB 提到 256KiB，**验签树形状变了**：旧名接进来的
+/// 连接会在第一个块就验签失败 → 断流 → Interrupted 无限重试。留着旧名的注册不是「兼容」，
+/// 是把「版本不匹配」伪装成「传输老是断」。所以判据反过来：旧名必须拿到
+/// `UnsupportedProtocol`，让不兼容在**协商阶段**就响亮地失败。
+///
+/// 症状只出现在跨版本的真机之间——CI 里两端永远同版本，别的测试一条都不会红。
 #[tokio::test(flavor = "multi_thread")]
-async fn e2e_legacy_data_protocol_is_still_served() {
+async fn e2e_only_current_data_protocol_is_served() {
     let (node_a, node_b) = connected_paired_pair(MemoryHost::new(), MemoryHost::new()).await;
 
-    for protocol in [TRANSFER_DATA_PROTOCOL, TRANSFER_DATA_PROTOCOL_V2] {
-        node_a
+    node_a
+        .manager
+        .endpoint()
+        .open(node_b.peer_id, TRANSFER_DATA_PROTOCOL)
+        .await
+        .unwrap_or_else(|e| panic!("{TRANSFER_DATA_PROTOCOL} 应当被服务，却拿到 {e}"));
+
+    for legacy in [
+        ProtocolId::from_static("/swarmdrop/transfer-data/3"),
+        ProtocolId::from_static("/swarmdrop/transfer-data/2"),
+    ] {
+        let err = node_a
             .manager
             .endpoint()
-            .open(node_b.peer_id, protocol.clone())
+            .open(node_b.peer_id, legacy.clone())
             .await
-            .unwrap_or_else(|e| panic!("{protocol} 应当被服务，却拿到 {e}"));
+            .err()
+            .unwrap_or_else(|| panic!("{legacy} 不该再被服务"));
+        assert!(
+            matches!(err, OpenError::UnsupportedProtocol(_)),
+            "{legacy} 应当在协商阶段被拒（UnsupportedProtocol），却拿到 {err}"
+        );
     }
 }
 
@@ -1280,6 +1302,351 @@ async fn e2e_multichunk_multifile_transfer() {
             "{name} 落盘应逐字节等于源"
         );
     }
+
+    // ── 收齐即发布 ────────────────────────────────────────────────
+    //
+    // 这条**无法从终态观察**：传完之后，无论「收齐即发布」还是「攒到会话结束再一起发布」，
+    // 三个文件都是已发布。只有操作序列能区分两者——所以断言的是
+    // 「前一个文件的 Finalize 出现在后一个文件的第一次 Write 之前」。
+    //
+    // 它同时钉住了两件事：fd 峰值不随文件数增长；多文件传到一半中断时，
+    // 已收完的文件已经落到用户目录而不是全部卡在暂存里。
+    let ops = node_b.host.sink_ops();
+    let position_of = |op: SinkOp| ops.iter().position(|recorded| *recorded == op);
+    let first_write = |name: &str| position_of(SinkOp::Write(FileSinkId(name.to_string())));
+    let finalize_at = |name: &str| position_of(SinkOp::Finalize(FileSinkId(name.to_string())));
+
+    for (name, _) in specs.iter() {
+        assert!(
+            finalize_at(name).is_some(),
+            "{name} 必须被发布过——包括零字节文件（它没有真实数据流过，\
+             却同样要落地，正是删掉会话末尾那段兜底之后唯一容易漏掉的情形）"
+        );
+    }
+    for pair in specs.windows(2) {
+        let (prev, next) = (pair[0].0, pair[1].0);
+        let prev_done = finalize_at(prev).expect("前一个文件应已发布");
+        let next_started = first_write(next).expect("后一个文件应有写入");
+        assert!(
+            prev_done < next_started,
+            "{prev} 应在 {next} 开始写入之前就发布完毕（收齐即发布），\
+             实际 finalize@{prev_done} vs write@{next_started}"
+        );
+    }
+
+    // 发布成功必然伴随 local_path 落库——收件箱的「打开 / 分享 / 删除」只认它，
+    // 且它必须来自 host 的返回值而不是路径拼接（SAF 下拼接会得到无法解析的伪 URI）。
+    let rows = entity::transfer_file::Entity::find()
+        .filter(entity::transfer_file::Column::SessionId.eq(session_id))
+        .all(node_b.db.as_ref())
+        .await
+        .expect("load transfer files");
+    assert_eq!(rows.len(), specs.len());
+    for row in rows {
+        assert!(
+            row.local_path.as_deref().is_some_and(|p| !p.is_empty()),
+            "{} 发布后必须写下 local_path",
+            row.name
+        );
+    }
+}
+
+/// 发布失败 = **数据是好的、只是搬不过去**，必须可原地重试。
+///
+/// 逐块验签接管完整性之后，finalize 不再校验，于是它失败只剩一种含义：空间不足 /
+/// 权限被撤 / 外部 fd 失效。旧实现在这里 `reset_file_checkpoint` + `fail_session`，
+/// 把会话打成 terminal/failed 并让对端重传整个文件——那套语义配的是「finalize 会算
+/// 整文件 BLAKE3，失败意味着数据坏了」，现在不成立了。
+///
+/// 三条断言：会话转 **suspended/recoverable** 而非 terminal/failed；文件 checkpoint
+/// **没被重置**；故障解除后恢复能完成，且不必重传已收下的块。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_publish_failure_keeps_checkpoint_and_resumes() {
+    // 必须跨过一次 checkpoint 节流点（每 10 块刷一次）才观察得到「bitmap 没被重置」：
+    // 末块刻意不刷 checkpoint（完整 bitmap 只由发布成功后的 mark_file_completed 写），
+    // 所以发布失败时 DB 里应当**恰好**停在第 10 块。
+    const CHUNKS: usize = 11;
+    let data: Vec<u8> = (0..CHUNKS * CHUNK_SIZE).map(|i| (i % 251) as u8).collect();
+    let name = "retry.bin";
+    let source_id = FileSourceId("retry-src".to_string());
+
+    let host_a = MemoryHost::new().with_source(
+        source_id.clone(),
+        HostFileMetadata {
+            name: name.to_string(),
+            relative_path: name.to_string(),
+            size: data.len() as u64,
+            modified_at: None,
+            checksum: None,
+            save_dir: None,
+        },
+        data.clone(),
+    );
+    // MemoryHost 的 sink id 就是 relative_path。
+    let host_b = MemoryHost::new().failing_finalize(FileSinkId(name.to_string()));
+    let (node_a, node_b) = connected_paired_pair(host_a, host_b).await;
+
+    let prepared_id = Uuid::new_v4();
+    node_a
+        .transfer
+        .prepare(
+            prepared_id,
+            vec![HostEnumeratedFile {
+                source_id,
+                name: name.to_string(),
+                relative_path: name.to_string(),
+                size: data.len() as u64,
+            }],
+        )
+        .await
+        .expect("prepare");
+    let StartSendResult { session_id } = node_a
+        .transfer
+        .send_offer(
+            &prepared_id,
+            &node_b.peer_id.to_string(),
+            "node-a",
+            &[0, 1, 2],
+            TransferOrigin::Human,
+        )
+        .await
+        .expect("send_offer");
+
+    poll_until(
+        || received_offer(&node_b, session_id),
+        Duration::from_secs(10),
+        "B 收到 Offer",
+    )
+    .await;
+    node_b
+        .transfer
+        .accept_and_start_receive(
+            &session_id,
+            CoreSaveLocation::Path {
+                path: "/recv".to_string(),
+            },
+        )
+        .await
+        .expect("accept");
+
+    // 数据全部收下，但发布被注入的故障挡住。
+    let db_b = node_b.db.clone();
+    poll_until(
+        || {
+            futures::executor::block_on(async {
+                ops::get_transfer_projection(db_b.as_ref(), session_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .is_some_and(|p| p.phase == TransferPhase::Suspended)
+            })
+        },
+        Duration::from_secs(20),
+        "接收方因发布失败转入 suspended",
+    )
+    .await;
+
+    let projection = ops::get_transfer_projection(node_b.db.as_ref(), session_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        projection.terminal_reason, None,
+        "发布失败不是终态失败——数据完好，只是没搬过去"
+    );
+    assert!(projection.recoverable, "必须是可恢复的");
+
+    let row = entity::transfer_file::Entity::find()
+        .filter(entity::transfer_file::Column::SessionId.eq(session_id))
+        .one(node_b.db.as_ref())
+        .await
+        .expect("load transfer file")
+        .expect("file row");
+    assert!(
+        !row.completed_chunks.is_empty(),
+        "checkpoint 必须保留——重置它等于让对端把整个文件重传一遍"
+    );
+    assert_eq!(
+        row.transferred_bytes as usize,
+        10 * CHUNK_SIZE,
+        "应停在最后一个节流点（末块刻意不刷 checkpoint）"
+    );
+    assert!(
+        row.local_path.is_none(),
+        "没发布成功就不该有 local_path——它是「文件到底在哪」的唯一事实源"
+    );
+
+    // 故障解除后原地重试：只需补回末块，不必重传前 10 块。
+    node_b.host.clear_finalize_failures();
+    node_b
+        .transfer
+        .initiate_resume(session_id)
+        .await
+        .expect("resume after publish failure");
+
+    wait_completed(node_a.db.as_ref(), session_id, "重试发送方").await;
+    wait_completed(node_b.db.as_ref(), session_id, "重试接收方").await;
+    assert_eq!(
+        node_b.host.sink_bytes(&FileSinkId(name.to_string())),
+        Some(data),
+        "重试后落盘应逐字节等于源"
+    );
+
+    // 恢复只补末块：checkpoint 停在第 10 块，fetch_plan 从那里续。
+    // 这条同时反过来钉住「发布失败不得 reset checkpoint」——一旦重置，
+    // 这里会变成 CHUNKS * 2。
+    let writes = node_b
+        .host
+        .sink_ops()
+        .iter()
+        .filter(|op| matches!(op, SinkOp::Write(_)))
+        .count();
+    assert_eq!(
+        writes,
+        CHUNKS + 1,
+        "首轮写满 {CHUNKS} 块，恢复只补末块 1 次；重传整个文件说明 checkpoint 被重置了"
+    );
+}
+
+/// 空文件必须落地——**哪怕它的那个块从未到达**。
+///
+/// 「收齐即发布」由数据块触发，而空文件唯一的块只出现在**首次**传输的 fetch_plan 里
+/// （`full_fetch_plan` 给它一条 `length == 0` 的 range，发送端据此发一个空块）。
+/// 续传的 `build_fetch_plan` 是按字节 range 推导的（`cursor < file.size`），
+/// 对 `size == 0` 产生不出任何 range；而 `ensure_files_complete` 又对 `size == 0`
+/// 直接放行。两者一叠，「首次传输在空文件的块到达前中断」之后，它永远等不到自己的块，
+/// 会话却报完成——文件从未落地，`local_path` 为空。
+///
+/// 这是删掉会话末尾那段兜底时漏掉的唯一情形（`publish_pending_empty_files` 补住它）。
+/// 构造方式：让排在前面的大文件 publish 失败以制造中断，此刻空文件尚未被处理。
+#[tokio::test(flavor = "multi_thread")]
+async fn e2e_empty_file_is_published_even_when_interrupted_before_its_block() {
+    const CHUNKS: usize = 11;
+    let specs: [(&str, Vec<u8>); 2] = [
+        (
+            "big.bin",
+            (0..CHUNKS * CHUNK_SIZE).map(|i| (i % 251) as u8).collect(),
+        ),
+        ("empty.bin", Vec::new()),
+    ];
+
+    let mut host_a = MemoryHost::new();
+    let mut enumerated = Vec::new();
+    for (idx, (name, data)) in specs.iter().enumerate() {
+        let sid = FileSourceId(format!("empty-case-{idx}"));
+        host_a = host_a.with_source(
+            sid.clone(),
+            HostFileMetadata {
+                name: (*name).to_string(),
+                relative_path: (*name).to_string(),
+                size: data.len() as u64,
+                modified_at: None,
+                checksum: None,
+                save_dir: None,
+            },
+            data.clone(),
+        );
+        enumerated.push(HostEnumeratedFile {
+            source_id: sid,
+            name: (*name).to_string(),
+            relative_path: (*name).to_string(),
+            size: data.len() as u64,
+        });
+    }
+
+    // 大文件发布失败 → 会话中断，此刻空文件还没收到过任何块。
+    let host_b = MemoryHost::new().failing_finalize(FileSinkId("big.bin".to_string()));
+    let (node_a, node_b) = connected_paired_pair(host_a, host_b).await;
+
+    let prepared_id = Uuid::new_v4();
+    node_a
+        .transfer
+        .prepare(prepared_id, enumerated)
+        .await
+        .expect("prepare");
+    let StartSendResult { session_id } = node_a
+        .transfer
+        .send_offer(
+            &prepared_id,
+            &node_b.peer_id.to_string(),
+            "node-a",
+            &[0, 1, 2],
+            TransferOrigin::Human,
+        )
+        .await
+        .expect("send_offer");
+
+    poll_until(
+        || received_offer(&node_b, session_id),
+        Duration::from_secs(10),
+        "B 收到 Offer",
+    )
+    .await;
+    node_b
+        .transfer
+        .accept_and_start_receive(
+            &session_id,
+            CoreSaveLocation::Path {
+                path: "/recv".to_string(),
+            },
+        )
+        .await
+        .expect("accept");
+
+    let db_b = node_b.db.clone();
+    poll_until(
+        || {
+            futures::executor::block_on(async {
+                ops::get_transfer_projection(db_b.as_ref(), session_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .is_some_and(|p| p.phase == TransferPhase::Suspended)
+            })
+        },
+        Duration::from_secs(20),
+        "接收方因发布失败转入 suspended",
+    )
+    .await;
+
+    // 前提确认：空文件此刻确实一次都没被碰过——否则这条测试就退化成了走过场。
+    assert!(
+        node_b
+            .host
+            .sink_ops()
+            .iter()
+            .all(|op| !matches!(op, SinkOp::Write(sink) | SinkOp::Finalize(sink) if sink.0 == "empty.bin")),
+        "构造失败：中断时空文件不应已被处理"
+    );
+
+    node_b.host.clear_finalize_failures();
+    node_b
+        .transfer
+        .initiate_resume(session_id)
+        .await
+        .expect("resume");
+    wait_completed(node_a.db.as_ref(), session_id, "发送方").await;
+    wait_completed(node_b.db.as_ref(), session_id, "接收方").await;
+
+    // 续传的 fetch_plan 里没有空文件，它只能靠 Finish 处的补发布落地。
+    let rows = entity::transfer_file::Entity::find()
+        .filter(entity::transfer_file::Column::SessionId.eq(session_id))
+        .all(node_b.db.as_ref())
+        .await
+        .expect("load transfer files");
+    let empty = rows
+        .iter()
+        .find(|r| r.name == "empty.bin")
+        .expect("empty.bin row");
+    assert!(
+        empty.local_path.as_deref().is_some_and(|p| !p.is_empty()),
+        "空文件必须落地并写下 local_path——会话报完成却没有它，就是静默丢文件"
+    );
+    assert_eq!(
+        node_b.host.sink_bytes(&FileSinkId("empty.bin".to_string())),
+        Some(Vec::new()),
+        "空文件应当真的被创建出来"
+    );
 }
 
 /// 真实断点续传：接收方已落盘前 2 块 + DB checkpoint 标记前 2 块完成，恢复后只补传

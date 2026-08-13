@@ -14,12 +14,12 @@ export function SecureContextBanner() {
   return (
     <div
       role="alert"
-      className="rounded-lg border border-amber-500/40 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-200"
+      className="rounded-lg border border-warning/40 bg-warning/12 px-4 py-3 text-sm text-warning-ink"
     >
       <p className="font-medium">
         <Trans>当前非 secure context，接收文件会失败。</Trans>
       </p>
-      <p className="mt-1 text-amber-800/90 dark:text-amber-200/80">
+      <p className="mt-1 text-warning-ink/90">
         {/* API 名与 URL scheme 是机器值，留在句子里由译者调整位置即可，不单独抽成占位。 */}
         <Trans>
           浏览器在此环境不提供 <code className="font-mono">navigator.storage</code> /{" "}

@@ -53,7 +53,7 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/app
    再 **reserve** 拿到 circuit 地址（浏览器被动接收连接的唯一入口，供对端拨回）。
 2. **分享码**（可选）：需已连一个 DHT-capable helper（浏览器不可达 TCP bootstrap）；lookup 后
    自动回填对端 node id + 地址。
-3. **发送**：填对端 node id、选文件、send —— 走内核 prepare（blake3 checksum + bao outboard）
+3. **发送**：填对端 node id、选文件、send —— 走内核 prepare（**一遍**流式读同时产出 blake3 checksum 与 bao outboard）
    → Offer → 对端接受后推送（每块带 bao proof）。
 4. **接收**：对端 Offer 到达 → 「收到的 Offer」区出现条目 → 接受/拒绝。接受后逐块验证落 OPFS，
    完成后出现下载链接（读回 OPFS 建 blob URL）。
@@ -64,9 +64,9 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/app
 |---|---|
 | `spawn()` | 持久化身份（Window=localStorage / Worker=OPFS）+ IndexedDB 恢复已配对设备与传输会话 → Browser preset + DHT client → 装配 TransferManager + Router → 启动清理（遗留 active 转 suspended） |
 | `node_id()` | 本机 base58 身份 |
-| `connect(addr)` | 拨地址 → `ConnectionJson`（`{ path: "local"\|"direct"\|"relayed", addr }`） |
-| `relays_ensure(helper_addr)` / `relays_drop(id)` | 登记 / 撤销 relay 常驻可达意图（circuit reservation 是持续状态，非一次性 RPC） |
-| `relays_state()` / `relays_changed()` / `relays_until_active(id, signal?)` | reservation 快照 / 变化流 / 等首次 active（得到 circuit 地址） |
+| `connect(addr)` | 拨地址 → `ConnectionJson`（`{ path: "local"\|"direct"\|"relayed", addr }`）。**不是可达性探针**：它对已连接的对端直接返回既有连接快照，测的又是直连而非 reservation，详见方法文档 |
+| `infra_ensure(addr)` / `infra_drop(id)` | 登记 / 撤销基础设施常驻意图（kad + relay 双角色；登记前走 core 的同步校验，circuit reservation 是持续状态、非一次性 RPC） |
+| `infra_links()` / `infra_changed()` / `infra_until_active(id, signal?)` | `InfraLink[]` 快照 / 变化流 / 等首次 active（得到 circuit 地址） |
 | `lookup_share_code(code)` | DHT 查分享码 → `NodeAddrJson`（`{ id, addrs }`） |
 | `send_files(to, files)` | 登记文件源 → prepare → Offer；返回 session_id |
 | `pending_offers()` | 当前挂起入站 offer → `OfferJson[]` |
@@ -138,7 +138,7 @@ cd docs && pnpm install && pnpm dev   # http://localhost:3000/app
   「续传」按钮，故干脆不落库。待决 offer 同理：`pending_offers()` 是 `TransferManager` 的内存态，
   刷新后对端的 offer 已无处应答。**接收方向不受此限**（OPFS 的 `.part` 与 checkpoint 都在，
   `resume(sid)` 可续）。
-- **bao outboard 不落库**（1 GiB 文件 ≈ 4 MiB）：唯一消费方是发送侧，而发送侧本就不跨刷新恢复；
+- **bao outboard 不落库**（1 GiB 文件 ≈ 256 KiB —— chunk group 与 `CHUNK_SIZE` 对齐前是 4 MiB）：唯一消费方是发送侧，而发送侧本就不跨刷新恢复；
   载入恒 `None`，发送端缺失时按源文件重算并回存（内核既有路径）。
 - **checkpoint 写放大随文件大小平方增长**（未优化）：接收侧每 10 个 chunk（2.5 MB）落一次盘，
   每次把整条会话序列化成 JSON 覆写，而 `completed_chunks` 位图以 JSON 数字数组编码有 2–4x 膨胀。

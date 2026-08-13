@@ -69,24 +69,6 @@ impl FileSource {
         }
     }
 
-    /// 流式计算 BLAKE3 hash（不将整个文件加载到内存）
-    pub async fn compute_hash(&self, _app: &tauri::AppHandle) -> AppResult<String> {
-        match self {
-            Self::Path { path } => path_ops::compute_hash(path).await,
-        }
-    }
-
-    /// 流式计算 BLAKE3 hash，每读取一个 chunk 调用 `on_progress(当前文件已读字节数)`
-    pub async fn compute_hash_with_progress(
-        &self,
-        _app: &tauri::AppHandle,
-        on_progress: impl Fn(u64) + Send + 'static,
-    ) -> AppResult<String> {
-        match self {
-            Self::Path { path } => path_ops::compute_hash_with_progress(path, on_progress).await,
-        }
-    }
-
     /// 获取文件或目录的元数据
     pub async fn metadata(&self, _app: &tauri::AppHandle) -> AppResult<FileSourceMetadata> {
         match self {
@@ -111,13 +93,8 @@ impl FileSource {
 #[derive(Clone)]
 pub struct TauriFileAccess {
     app: tauri::AppHandle,
-    active_sinks: Arc<DashMap<FileSinkId, ActiveSink>>,
-}
-
-#[derive(Clone)]
-struct ActiveSink {
-    part_file: Arc<PartFile>,
-    checksum: Option<String>,
+    /// 已创建、尚未发布的 `.part` 写入句柄。
+    active_sinks: Arc<DashMap<FileSinkId, Arc<PartFile>>>,
 }
 
 impl TauriFileAccess {
@@ -197,13 +174,8 @@ impl FileAccess for TauriFileAccess {
             .create_part_file(&metadata.relative_path, metadata.size, &self.app)
             .await?;
         let sink_id = FileSinkId(metadata.relative_path);
-        self.active_sinks.insert(
-            sink_id.clone(),
-            ActiveSink {
-                part_file: Arc::new(part_file),
-                checksum: metadata.checksum,
-            },
-        );
+        self.active_sinks
+            .insert(sink_id.clone(), Arc::new(part_file));
         Ok(sink_id)
     }
 
@@ -216,13 +188,8 @@ impl FileAccess for TauriFileAccess {
             .open_or_create_part_file(&metadata.relative_path, metadata.size, &self.app)
             .await?;
         let sink_id = FileSinkId(metadata.relative_path);
-        self.active_sinks.insert(
-            sink_id.clone(),
-            ActiveSink {
-                part_file: Arc::new(part_file),
-                checksum: metadata.checksum,
-            },
-        );
+        self.active_sinks
+            .insert(sink_id.clone(), Arc::new(part_file));
         Ok(sink_id)
     }
 
@@ -232,27 +199,34 @@ impl FileAccess for TauriFileAccess {
         offset: u64,
         data: Vec<u8>,
     ) -> swarmdrop_core::AppResult<()> {
-        let active = self
+        let part_file = self
             .active_sinks
             .get(sink)
             .ok_or_else(|| {
                 swarmdrop_core::AppError::Transfer(format!("file sink not found: {}", sink.0))
             })?
             .clone();
-        active.part_file.write_at(offset, &data).await
+        part_file.write_at(offset, &data).await
     }
 
+    /// 发布：`.part` → 最终路径（同盘 rename，原子）。
+    ///
+    /// 失败时 sink 已从 `active_sinks` 摘除、但 `.part` **仍在盘上**——续传会经
+    /// `open_or_create_sink` 重新接上它（大小匹配即复用），不需要重传任何数据块。
     async fn finalize_sink(&self, sink: &FileSinkId) -> swarmdrop_core::AppResult<FinalizedSink> {
-        let (_, active) = self.active_sinks.remove(sink).ok_or_else(|| {
+        let (_, part_file) = self.active_sinks.remove(sink).ok_or_else(|| {
             swarmdrop_core::AppError::Transfer(format!("file sink not found: {}", sink.0))
         })?;
-        let checksum = active.checksum.ok_or_else(|| {
-            swarmdrop_core::AppError::Transfer(format!("file sink checksum missing: {}", sink.0))
-        })?;
-        let path = active
-            .part_file
-            .verify_and_finalize(&checksum, &self.app)
-            .await?;
+        let path = match part_file.publish().await {
+            Ok(path) => path,
+            Err(e) => {
+                // **失败要放回去。** 发布失败不代表这条 sink 作废——`.part` 还在盘上，
+                // 取消路径的 `cleanup_sink` 要靠表里这一条才找得到它去删。摘走不放回，
+                // 用户取消之后一个全尺寸的 `.part` 会永久留在他的保存目录里。
+                self.active_sinks.insert(sink.clone(), part_file);
+                return Err(e);
+            }
+        };
         // 父目录 = 落盘绝对路径的 dirname(桌面文件系统语义,直接可打开)。
         let dir = path
             .parent()
@@ -265,8 +239,8 @@ impl FileAccess for TauriFileAccess {
     }
 
     async fn cleanup_sink(&self, sink: &FileSinkId) -> swarmdrop_core::AppResult<()> {
-        if let Some((_, active)) = self.active_sinks.remove(sink) {
-            active.part_file.cleanup(&self.app).await;
+        if let Some((_, part_file)) = self.active_sinks.remove(sink) {
+            part_file.cleanup().await;
         }
         Ok(())
     }

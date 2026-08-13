@@ -2,8 +2,8 @@ import { useLingui } from "@lingui/react/macro";
 import { useFocusEffect } from "expo-router";
 import { Check } from "lucide-react-native";
 import { Fragment, useCallback, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Pressable, View } from "react-native";
+import { AppScreen } from "@/components/mobile/screen";
 import { SettingDivider, SettingSection } from "@/components/setting-row";
 import { SettingsHeader } from "@/components/settings-header";
 import { Text } from "@/components/ui/text";
@@ -53,37 +53,34 @@ export default function LanguageScreen() {
   const isSystemSelected = storedLang === null;
 
   return (
-    <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
-      <SettingsHeader title={t`语言`} />
-
-      <ScrollView
-        contentContainerClassName="gap-5 px-5 pt-2 pb-8"
-        showsVerticalScrollIndicator={false}
-      >
-        <SettingSection label={t`选择语言`}>
-          <Row
-            label={t`跟随系统`}
-            selected={isSystemSelected}
-            onPress={() => handleSelect("system")}
-            checkColor={colors.primary}
-          />
-          <SettingDivider />
-          {SUPPORTED_LANGUAGE_CODES.map((code, idx) => (
-            <Fragment key={code}>
-              <Row
-                label={SUPPORTED_LANGUAGES[code].nativeName}
-                selected={!isSystemSelected && storedLang === code}
-                onPress={() => handleSelect(code)}
-                checkColor={colors.primary}
-              />
-              {idx < SUPPORTED_LANGUAGE_CODES.length - 1 ? (
-                <SettingDivider />
-              ) : null}
-            </Fragment>
-          ))}
-        </SettingSection>
-      </ScrollView>
-    </SafeAreaView>
+    <AppScreen
+      scroll
+      header={<SettingsHeader title={t`语言`} />}
+      contentClassName="gap-5 pt-2"
+    >
+      <SettingSection label={t`选择语言`}>
+        <Row
+          label={t`跟随系统`}
+          selected={isSystemSelected}
+          onPress={() => handleSelect("system")}
+          checkColor={colors.primary}
+        />
+        <SettingDivider />
+        {SUPPORTED_LANGUAGE_CODES.map((code, idx) => (
+          <Fragment key={code}>
+            <Row
+              label={SUPPORTED_LANGUAGES[code].nativeName}
+              selected={!isSystemSelected && storedLang === code}
+              onPress={() => handleSelect(code)}
+              checkColor={colors.primary}
+            />
+            {idx < SUPPORTED_LANGUAGE_CODES.length - 1 ? (
+              <SettingDivider />
+            ) : null}
+          </Fragment>
+        ))}
+      </SettingSection>
+    </AppScreen>
   );
 }
 
@@ -112,3 +109,6 @@ function Row({ label, selected, onPress, checkColor }: RowProps) {
     </Pressable>
   );
 }
+
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

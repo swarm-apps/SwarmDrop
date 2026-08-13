@@ -27,6 +27,7 @@ import { SegmentedControl } from "@/components/mobile/screen";
 import { InviteQr, type InviteQrOverlay } from "@/components/pairing/invite-qr";
 import { SentInvites } from "@/components/pairing/sent-invites";
 import { Text } from "@/components/ui/text";
+import { PREVIEW_REJECT_MESSAGE } from "@/core/pairing-labels";
 import { useExpiresCountdown } from "@/hooks/useExpiresCountdown";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { formatCountdown } from "@/lib/format-countdown";
@@ -289,20 +290,13 @@ function PasteInviteInput({ onResolved }: { onResolved: () => void }) {
     if (working || v.length === 0) return;
     setError(null);
     setWorking(true);
-    const ok = await previewInvite(v);
+    const outcome = await previewInvite(v);
     setWorking(false);
-    if (ok) {
+    if (outcome === "ok") {
       onResolved();
       router.push({ pathname: "/pairing/found-device" });
     } else {
-      const reject = usePairingInviteStore.getState().previewReject;
-      setError(
-        reject === "self"
-          ? t`这是你自己的邀请`
-          : reject === "expired"
-            ? t`邀请已过期，请让对方重新生成`
-            : t`邀请无效或已被使用`,
-      );
+      setError(t(PREVIEW_REJECT_MESSAGE[outcome]));
     }
   };
 

@@ -9,9 +9,9 @@ use async_trait::async_trait;
 use crate::AppResult;
 use crate::incoming::TransferOfferEvent;
 use crate::progress::{
-    PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent, TransferDbErrorEvent,
-    TransferFailedEvent, TransferPausedEvent, TransferProgressEvent, TransferRejectedEvent,
-    TransferResumedEvent,
+    FilePublishEvent, PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent,
+    TransferDbErrorEvent, TransferFailedEvent, TransferPausedEvent, TransferProgressEvent,
+    TransferRejectedEvent, TransferResumedEvent,
 };
 use crate::store::TransferProjection;
 
@@ -19,17 +19,43 @@ use crate::store::TransferProjection;
 /// core 的适配器做 1:1 映射）。
 #[derive(Debug, Clone)]
 pub enum TransferEvent {
-    TransferOfferReceived { offer: TransferOfferEvent },
-    TransferProgress { event: TransferProgressEvent },
-    TransferAccepted { event: TransferAcceptedEvent },
-    TransferRejected { event: TransferRejectedEvent },
-    TransferCompleted { event: TransferCompleteEvent },
-    TransferFailed { event: TransferFailedEvent },
-    TransferPaused { event: TransferPausedEvent },
-    TransferResumed { event: TransferResumedEvent },
-    TransferDbError { event: TransferDbErrorEvent },
-    TransferProjection { projection: TransferProjection },
-    PrepareProgress { event: PrepareProgressEvent },
+    TransferOfferReceived {
+        offer: TransferOfferEvent,
+    },
+    TransferProgress {
+        event: TransferProgressEvent,
+    },
+    TransferAccepted {
+        event: TransferAcceptedEvent,
+    },
+    TransferRejected {
+        event: TransferRejectedEvent,
+    },
+    TransferCompleted {
+        event: TransferCompleteEvent,
+    },
+    TransferFailed {
+        event: TransferFailedEvent,
+    },
+    TransferPaused {
+        event: TransferPausedEvent,
+    },
+    TransferResumed {
+        event: TransferResumedEvent,
+    },
+    TransferDbError {
+        event: TransferDbErrorEvent,
+    },
+    TransferProjection {
+        projection: TransferProjection,
+    },
+    PrepareProgress {
+        event: PrepareProgressEvent,
+    },
+    /// 单个文件正在从暂存位置发布到用户可见位置（收齐即发布，一个会话里会发生多次）。
+    FilePublish {
+        event: FilePublishEvent,
+    },
 }
 
 /// transfer 事件发射端口。core 侧适配器实现，把 [`TransferEvent`] 转 `CoreEvent`。

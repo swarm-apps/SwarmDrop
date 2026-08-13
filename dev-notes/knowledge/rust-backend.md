@@ -139,8 +139,12 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase];   // 住在共享 crate
 
 | 端口 | 装什么 | 桌面 | 移动 | Web |
 |---|---|---|---|---|
-| `KeychainProvider` | **秘密**：Ed25519 身份私钥、WebRTC 证书。不出进程、不可导出 | 系统钥匙串（dev 走 `dev-identity.json`） | iOS Keychain / Android EncryptedSharedPreferences | **没有实现** |
-| `PairedDeviceStore` | **业务数据**：已配对设备列表。可导出、每次写都是整份快照覆写 | 同上后端的一个条目 | 同一个存储桥 | IndexedDB 的 `kv` |
+| `KeychainProvider` | **秘密**：Ed25519 身份私钥、WebRTC 证书。不出进程、不可导出 | `identity.json`（0600，**不是**系统钥匙串，见下条） | iOS Keychain / Android EncryptedSharedPreferences | **没有实现** |
+| `PairedDeviceStore` | **业务数据**：已配对设备列表。可导出、每次写都是整份快照覆写 | `paired-devices.json`（独立文件） | 同一个存储桥 | IndexedDB 的 `kv` |
+
+> **trait 名仍叫 `KeychainProvider`，但桌面实现已经不是 keychain。** 端口名描述的是
+> 「安全身份存储」这个**角色**，三端共用；移动端确实是系统 keychain，桌面端 2026-08-11
+> 起是文件。改名要动 uniffi 桥的跨 FFI 契约与三端实现，收益不抵成本。
 
 **约定：端口只 load/save，算法在 core。** 列表语义（`load` / `save` / `upsert` /
 `update_policy` / `remove`）唯一实现在 `swarmdrop_core::paired_devices`，对
@@ -174,6 +178,35 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase];   // 住在共享 crate
 （唯一的列表算法）、`crates/core/src/identity.rs`（只剩密钥材料）、
 `src-tauri/src/host.rs`（`keychain_provider` / `paired_device_store` 两个工厂）、
 `crates/web/src/paired_devices.rs`
+
+### 把 dev 的权宜实现提为生产实现，必补两条：原子写、读取失败不降级（2026-08-11）
+
+桌面身份存储从系统 keychain 换成文件后端时，`file_keychain.rs`（原 dev-only）几乎可以
+原样提正——**但它有两处只在 dev 成立的偷懒，直接提正会把「省事」变成「数据丢失」**：
+
+| dev 的写法 | 生产必须改成 | 不改的后果 |
+|---|---|---|
+| `fs::write` 直接覆盖 | 临时文件 → `sync_all()` → `rename` | 写私钥途中断电 = 截断的 JSON = **身份不可恢复地丢失** |
+| 读失败 `warn!` + 返回 `Default` | 文件不存在 → `Ok(None)`；**存在但解析失败 → `Err`** | 一次磁盘坏块 → `load_identity()` 说「没有身份」→ core 生成新身份**并覆盖原文件**。用户只看到「设备列表空了」，零错误提示 |
+
+第二条尤其反直觉：dev 那句注释写的是「容错读：解析失败一律降级为默认值，**绝不返回
+`Err`**」——在 dev 环境这是对的（永远能起来），在生产它把一个可恢复的读取故障升级成了
+不可恢复的身份替换。**容错的方向要看下游拿它做什么**：下游若会「据此创建并覆盖」，
+容错就是破坏。
+
+推论三条：
+- 权限（unix `0600`）要设在**临时文件上、rename 之前**，否则目标文件有一个「以默认权限
+  存在」的窗口。
+- **不必 fsync 父目录**：那只影响「新内容崩溃后是否保住」，不影响「文件是否损坏」——
+  rename 未持久化时留下的是旧文件的完整内容，不变量仍成立。
+- 密钥与业务数据**分文件**：`paired-devices.json` 会随 identify 观察到的对端改名而重写，
+  与私钥同文件意味着每次改名都擦写一遍承载私钥的那个文件，每次都是一个新的损坏窗口。
+
+两条各有一条护栏测试看守（`corrupt_identity_file_errors_instead_of_resetting` /
+`atomic_write_leaves_no_temp_and_restricts_permissions`），**改实现必须同时改测试**。
+
+**相关文件**：`src-tauri/src/host/identity_store.rs`、
+`openspec/changes/desktop-identity-file-store/design.md`（D3 / D3b）
 
 ### 同一个写动作散在三端，会长出三种失败语义
 
@@ -294,7 +327,7 @@ uniffi 方法返回出去的，还是变成了 `FatalError(String)`。**
 
 | 端口 | 装什么 | 桌面 | 移动 | Web |
 |---|---|---|---|---|
-| `KeychainProvider` | 密钥材料（Ed25519 身份 / WebRTC 证书） | `keyring`（dev 走 `dev-identity.json`） | iOS Keychain / Android EncryptedSharedPreferences | 无实现（身份自管在 `crates/web/src/identity.rs`） |
+| `KeychainProvider` | 密钥材料（Ed25519 身份 / WebRTC 证书） | `identity.json`（0600 文件，三平台统一） | iOS Keychain / Android EncryptedSharedPreferences | 无实现（身份自管在 `crates/web/src/identity.rs`） |
 | `PairedDeviceStore` | 已配对设备列表（整份快照覆写） | 同 keychain 后端的一个条目 | 同一个存储桥 | IndexedDB `kv` |
 | `DeviceConfig` | 用户设的设备名 | `device_config.json` | `data_dir/device_config.json`（同格式） | IndexedDB 键 `swarmdrop.deviceName.v1` |
 | `FileAccess` | 文件读写（source 上半区 + sink 下半区） | 本地 FS + Android SAF | `MobileFileAccessAdapter` | OPFS |
@@ -314,6 +347,34 @@ uniffi 方法返回出去的，还是变成了 `FatalError(String)`。**
 
 **相关文件**：`crates/host/src/ports.rs`、`crates/core/src/host.rs`（`MemoryHost`）、
 `src-tauri/src/host.rs`（工厂 + `AppPaths` 的删除理由）
+
+### 端口打包成 struct 的判据是「去向」，不是「参数个数」（2026-08-12）
+
+`start_node` / `NetManager::new` / `PairingManager::new` 曾各挂一条
+`#[expect(clippy::too_many_arguments)]`，理由都写着「打包成 struct 只是换个容器、
+不减调用方负担」。**那个理由是错的**——收益从来不在参数少几个，在两处：
+
+- **位置换成名字。** 12 个位置参数里的 `None` 要靠数数才知道是 notifier，三个 host 于是
+  各在调用点写一行注释说明它是什么。加端口时也从「每个调用点静默移位」变成「每个调用点
+  缺一个具名字段」——后者编译器会指着说缺哪个。
+- **签名说出了归属。** `PairingPorts` 那四项 `NetManager` **一个都不用**，只是整体转交
+  `PairingManager`；散成四个位置参数时，`NetManager::new` 看起来像是自己也要用它们。
+
+现在的三个参数对象与各自的判据：
+
+| 类型 | 装什么 | 归在一起的**共同不变量** |
+|---|---|---|
+| `NodeCredentials` | 身份密钥 + webrtc PEM + WebTransport 证书端口 | 全部由宿主持久化且**跨重启不变**；任一项换掉，此前分发出去的地址集体失效 |
+| `HostPorts` | 5 个宿主端口（组合根的入参） | 三端各自实现，组合根一次注入 |
+| `PairingPorts` | 其中 4 个（event_bus / notifier / invite_store / paired_store） | **只服务配对域**，`NetManager` 是纯管道 |
+
+**反例同样重要**：`PairingPorts` 刻意**不含** `DeviceConfig`，尽管 `HostPorts` 有它、
+把整份递下去更省事。设备名的落盘必须排在推网络之前（顺序住在 `device_name::rename_device`），
+把那个端口递到配对域等于为「顺手存一下名字」开一条绕过该顺序的路——症状是用户看到
+「改成功了」、重启却变回旧名字。**一个用不到的端口不是无害的冗余，是一条被打开的旁路。**
+
+**相关文件**：`crates/core/src/runtime.rs`（`NodeCredentials` / `HostPorts`）、
+`crates/core/src/pairing/manager.rs`（`PairingPorts`）、`crates/core/src/network/manager.rs`
 
 ### 两个容易被臆测错的 API 事实
 
@@ -427,14 +488,215 @@ fallback，仅在 `parse_completed_ranges` 为空时生效，不构成「线性�
 
 **相关文件**：`crates/transfer/src/lib.rs`、`crates/transfer/src/{actor,flow,wire}/mod.rs`、`crates/transfer/src/epoch.rs`
 
+### `dataDir` 是**应用私有数据区**，不是 documentDirectory（2026-08-09）
+
+移动端传给 `MobileCore::new` 的 `data_dir` 决定了库（`swarmdrop.db`）与接收暂存
+（`<data_dir>/staging/`）住哪。它曾经恒等于 `Paths.document.uri`，而那在 iOS 上正是
+**用户可见的 `Documents`**——一旦开启文件共享（`UIFileSharingEnabled` +
+`LSSupportsOpeningDocumentsInPlace`），用户会在「文件」App 里看到自己的数据库和一堆
+hash 命名的暂存半成品，并且可以删。
+
+**正确做法**：
+
+- `dataDir` 走 `mobile/src/core/paths.ts` 的 `getPrivateDataDir()`：iOS = Application
+  Support（新增的 `modules/app-paths` 原生模块，官方 `FileManager.urls(for:)`），
+  Android = `Paths.document.uri`（系统本就不对用户暴露应用内部存储）。
+- 用户可见的接收落点是**另一个概念**，在 `mobile/src/core/receive-location.ts`，与
+  `dataDir` 没有任何路径关系。
+
+**不要做**：
+
+- 不要从 `Paths.document.uri` 做字符串替换推导 Application Support。那把「两者是兄弟
+  目录」这一容器布局实现细节当成契约，且失败是静默的（在不存在的目录下开库）。iOS 上
+  Application Support **默认不存在，必须显式创建**，推导方案很容易连这步一起漏掉。
+- 不要把 staging 挪去 cache 换取「不占 Documents」——它要跨「中断 → 用户过几天再恢复」
+  存活，cache 会被系统清理（`file_staging.rs:33` 已论证过一次）。
+
+⚠️ Application Support 的路径**含空格**（`…/Library/Application Support`）。原生模块返回
+`URL.absoluteString`（空格编码成 `%20`），由 `utils::parse_host_dir` 的 percent-decode 还原。
+换成裸路径也能工作（decode 对无 `%` 的串幂等），但两端形态就不一致了。
+
+**相关文件**：`mobile/modules/app-paths/`、`mobile/src/core/paths.ts`、
+`mobile/src/core/mobile-core.ts`、`openspec/changes/visible-receive-location/`
+
+### 自动接收的落点跟随宿主，不复制快照（2026-08-09）
+
+`DeviceReceivePolicy.default_save_location` 为空的含义是「**跟随宿主默认**」，不是「没有落点」。
+`evaluate_receive_policy` 在它为空时取 `ReceivePolicyContext.host_default_save_location`，
+后者来自 `IncomingTransferRuntime::host_default_save_location()` → `TransferManager` 里的一份
+运行时镜像，宿主经 uniffi `set_default_save_location` 在**节点启动后**与**用户改接收目录后**推送。
+
+**不要恢复成宿主侧复制**。移动端此前在设置信任策略时把**当时的**全局落点抄进每台设备的策略并
+持久化，代价是：用户之后换了接收目录，被设为「本人设备」的那些仍往旧目录写；旧目录被删则在
+**接受之后**才失败——而「接受前校验」正是落点治本声称消除的东西，那条保证当时只覆盖手动确认。
+
+判据由三条测试钉住（`crates/transfer/src/policy.rs`）：跟随宿主默认、按设备覆盖优先、
+两者皆无才退回手动确认。
+
+**相关文件**：`crates/transfer/src/policy.rs`、`crates/transfer/src/manager.rs`、
+`mobile/packages/swarmdrop-core/rust/mobile-core/src/transfer.rs`、
+`mobile/src/core/receive-location.ts`（`syncReceiveLocationToCore`）
+
+### 接收落点选 SAF 而非 MediaStore（Android，2026-08-09）
+
+Android 11 起 `Android/data/` 连系统文件管理器都不可达，所以「用户可见的接收落点」只有
+两条路。选了 SAF：
+
+| | SAF | MediaStore.Downloads |
+|---|---|---|
+| 新原生代码 | **零**（`publishToTarget` 已走 `content://`） | 需自研 Expo module |
+| 用户交互 | 选一次目录（进引导流程） | 无 |
+| 落点 | 用户指定 | `Download/SwarmDrop/`（`RELATIVE_PATH` 仅为 hint，系统不保证遵守） |
+| 授权持久化 | expo-fs 的 `FilePickerContract.kt:48` 已调 `takePersistableUriPermission` | 不适用 |
+
+判据是「复用已有的整条 publish 路径」压过「省掉一次目录选择」——而那次选择本就该发生：
+「收到的文件放哪」是本应用的核心语义。LocalSend 走的是 MediaStore 默认 + SAF 可改的混合
+形态，将来要做「零交互默认落点」时 MediaStore 是唯一的路，两者可共存。
+
+**探活用 `Directory.exists` 不用 `list()`**：后者要枚举整个目录，用户选 Downloads 时代价
+可观，而我们只想知道能不能访问。
+
+⚠️ **`revoked` 的判定与收件箱 `missing` 的取舍是相反的，别照抄**：探测抛错时 `revoked`
+**判失效**（它每次重算、不落库，误判只是一次多余提示），而 `missing` **不判缺失**
+（单向持久标记，一次 SAF 抖动会永久锁死好文件）。取舍不同的根源是**标记会不会留下**。
+
+**相关文件**：`mobile/src/core/receive-location.ts`、`mobile/src/core/inbox-file-availability.ts`
+
+### 接收是「暂存 → 发布」两段，随机写只施加于本进程拥有的 fd（2026-08-07）
+
+`FileAccess` 的三段式（`create_sink → write_sink_chunk(offset) → finalize_sink`）语义上
+一直是「开一个**可随机写的暂存** → 写 → 发布到目标并回报它最终在哪」。桌面早就这么实现
+（`<dst>/x.part` + rename），移动端与 Web 却把 staging 退化成了目标本身——移动端那次退化
+是致命的，因为它同时占了两个坏条件：写的是最终位置 + 需要 `lseek`，而那个最终位置的
+fd 来自一个当时**没修好**的上游 bug（见下）。
+
+**事故**：接收目录设为系统公共目录（SAF `content://`）时，311 MB 的接收稳定在 45 MB 处
+以 `java.io.IOException: Bad file descriptor` 崩掉，Web 与桌面两个发送端都能复现。
+栈落在 `FileSystemFileHandle.setOffset` → `FileChannelImpl.position0`。
+
+> ⚠️ **归因更正（2026-08-10）：不是「SAF 的 fd 天生不能用」。**
+> 本条原先写的是「`ContentResolver.openFileDescriptor` 的 fd 不归本进程所有，
+> 真正的持有者在 DocumentsProvider 那侧，长时间写入期间它会失效」。**那是误诊。**
+> 真根因是上游 `expo-file-system` 的 `FileSystemFileHandle.forContentURI` 只从
+> `ParcelFileDescriptor.fileDescriptor` 建 `FileChannel`、**不持有那个 PFD**，
+> 第一次 GC 的 finalizer 就把 fd 关了——是**本进程自己的 GC** 关的，与 provider 无关。
+> 本仓早有一份修它的 pnpm patch，但**那份 patch 从未进过 Android 构建**
+> （SDK 56 默认吃预编译 AAR，见 [toolchain.md](toolchain.md) 的「pnpm patch 打在有预编译
+> 产物的原生依赖上会静默失效」）。于是「补丁改了三次、三次都还崩」被反推成一条架构事实。
+> 判别当时就在手边、没人看：`position(long)` 会**先** `ensureOpen()` 却抛 `EBADF` 而非
+> `ClosedChannelException` ⟹ channel 还开着、fd 已失效——这同时符合「provider 回收」与
+> 「本进程 GC 关掉」，**它区分不了两者**，不该被当成前者的证据。真正能区分的是
+> logcat 里 CloseGuard 的 `A ParcelFileDescriptor was not closed`（本进程泄漏），
+> 以及 reason 里有没有异常类名（patch 加的 `describe()` 若没生效就是裸 message）。
+>
+> **下面两条规则不受这次更正影响，都有独立成立的理由，不要顺手删：**
+> ① **「暂存 → 发布」两段**——理由改为：SAF/FUSE 上随机写慢、用户目录不该出现半成品、
+> 暂存要跨「中断 → 过几天再恢复」存活（cache 会被系统清理）、以及下面这条；
+> ② **「发布只做顺序写、绝不 `setOffset`」**——**部分 DocumentsProvider 返回的是不可 seek
+> 的 fd**（管道式 `openDocument`），`position()` 在那类 provider 上一律失败，与 fd 生命周期
+> 无关。SAF 的 `"rw"` 也仍然不开（`FileOutputStream.getChannel()` 是 readable=false 的
+> channel，冒充 "rw" 会让 `readBytes` 抛 `NonReadableChannelException`）。
+
+**正确做法**：
+
+- 接收暂存**恒在应用私有目录**（移动端是 `<data_dir>/staging/`），外部位置只在发布时被
+  **顺序**写一次。发布到 `file://` 目标是同卷 rename（原子、零拷贝），到 SAF 才是真拷贝。
+- 暂存位置必须是 `f(save_dir, relative_path)` 的**确定性函数**——续传靠
+  `open_or_create_sink(metadata)` 重建句柄，而 `HostFileMetadata` 里**没有 session_id**。
+- 私有目录是普通 POSIX 路径，写入不该绕 JS/FFI。移动端因此把 `create_sink` /
+  `write_sink_chunk` / `cleanup_sink` / 本地发布整条下沉进 Rust，`ForeignFileAccess`
+  只剩「读发送源 + 发布到 SAF + 删 SAF 文件」三件平台独占的事。
+
+**不要做**：
+- 不要为了「少一层拷贝」把 staging 直接指向用户选的外部目录。省下的那次 rename
+  换来的是「在一个可能不可 seek、且要长时间持有的外部句柄上做随机写」——
+  上面那四条理由一条都不会因为 fd bug 修好而消失。
+- 发布路径不要漏掉**实地**逃逸校验：词法检查（`is_safe_relative_path`）看不见文件系统，
+  保存目录下一个指向外部的符号链接能让完全合法的 `sub/x.txt` 写到目录外。
+  `create_dir_all` 之后 `canonicalize` 断言仍在 save_dir 内（桌面 `path_ops::ensure_within`
+  一直有，移动端 2026-08-07 才补上）。
+
+**相关文件**：`crates/transfer/src/actor/receiver.rs`（`publish_file`）、
+`mobile/packages/swarmdrop-core/rust/mobile-core/src/file_staging.rs`、
+`src-tauri/src/host/file_sink/`、`openspec/changes/receive-staging-publish/`
+
+### 单个文件收齐即发布，会话终态不做文件级工作（2026-08-07）
+
+`finish_data_channel` 曾把**所有**文件的 finalize 堆在会话 Finish 之后。代价有三：
+所有 sink 从首块一直开到会话结束（N 个 fd）；暂存磁盘峰值是整批总大小；
+更麻烦的是它制造了「bitmap 完整但未 finalize」这个中间态，需要一段 30 行的兜底伺候。
+
+改成收齐即发布之后那个状态消失，兜底整段删除。**但有一个必须同时改的点**：
+
+`persist_chunk` 的 checkpoint 刷新条件原本是 `完成数 % N == 0 || 完成数 >= 总数`，
+**末块一定会刷**。于是「收齐 → 完整 bitmap 落库 → 发布失败 → 中断」之后，续传时
+`first_missing_range` 跳过该文件、`fetch_plan` 不含它，**再也不会触发发布**，
+而 `ensure_files_complete` 只看 bitmap 会让 UI 报完成——文件永久停在暂存里。
+
+**正确做法**：末块**不刷** checkpoint，完整 bitmap 只由发布成功后的
+`mark_file_completed` 写。于是不变量成立：**DB 里 bitmap 完整 ⟺ 该文件已发布**。
+发布失败时 DB 停在上一个节流点，续传重拉最多 `CHECKPOINT_INTERVAL - 1` 块后重试，自愈。
+
+连带的失败语义：逐块验签接管完整性之后 finalize 不再校验（桌面那遍整文件 BLAKE3 是
+bao 落地前的遗留，已删），所以它失败**只可能**是「数据是好的、只是搬不过去」。
+因此**不得 `reset_file_checkpoint`**——那会让对端重传整个文件。直接 `?` 上抛即可，
+冒泡到 `start_data_channel` 的 Err 分支就是既有的可恢复 Interrupted 路径。
+
+**已知限制**：发布成功与 `mark_file_completed` 之间有一个 await 的窗口，进程在此被杀会
+留下「暂存已消失、bitmap 却不完整」的状态，续传会新建空暂存只补末几块、产出有洞的文件。
+这是既有缺陷（`.part` 时代同样存在），修它需要 `open_or_create_sink` 回报「是新建还是续上」，
+属于端口签名变更，单独立项。实现上的纪律是：**那两步之间不插入任何其他 await**。
+
+### 空文件是唯一无法靠数据块触发的情形——删兜底时最容易漏掉它
+
+改成「收齐即发布」时，会话末尾那段兜底被整段删除，理由是它照顾的状态已不可达。
+**但那段兜底照顾的是两种情形，只有一种消失了。**
+
+`size == 0` 的文件没有数据块可等，而全仓有两处对它特判、方向相反：
+
+| 判据 | 对 `size == 0` | 问的问题 |
+|---|---|---|
+| `first_missing_range` / `ensure_files_complete` | 直接跳过，**恒为完成** | 还差哪段字节？空文件没有字节可缺 |
+| `build_fetch_plan`（续传） | `cursor < file.size` 恒 false，**产生不出任何 range** | 要向对端要哪些字节？ |
+| `full_fetch_plan`（首次） | 给一条 `length == 0` 的 range | —— |
+| `checkpoint::file_is_complete` | 要求那唯一一块被标记 | 这个文件**发布**了吗？ |
+
+于是：首次传输时空文件还能靠那条 `length == 0` 的 range 走通常路径（发送端发一个空块）；
+但**只要首次传输在它的块到达前中断**，续传就再也不会为它产生 range，它永远等不到自己的块，
+而 `ensure_files_complete` 又放行——会话报完成，文件却从未落地、`local_path` 为空。
+
+**正确做法**：在 Finish 处补一次发布（`ReceiverActor::publish_pending_empty_files`），
+只针对空文件、且幂等。这比原来那段「遍历所有文件补 finalize」的兜底聚焦得多。
+
+**教训**：删兜底之前要问「它当初照顾的是**哪几种**情形」，逐条确认每一种都真的不可达——
+而不是只问「现在还可达吗」。这次漏掉是因为设计文档里专门讨论过空文件，但只验证了
+「首次传输能走通」，没验证「中断后续传」。
+
+**相关文件**：`crates/transfer/src/actor/receiver.rs`、`crates/transfer/src/actor/checkpoint.rs`
+（`empty_file_is_byte_complete_but_not_yet_published` 钉住那两条判据的差异）、
+`crates/core/tests/e2e_transfer.rs`（`e2e_empty_file_is_published_even_when_interrupted_before_its_block`）
+
+**相关文件**：`crates/transfer/src/actor/receiver.rs`、
+`crates/core/tests/e2e_transfer.rs`（`e2e_publish_failure_keeps_checkpoint_and_resumes`
+钉住失败语义，`e2e_multichunk_multifile_transfer` 用 `MemoryHost::sink_ops()` 的**时序**
+钉住收齐即发布——这条从终态观察不到）
+
 ### `FileAccess::read_source_chunk` 的 (offset, length) 是严格契约——宿主违约会炸进 blake3
 
 2026-07 事故：桌面→移动传 >16KiB 文件（用户报「图片」）在发送端 prepare 直接
 panic `the subtree starting at 16384 contains at most 16384 bytes`。根因是桌面
 `TauriFileAccess::read_source_chunk` 包旧 256KiB `read_chunk(chunk_index)` 接口时
 **忽略 length、把 offset 取整到 chunk**——旧传输路径恰好只按 CHUNK_SIZE 对齐调用，
-违约被掩盖多时；wire v2 的 bao outboard 构建按 **16KiB leaf 粒度、非对齐 offset**
+违约被掩盖多时；wire v2 的 bao outboard 构建当时按 **16KiB leaf 粒度、非对齐 offset**
 读，一读就炸。≤16KiB 的文件恰好读对，所以「小文本正常、图片必炸」。
+
+> **2026-08 更新**：bao chunk group 已提到 `CHUNK_SIZE`（256KiB），outboard 构建与
+> sender 推送的粒度现在相同，上面那个「16KiB」的具体数字不再成立。**但这条教训成立**
+> ——它讲的是「宿主取整 offset 而调用方不按你以为的粒度调用」，而对齐从来不是
+> `read_source_chunk` 契约的一部分。同一次变更还把内核侧的防御从「只拒超长」收紧成
+> **严格等长**（`bao::FileAccessReader`）：outboard 构建的请求被 bao 依 `size()` clamp 过，
+> `offset + len <= size` 恒成立，所以短读同样是违约，不该退化成一句
+> `unexpected end of file`。
 
 **正确做法**：
 - 宿主实现必须精确返回 `[offset, offset+length)`（EOF 截断，越界读返回空）——
@@ -451,6 +713,75 @@ panic `the subtree starting at 16384 contains at most 16384 bytes`。根因是�
 **相关文件**：`src-tauri/src/host/file_source/path_ops.rs`、
 `crates/transfer/src/bao.rs`（`FileAccessReader` + `roundtrip_from_16kib_offset`）
 
+### 接收端是「收帧 ‖ 消化」两条并发路径，不是一个循环（2026-08-10）
+
+数据面接收由 `run_frame_loop`（独占流）与 `run_digest_loop`（独占持久化状态）经一条容量
+= `WINDOW_CHUNKS` 的有界队列相连，`futures::future::try_join` 并发驱动。
+
+**为什么不是一个循环**：拆之前「读一帧 → 验签落盘 → 再读下一帧」严格串行，于是对端在等
+我们消化、我们在等对端开发，两条路径**永远不重叠**。真机实测的指纹是发送侧 `ack` 88% 与
+接收侧 `wait` 67% **同时成立**——真要重叠，不可能双方等待都占大头。把三段拆开：发送处理
+2.9% / 接收处理 32.8% / 网络 64.3%，串行时是求和，流水线后是取 max。
+
+**三条不能破的不变量**：
+
+1. **`Window` 就地回，不等消化**。旧注释写着「不能提前回，否则在途量失控」——那条约束
+   现在由队列容量承担，改回去等于把流水线焊死。
+2. **背压闭环必须留在应用层**：队列满 → `send` 挂起 → 读不到下一帧 `Window` → 不回确认
+   → 对端停在窗口边界。**不要改成依赖传输层背压**：浏览器 `RTCDataChannel` 没有接收侧
+   背压（`onmessage` 一触发就释放 SCTP 接收缓冲，接收窗口永不收缩），那条路在 Web 端
+   静默失效。
+3. **收齐判定与 `Finish` 确认必须在两条路径都收敛之后**。收帧循环读到 `Finish` 只说明对端
+   不再发了，队列里可能还压着块；在收帧循环里断言会误报未收齐。
+4. **必须是 `join`，不能是 `try_join`**（2026-08-10 code review 抓到的回归）。`try_join` 在
+   第一个 `Err` 上短路并**就地 drop 另一条 future**——那会在 `publish_file` 的 await 点中间
+   取消消化循环。Android 的 SAF 发布是一次几十秒的全量字节拷贝，宿主侧的拷贝 promise
+   取消不掉：文件照样落到用户目录，`mark_file_completed` 却再也不会执行，DB bitmap 停在
+   不完整状态，恢复时整个文件重传并再发布一次 → 用户目录里多出 `foo (1).ext`。这正是
+   `publish_file` 文档里声明「只有强杀进程才能到达」的那个状态，被一个组合子的选择重新
+   打开了。`join` 等两条都收敛，多花的时间以队列深度为上限（≤ 一个窗口）。
+   **两个结果的解包顺序也有讲究**：先 `digest_result?` 再 `frame_result?`——消化端携带真实
+   失败原因，收帧端此时多半只会报一句次生的「消化端已退出」，反过来会把归因盖掉。
+
+**它没有 split 任何流**——`stream` 整条归收帧循环，消化循环只认队列与存储。那条
+「`futures` split 的 BiLock reader half 在 wasm 下不唤醒读端」的坑与本结构无关，也不会被
+它勾出来；这正是选「一条流 + 一条队列」而非「split 成读写两半」的理由。同理它**不 spawn**，
+`try_join` 在同一任务里交错驱动，不要求 `Send`，wasm 单线程一样成立。
+
+**探针也随之拆成两个**（`FrameProbe` / `DigestProbe`）。这不是美观问题：`StageProbe` 的
+「各阶段之和 = 壁钟」只在单条串行路径上成立，横跨两条并发路径会让占比之和越过 100%，
+「差值 = 未计入开销」这条读法直接失效。拆开后两条线各答一问——收帧线 `enqueue` 占大头 =
+消化跟不上；消化线 `queue` 占大头 = 链路喂不饱；两者都小才是流水线满了。
+
+**相关文件**：`crates/transfer/src/actor/receiver.rs`、`crates/transfer/src/probe.rs`
+
+### 把 `Vec<u8>` 当稀疏写入目标 = O(最大偏移) 零填充（2026-08-10）
+
+`positioned_io` 的 `WriteAt for Vec<u8>` 在 `pos >= len` 时先 `resize(pos, 0)` 再写。成本因此是
+**O(最大写入偏移)，不是 O(写入字节数)**——一次 64 字节的写可以触发几 MB 的零填充 + realloc 拷贝。
+
+本仓踩到的形态：`decode_and_verify` 每块新建一个 `Vec` 当 bao outboard 的写入目标，而
+`PreOrderOutboard::save` 把 parent 写到 `pre_order_offset(node) * 64`（随文件位置增长）。7.49 GiB
+的会话末段每块零填充 ~1.87 MiB，接收侧 `verify` 桌面涨 ×19、移动端 ×4.6，表现为「大文件越传越慢」。
+
+**判据**：任何「按偏移写 + 偏移可能很大 + 容器是 `Vec`」的组合都要先问一句成本。这类缺陷
+**不会**表现为峰值内存异常（末态大小就是合理的 outboard 长度），只表现为吞吐随进度衰减——
+所以查内存查不出来。
+
+**不要做**：为了迎合某个库函数的签名去造一个假的写入目标。这次的正解不是「给它一个更快的
+sink」，而是发现 `decode_ranges` 的抽象层级本来就不对——它的契约含「持久化 outboard」，而
+`DecodeResponseIter` 只要 `root` + `tree`，压根不需要 outboard 对象。**选对层级之后 O(n) 是自己
+消失的，不是被绕过的。**
+
+**怎么找到的**（值得复用的方法）：2026-08-10 之前有过一轮纯代码侦察，结论是「Rust 里不存在
+量级足够的 O(已完成)/块 机制」，把归因推给了接收设备的物理侧（闪存 pSLC 耗尽 / 热节流）——
+**是错的**。真正定案靠的是 `crates/transfer/src/probe.rs` 的逐阶段探针：它显示散热无忧的桌面
+接收侧劣化得更厉害，且真正写盘的那一段全程恒定。**排除法永远弱于正向证据**；这类「随进度
+衰减」的问题，先上探针再谈假说。
+
+**相关文件**：`crates/transfer/src/bao.rs`、`crates/transfer/src/probe.rs`、
+`dev-notes/research/2026-08-10-v0.15.2-field-test.md`
+
 ### OsInfo 有 native/display_name helper，别手写设备名回退
 
 `OsInfo`（`crates/host/src/device.rs`）现有两个 helper，新代码优先用它们、别再手写：
@@ -458,7 +789,39 @@ panic `the subtree starting at 16384 contains at most 16384 bytes`。根因是�
   **它不收设备名**——`name` 由 `start_node` 从 `DeviceConfig` 端口填，宿主没有 API 可以注入，这是「本机 OsInfo 只有一个装配点」的编译期保证，不是口头约定。
 - `OsInfo::display_name()`：`name` 去空白后非空则用、否则回退 `hostname`，收敛 UI 显示名的回退语义。
 
-**不要做**：手写 `name.filter(|n| !n.is_empty()).unwrap_or_else(|| hostname.clone())`——仓库里已有几处历史副本（`transfer/incoming.rs` / `mobile events.rs` / `pairing/manager.rs`）对「空串是否回退 / 是否 trim」处理已分叉，是遇到就该收编进 `display_name()` 的技术债，别再添新副本。
+**不要做**：手写 `name.filter(|n| !n.is_empty()).unwrap_or_else(|| hostname.clone())`——遇到就收编进 `display_name()`，别再添新副本。**注意漏 `trim()` 的那种副本是「看起来对」的**：设备名为 `"  "` 时它返回两个空格，而 `display_name()` 回退 hostname，两者只在这一种输入上分叉，没有任何报错。
+
+剩余待收编（2026-08-07 核实）：
+
+| 位置 | 现状 |
+|---|---|
+| `mobile/…/mobile-core/src/events.rs:237` | `!n.is_empty()`，**漏 trim** |
+| `src-tauri/src/mcp/tools.rs:357` | 更远——直接取 `os_info.hostname`（连 `name` 都不看），且找不到设备时把**完整 52 字符 peer_id** 写进 `peer_name` |
+| ~~`crates/transfer/src/incoming.rs`~~ | 已收编（2026-08-07） |
+
+### 落进传输记录的 `peer_name`：一个字段，四个调用点，三种口径（2026-08-07）
+
+`TransferManager::send_offer(…, peer_name, …)` 是三端唯一的发送入口，也是 `peer_name` 列的
+唯一写入者。但**它信任调用方**，于是同一台设备在不同来路下被记成不同的名字：
+
+| 调用点 | 传的是什么 |
+|---|---|
+| `src/routes/_app/send/index.lazy.tsx` | `organizedDeviceName` —— **把本机别名烤进记录** |
+| `src/routes/_app/send/share-target.lazy.tsx` | `deviceDisplayName`（两级） |
+| `mobile/src/app/send/select-device.tsx` | `organizedDeviceName` |
+| `crates/web/src/node.rs` 的 `send_files` | 内核 `OsInfo::display_name()`（2026-08-07 改；**此前是字面量 `"web"`**） |
+
+后果按严重度递增：桌面自己的两条发送路径就不一致；别名改了之后旧记录留着旧别名（别名是
+「我怎么称呼它」，本不该进对端的记录）；而 Web 那个字面量让**发出去的每一条记录都叫「web」**
+——`peerName` 正是列表行里回答「发给谁」的唯一一格，它恒定之后，几行记录除了时间戳完全同形，
+用户报成「传输记录重复展示」。
+
+**接收方向没有这个问题**：它一直是内核在 `incoming.rs` 里派生的，与调用方无关。
+
+更深的做法是**删掉 `peer_name` 参数**，让 `send_offer` 自己经 `PeerDirectory` 派生（接收侧
+现成的那条路），把「收发同名」从注释变成类型保证。代价是 `create_transfer` 在组合根里跑在
+`paired_devices` 装配**之前**（`crates/core/src/runtime.rs`），要么把配对表上提、要么给
+`TransferManager` 做一次晚绑定（`TransferCtrlService` 已有这个形态）。未做。
 
 **更不要做**：`OsInfo::default()`。它产出的是占位主机名，而**需要本机 OsInfo 的地方全在
 `PairingManager` 手上**（`self.os_info`，组合根注入的快照）：`request_pairing` 的
@@ -728,7 +1091,7 @@ but its file is missing")`。这发生在任何 DDL 之前 ——
   只删主文件而留下历史版本的 `-wal`，新库会读到一段本该消失的旧事务。
 
 代价的边界值得写清楚（用户会问）：丢的是**这个库里的**传输历史、收件箱、邀请注册表；
-设备身份与已配对设备在 keychain / `dev-identity.json` / 平台安全存储里，**配对关系不丢**，
+设备身份与已配对设备在 `identity.json` + `paired-devices.json`（桌面）/ 平台安全存储（移动）里，**配对关系不丢**，
 已落盘的文件也不动。
 
 ### 目录式迁移**不能**用 `DeriveMigrationName` —— 它会把版本名变成 `mod`
@@ -1059,25 +1422,43 @@ Direct（局域网点击配对，`/devices` 页「连接」按钮）没有配对
 
 ## 身份存储 (keychain)
 
-### dev 用文件后端、release 用系统 keychain（ad-hoc 签名导致 keychain 拒读）
+### 桌面三平台统一走文件，不用系统 keychain（2026-08-11 起）
 
-`pnpm tauri dev` 编译的是 **ad-hoc 签名（linker-signed）二进制**——`codesign -dvvv target/debug/swarmdrop` 显示 `flags=0x20002(adhoc,linker-signed)`、`TeamIdentifier=not set`，且 `Identifier` 带内容 hash **每次 rebuild 都变**。macOS login keychain 对 ad-hoc 签名进程访问限制极严，所有 `keyring` 请求（**连查询一个不存在的条目**）都返回 `errSecInteractionNotAllowed`（"Platform secure storage failure: User interaction is not allowed."，不弹授权框直接硬拒）。
+> **本条取代了原来的「dev 用文件后端、release 用系统 keychain」。** 那个分叉的前提是
+> 「只有 dev 二进制是 ad-hoc 签名」——**错的**：`tauri.conf.json` 写着
+> `"macOS": { "signingIdentity": "-" }`，release 产物同样是 ad-hoc。两个构建面对的是
+> 同一个签名问题，只是失败形态不同，而只有 debug 那侧承认了它。
 
-表现：设备身份起不来 → `initialize_identity` 抛错 → core `identity.rs` 的 `provider.load_identity().await?` 直接 `?` 传播（`keychain.rs` 只把 `NoEntry` 转 `Ok(None)`，其它错误一律 `Err`，连"生成新身份"退路都没有）→ 前端 `deviceId` 为 null → 点"启动节点"静默无反应。**删 keychain 条目无效**（是签名问题、非条目问题，新签名读旧条目/连查询都被拒）。
+`pnpm tauri dev` 与 release 产物都是 **ad-hoc 签名**（`codesign -dvvv` 显示
+`flags=0x20002(adhoc,linker-signed)`、`TeamIdentifier=not set`，`Identifier` 带内容 hash
+**每次 rebuild 都变**）。macOS 的 keychain ACL 按 designated requirement 匹配调用方，
+ad-hoc 签名没有稳定的 DR，于是：
 
-**正确做法**：
-- 身份存储后端按 build 类型分叉，cfg 边界**唯一集中**在工厂 `crate::host::keychain_provider(&app)`：
-  - `#[cfg(debug_assertions)]` → `FileKeychainProvider`（`app_data_dir/dev-identity.json` 明文持久，写后 `chmod 0600`）
-  - `#[cfg(not(debug_assertions))]` → `DesktopKeychainProvider`（系统 keychain）
-- 工厂返回 `Arc<dyn KeychainProvider>` 统一两分支静态类型（cfg 分支返回不同具体类型，`-> impl Trait` 无法统一）；core 函数签名是 `P: KeychainProvider + ?Sized`，用 `&*provider` 传入。
-- 文件后端必须**持久**（keypair 存盘、复用），否则每次重启换 PeerId 破坏配对测试。`load_identity` 在文件缺失/keypair 空时返回 `Ok(None)`（绝不 `Err`），让 core 走"生成新身份并 save"路径。
-- 调用 `Arc<dyn KeychainProvider>` 的 trait 方法**不需要** `KeychainProvider` 在 scope（trait object 走 vtable）；从具体 struct 换成 `Arc<dyn>` 后记得删掉原 `use ...::KeychainProvider`，否则 unused import warning。
+| 构建 | 表现 |
+|---|---|
+| debug | 所有 `keyring` 请求（**连查询一个不存在的条目**）硬拒 `errSecInteractionNotAllowed`，不弹框 |
+| release | **每次启动弹授权框**，且因为没有稳定标识，系统无法把它写进 item 的可信应用列表——**「始终允许」形同虚设**。启动读三条 item 就弹三次 |
 
-**不要做**：
-- 不要在 `DesktopKeychainProvider` 内部塞 `if-cfg` 降级——release 也可能在 keychain 偶发报错时误把明文私钥落盘；且降级逻辑散落每个方法。独立 provider + cfg 门控 `#[cfg(debug_assertions)] pub mod file_keychain;` 让 release 二进制根本不含文件后端代码。
-- 给新增 `#[tauri::command]` 透传 `app: AppHandle` 改变了命令签名（如 `remove_paired_device` 补 app），但 Tauri 按类型注入、不占前端参数位，前端 invoke 不变；改后跑一次 `pnpm tauri dev` 重新导出 bindings 即可。
+**现在的做法**：三个桌面平台统一文件后端，零 cfg 分叉，`keyring` 依赖已删除。
 
-**相关文件**：`src-tauri/src/host/file_keychain.rs`、`src-tauri/src/host.rs`（`keychain_provider` 工厂）、`crates/core/src/identity.rs`、`src-tauri/src/host/keychain.rs`
+- `identity.json`（keypair + WebRTC 证书 PEM，unix `0600`）+ `paired-devices.json`（设备列表），
+  两个文件，落 `app_local_data_dir`（**不是** `app_data_dir`——Windows 上后者是 `%APPDATA%`
+  会随域漫游配置文件同步，私钥不该漫游；macOS/Linux 两者本就同一目录，所以这不是平台分叉）。
+- 为什么不只改 macOS：**per-app ACL 只有 macOS 有**。Windows 凭据管理器按用户账户隔离、
+  同用户任何进程都能读；Linux Secret Service 仅在 keyring 锁定时加密。按平台分叉要永久
+  携带一个 `cfg(target_os)` 存储后端，代价高于那点收益。
+- 安全形态**如实说**：私钥明文，防「其他用户」不防「同用户下的其他进程」，等同无口令的
+  `~/.ssh/id_ed25519`。对外表述（文档站 / README / 应用内诊断）必须与此一致——
+  **改实现不改宣传是本仓犯过的错**（生物识别那次）。
+- 拿到 Developer ID 之后想切回 keychain：换一个端口实现即可，`keychain.rs` 在 git 历史里
+  完整可取。端口 trait 名保留 `KeychainProvider`（描述角色，移动端确实是 keychain）。
+
+**提为生产实现时补的那两条（原子写 / 读取失败不降级）见上面「把 dev 的权宜实现提为
+生产实现」那条**——它们是这次改动里唯一不能照搬 dev 代码的部分。
+
+**相关文件**：`src-tauri/src/host/identity_store.rs`、`src-tauri/src/host.rs`
+（`keychain_provider` / `paired_device_store` 两个工厂）、`crates/core/src/identity.rs`、
+`openspec/changes/desktop-identity-file-store/`
 
 ## 系统托盘
 
@@ -1145,18 +1526,29 @@ src-tauri 是 rmcp 唯一直接依赖方（`tauri-plugin-mcp-bridge` **不**依�
 
 **相关文件**：`src-tauri/src/mcp/{tools,resources,server}.rs`
 
-### keyring 3.x→4.x：feature 体系重构为 v1 facade（旧 feature 全删）+ 仅 release 可验证
+### ~~keyring 3.x→4.x 升级~~ —— **依赖已于 2026-08-11 整体移除**
 
-keyring 4.x 不是无脑 bump：把后端拆成 `keyring-core` + 各平台独立 store crate，默认 `v1` feature 按 target 自动 set_default_store。**旧 feature（apple-native/windows-native/linux-native-sync-persistent/crypto-rust/vendored）全部移除**，保留会编译失败。
+> **本条已作废，保留是因为它记录了一次真实的踩坑。** `keyring` 依赖、`host/keychain.rs`
+> 与 debug/release 的存储二选一都已删除，桌面三平台统一走 `identity.json` 文件后端
+> （见上面「桌面三平台统一走文件，不用系统 keychain」）。**若将来拿到 Developer ID
+> 想切回 keychain，下面这些仍然适用**，那份实现在 git 历史里完整可取。
 
-**正确做法**：
-- 删掉三个 `[target.'cfg(...)'.dependencies]` keyring 块，合并为 `[dependencies]` 单行 `keyring = "4.1.2"`（不要再写 default-features=false 或旧 feature 名）。
-- `keychain.rs` 源码**零改动**：`Entry::new` / `set_secret`/`get_secret` / `set_password`/`get_password` / `delete_credential` / `KeyringError::NoEntry` / `{error}` Display 全兼容。`pub mod keychain` 无条件编译，故 debug `cargo check` 即可覆盖；release cfg 工厂分支用 `cargo check --release` 坐实。
-- Linux 后端由 dbus-secret-service 换纯 Rust zbus，不再链接 libdbus/OpenSSL；`release.yml` 无 keyring 专属 apt 依赖、无需改。
+keyring 4.x 不是无脑 bump：把后端拆成 `keyring-core` + 各平台独立 store crate，默认 `v1`
+feature 按 target 自动 set_default_store。**旧 feature（apple-native/windows-native/
+linux-native-sync-persistent/crypto-rust/vendored）全部移除**，保留会编译失败。合并为
+`[dependencies]` 单行 `keyring = "4.1.2"`（不要再写 default-features=false 或旧 feature 名）。
+Linux 后端由 dbus-secret-service 换纯 Rust zbus，不再链接 libdbus/OpenSSL。
 
-**验证盲区（务必真机）**：keyring 仅 release build 生效（debug 走 `file_keychain`）+ macOS ad-hoc 签名进程被 Keychain 拒读 → `cargo test`/`pnpm tauri dev` **覆盖不到真实路径**，编译通过≠功能正确。必须出签名 release 包在三平台手测身份读写 + 重启 PeerId 稳定。跨版本 store 实现全换，老用户旧条目可能读不到 → 走"找不到即重建"（[见上 keychain 段]）→ PeerId 重置需重新配对，release note 要提示。
+**留下的一条仍然成立的判据**：跨版本换 store 实现会让老用户读不到旧身份 → PeerId 重置 →
+需重新配对，**release note 必须提示**。2026-08-11 换成文件后端时这条正是主要代价。
 
-**相关文件**：`src-tauri/src/host/keychain.rs`、`src-tauri/src/host.rs`
+⚠️ **移除 keyring 的副作用（未清理）**：存量安装的系统钥匙串里仍留着四条
+`com.yexiyue.swarmdrop` 条目（`device-identity` 是 `set_secret` 存的**原始 Ed25519 私钥**、
+`paired-devices`、`identity-migration-state`、`webrtc-direct-certificate`）。删掉依赖之后
+应用再也够不到它们，**一把已经失去用途的私钥会无限期留在钥匙串里**。macOS 上手动清理：
+`security delete-generic-password -s com.yexiyue.swarmdrop -a device-identity`（四条各一次）。
+
+**相关文件**：（`src-tauri/src/host/keychain.rs` 已删除，见 git 历史）
 
 ### 桌面「用本应用打开文件」（share-target 入口）：文件用 Tauri fileAssociations（按扩展名），别用 public.data 通配
 
@@ -1521,3 +1913,146 @@ hash 一致，纯显示问题）。
 
 **相关文件**：`crates/transfer/src/manager.rs`、`crates/transfer/src/coordinator.rs`、
 `crates/entity/src/lib.rs`
+
+## tracing 的 target 是**前缀匹配**——非 `swarmdrop*` 的 crate 必须单列（2026-08-10）
+
+三端的默认 filter 都是 `swarmdrop=debug,swarmdrop_net=debug`
+（`src-tauri/src/logging.rs` 与 `mobile-core/src/logging/mod.rs` 的 `DEFAULT_FILTER`，
+Web 端是 `crates/web/src/lib.rs` 的 `Targets`）。
+
+`EnvFilter` 的 target 判据是 `meta.target().starts_with(directive_target)`，**不按 `::` 分段**。
+两个推论方向相反，都得记住：
+
+- **好的那面**：`swarmdrop=debug` 一条就覆盖了全部 `swarmdrop_*` crate——`swarmdrop_transfer`、
+  `swarmdrop_core`、`swarmdrop_web` 都不必单列。移动端 `logging/mod.rs` 那条
+  `for target in ["swarmdrop_core", "swarmdrop_net", "swarmdrop_transfer"]` 的测试守的就是它。
+- **坏的那面**：**`webrtc_p2p` 不以 `swarmdrop` 开头，前缀匹配够不着**。于是桌面与移动端
+  在很长一段时间里**一条 webrtc-direct 的日志都收不到**——包括 `udp_mux` 的支路丢包。
+
+这不是理论问题。2026-08-10 诊断「浏览器→桌面恒定 3.3 MB/s」时，头号嫌疑正是那条
+被日志级别整个屏蔽掉的丢包路径：`deliver()` 里 `try_send` 满了就丢包，只留一句
+`tracing::debug!`，而那个 target 根本进不了 filter。**查不到不是因为没丢，是因为看不见。**
+
+**正确做法**：给非 `swarmdrop*` 的关键 crate 单列一条 directive，且三端一起改。
+现在是 `swarmdrop=debug,swarmdrop_net=debug,webrtc_p2p=info`——取 `info` 而非 `debug`，
+是为了只要告警与连接生命周期、不要每包的 trace（Web 端刻意保留 `TRACE`，因为打洞信令
+没有别的可观测手段）。
+
+**相关文件**：`src-tauri/src/logging.rs`、
+`mobile/packages/swarmdrop-core/rust/mobile-core/src/logging/mod.rs`、`crates/web/src/lib.rs`
+
+## 传输吞吐探针：常开、`info!`、汇总由 `Drop` 打（2026-08-10）
+
+`crates/transfer/src/probe.rs` 把每块的壁钟时间摊到若干阶段上，按块数节流地报告。
+读法与四个实测案例写在
+[`dev-notes/research/2026-08-10-transfer-throughput-diagnosis.md`](../research/2026-08-10-transfer-throughput-diagnosis.md) §7。
+
+**收发两侧各有两条探针，不是各一条**（2026-08-12 起两侧都是并发双路径）：
+
+| role | 阶段 | 独占流？ |
+|---|---|---|
+| `send` | `read` · `proof` · `enqueue` | 否（备块） |
+| `send-frame` | `queue` · `write` · `ack` · `rest` | 是（发帧） |
+| `recv-frame` | `wait` · `enqueue` | 是（收帧） |
+| `recv` | `queue` · `verify` · `write` · `ckpt` · `rest` · `publish` | 否（消化） |
+
+命名规则：**`*-frame` 是独占流的那条，裸名是干活的那条。**
+
+**一个探针绝不能横跨两条并发路径**——那会破掉「各阶段之和 = 壁钟」这个判读前提
+（两条路径的耗时会重叠，加总必然超过壁钟，「差值 = 未计入开销」这条读法随之失效）。
+
+判读入口永远是那对互斥的桶：`enqueue` 大 = 下游顶住了（队列常满），`queue` 大 =
+上游跟不上（队列常空），两者都小 = 流水线满。**先用它们定出瓶颈在哪一侧，再往那侧的
+分阶段里看**——反过来先看 `read`/`verify` 的绝对值会误导，流水线满的时候它们本来就该大。
+
+三条设计判据，改它之前先读：
+
+- **常开，不做 feature / `debug_assertions` 门控。** 吞吐问题只在用户机器上出现，
+  关着的探针等于没有。开销是每块 4–6 次 `Instant::now()`，相对 256 KiB 的真实工作量可忽略。
+- **级别必须是 `info!`。** 两端文件层的 `FILE_LEVEL` 就是 `INFO`，`info!` 正好够着——
+  于是探针**自动落进用户日志文件**，排障时让用户导出日志即可（移动端已有
+  设置→关于→导出日志），不必要求他们改 `RUST_LOG` 重跑一次。降成 `debug!` 就丢了这条路径。
+- **汇总由 `Drop` 打，不是调用方显式收尾。** 传输的失败路径有十几个 `?` 与 early return，
+  而**失败的会话恰恰最需要这份数据**（「传到 60% 断了」的现场只存在于那一次）。
+  靠调用方在每条路径上记得收尾不现实。
+
+时间源必须走 `n0_future::time::Instant`（native = tokio，wasm = web_time）——
+`std::time::Instant` 在 wasm 上是 panic（`time not implemented`），与 `progress.rs` 同源。
+
+`lap()` 就地推进打点，所以相邻阶段之间没有间隙，各阶段占比**之和 < 100% 是有意义的信号**：
+差值就是没被任何阶段覆盖的开销。改接线时别破坏这条，否则整个读法就错了。
+
+**相关文件**：`crates/transfer/src/probe.rs`、`crates/transfer/src/actor/sender.rs`、
+`crates/transfer/src/actor/receiver.rs`
+
+## 数据面的两侧都是「独占流的一条 ‖ 干活的一条」（2026-08-12）
+
+收发两端现在同构：一条循环**独占整条流**（收帧 / 发帧），另一条做重活（消化 / 备块），
+中间一条有界 `mpsc`，同任务 `futures::future::join` 驱动。**不 spawn、不 split 流**——
+`AsyncReadExt::split` 的 BiLock reader half 在 wasm 下不唤醒读端，那是整条数据面绕不开的
+硬约束，「一条流 + 一条队列」正是为了不碰它。
+
+四条判据，改任一侧之前都要过一遍：
+
+- **队列深度的判据两侧不同，别互抄。** 接收端 `DIGEST_QUEUE_CHUNKS = WINDOW_CHUNKS`
+  是硬要求（装得下整窗，收帧循环才能立即回 `Window` 放行下一窗）；发送端
+  `PREPARE_QUEUE_CHUNKS = 2` 只需盖住抖动（窗口节奏由本端 pacer 决定，**不经队列**）。
+  抄一个 16 到发送端会白占 4 MiB，还会让下一个人以为那个数有依据。
+- **`join` 不是 `try_join`。** 接收端：`try_join` 会在 `publish_file` 中途 drop 消化循环，
+  留下「文件已落到用户目录、`mark_file_completed` 却没执行」⇒ 恢复时重复发布。
+  发送端：会 drop 正在 `write_frame` 的发帧循环，流上留半截帧，随后写出的 `Abort`
+  被对端读成垃圾 ⇒ **真因当场丢失**。两侧都是正确性要求。
+- **终止帧只能在 join 之后写。** 队列关闭只说明对方收敛了，不代表「干完了」——
+  接收端的 `ensure_files_complete` + Finish 确认、发送端的 `Finish`，都必须等两条 result
+  都 `Ok`。发送端若在循环内部自己写 Finish，备块端失败时对端会被告知「传完了」。
+- **抛那条不是在观察对方退场的。** 接收端抛消化端、发送端抛发帧端。另一条此时只会报
+  「对端已退出」这类次生文案，先抛它会把归因整个盖掉。
+
+**并发结构的测试要构造死锁，不要断言字节。** 流水线化前后**流上的字节完全一样**，
+既有断言（帧计数、窗口边界、错误归因）串行实现全都能过——把两条循环合回一条，CI 全绿而
+吞吐减半，**「慢一倍」在 CI 里没有形状**。发送端那条守卫
+（`pipelines_reading_ahead_of_writing`）的做法是：**造一个把写按住不放、直到源文件被读过
+第二次的对端替身**。串行实现必然死锁（要等写完才读下一块，而写在等下一次读），流水线
+实现会把门推开。失败形态是超时。
+⚠️ 这类测试**自己也会假绿**：门槛写得够不着时它照样过。落之前把门槛调到永远开不了，
+确认它变红——发送端那条真跑过这一步。
+
+**相关文件**：`crates/transfer/src/actor/sender.rs`、`crates/transfer/src/actor/receiver.rs`、
+`openspec/changes/pipeline-send-path/design.md`
+
+## 进度事件是**纯事件驱动**的，传输域里没有任何自走的 tick（2026-08-10）
+
+`TransferProgressEvent` 只在收/发一块数据时从 `emit_chunk_progress` 那条路径上发出
+（`grep -nE 'interval|tick' crates/transfer/src/actor/*.rs` 零命中）。三条推论，前端每一条都会撞上：
+
+1. **字节一停，事件就停。** `ProgressTracker::speed()` 会在最新样本老于 `SPEED_WINDOW` 时归零，
+   于是「停滞之后的**下一帧**」是诚实的——但可能根本没有下一帧。对端安静时，最后那帧原地躺在
+   前端 store 里，界面把一个早已不成立的「剩余 45s」一直显示到会话超时翻挂起。
+   **所以时效判据必须由前端补**：记下帧的到达时刻，超过 `PROGRESS_STALE_MS` 就当 ETA 不可用
+   （`@swarmdrop/shared-view` 的 `usableEta`）。只做「后端归零」是**修不好**这件事的，
+   这一点在 2026-08-10 的审查里被抓到时，DESIGN.md 已经把它写成「已解决」了。
+2. **节流会吃掉最后那一帧，但「强制」的判据必须是「会话收齐」而不是「文件收齐」。**
+   `THROTTLE_INTERVAL` 是 200ms 而块间隔远小于它，所以最后那帧 100% 本来几乎必然被丢弃，
+   UI 停在 99.x% 直接跳完成。现在 `update_file_chunk` 返回「这一块让**整个会话**收齐了」，
+   收发两侧据此给 `progress_event(force)` 传 true。
+
+   **按文件判会退化成 O(N²)，而且是最容易写出来的那个版本。** `CHUNK_SIZE` 是 256 KiB ⇒
+   **任何 ≤256 KiB 的文件都只有一块** ⇒ 那一块必然「让该文件收齐」⇒ 每个小文件强制一帧，
+   而 `progress_event` 每帧都克隆整个 `files` 向量并跨 IPC 序列化。收一个几万文件的目录时，
+   条目数从 `5 × 秒数 × N` 变成 `N²`，光是自家事件流就能把接收吞吐吃光——
+   `emit_best_effort` 就 await 在收块热路径上。中间文件根本不需要强制：会话里还有别的文件
+   在传，帧仍以常规节奏发着，逐文件行至多晚一帧被修正。
+   护栏是 `mid_session_file_completion_should_not_force_a_frame`。
+
+   同源的一条：`FilePublishEvent` 也按尺寸过滤（`PUBLISH_ANNOUNCE_MIN_BYTES = 1 MiB`）——
+   三端都只在发布超过 300ms 后才揭示「正在保存」，小文件的发布必然被丢弃，发了只是白推
+   几万条 IPC 消息。**判据取自 tracker / 文件尺寸自己，而不是调用点各自的 bitmap 计数**
+   ——强制发帧与帧里的数字要同源。
+3. **发布（staging → 用户可见位置）期间一帧都不会有。** 这段在 Android SAF 上是全量字节拷贝、
+   几十秒起步，而它发生在最后一帧把进度打到 100% **之后**。这就是 `FilePublishEvent` 存在的
+   理由：它是**文件级**事件（收齐即发布，一个会话里发生多次），不是给会话级进度事件加字段——
+   后者粒度不对，且发布期没有新样本，同一帧里的 speed/eta 会是陈旧值而 UI 无从分辨。
+   完整取舍见 `openspec/changes/transfer-eta-and-publish-feedback/design.md` 的 D2。
+
+**相关文件**：`crates/transfer/src/progress.rs`、`crates/transfer/src/actor/receiver.rs`、
+`packages/shared-view/src/transfer/progress.ts`、`DESIGN.md` 的 Transfer Progress Contract

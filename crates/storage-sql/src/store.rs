@@ -100,10 +100,6 @@ impl SessionStore for SqlSessionStore {
         .await
     }
 
-    async fn reset_file_checkpoint(&self, session_id: Uuid, file_id: i32) -> AppResult<()> {
-        ops::reset_file_checkpoint(&self.db, session_id, file_id).await
-    }
-
     async fn save_sender_file_progress(
         &self,
         session_id: Uuid,

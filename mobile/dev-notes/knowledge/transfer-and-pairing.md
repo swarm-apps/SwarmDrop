@@ -31,6 +31,125 @@ Rust bridge 的 [history.rs](../../packages/swarmdrop-core/rust/mobile-core/src/
 新增收件箱、设备信任策略或传输活动视图时，不要再从 RN 侧拼 history model；应该先让 core 发
 `TransferProjectionUpdate`，再由 store 合并 projection。
 
+### 「字节收完」不是「文件已保存」——发布态是独立的一张表
+
+接收是 staging → publish 两段：最后一帧进度把条打到 100% **之后** publish 才开始。
+桌面 / Web / iOS 的 publish 是 O(1) 重命名，**Android 的 SAF 目标是全量字节拷贝**
+（6 GB 的文件要写 12 GB，几十秒起步）。不表达这一段，用户看到的就是「进度条满了、
+界面静止几十秒、什么都不说」，而他对「卡死」的反应是强杀应用。
+
+状态源是 `transfer-store` 的 **`publishingBySession`**（core 的 `FilePublish` 事件驱动，
+`started` 建条目 / `finished` 收条目），**不塞进 `progressBySession`**：发布期间没有新样本，
+`speed`/`eta` 会是陈旧值，混进去会直接污染 ETA。
+
+四条从代码看不出来的约束：
+
+1. **事件是文件级的，不是会话级**。收齐即发布，一个 100 文件的会话会来 100 次、散布在
+   整条传输里，不是末尾一次。
+2. **字节数由 JS 侧直接上报，不过 Rust**。数字本来就在
+   [foreign-file-access.ts](../../src/core/foreign-file-access.ts) 的 `copyIntoTarget` 循环里。
+   让 Rust 拿到它就要给三端共用的 `FileAccess` 端口加进度回调参数，而另外三个实现根本
+   没有循环可上报——为一个平台的慢路径改三端共用签名，方向是反的。
+   上报**从 `publishToTarget` 入口起算**：`ensureSafTargetFile` 会逐层 `parent.list()` 全量
+   枚举，用户选 Downloads 这类大目录时，拷贝开始前还有一段同样没有反馈的静止时间。
+3. **上报按 `relativePath` 认领已有条目，认领不上就丢弃**。`MobileFileMetadata` 里没有
+   session_id / file_id，归属只能靠先到的 `started` 事件建立。**不要凭空造条目**——
+   那只会在事件乱序时长出一个没有归属的幽灵横幅。
+4. **发布失败不补发 `finished`**。`publish_file` 出错时 core 只让错误冒泡成可恢复的
+   Interrupted。所以横幅的出口是「非活跃投影 / TransferFailed / TransferPaused 三处清理」，
+   漏掉任何一处都会留下一个永不消失的「正在保存」。
+
+UI 侧：进度条一律 `tone="local"`（纯本机阶段，不加第四档 tone）；有字节可报走百分比，
+否则只点名文件、不画一个永远停在 0 的数字。判据在根目录 `DESIGN.md` 的
+`Transfer Progress Contract`。
+
+**发布是活跃版式内部的一次替换，不是另一套版式。** 详情页曾用 `if (publishing) return
+<PublishProgressBlock/>` 整块换分支，三个后果：①发布逐文件发生，100 文件的会话让结构抖
+100 次；②3xl 大数字的含义被悄悄换掉（会话进度 → 本文件保存进度），字号版式一模一样，
+于是用户看到进度从 87% 掉到 4% 再跳回去；③`publishedBytes` 从 0 变正数时还会再换一次结构。
+现在：会话百分比与它的条留着（**percent 恒为会话值，换成保存进度会让条倒退**），只换 tone
+与「那格本会声称网络速率」的信息 —— 速度那格发布期整格留空，文件名与保存百分比走下面
+一行。
+
+**三个表面（详情页 / 活动卡 / 主屏行）不只是「同一形状」，是同一个组件**：
+`shared.tsx` 的 `TransferProgressReadout`。差别只有一张 `READOUT_SURFACE` 查表里的三个
+字段（条高 / 间距 / 发布期要不要留字节格），加一个表面会编译期报缺项。此前是逐字重复的
+三段 JSX，于是「发布期该不该留字节格」这类决定散在三个文件里，谁也不知道另外两处怎么写。
+最右那一格的三态（保存百分比 / 剩余时间 / 空）也由 `trailingReadoutOf` 一处判定 ——
+此前是两个并排的条件表达式，读者要自己推它们不会同时为真。
+
+**发布态延迟 `PUBLISH_VISIBLE_AFTER_MS`（shared-view，300ms）才显示。** 常数时间的发布
+（iOS 与 Android 的 `file://` 目标都是 Rust 侧 rename）里 `started` 与 `finished` 背靠背
+到达却是两条独立事件、两次渲染，急着画就是每收齐一个文件闪一下灰——收一个几百个小文件的
+目录时是持续频闪。实现点是 `transfer-store` 的一条会话级定时器：`started` 排、`finished`
+撤，**条目本身晚 300ms 才进 `publishingBySession`**，三个表面读同一张表因而不必各判一次。
+
+**「这次发布值不值得播报」由 `publishingBySession` 独家回答，通知也不例外。**
+条目存在 ⟺ 值得展示 —— 它一次覆盖两条判据：延迟揭示（条目 300ms 后才出现），以及
+「空文件不播报」（`receiver.rs` 的 `emit_publish_phase` 对 `size == 0` 根本不发事件，
+于是永远没有条目）。`reportPublishBytes` 因此**返回是否认领到条目**，
+`foreign-file-access` 的 reporter 据此决定要不要调 `updatePublishProgress`。
+
+⚠️ 这两条此前在 reporter 里各复刻了一份（自己算 300ms、自己判 `total <= 0`），注释还写着
+「两处判据必须一起改」——那正是同一判据存两份的自白。漂了的后果是可见的：应用内不显示、
+常驻通知却在「正在保存 ⇄ 接收中」之间频闪（切模式会重置 500ms 限流，每个文件都挤得进来），
+含大量 `__init__.py` 的会话尤其明显。现在应用内与通知同一处实现，不可能再各说各的。
+
+**发布态文案带 `accessibilityLiveRegion="polite"`，且必须常驻挂载。** 它存在的全部意义就是
+解释一段静止（Android 的 SAF 全量拷贝），而随内容一起挂上去的 live region 经常一声不响；
+不发布时渲染空串（`PublishingSlot`）。**只贴这一格、不贴整行**——整行还装着每秒都在变的
+字节数与 ETA，贴上去等于让读屏用户每秒被念一遍。iOS 没有对等的
+`announceForAccessibility`：那一端的发布是同卷 rename，压根到不了 300ms 的揭示阈值，
+写了也是永不执行的代码。
+
+**相关文件**：[src/stores/transfer-store.ts](../../src/stores/transfer-store.ts)、
+[src/components/transfer/shared.tsx](../../src/components/transfer/shared.tsx)、
+[src/core/foreign-file-access.ts](../../src/core/foreign-file-access.ts)、
+[src/core/foreground-service.ts](../../src/core/foreground-service.ts)、
+`packages/shared-view/src/transfer/session-timers.ts`（会话级定时器台账，
+2026-08-10 从 `src/stores/session-timers.ts` 提上去三端共用）
+
+### ETA 不是在传输出问题时消失，而是在传输出问题时撒谎
+
+后端 `ProgressTracker::speed()` 确实会在样本老于滑窗时归零，于是停滞之后的**下一帧**会诚实地
+带上 `speed: 0` / `eta: null`。问题是**可能根本没有下一帧**：进度事件只从收块路径上发出，
+传输域里没有任何自走的 tick。对端一安静，最后那帧就永远躺在 store 里，界面把一个早已不成立的
+「剩余 45s」一直显示到会话超时。
+
+**三件事缺一不可**：
+
+1. store 写进度时一并记下到达时刻 —— `ProgressFrame = MobileTransferProgress & { receivedAt }`，
+   `updateProgress` 里取 `Date.now()`。**不能在渲染时取**：那是「渲染时刻」，永远新鲜、等于没判。
+2. 渲染前过 `usableRates(frame, receivedAt, Date.now())`（`@swarmdrop/shared-view`，
+   保鲜期 `PROGRESS_STALE_MS = 6000` = 2× 后端滑窗）。**本端不另存一份 6000。** 收口在
+   `shared.tsx` 的 `frameRates`，`EtaLabel` 与 `SpeedLabel` 都走它：收整帧而不是
+   `seconds` / `speed`，所以三个表面不可能漏判。
+   ⚠️ **速度与剩余时间必须一起过期。** 两者同源于后端同一个滑窗，分开判的后果是同一行里
+   一个诚实一个撒谎——详情页曾直接渲染 `formatSpeed(Number(progress.speed))`，于是停滞时
+   显示「12.4 MB/s · 计算中」，比两个都冻住更像 bug。已传字节 / 百分比**不在此列**：
+   它们是累计量，作废会让进度条倒退。
+3. **必须有东西在陈旧那一刻触发重算** —— 停滞时没有新事件就没有重渲染，界面会永远停在最后
+   一帧画好的样子上。`updateProgress` 排一条 `PROGRESS_STALE_MS` 的会话级定时器
+   （`ageProgressFrame`），到点把那一帧**换一次对象身份**（内容一字不改），memo 化的卡片据此
+   重算、`usableRates` 此时把两个数一起判成 null。定时器在会话终态 / 记录被删 / 列表重载 /
+   reset 时撤掉。
+
+**已知缺口**：Android 前台通知只在收到新帧时重绘，所以停滞时它那格 ETA 仍会停在最后一个值。
+补它需要一个会话级的通知刷新器（重绘要 direction / 计数 / 百分比全套），本轮未做。
+
+**相关文件**：[src/stores/transfer-store.ts](../../src/stores/transfer-store.ts)、
+[src/components/transfer/shared.tsx](../../src/components/transfer/shared.tsx)、
+`packages/shared-view/src/transfer/progress.ts`
+
+### 列表的 `extraData` 要挂全部高频表，不能只挂 `progressBySession`
+
+`SectionList` / `FlatList` 只在 `extraData` 引用变化时重渲染行。发布期**没有新的进度事件**
+（字节已收完），只挂 `progressBySession` 的话「正在保存」这一态永远画不出来——症状是
+「详情页有、列表页没有」。两张表一起进 `useMemo` 的数组里。
+
+**相关文件**：[src/app/activity.tsx](../../src/app/activity.tsx)、
+[src/app/transfer/search.tsx](../../src/app/transfer/search.tsx)
+
 ### App 重启后的活跃传输标记为 AppRestarted
 
 `reconcile_stale_sessions()` 在 mobile-core 初始化时会把 DB 里遗留的活跃会话统一过渡到

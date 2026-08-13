@@ -199,7 +199,7 @@ export function transferSessionHref(sessionId: string): string {
  * 已归档的目标——点进去看到的是一个没有它的列表。生产方通常已经知道目标的归档状态
  * （反查拿到的是完整 detail），把它一并编进链接，比让落地页事后猜要诚实。
  *
- * 这与传输侧「选中项参与历史裁剪」（`groupSessions(sorted, selectedId)`）是同一条纪律：
+ * 这与传输侧「选中项参与历史裁剪」（`matchesSessionFilter` + 选中项始终可达）是同一条纪律：
  * 深链要么保证能到达，要么就别给。
  */
 export function inboxItemHref(itemId: string, archived = false): string {

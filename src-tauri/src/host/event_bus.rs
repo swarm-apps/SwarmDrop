@@ -1,81 +1,31 @@
 //! Tauri event delivery for typed core events.
 
-use std::sync::Arc;
-
-use dashmap::DashMap;
 use swarmdrop_core::host::{CoreEvent, EventBus};
-use swarmdrop_core::transfer::progress::PrepareProgressEvent;
 use tauri::AppHandle;
-use tauri::ipc::Channel;
 use tauri_specta::Event as _;
-use uuid::Uuid;
 
 use crate::events::{
-    DeviceRenamed, DevicesChanged, NetworkStatusChanged, PairedDeviceAdded, PairedDeviceRemoved,
-    PairingRequestPayload, PairingRequestReceived, TransferAccepted, TransferComplete,
-    TransferDbError, TransferFailed, TransferOffer, TransferPaused, TransferProgress,
-    TransferProjectionUpdate, TransferRejected, TransferResumed,
+    DeviceRenamed, DevicesChanged, FilePublish, NetworkStatusChanged, PairedDeviceAdded,
+    PairedDeviceRemoved, PairingRequestPayload, PairingRequestReceived, PrepareProgress,
+    TransferAccepted, TransferComplete, TransferDbError, TransferFailed, TransferOffer,
+    TransferPaused, TransferProgress, TransferProjectionUpdate, TransferRejected, TransferResumed,
 };
 
-/// 把 core 的 [`CoreEvent`] 翻译为 Tauri `app.emit(...)`。
+/// 把 core 的 [`CoreEvent`] 翻译成 tauri-specta 的 typed event 广播。
 ///
-/// 对于 [`CoreEvent::PrepareProgress`]：根据 `prepared_id` 路由到对应的
-/// [`Channel`] 推送给前端（per-call channel，比全局 emit 高效）。
+/// **全部走广播，一个 per-call channel 都没有。** `PrepareProgress` 曾是唯一的例外
+/// （`DashMap<Uuid, Channel>` + RAII guard 路由到发起那次 invoke 的前端），理由见
+/// [`crate::events::PrepareProgress`] 的文档——简言之那不是权衡的结果，而是它比 typed
+/// events 早生三个月、后来的迁移又把它漏下了。副作用是 MCP 发起的 prepare 进度 100%
+/// 被静默丢弃（它没有 invoke 可挂 channel）。
 #[derive(Clone)]
 pub struct TauriEventBus {
     pub app: AppHandle,
-    /// prepared_id → Channel 路由表，commands::prepare_send 中注册/注销
-    prepare_channels: Arc<DashMap<Uuid, Channel<PrepareProgressEvent>>>,
 }
 
 impl TauriEventBus {
     pub fn new(app: AppHandle) -> Self {
-        Self {
-            app,
-            prepare_channels: Arc::new(DashMap::new()),
-        }
-    }
-
-    /// 注册 prepare 进度 channel；返回 RAII guard，drop 时自动注销
-    pub fn register_prepare_channel(
-        &self,
-        prepared_id: Uuid,
-        channel: Channel<PrepareProgressEvent>,
-    ) {
-        self.prepare_channels.insert(prepared_id, channel);
-    }
-
-    pub fn unregister_prepare_channel(&self, prepared_id: &Uuid) {
-        self.prepare_channels.remove(prepared_id);
-    }
-}
-
-/// `register_prepare_channel` 的 RAII guard：drop 时自动注销
-///
-/// **Why:** prepare 命令可能因为 await 取消、panic 或异常返回而跳过手动 unregister，
-/// guard 保证 channel 不会泄漏在 DashMap 里。
-pub struct PrepareChannelGuard {
-    prepare_channels: Arc<DashMap<Uuid, Channel<PrepareProgressEvent>>>,
-    prepared_id: Uuid,
-}
-
-impl PrepareChannelGuard {
-    pub fn register(
-        bus: &TauriEventBus,
-        prepared_id: Uuid,
-        channel: Channel<PrepareProgressEvent>,
-    ) -> Self {
-        bus.prepare_channels.insert(prepared_id, channel);
-        Self {
-            prepare_channels: bus.prepare_channels.clone(),
-            prepared_id,
-        }
-    }
-}
-
-impl Drop for PrepareChannelGuard {
-    fn drop(&mut self) {
-        self.prepare_channels.remove(&self.prepared_id);
+        Self { app }
     }
 }
 
@@ -86,6 +36,13 @@ impl EventBus for TauriEventBus {
 
         match event {
             CoreEvent::NetworkStatusChanged { status } => {
+                // 托盘的「在线」此前只由生命周期命令写死传入，说不出「它连得上东西吗」。
+                // 这里是唯一每次状态变化都会经过的点，健康度顺路搭在同一条推送上，
+                // 不另开轮询。
+                crate::tray::refresh_tray_health(
+                    &self.app,
+                    crate::node_health::summarize(&status, chrono::Utc::now()).is_isolated(),
+                );
                 NetworkStatusChanged(status)
                     .emit(&self.app)
                     .map_err(map_err)?;
@@ -160,16 +117,17 @@ impl EventBus for TauriEventBus {
                     .map_err(map_err)?;
             }
             CoreEvent::PrepareProgress { event } => {
-                // prepare 进度只走 per-call Channel（前端 `new Channel<PrepareProgress>()` 消费）；
-                // 无对应 channel（prepared_id 已结束 / 无人监听）则丢弃。
-                // 旧的全局 `app.emit("prepare-progress")` fallback 前端从不 listen，已移除。
-                if let Some(channel) = self.prepare_channels.get(&event.prepared_id) {
-                    let _ = channel.send(event);
-                }
+                PrepareProgress(event).emit(&self.app).map_err(map_err)?;
+            }
+            CoreEvent::FilePublish { event } => {
+                FilePublish(event).emit(&self.app).map_err(map_err)?;
             }
             CoreEvent::Error { .. } => {}
-            // #[non_exhaustive]：未知变体直接忽略
-            _ => {}
+            // `CoreEvent` 是 `#[non_exhaustive]`，所以漏接一个变体**不会**编译失败。
+            // **必须留日志**：否则症状是「事件发了、前端没反应」，而两边代码都看着正常。
+            other => {
+                tracing::warn!("桌面事件转发未覆盖的 CoreEvent，已丢弃: {other:?}");
+            }
         }
 
         Ok(())

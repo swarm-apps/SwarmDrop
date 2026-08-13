@@ -40,14 +40,15 @@ import { cn } from "@/lib/cn";
 import { CONNECTION_META } from "../_lib/device-presentation";
 import { useCopyToClipboard } from "../_lib/use-copy";
 import type { Device } from "../_lib/view-types";
+import { CONNECTION_LABEL } from "./transfer-labels";
 
 export function ConnectionBadge({ device }: { device: Device }) {
   const { t } = useLingui();
 
-  const isOnline = device.status === "online";
-  const meta = isOnline && device.connection ? CONNECTION_META[device.connection] : null;
-  if (!meta) return null;
+  const { connection } = device;
+  if (device.status !== "online" || !connection) return null;
 
+  const meta = CONNECTION_META[connection];
   const details = device.connectionDetails;
   const latency = formatLatency(device.latency);
   const transport = transportLabel(details?.transport);
@@ -66,7 +67,7 @@ export function ConnectionBadge({ device }: { device: Device }) {
       className={cn("gap-1 border-transparent transition-colors group-hover:border-current/30", meta.className)}
     >
       <meta.Icon className="size-3" aria-hidden />
-      <ConnectionLabel connection={device.connection} />
+      {t(CONNECTION_LABEL[connection])}
       {latency && <span className="font-mono tabular-nums">{latency}</span>}
     </Badge>
   );
@@ -126,7 +127,7 @@ export function ConnectionBadge({ device }: { device: Device }) {
           // 只在「还挂着中继」时才有意义——升级成了 path 就不是 relay 了。
           // 这一句把两种在徽标上完全同形的状态分开：对端本来就在外网 vs
           // 对端就在同一网段却连不上。后者是可行动的，前者不是。
-              <div className="flex gap-2 rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300">
+              <div className="flex gap-2 rounded-lg bg-warning/12 px-3 py-2.5 text-xs text-warning-ink">
                 <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
                 <div className="space-y-1">
                   <p className="font-medium">
@@ -210,15 +211,3 @@ function DetailRow({
   );
 }
 
-function ConnectionLabel({ connection }: { connection: Device["connection"] }) {
-  switch (connection) {
-    case "lan":
-      return <Trans>局域网</Trans>;
-    case "dcutr":
-      return <Trans>打洞</Trans>;
-    case "relay":
-      return <Trans>中继</Trans>;
-    default:
-      return null;
-  }
-}

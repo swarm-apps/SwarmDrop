@@ -16,6 +16,7 @@ use crate::protocol::{
 use crate::{AppError, AppResult};
 use swarmdrop_invite::{
     InviteRegistry, InviteRejectReason, InviteStore, InviteSummary, PairInvite, TransportPolicy,
+    select_invite_addrs,
 };
 
 /// 出站配对调用超时（对齐旧栈 req_resp_timeout，容纳对端等用户决策的长交互）。
@@ -31,84 +32,6 @@ const PENDING_INBOUND_TIMEOUT: Duration = Duration::from_secs(170);
 /// 当前 Unix 秒（邀请 TTL 判定用；chrono 在 wasm 下走 js 时钟）。
 fn now_secs() -> u64 {
     chrono::Utc::now().timestamp().max(0) as u64
-}
-
-/// 每类网络只保留一条原生路径和一条 WebRTC 路径，避免把全部监听地址复制进邀请。
-///
-/// 两类路径分别从整类地址中挑选，不能假设同一网卡一定同时监听所有传输；否则先出现的
-/// TCP-only 网卡会把后续 WebRTC 地址挤掉，桌面生成的邀请便可能无法从 Web 端打开。
-fn select_invite_addrs(addrs: Vec<Addr>, policy: TransportPolicy) -> Vec<Addr> {
-    let mut shared = Vec::new();
-    let mut lan = Vec::new();
-    let mut public = Vec::new();
-    let mut benchmark = Vec::new();
-    let mut circuits = Vec::new();
-
-    // 五个类别互斥（`is_private_lan` 只认 RFC1918，`is_public_routable` 已排除
-    // 100.64/10 与 198.18/15），所以分桶顺序只影响可读性，不影响归属。
-    for addr in addrs {
-        if addr.is_loopback_or_unspecified() {
-            continue;
-        }
-        let bucket = if addr.is_circuit() {
-            &mut circuits
-        } else if addr.is_shared_address_space() {
-            &mut shared
-        } else if addr.is_private_lan() {
-            &mut lan
-        } else if addr.is_public_routable() {
-            &mut public
-        } else if addr.is_benchmarking_address() {
-            &mut benchmark
-        } else {
-            continue;
-        };
-        if !bucket.contains(&addr) {
-            bucket.push(addr);
-        }
-    }
-
-    let mut selected = Vec::new();
-    if policy == TransportPolicy::LocalOnly {
-        append_invite_transports(&mut selected, &lan);
-        return selected;
-    }
-
-    append_invite_transports(&mut selected, &shared);
-    append_invite_transports(&mut selected, &lan);
-    append_invite_transports(&mut selected, &public);
-    if shared.is_empty() {
-        append_invite_transports(&mut selected, &benchmark);
-    }
-    append_invite_transports(&mut selected, &circuits);
-    selected
-}
-
-/// native 优先保留可穿过 UDP 封锁的 TCP（无则 QUIC），浏览器另保留 WebRTC。
-fn append_invite_transports(selected: &mut Vec<Addr>, paths: &[Addr]) {
-    // `!is_webrtc()` 不是冗余：WebRTC 地址底下压着 tcp/udp 段（circuit 打洞地址
-    // `/ip4/…/tcp/…/p2p-circuit/webrtc` 就是），不排除它就会被当 native 选走，
-    // 浏览器那一条反而落空。
-    let native = paths
-        .iter()
-        .find(|addr| addr.is_tcp() && !addr.is_webrtc())
-        .or_else(|| {
-            paths
-                .iter()
-                .find(|addr| addr.is_quic_v1() && !addr.is_webrtc())
-        });
-    let browser = paths.iter().find(|addr| addr.is_webrtc());
-
-    // 两类都没命中说明这一类只有别的传输，留一条免得整类地址丢空。
-    let picked = match (native, browser) {
-        (None, None) => [paths.first(), None],
-        pair => [pair.0, pair.1],
-    };
-    for addr in picked.into_iter().flatten() {
-        if !selected.contains(addr) {
-            selected.push(addr.clone());
-        }
-    }
 }
 
 /// 一次配对达成的产物：设备信息 + 它有没有落盘。
@@ -194,31 +117,46 @@ pub struct PairingManager {
     paired_store: Arc<dyn PairedDeviceStore>,
 }
 
+/// 配对域需要的宿主端口。
+///
+/// 四项**只服务配对域**：[`NetManager`](crate::network::NetManager) 一项都不用，只是把
+/// 它整体转交下来。收成一个类型正是为了让这件事在签名上就看得见——散成四个位置参数时，
+/// `NetManager::new` 看起来像是自己也要用它们。
+///
+/// 刻意**不含** `DeviceConfig`：设备名的落盘必须排在推网络之前，那个顺序住在
+/// [`rename_device`](crate::device_name::rename_device)。把它递到这一层，等于为「在配对
+/// 域里顺手存一下名字」开一条绕过该顺序的路——用户会看到「改成功了」、重启却变回旧名字。
+pub struct PairingPorts {
+    /// 入站配对请求到达时发 [`CoreEvent::PairingRequestReceived`](crate::host::CoreEvent)。
+    pub event_bus: Arc<dyn EventBus>,
+    /// 入站请求的系统通知。`None` = 该端没有这个概念（移动端与浏览器）。
+    pub notifier: Option<Arc<dyn Notifier>>,
+    /// 邀请注册表的落盘端口（native = SQL / wasm = IndexedDB）；传
+    /// [`NoopInviteStore`](swarmdrop_invite::NoopInviteStore) 退回「重启丢邀请」的旧语义。
+    /// **构造后需调用 [`PairingManager::load_invites`]** 把已落盘的邀请读回内存表，
+    /// 否则重启后它们等同不存在。
+    pub invite_store: Arc<dyn InviteStore>,
+    /// 已配对设备列表的持久化端口（桌面 = `paired-devices.json` / 移动 = 系统安全存储 /
+    /// wasm = IndexedDB），[`PairingManager::unpair`] 靠它把解除配对做成原子操作。
+    pub paired_store: Arc<dyn PairedDeviceStore>,
+}
+
 impl PairingManager {
-    /// `invite_store` 是邀请注册表的落盘端口（native = SQL / wasm = IndexedDB），
-    /// 由宿主在组装点注入；传 [`NoopInviteStore`](swarmdrop_invite::NoopInviteStore)
-    /// 退回旧的「重启丢邀请」语义。**构造后需调用 [`Self::load_invites`]** 把已落盘的
-    /// 邀请读回内存表，否则重启后它们等同不存在。
-    ///
-    /// `paired_store` 是已配对设备列表的持久化端口（native = keychain 条目 /
-    /// wasm = IndexedDB），[`Self::unpair`] 靠它把解除配对做成原子操作。
-    ///
     /// `os_info` 是本机设备信息，由组合根注入——**不要在这里 `OsInfo::default()`**，
     /// 那正是「用户设的名字进不了配对请求、也进不了邀请串」这条 bug 的成因。
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "与 NetManager::new 同源：参数都是三端各自供给的端口/身份/配置"
-    )]
     pub fn new(
         endpoint: Endpoint,
         os_info: OsInfo,
         paired_devices: Arc<DashMap<NodeId, PairedDeviceInfo>>,
         devices: Arc<DeviceManager>,
-        event_bus: Arc<dyn EventBus>,
-        notifier: Option<Arc<dyn Notifier>>,
-        invite_store: Arc<dyn InviteStore>,
-        paired_store: Arc<dyn PairedDeviceStore>,
+        ports: PairingPorts,
     ) -> Self {
+        let PairingPorts {
+            event_bus,
+            notifier,
+            invite_store,
+            paired_store,
+        } = ports;
         Self {
             endpoint,
             os_info: RwLock::new(os_info),
@@ -292,11 +230,15 @@ impl PairingManager {
     /// display（名字 + 平台）读本机 [`Self::os_info`] 当下的快照（改名后新发的邀请立即带
     /// 新名字，见 [`Self::set_device_name`]），**不由调用方传入**：三端曾各自
     /// 传一份，桌面与移动传的都是 `OsInfo::default()`，邀请卡上的设备名于是恒为占位主机名。
+    ///
+    /// 本机一条可拨地址都没有时返回 [`AppError::NoDialableAddrs`]，**而不是交出一张废码**
+    /// —— 判据的真源是 `swarmdrop_invite::PairInvite::generate`（那里是类型不变量），这里
+    /// 只负责把它投影成三端 UI 认得的 kind。
     pub async fn encode_invite(
         &self,
         secret: &swarmdrop_net::SecretKey,
         policy: TransportPolicy,
-    ) -> String {
+    ) -> AppResult<String> {
         let now = now_secs();
         let os_info = self.os_info();
         let invite = PairInvite::generate(
@@ -306,11 +248,26 @@ impl PairingManager {
             os_info.display_name(),
             os_info.platform,
             now,
-        );
+        )
+        // 手工 map 而不是 `#[from]`：`AppError` 住在 `swarmdrop-host`，`NoDialableAddrs`
+        // 住在 `swarmdrop-invite`，两个都不是本 crate 的类型，孤儿规则不允许在这里写
+        // `impl From`。让 host 反过来依赖 invite 只为省这一行不值得。
+        .map_err(|_| AppError::NoDialableAddrs)?;
         // 先落盘再返回串：邀请一旦交到用户手上就可能被立刻使用，注册表里没有它就等于
         // 「不认识」→ 直接拒绝。
+        //
+        // ⚠️ 注册表按 `capability` 的哈希索引，而**二维码渲染时会另外裁掉几条地址提示**
+        // （`swarmdrop_invite::qr`，按各端码面）。两者不冲突的依据是：裁剪只动
+        // `inviter.addrs`，`register` 读的三样（`capability` / `expires_at` / `inviter.id`）
+        // 一样都不碰。所以扫码得到的串与这里登记的是同一份凭证。
+        //
+        // 往这后面再加别的改动前，回头核对一遍这个交集：动了 `inviter.id` 就会让已落盘的
+        // 记录与发出去的串指向不同身份，而两边都不会报错。
         self.invite_registry.register(&invite, now).await;
-        invite.encode(secret)
+        // **不裁剪**：密度是二维码的约束，链接没有这回事。回收地址发生在渲染侧
+        // （`swarmdrop_invite::qr` 按各端自己的码面 px 裁），所以这里交出去的是完整地址集
+        // —— 复制粘贴那条路径不必再为扫码受委屈。
+        Ok(invite.encode(secret))
     }
 
     /// 撤销本机发出的邀请：重新生成覆盖旧串、用户主动放弃、关闭邀请界面时调用。
@@ -599,7 +556,7 @@ impl PairingManager {
         let peer_id = device.peer_id;
 
         // **先写内存表，再落盘。** `respond_pairing_request` 在此之前已经把 `Success`
-        // 回给了对端，而落盘是一次真实 I/O（桌面钥匙串 / Web IndexedDB 往返 / 移动平台
+        // 回给了对端，而落盘是一次真实 I/O（桌面文件 / Web IndexedDB 往返 / 移动平台
         // 安全存储）—— 那段窗口里对端可能已经发来 offer，而本机 `is_paired` 还是 false，
         // 会被 `NotPaired` 拒掉。写在 await 之前，这条缝就不存在。
         //
@@ -832,10 +789,12 @@ mod tests {
             OsInfo::default(),
             paired,
             devices,
-            event_bus,
-            None,
-            Arc::new(NoopInviteStore),
-            paired_store,
+            PairingPorts {
+                event_bus,
+                notifier: None,
+                invite_store: Arc::new(NoopInviteStore),
+                paired_store,
+            },
         )
     }
 
@@ -854,10 +813,12 @@ mod tests {
             os_info,
             paired,
             devices,
-            Arc::new(host.clone()),
-            None,
-            Arc::new(NoopInviteStore),
-            Arc::new(host),
+            PairingPorts {
+                event_bus: Arc::new(host.clone()),
+                notifier: None,
+                invite_store: Arc::new(NoopInviteStore),
+                paired_store: Arc::new(host),
+            },
         )
     }
 
@@ -1146,11 +1107,45 @@ mod tests {
         let endpoint = test_endpoint_with(secret.clone()).await;
         let manager = manager_with_os_info(endpoint, injected_os_info());
 
-        let encoded = manager.encode_invite(&secret, TransportPolicy::Auto).await;
+        // ⚠️ 必须先给它一条**非 loopback** 的可拨地址。测试端点只绑 loopback，而
+        // `select_invite_addrs` 把 loopback 全滤掉 —— 零地址现在是 `NoDialableAddrs`，
+        // 生成会直接失败（见 `encode_invite`），这条测试就跑不到它真正要断言的东西。
+        manager
+            .endpoint
+            .set_external_addrs(vec!["/ip4/198.51.100.10/tcp/4001".parse().unwrap()])
+            .await
+            .expect("注入外部地址");
+        let encoded = manager
+            .encode_invite(&secret, TransportPolicy::Auto)
+            .await
+            .expect("有可拨地址时应当生成得出邀请");
         let invite = PairInvite::decode(&encoded).expect("解码本机刚生成的邀请");
 
         assert_eq!(invite.display_name, INJECTED_NAME);
         assert_eq!(invite.display_platform, "macos");
+    }
+
+    /// 本机一条可拨地址都没有时，`encode_invite` 必须**失败**而不是交出一张废码。
+    ///
+    /// 夹具天然成立：测试端点只绑 loopback，而 `select_invite_addrs` 把 loopback 全滤掉
+    /// —— 上一条测试要靠 `set_external_addrs` 才跑得动，正是同一个事实的另一面。这条把
+    /// 那个「顺带发现」变成正面断言。
+    ///
+    /// **判据是 kind 不是「失败了就行」**：`NoDialableAddrs` 与 `NodeNotStarted` 对用户是
+    /// 两回事（等一下 vs 去启动），三端按 kind 渲染文案，落错档就会让用户去点一个已经
+    /// 亮着的开关。
+    #[tokio::test]
+    async fn encode_invite_refuses_when_nothing_is_dialable() {
+        let secret = SecretKey::generate();
+        let endpoint = test_endpoint_with(secret.clone()).await;
+        let manager = manager_with_os_info(endpoint, injected_os_info());
+
+        let result = manager.encode_invite(&secret, TransportPolicy::Auto).await;
+        assert!(
+            matches!(result, Err(AppError::NoDialableAddrs)),
+            "零可拨地址时应当报 NoDialableAddrs，实得 {:?}",
+            result.map(|_| "Ok(邀请串)")
+        );
     }
 
     /// 回归锚点：改名**不得**动 `name` 以外的任何字段，尤其是 `capabilities`。
@@ -1185,94 +1180,5 @@ mod tests {
         assert!(cleared.name.is_none());
         assert_eq!(cleared.display_name(), "raw-hostname");
         assert!(cleared.has_capability(OsInfo::LAN_HELPER_CAPABILITY));
-    }
-
-    #[test]
-    fn auto_invite_keeps_bounded_direct_and_relay_paths() {
-        let relay_id = "12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp";
-        let circuit_tcp = format!("/ip4/203.0.113.9/tcp/4001/p2p/{relay_id}/p2p-circuit");
-        let circuit_quic = format!("/ip4/203.0.113.9/udp/4001/quic-v1/p2p/{relay_id}/p2p-circuit");
-        let circuit_webrtc = format!("/ip4/203.0.113.9/tcp/4001/p2p/{relay_id}/p2p-circuit/webrtc");
-        let selected = select_invite_addrs(
-            vec![
-                addr("/ip4/127.0.0.1/tcp/4001"),
-                addr("/ip4/100.100.200.77/tcp/4001"),
-                addr("/ip4/100.100.200.77/udp/4001/quic-v1"),
-                addr("/ip4/100.100.200.77/udp/4002/webrtc-direct"),
-                addr("/ip4/192.168.1.10/tcp/4001"),
-                addr("/ip4/192.168.1.10/udp/4001/quic-v1"),
-                addr("/ip4/192.168.1.11/udp/4002/webrtc-direct"),
-                addr("/ip4/198.51.100.10/tcp/4001"),
-                addr("/ip4/198.51.100.10/udp/4001/quic-v1"),
-                addr("/ip4/198.51.100.10/udp/4002/webrtc-direct"),
-                addr("/ip4/198.18.0.1/udp/4001/quic-v1"),
-                addr(&circuit_webrtc),
-                addr(&circuit_quic),
-                addr(&circuit_tcp),
-            ],
-            TransportPolicy::Auto,
-        );
-        let expected = vec![
-            addr("/ip4/100.100.200.77/tcp/4001"),
-            addr("/ip4/100.100.200.77/udp/4002/webrtc-direct"),
-            addr("/ip4/192.168.1.10/tcp/4001"),
-            addr("/ip4/192.168.1.11/udp/4002/webrtc-direct"),
-            addr("/ip4/198.51.100.10/tcp/4001"),
-            addr("/ip4/198.51.100.10/udp/4002/webrtc-direct"),
-            addr(&circuit_tcp),
-            addr(&circuit_webrtc),
-        ];
-
-        assert_eq!(selected, expected);
-    }
-
-    #[test]
-    fn auto_invite_uses_benchmark_address_only_without_shared_overlay() {
-        let selected = select_invite_addrs(
-            vec![
-                addr("/ip4/198.18.0.1/tcp/4001"),
-                addr("/ip4/198.18.0.1/udp/4001/quic-v1"),
-            ],
-            TransportPolicy::Auto,
-        );
-
-        assert_eq!(selected, vec![addr("/ip4/198.18.0.1/tcp/4001")]);
-    }
-
-    #[test]
-    fn local_only_invite_keeps_only_bounded_lan_paths() {
-        let selected = select_invite_addrs(
-            vec![
-                addr("/ip4/127.0.0.1/tcp/4001"),
-                addr("/ip4/192.168.1.10/tcp/4001"),
-                addr("/ip4/10.0.0.2/udp/4002/webrtc-direct"),
-                addr("/ip4/172.16.0.3/tcp/4001"),
-                addr("/ip4/198.51.100.10/tcp/4001"),
-            ],
-            TransportPolicy::LocalOnly,
-        );
-
-        assert_eq!(
-            selected,
-            vec![
-                addr("/ip4/192.168.1.10/tcp/4001"),
-                addr("/ip4/10.0.0.2/udp/4002/webrtc-direct"),
-            ]
-        );
-    }
-
-    /// 兜底分支：某一类只剩本函数不认识的传输时，仍要留一条，不能把整类丢空。
-    /// 当前 transport 栈（TCP / QUIC / WebRTC）走不到这里，它是新增传输时的安全网。
-    #[test]
-    fn unknown_transport_class_still_keeps_one_path() {
-        let selected = select_invite_addrs(
-            vec![
-                addr("/ip4/192.168.1.10/udp/4001"),
-                addr("/ip4/192.168.1.11/udp/4002"),
-            ],
-            TransportPolicy::LocalOnly,
-        );
-
-        assert_eq!(selected, vec![addr("/ip4/192.168.1.10/udp/4001")]);
     }
 }

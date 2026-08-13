@@ -52,8 +52,13 @@ pub struct Model {
     pub local_dir: Option<String>,
     /// 发送方 bao-tree post-order outboard（BLOB，direction=send 时有值）。
     ///
-    /// 逐块验签的 Merkle 树，prepare 阶段与 checksum 同一遍构建。持久化避免 resume 时重算
-    /// （1GiB 文件 ≈ 4MiB，约 0.4%）。历史/旧会话为 NULL——发送端载入缺失时按源文件重算并回存。
+    /// 逐块验签的 Merkle 树，prepare 阶段与 checksum 同一遍构建（root **就是** checksum）。
+    /// 持久化避免 resume 时重算（1GiB 文件 ≈ 256KiB，约 0.024%——chunk group 与 `CHUNK_SIZE`
+    /// 对齐之前是 4MiB / 0.4%）。
+    ///
+    /// **可用性判据是长度不是空**：见 `swarmdrop_transfer::bao::is_outboard_usable`。
+    /// chunk group 一变，旧记录的字节仍然「非空且看起来合法」，用 `is_empty()` 判会把它
+    /// 喂进新树、每块验签失败且重算分支永不触发。历史/旧会话为 NULL——同样按源文件重算回存。
     pub outboard: Option<Vec<u8>>,
 }
 

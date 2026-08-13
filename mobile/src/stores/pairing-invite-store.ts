@@ -32,6 +32,17 @@ export const INVITE_TTL_SECS = 86_400;
 export type PreviewReject = "expired" | "self" | "invalid";
 
 /**
+ * `previewInvite` 的完整结果。
+ *
+ * **判别码是返回值，不是 store 里的一个字段。** 此前是「返回 `boolean` + 失败后再去
+ * `getState().previewReject` 捞原因」两半，于是三个调用点（深链 / 扫码 / 粘贴）各自
+ * 抄了一遍「捞 + 三元链给话」，而「在组件里读 store 快照」本身还撞 `check:zustand-access`。
+ * 一次调用的结果就该由那次调用交出来。文案见
+ * [`PREVIEW_REJECT_MESSAGE`](@/core/pairing-labels)。
+ */
+export type PreviewOutcome = "ok" | PreviewReject;
+
+/**
  * `confirmInvite` 被拒的分类。
  *
  * - `userRejected`：对端用户点了拒绝（后端判别码 `user_rejected`）
@@ -73,19 +84,17 @@ interface PairingInviteState {
    */
   selfPeerId: string | null;
   /**
-   * 上一次 `previewInvite` 被拒的**分类**（成功或未调用则为 `null`）。
+   * 解码验签邀请串 → 存 pending 供确认卡；返回 `"ok"` 或被拒的**分类**。
    *
-   * 不把文案塞进 `error`：那条路径原先是「硬编码中文 + core 透传的 Rust 错误串」，
-   * 英文界面下会直接露出中文。判别码留在 store、文案交给有 `t` 的 UI 层 —— 与桌面端
-   * `kind → KIND_MESSAGES` 的做法一致。技术细节只进 console，不进 UI。
+   * 不返回可读文案：那条路径原先是「硬编码中文 + core 透传的 Rust 错误串」，英文界面下
+   * 会直接露出中文。判别码交给有 `t` 的 UI 层本地化（映射表在 `@/core/pairing-labels`，
+   * 与桌面端 `kind → KIND_MESSAGES` 一致）。技术细节只进 console，不进 UI。
    */
-  previewReject: PreviewReject | null;
-  /** 解码验签邀请串 → 存 pending 供确认卡；返回是否成功（失败原因见 `previewReject`） */
-  previewInvite: (invite: string) => Promise<boolean>;
+  previewInvite: (invite: string) => Promise<PreviewOutcome>;
   /**
    * 上一次 `confirmInvite` 被拒的**分类**（成功或未调用则为 `null`）。
    *
-   * 与 `previewReject` 同理：判别码留在 store、文案交给 UI。后端给的 `reason` 是稳定的
+   * 与 `previewInvite` 同理：判别码留在这层、文案交给 UI。后端给的 `reason` 是稳定的
    * snake_case 码（不再是 `{reason:?}` 的 Rust 裸标识符），未知码一律降级到通用文案。
    */
   confirmReject: ConfirmReject | null;
@@ -177,7 +186,6 @@ export const usePairingInviteStore = create<PairingInviteState>()(
       pending: null,
       confirming: false,
       selfPeerId: null,
-      previewReject: null,
       confirmReject: null,
 
       async ensureActiveInvite(localOnly = false) {
@@ -203,30 +211,29 @@ export const usePairingInviteStore = create<PairingInviteState>()(
         set({ activeInvite: null, error: null });
       },
 
-      async previewInvite(invite: string) {
+      async previewInvite(invite: string): Promise<PreviewOutcome> {
         const v = invite.trim();
-        set({ previewReject: null });
         try {
           const preview = getMobileCore().decodePairInvite(v);
           if (Number(preview.expiresAt) * 1000 <= Date.now()) {
-            set({ pending: null, previewReject: "expired" });
-            return false;
+            set({ pending: null });
+            return "expired";
           }
           // 自我过滤：用户复制自己刚生成的邀请准备发给别人，回头又粘回来（或在本机点开
           // 自己分享的链接）。判据取签名覆盖范围内的结构性字段 `peerId`，不是展示名。
           const { selfPeerId } = get();
           if (selfPeerId !== null && preview.peerId === selfPeerId) {
-            set({ pending: null, previewReject: "self" });
-            return false;
+            set({ pending: null });
+            return "self";
           }
           set({ pending: { invite: v, preview }, error: null });
-          return true;
+          return "ok";
         } catch (err) {
           // 技术细节（`FfiError.InvalidCode`、解析失败在哪一步）只进 console：它对用户
           // 没有意义，而且是 Rust 侧的中文串。UI 只需要知道「这条邀请不能用」。
           console.warn("[pairing] previewInvite 失败:", err);
-          set({ pending: null, previewReject: "invalid" });
-          return false;
+          set({ pending: null });
+          return "invalid";
         }
       },
 
@@ -267,7 +274,6 @@ export const usePairingInviteStore = create<PairingInviteState>()(
           pending: null,
           confirming: false,
           error: null,
-          previewReject: null,
           confirmReject: null,
         });
       },

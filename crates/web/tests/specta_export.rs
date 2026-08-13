@@ -15,8 +15,8 @@ use specta::{Format, FormatError, Type, Types};
 use specta_util::Remapper;
 use swarmdrop_web::{
     ConnectionJson, Device, InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary,
-    InboxSearchHit, InviteListItemJson, OfferJson, PairInvitePreviewJson, PairingOutcomeJson,
-    PendingPairingJson, RelayInfoJson, WebError, WebTransferEvent,
+    InboxSearchHit, InfraAddrError, InfraLink, InviteListItemJson, OfferJson,
+    PairInvitePreviewJson, PairingOutcomeJson, PendingPairingJson, WebError, WebTransferEvent,
 };
 
 /// serde 形状（tagged enum / rename）+ bigint→number 重映射。
@@ -59,7 +59,12 @@ fn export_bindings() {
         .register::<OfferJson>()
         .register::<PendingPairingJson>()
         .register::<ConnectionJson>()
-        .register::<RelayInfoJson>()
+        // 基础设施读模型：`InfraLink` 会带出嵌套的 `RelayLinkState` / `InfraExclusion` /
+        // `CandidateRoles` / `CandidateScope` / `BootstrapCandidateSource`。
+        .register::<InfraLink>()
+        // 提交前校验的判别码。它只在 reject 值里出现（wasm-bindgen 的 .d.ts 表达不了
+        // reject 类型），但前端要按 `kind` 分支出文案，所以形状必须导出来。
+        .register::<InfraAddrError>()
         .register::<InviteListItemJson>()
         .register::<PairInvitePreviewJson>()
         .register::<PairingOutcomeJson>()

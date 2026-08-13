@@ -51,7 +51,7 @@ use crate::backend::native::data_channel;
 // 两个调优常量与打洞路径共用——它们来自同一次 spike 实测，分两份写迟早只改一处。
 use crate::backend::native::managed::ManagedPeerConnection;
 use crate::backend::native::muxer::Muxer;
-use crate::backend::native::{SCTP_RECEIVE_BUFFER, SEND_BUFFER_LIMIT};
+use crate::backend::native::{SEND_BUFFER_LIMIT, sctp_receive_buffer};
 use crate::error::Error;
 use crate::swarm::Connection;
 use crate::swarm::direct::{StateEvent, await_connected};
@@ -103,7 +103,8 @@ pub(crate) async fn inbound(
 
     // 顺序与 dialer 相反：先收下（构造的）offer，再生成真 answer。
     pc.set_remote_description(
-        sdp::offer(remote, &ufrag).map_err(|e| Error::Connection(e.to_string()))?,
+        sdp::offer(remote, &ufrag, ctx.stream_config)
+            .map_err(|e| Error::Connection(e.to_string()))?,
     )
     .await
     .map_err(|e| Error::Connection(format!("设置构造的 offer 失败：{e}")))?;
@@ -173,7 +174,7 @@ pub(crate) async fn outbound(
         .await
         .map_err(|e| Error::Connection(format!("设置本地 offer 失败：{e}")))?;
     pc.set_remote_description(
-        sdp::answer(remote, server_fingerprint, &ufrag)
+        sdp::answer(remote, server_fingerprint, &ufrag, ctx.stream_config)
             .map_err(|e| Error::Connection(e.to_string()))?,
     )
     .await
@@ -295,7 +296,12 @@ async fn build(
         }))
         .with_runtime(runtime)
         .with_udp_addrs(bind_addrs)
-        .with_sctp_receive_buffer_size(SCTP_RECEIVE_BUFFER)
+        // 窗口按**本端声明的**消息尺寸推导（`DirectConfig::with_max_message_size`，
+        // 与打洞模式的默认值不同）。**不是协商值**——协商要等 Noise 握手，而它发生在
+        // `build()` 之后（见下面 `inbound_handshake` / `outbound_handshake`），
+        // 且窗口在 `PeerConnection` 建成后改不了。这条局限写在 `sctp_receive_buffer` 的
+        // 文档第 3 点，别在这里把它说成协商值。
+        .with_sctp_receive_buffer_size(sctp_receive_buffer(ctx.stream_config))
         .with_data_channel_send_buffer_limit(SEND_BUFFER_LIMIT)
         .build()
         .await

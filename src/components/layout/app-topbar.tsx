@@ -17,7 +17,7 @@ import {
   Square,
   X,
   Home,
-  ArrowRightLeft,
+  ArrowLeftRight,
   Inbox,
   Link2,
   Moon,
@@ -36,11 +36,10 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { useNetworkStore, type NodeStatus } from "@/stores/network-store";
-import { useTransferStore } from "@/stores/transfer-store";
-import { isProjectionActive } from "@/lib/transfer-projection";
-import { StartNodeSheet } from "@/components/network/start-node-sheet";
-import { StopNodeSheet } from "@/components/network/stop-node-sheet";
+import { useActiveTransferCount } from "@/hooks/use-active-transfer-count";
+import { useNodeHealth } from "@/hooks/use-node-health";
+import { resolveNodePresentation, TONE_BADGE, TONE_DOT } from "@/lib/node-status";
+import { NodeStatusSheet } from "@/components/network/node-status-sheet";
 
 type IconComp = React.ComponentType<{ className?: string }>;
 
@@ -66,7 +65,7 @@ function buildBreadcrumb(pathname: string): CrumbSegment[] {
     return [home, { icon: Inbox, label: <Trans>收件箱</Trans> }];
   }
   if (pathname.startsWith("/transfer")) {
-    return [home, { icon: ArrowRightLeft, label: <Trans>传输活动</Trans> }];
+    return [home, { icon: ArrowLeftRight, label: <Trans>传输活动</Trans> }];
   }
   if (pathname.startsWith("/send")) {
     return [home, { icon: Send, label: <Trans>发送文件</Trans> }];
@@ -80,10 +79,8 @@ function buildBreadcrumb(pathname: string): CrumbSegment[] {
 
 export function AppTopBar() {
   const { t } = useLingui();
-  const status = useNetworkStore((s) => s.status);
   const location = useLocation();
-  const [startOpen, setStartOpen] = useState(false);
-  const [stopOpen, setStopOpen] = useState(false);
+  const [nodeSheetOpen, setNodeSheetOpen] = useState(false);
 
   const crumbs = useMemo(
     () => buildBreadcrumb(location.pathname),
@@ -115,12 +112,7 @@ export function AppTopBar() {
             className="size-6 shrink-0 rounded-md"
           />
 
-          <StatusPill
-            status={status}
-            onClick={() =>
-              status === "running" ? setStopOpen(true) : setStartOpen(true)
-            }
-          />
+          <StatusPill onClick={() => setNodeSheetOpen(true)} />
 
           <Breadcrumb>
             <BreadcrumbList>
@@ -193,7 +185,7 @@ export function AppTopBar() {
               data-testid="topbar-transfer-link"
               className="relative"
             >
-              <ArrowRightLeft className="size-4" />
+              <ArrowLeftRight className="size-4" />
               <span className="hidden text-xs font-medium xl:inline">
                 <Trans>传输</Trans>
               </span>
@@ -223,8 +215,7 @@ export function AppTopBar() {
         </div>
       </header>
 
-      <StartNodeSheet open={startOpen} onOpenChange={setStartOpen} />
-      <StopNodeSheet open={stopOpen} onOpenChange={setStopOpen} />
+      <NodeStatusSheet open={nodeSheetOpen} onOpenChange={setNodeSheetOpen} />
     </>
   );
 }
@@ -234,12 +225,7 @@ export function AppTopBar() {
  * 让用户离开传输页也能看到"有东西正在传"。
  */
 function ActiveTransferBadge() {
-  // 只订阅 projections 引用：高频 progress 事件不改它，计数只在会话状态真变时重算
-  const projections = useTransferStore((s) => s.projections);
-  const activeCount = useMemo(
-    () => Object.values(projections).filter(isProjectionActive).length,
-    [projections],
-  );
+  const activeCount = useActiveTransferCount();
   if (activeCount === 0) return null;
   return (
     <span className="absolute right-0.5 top-0.5 flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-primary px-1 font-mono text-[9px] font-semibold leading-none text-primary-foreground">
@@ -308,64 +294,42 @@ export function WindowControls() {
   );
 }
 
-interface StatusPillConfig {
-  bg: string;
-  text: string;
-  dot: string;
-  label: React.ReactNode;
-}
-
-const pillStyles: Record<NodeStatus, StatusPillConfig> = {
-  running: {
-    bg: "bg-green-100 dark:bg-emerald-500/15",
-    text: "text-green-700 dark:text-emerald-300",
-    dot: "bg-green-600",
-    label: <Trans>在线 · 可接收</Trans>,
-  },
-  starting: {
-    bg: "bg-amber-100 dark:bg-amber-900/30",
-    text: "text-amber-700 dark:text-amber-300",
-    dot: "bg-amber-500 animate-pulse",
-    label: <Trans>启动中</Trans>,
-  },
-  stopped: {
-    bg: "bg-zinc-100 dark:bg-secondary",
-    text: "text-zinc-600 dark:text-muted-foreground",
-    dot: "bg-zinc-400",
-    label: <Trans>未启动</Trans>,
-  },
-  error: {
-    bg: "bg-red-100 dark:bg-red-900/30",
-    text: "text-red-700 dark:text-red-300",
-    dot: "bg-red-600",
-    label: <Trans>节点错误</Trans>,
-  },
-};
-
-function StatusPill({
-  status,
-  onClick,
-}: {
-  status: NodeStatus;
-  onClick: () => void;
-}) {
-  const config = pillStyles[status];
+/**
+ * 节点状态 pill —— 结论层的常驻位。
+ *
+ * 状态词与色档来自 `summarizeNodeHealth`（三端同一份判据），**不再只看生命周期**：
+ * 此前节点在跑就是绿的「在线 · 可接收」，哪怕全部中继都连不上、跨网设备根本找不到你。
+ *
+ * 配色仍是与移动端 `status-pill.tsx` 同一套语汇：底 `/15`、文字走 `-ink` 变体、
+ * 圆点用状态色本体（State Ink Rule）。
+ */
+function StatusPill({ onClick }: { onClick: () => void }) {
+  const { t } = useLingui();
+  const { summary, lifecycle } = useNodeHealth();
+  const presentation = resolveNodePresentation(lifecycle, summary);
 
   return (
     <button
       type="button"
       onClick={onClick}
       data-testid="network-status-pill"
-      data-node-status={status}
+      data-node-status={lifecycle}
+      data-node-health={summary.level}
+      aria-label={t(presentation.sentence)}
+      title={t`点开查看节点状态与诊断信息`}
       className={cn(
         "flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-opacity hover:opacity-80",
-        config.bg,
+        TONE_BADGE[presentation.tone],
       )}
     >
-      <span className={cn("size-1.5 rounded-full", config.dot)} />
-      <span className={cn("text-[11px] font-medium", config.text)}>
-        {config.label}
-      </span>
+      <span
+        className={cn(
+          "size-1.5 rounded-full",
+          TONE_DOT[presentation.tone],
+          lifecycle === "starting" && "animate-pulse",
+        )}
+      />
+      <span className="text-[11px] font-medium">{t(presentation.word)}</span>
     </button>
   );
 }

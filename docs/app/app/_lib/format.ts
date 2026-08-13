@@ -41,17 +41,26 @@ export function sessionEndedAt(projection: TransferProjection): number {
   return projection.finishedAt ?? projection.updatedAt;
 }
 
-/** 按最后更新时间倒序（不改原数组）。 */
-export function sortByUpdatedDesc(items: TransferProjection[]): TransferProjection[] {
-  return [...items].sort((a, b) => b.updatedAt - a.updatedAt);
-}
-
 /**
  * 会话是否仍在进行中。传输页的「N 个进行中」与导航徽标的计数共用同一个判定——
  * 各写一份的话，将来加一个非 terminal 的新 phase，两处数字就会对不上。
  */
 export function isActiveSession(projection: TransferProjection): boolean {
   return projection.phase !== "terminal";
+}
+
+/**
+ * 会话是否**完整传完了**。
+ *
+ * 呈现层用它剪掉一整套只在「还没传完」时才有意义的东西：满格进度条、`9.3 KB / 9.3 KB`
+ * 这种两边一样的分数、以及一个恒为 `100%` 的数字。
+ *
+ * **不能用 `phase === "terminal"` 代替**：取消与失败也是终态，那两种恰恰要保留进度条与
+ * 分数——「传到哪儿断的」是它们唯一有价值的信息。也不能只看 `percent === 100`：
+ * 进行中的最后一帧同样会取到 100，而那时进度条还该在。
+ */
+export function isCompletedSession(projection: TransferProjection): boolean {
+  return projection.phase === "terminal" && projection.terminalReason === "completed";
 }
 
 /**

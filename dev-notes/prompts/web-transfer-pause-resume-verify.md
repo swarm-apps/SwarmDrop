@@ -31,9 +31,14 @@
   `prepared_files`。
 
 > ⚠️ **2026-08-04 更正**：本文早先把「outboard 缺失时按源文件重算」列为最大未验风险，
-> 说那条路径在浏览器上没跑过。查证后不成立——那段代码有 `if pf.outboard.is_empty()` 守卫，
-> 而 `flow/send.rs` 在发送启动时就 `save_file_outboard`、Web 实现是写内存，同页面暂停时
-> outboard 一直在。**同页面续传根本不会走重算路径**，验证时不必围着它转。
+> 说那条路径在浏览器上没跑过。查证后不成立——那段代码有守卫，而 `flow/send.rs` 在发送
+> 启动时就 `save_file_outboard`、Web 实现是写内存，同页面暂停时 outboard 一直在。
+> **同页面续传根本不会走重算路径**，验证时不必围着它转。
+>
+> **2026-08-09 补**：守卫的判据已从 `pf.outboard.is_empty()` 换成
+> `bao::is_outboard_usable(&pf.outboard, pf.size)`（长度即格式版本号）。上面的结论不变
+> ——同页面内存里那份长度必然对得上。变的是**跨版本**：chunk group 改过之后，旧格式的
+> 非空 outboard 现在会被正确判为失效并重算，而不是被喂进新树后每块验签失败。
 
 推导（为什么浏览器上恢复得了、以及恢复不了的那一半）写在 `crates/web/src/node.rs`
 的 `pause_send` 文档注释里，先读它再动手。

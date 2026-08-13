@@ -141,10 +141,11 @@ export function createRnAdapter(opts: RnAdapterOptions): UpdateAdapter {
             (downloaded, total) => {
               tracker.update(downloaded, total);
             },
-            { sizeBytes: release.sizeBytes },
+            { sizeBytes: release.sizeBytes, version: artifactVersion(release) },
           );
           tracker.finish();
-          // payload 必须 self-contained(engine install 前会清 pendingHandle):存本地 APK 路径。
+          // payload 存本地 APK 路径 —— self-contained 才能被 install 反复消费,
+          // 也才能在下个进程里由 reconcile 重建出来。
           return { release, payload: apkPath };
         } catch (e) {
           lastErr = e;
@@ -153,7 +154,7 @@ export function createRnAdapter(opts: RnAdapterOptions): UpdateAdapter {
       throw lastErr ?? new Error("no download source available");
     },
 
-    async install(handle: DownloadHandle): Promise<void> {
+    async install(handle: DownloadHandle): Promise<void | { reason: string }> {
       const apkPath = handle.payload;
       if (typeof apkPath !== "string" || !apkPath) {
         throw new Error(
@@ -162,7 +163,37 @@ export function createRnAdapter(opts: RnAdapterOptions): UpdateAdapter {
       }
       // fire-and-forget handoff:交给系统 PackageInstaller,intent 派发即 resolve。
       // **绝不 relaunch** —— RN 由系统替换进程,用户确认后旧进程被新版本接管。
-      await opts.installer.install(apkPath);
+      // 可能被同一个 handle 反复调用(engine 的 ready 是持久静止态),installer 自身幂等。
+      // 门禁挡下时 installer 返回 `{reason}`,原样透传给 engine —— 它只存不解释。
+      return opts.installer.install(apkPath);
     },
+
+    // 产物恢复:上个进程下完的 APK 还躺在缓存里就直接复用,让 engine 跳过整个下载阶段。
+    // 注入的 downloader 没实现 reconcile 时**整个成员省略**(而不是给一个恒 null 的函数)
+    // —— engine 据 `adapter.reconcile` 是否存在决定走不走复用路径,给了函数就等于宣称
+    // 「我管产物」,却每次都判失效,反而会把句柄清掉。
+    reconcile: opts.downloader.reconcile
+      ? async (release: ReleaseInfo | null): Promise<DownloadHandle | null> => {
+          const expectation = release
+            ? {
+                version: artifactVersion(release),
+                sizeBytes: release.sizeBytes,
+              }
+            : null;
+          const apkPath = await opts.downloader.reconcile?.(expectation);
+          return apkPath && release ? { release, payload: apkPath } : null;
+        }
+      : undefined,
   };
+}
+
+/**
+ * 产物的版本标识 —— 落盘时打的标,下个进程据它认出「磁盘上这个包是给哪一版的」。
+ * RN 的更新闸门以 `versionCode` 为主键(见 SDK 的 versionCodeComparator),缺失时才退回
+ * 显示版本号。
+ */
+function artifactVersion(release: ReleaseInfo): string {
+  return release.versionCode != null
+    ? String(release.versionCode)
+    : release.version;
 }

@@ -81,7 +81,11 @@ function NativeIndicator({ value, className }: IndicatorProps) {
     <ProgressPrimitive.Indicator asChild>
       <Animated.View
         style={indicator}
-        className={cn("bg-foreground h-full", className)}
+        // `bg-primary` 而非模板自带的 `bg-foreground`：轨道是 `bg-primary/20`（品牌色
+        // 底纹），配一条纯黑填充既不是主题色、也和同屏其他进度条对不上（更新弹窗因此
+        // 一直画着黑条，2026-08-10 真机截图发现）。上面的 `WebIndicator` 本来就写的是
+        // `bg-primary`——两个平台分支的默认色分叉了，这里是把 native 这半边对回去。
+        className={cn("bg-primary h-full", className)}
       />
     </ProgressPrimitive.Indicator>
   );

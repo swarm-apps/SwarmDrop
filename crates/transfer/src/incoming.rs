@@ -10,7 +10,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::device::PairedDeviceInfo;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::events::{TransferEvent, TransferEventSink};
 use crate::host::{CoreSaveLocation, Notification, Notifier};
 use crate::manager::TransferManager;
@@ -54,6 +54,10 @@ pub struct TransferOfferFileEvent {
 ///
 /// Core 负责协议分发、响应和标准事件发布；具体的文件会话、DB 和宿主清理
 /// 由桌面端或 RN 端在这个 trait 中适配。
+///
+/// **`()` 是「没有传输层」的空实现**（与 [`TransferRuntime for ()`](crate::runtime::TransferRuntime)
+/// 配对）：一个只组网、不收发文件的节点。全部入站请求以 [`AppError::Transfer`] 婉拒，
+/// 而不是 panic——真被调到时降级比崩掉好。集成测试用它把 `NetManager` 从传输层解耦出来。
 #[async_trait]
 pub trait IncomingTransferRuntime: Send + Sync {
     async fn handle_cancel(
@@ -68,6 +72,13 @@ pub trait IncomingTransferRuntime: Send + Sync {
     /// 默认 no-op（mobile-core 占位）；桌面端 TransferManager 具体实现。
     async fn handle_peer_disconnected(&self, peer_id: NodeId) {
         let _ = peer_id;
+    }
+
+    /// 宿主**此刻**的默认接收落点，供设备策略未显式指定落点时使用。
+    ///
+    /// 默认 `None`：未实现的平台行为与引入本能力前完全一致（策略为空即退回手动确认）。
+    fn host_default_save_location(&self) -> Option<String> {
+        None
     }
 
     /// 是否处于全局「暂停接收」状态。
@@ -150,6 +161,52 @@ pub trait IncomingTransferRuntime: Send + Sync {
             reason: Some(ResumeRejectReason::SessionNotFound),
         })
     }
+}
+
+/// 「没有传输层」的空实现——见 [`IncomingTransferRuntime`] 的文档。
+#[async_trait]
+impl IncomingTransferRuntime for () {
+    async fn handle_cancel(&self, _: Uuid, _: String) -> AppResult<TransferFailedEvent> {
+        Err(no_transfer_layer())
+    }
+
+    async fn handle_pause(&self, _: Uuid) -> AppResult<TransferPausedEvent> {
+        Err(no_transfer_layer())
+    }
+
+    async fn cache_inbound_offer(
+        &self,
+        _: NodeId,
+        _: String,
+        _: Uuid,
+        _: Vec<FileInfo>,
+        _: u64,
+        _: TransferOrigin,
+        _: ReceivePolicyDecision,
+    ) -> AppResult<oneshot::Receiver<TransferResponse>> {
+        Err(no_transfer_layer())
+    }
+
+    async fn accept_cached_inbound_offer(&self, _: Uuid, _: CoreSaveLocation) -> AppResult<()> {
+        Err(no_transfer_layer())
+    }
+
+    async fn record_rejected_inbound_offer(
+        &self,
+        _: NodeId,
+        _: String,
+        _: Uuid,
+        _: Vec<FileInfo>,
+        _: u64,
+        _: TransferOrigin,
+        _: ReceivePolicyDecision,
+    ) -> AppResult<()> {
+        Err(no_transfer_layer())
+    }
+}
+
+fn no_transfer_layer() -> AppError {
+    AppError::Transfer("该节点未装配传输层".to_owned())
 }
 
 fn offer_result(accepted: bool, reason: Option<OfferRejectReason>) -> TransferResponse {
@@ -235,14 +292,16 @@ where
                 ));
             }
 
+            let host_default = runtime.host_default_save_location();
             let policy_decision = evaluate_receive_policy(ReceivePolicyContext {
                 device: Some(&paired_device),
                 files: &files,
                 total_size,
                 via_relay,
                 now_ms: chrono::Utc::now().timestamp_millis(),
+                host_default_save_location: host_default.as_deref(),
             });
-            let device_name = display_device_name(&paired_device);
+            let device_name = paired_device.os_info.display_name();
 
             if policy_decision.action == ReceivePolicyAction::Reject {
                 runtime
@@ -357,15 +416,6 @@ where
             Ok(response)
         }
     }
-}
-
-fn display_device_name(device: &PairedDeviceInfo) -> String {
-    device
-        .os_info
-        .name
-        .clone()
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| device.os_info.hostname.clone())
 }
 
 /// transfer 控制面 typed RPC 服务。

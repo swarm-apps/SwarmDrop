@@ -181,7 +181,12 @@ async fn upgrade(
         .map_err(|e| js_err("设置本地 offer", e))?;
 
     // 服务端的 answer 由我们本地算出来——direct 模式没有信令。
-    let answer_sdp = libp2p_webrtc_utils::sdp::answer(remote, server_fingerprint, &ufrag);
+    let answer_sdp = libp2p_webrtc_utils::sdp::answer(
+        remote,
+        server_fingerprint,
+        &ufrag,
+        config.stream_config(),
+    );
     tracing::trace!(sdp = %answer_sdp, "webrtc-direct: 为对端构造的 answer");
     let answer = describe(RtcSdpType::Answer, &answer_sdp);
     JsFuture::from(pc.set_remote_description(&answer))

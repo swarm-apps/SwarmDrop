@@ -14,8 +14,8 @@
 
 use std::net::SocketAddr;
 
-use libp2p_webrtc_utils::Fingerprint;
 use libp2p_webrtc_utils::sdp::render_description;
+use libp2p_webrtc_utils::{Fingerprint, StreamConfig};
 use webrtc::peer_connection::RTCSessionDescription;
 
 /// 客户端视角的 offer，由**服务端**本地构造。
@@ -24,12 +24,17 @@ use webrtc::peer_connection::RTCSessionDescription;
 /// 占位值 [`Fingerprint::FF`]，并在建连时关掉指纹校验
 /// （`disable_certificate_fingerprint_verification`）。真正的身份绑定由随后的
 /// Noise 握手完成——这正是 direct 模式必须跑 Noise 的原因。
-pub(crate) fn offer(addr: SocketAddr, client_ufrag: &str) -> Result<RTCSessionDescription, Error> {
+pub(crate) fn offer(
+    addr: SocketAddr,
+    client_ufrag: &str,
+    config: StreamConfig,
+) -> Result<RTCSessionDescription, Error> {
     let sdp = render_description(
         CLIENT_SESSION_DESCRIPTION,
         addr,
         Fingerprint::FF,
         client_ufrag,
+        config,
     );
     RTCSessionDescription::offer(sdp).map_err(|e| Error(e.to_string()))
 }
@@ -42,8 +47,9 @@ pub(crate) fn answer(
     addr: SocketAddr,
     server_fingerprint: Fingerprint,
     client_ufrag: &str,
+    config: StreamConfig,
 ) -> Result<RTCSessionDescription, Error> {
-    let sdp = libp2p_webrtc_utils::sdp::answer(addr, server_fingerprint, client_ufrag);
+    let sdp = libp2p_webrtc_utils::sdp::answer(addr, server_fingerprint, client_ufrag, config);
     RTCSessionDescription::answer(sdp).map_err(|e| Error(e.to_string()))
 }
 
@@ -94,10 +100,16 @@ mod tests {
         Fingerprint::raw([0xAB; 32])
     }
 
+    fn config(bytes: usize) -> StreamConfig {
+        StreamConfig::new(std::num::NonZeroUsize::new(bytes).expect("non-zero"))
+    }
+
     /// offer 必须带上客户端的 ufrag（服务端就是靠它分流的），且 setup 是 actpass。
     #[test]
     fn offer_carries_ufrag_and_actpass() {
-        let sdp = offer(addr(), "libp2p+webrtc+v1/test").unwrap().sdp;
+        let sdp = offer(addr(), "libp2p+webrtc+v1/test", config(8 * 1024))
+            .unwrap()
+            .sdp;
 
         assert!(sdp.contains("a=ice-ufrag:libp2p+webrtc+v1/test"));
         assert!(
@@ -113,9 +125,14 @@ mod tests {
     /// 少了 `a=ice-lite` 客户端会等服务端来做连通性检查，而服务端根本不会做。
     #[test]
     fn answer_is_ice_lite_with_real_fingerprint() {
-        let sdp = answer(addr(), fingerprint(), "libp2p+webrtc+v1/test")
-            .unwrap()
-            .sdp;
+        let sdp = answer(
+            addr(),
+            fingerprint(),
+            "libp2p+webrtc+v1/test",
+            config(8 * 1024),
+        )
+        .unwrap()
+        .sdp;
 
         assert!(sdp.contains("a=ice-lite"));
         assert!(sdp.contains("a=setup:passive"));
@@ -127,20 +144,54 @@ mod tests {
         assert!(sdp.contains("a=end-of-candidates"), "ICE-lite 不 trickle");
     }
 
+    /// **两个方向的 SDP 都必须声明本端配置的消息上限**，而不是某个常量。
+    ///
+    /// `a=max-message-size` 告诉对端「我最多能收多大的 SCTP 消息」。它一旦与 framing
+    /// 实际用的 `StreamConfig` 脱钩，配置就只作用一半：本端按新上限发，对端的 SCTP 却按
+    /// 旧的声明值准备。上游 `render_description` 曾经就是这样——模板留了占位符、上下文
+    /// 却仍填 `16 * 1024`（libp2p#6560，已修）。这条测试锁的是**本仓有没有把
+    /// `ctx.stream_config` 传下去**。
+    ///
+    /// 两个尺寸都断言：只测一个的话，恰好等于那个硬编码值时照样会通过。
+    #[test]
+    fn both_directions_advertise_the_configured_message_size() {
+        for bytes in [8 * 1024, 64 * 1024] {
+            let offer = offer(addr(), "u", config(bytes)).unwrap().sdp;
+            let answer = answer(addr(), fingerprint(), "u", config(bytes))
+                .unwrap()
+                .sdp;
+
+            let expected = format!("a=max-message-size:{bytes}");
+            assert!(
+                offer.contains(&expected),
+                "offer 未声明 {bytes} B：\n{offer}"
+            );
+            assert!(
+                answer.contains(&expected),
+                "answer 未声明 {bytes} B：\n{answer}"
+            );
+        }
+    }
+
     /// offer 的指纹是占位符——服务端此刻不可能知道客户端的真实指纹。
     /// 这条同时提醒：因此**必须**关掉指纹校验并改由 Noise 认证。
     #[test]
     fn offer_fingerprint_is_placeholder() {
-        let sdp = offer(addr(), "u").unwrap().sdp;
+        let sdp = offer(addr(), "u", config(8 * 1024)).unwrap().sdp;
         assert!(sdp.contains(&Fingerprint::FF.to_sdp_format()));
     }
 
     #[test]
     fn renders_ipv6() {
         let addr: SocketAddr = "[::1]:4003".parse().unwrap();
-        assert!(offer(addr, "u").unwrap().sdp.contains("c=IN IP6 ::1"));
         assert!(
-            answer(addr, fingerprint(), "u")
+            offer(addr, "u", config(8 * 1024))
+                .unwrap()
+                .sdp
+                .contains("c=IN IP6 ::1")
+        );
+        assert!(
+            answer(addr, fingerprint(), "u", config(8 * 1024))
                 .unwrap()
                 .sdp
                 .contains("c=IN IP6 ::1")

@@ -8,9 +8,9 @@ import {
   type UpdateAdapter,
   type UpgradeType,
 } from "@swarm-hive/sdk";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { type CheckOptions, check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunchApp } from "@/lib/quit-app";
 
 const VALID_UPGRADE_TYPES: readonly string[] = ["prompt", "force", "silent"];
 
@@ -171,7 +171,8 @@ export function createTauriAdapter(opts: TauriAdapterOptions = {}): UpdateAdapte
       }
       await update.install();
       // Tauri 安装后不会自动重启,显式 relaunch 让新版本生效。
-      await relaunch();
+      // 走 relaunchApp 而非裸 relaunch：偏好写入要先落盘（见 @/lib/quit-app）。
+      await relaunchApp();
     },
   };
 }

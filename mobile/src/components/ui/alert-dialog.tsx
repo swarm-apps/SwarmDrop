@@ -100,10 +100,15 @@ function AlertDialogHeader({ className, ...props }: ViewProps) {
   );
 }
 
+/**
+ * 双键横排（取消左、确认右）。上游 shadcn 是 web 响应式（窄视口竖排、`sm:` 横排），
+ * 手机永远走不到 `sm:`，全 app 弹窗会被迫竖排；移动端惯例
+ * （iOS HIG / Material 3 / 微信系）是横排。
+ *
+ * ⚠️ **每个按钮都必须自带 `className="flex-1"`**——判据与「为什么不自动包一层」
+ * 见 `ui/dialog.tsx` 的 `DialogFooter`（同一条规则，两个原语共用）。
+ */
 function AlertDialogFooter({ className, ...props }: ViewProps) {
-  // 上游 shadcn 是 web 响应式(窄视口竖排、sm:横排),手机永远走不到 sm:,
-  // 全 app 弹窗被迫竖排。移动端惯例(iOS HIG / Material 3 / 微信系)是
-  // 双键横排:取消左、确认右 —— 调用方给按钮加 flex-1 等宽。
   return <View className={cn("flex flex-row gap-2.5", className)} {...props} />;
 }
 

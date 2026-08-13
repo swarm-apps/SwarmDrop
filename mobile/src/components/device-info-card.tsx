@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, TextInput, View } from "react-native";
 import { useShallow } from "zustand/react/shallow";
 import { Text } from "@/components/ui/text";
+import { isNatMapped } from "@/core/network-discovery";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { applyDeviceName, DEVICE_NAME_MAX_CHARS } from "@/lib/device-name";
 import { devicePlatformIcon } from "@/lib/device-platform";
@@ -40,7 +41,7 @@ export function DeviceInfoCard() {
   const Icon = devicePlatformIcon(`${Device.osName ?? ""}`);
   const osLabel = `${Device.osName ?? ""} ${Device.osVersion ?? ""} · ${Device.modelName ?? ""}`;
   const isOnline = runtimeState === "running";
-  const natStatus = networkStatus?.natStatus ?? "unknown";
+  const natMapped = isNatMapped(networkStatus?.natStatus);
   const connectedPeers = networkStatus?.connectedPeers ?? 0;
 
   const [editing, setEditing] = useState(false);
@@ -177,7 +178,7 @@ export function DeviceInfoCard() {
         <Metric label={<Trans>配对</Trans>} value={String(pairedDeviceCount)} />
         <Metric
           label={<Trans>NAT</Trans>}
-          value={natStatus === "public" ? t`映射成功` : t`未知`}
+          value={natMapped ? t`映射成功` : t`未知`}
         />
       </View>
     </View>

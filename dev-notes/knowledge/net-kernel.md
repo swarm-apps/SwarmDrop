@@ -47,7 +47,226 @@ wire 类型，下沉会成环）。`swarmdrop-host` + `swarmdrop-transfer` 已�
   **不要**在共享收敛路径上加 re-check/epoch 类特例。反向判据的前提：候选表只经显式撤销移除
   （无自动过期清出）且所有生产路径的 relay 登记均有候选条目——**引入候选自动清出机制前必须
   重新评估**（spec `infra-peer-lifecycle` 已锁定该前提）。
-- `remove_relay_intent` 的直接注销调用是低延迟快路径，环是兜底，二者幂等叠加。
+- `remove_infra_intent` 的直接注销调用是低延迟快路径，环是兜底，二者幂等叠加。
+
+### ⚠️ `Connecting` / `Failed` 没有 NetEvent —— core 事件循环必须订阅 `watch_relays`（2026-08-08 修）
+
+边沿轨只有 `RelayReservationAccepted` / `RelayReservationLost` 两个。`RelayState::Connecting`
+与 `Failed{last_error}` **没有任何对应事件**，只存在于 watch 轨。
+
+`run_event_loop` 此前只订了 `watch_addrs` 与 `watch_nat`，于是原生端**从来没观测到过**这两个
+态：桌面/移动 UI 里「引导节点」永远只有一个聚合布尔，失败原因根本到不了前端。Web 端之所以是
+三端唯一能逐条显示 relay 状态的，正因为它直接订 `relays_changed()` **绕过了 core 这一层**——
+那不是它做得好，是另外两端的链路断了一截。
+
+**正确做法**：任何依赖 relay 三态的上层，事件源必须是 `endpoint.watch_relays()`，不能靠
+`NetEvent`。不会造成推送风暴：`set_relay_state` 用 `send_if_modified` 做了值相等去重，
+supervisor 走 2s→75s 退避。
+
+**相关文件**：`crates/core/src/network/event_loop.rs`（`run_event_loop` 的 select）
+
+### 候选表只存意图，观测值一律现算（2026-08-08 定）
+
+`BootstrapCandidateManager` 是**期望状态**的权威源（谁该在、什么地址、什么角色、什么来源）。
+连接与 reservation 的**事实**分别在 `watch_conns` / `watch_relays`，由
+`crates/core/src/infra/link.rs` 的 `build_infra_links` 现场 join 成 `InfraLink` 读模型（零存储）。
+
+**不要**把观测值写回候选表。此前 `BootstrapCandidate.health` 就是这么做的，而四条路径不回写：
+
+- `cancel_relay_reservation` 与 `handle_remove_infra_peer` **刻意不发** `RelayReservationLost`
+  （免得上层把用户取消误判成需要自动恢复的故障）；
+- `set_relay_failed` 的另外几条路径（含 `OutgoingConnectionError`）同样不发。
+
+后果不在 UI 层：`presence/supervisor.rs` 的 `relay_hints()` 按那个位筛出 `RelayHint` 写进发布到
+**公共 DHT** 的 `OnlineRecord`，对端拿去「先修 relay 直连、再拨 circuit」。于是本机持续发布一条
+早已失效的中继路径，对端拨号必然失败，**日志无痕**。
+
+判据现在是 `relay_hints_from(candidates, relays)` 这个纯函数（读 `watch_relays` 的 `Active`），
+回归测试 `relay_hints_follow_live_relay_state` 钉住它。
+
+### 引导节点的启动登记：kad 无条件，relay 就地过闸门（2026-08-09 定稿）
+
+`runtime.rs` 注册 host 配置的引导节点时，`kad_server` 恒为真，`relay` 按
+`public_reachability || CandidateScope::infer(addrs) == Lan` 现场算。
+
+此前用 `InfraRoles::bootstrap()`（kad + relay），于是关掉「公网可达性」的用户**照样在启动时
+建了公网 reservation**：`wants_reservation` 只管收敛环，管不到这条一次性注册。
+中间还有一版改成写死 `relay: false`、把 relay 整个推迟给 `InfraSupervisor::tick`——闸门是堵上了，
+但每个引导节点变成先注册一次再注册一次，首次可达性凭空晚一个 tick。**闸门查询要放在调用点，
+不是把整件事推迟。**
+
+⚠️ 判据必须与 `exclusion_for` 同一条（见下面 `CandidateScope` 那节）。写成全局开关一刀切，
+私网引导节点会在启动时被拦掉、又被 tick 加回来，每次冷启动白拨一轮。
+
+⚠️ 反过来也不能把这段删掉改走候选表。`wants_reservation` 要求 relay 角色 + tick 里是
+`continue`，所以 `public_reachability=false` 时公网候选**一次 `add_infrastructure_peer` 都不会
+发** → kad 路由表拿不到任何公网种子 → `dht.bootstrap()` 与在线记录发布全塌。
+「别让我被动可达」与「跨网还能不能找到人」是两件事，不能让一个吃掉另一个。
+
+### 候选 scope 由 `upsert` 单点推断，调用方不得指定（2026-08-08 修）
+
+`upsert` 对 roles 是 `|=` 累加、对 scope 曾是**直接覆盖**，而三个调用方给三种拼法（启动路径
+硬编码 `Public`、运行时意图用 `infer`、局域网协助路径硬编码 `Lan`）。于是一个既被用户手填
+（含私网地址）又被 identify 认出的节点，scope 会在 `Lan`/`Public` 之间来回翻转——而
+`wants_reservation` 直接吃它，该候选就在收敛环里时进时出。
+
+现在 `upsert` 内部按**合并后的全部地址** `CandidateScope::infer`，签名里没有 scope 参数。
+`infer` 自身的判据 2026-08-09 又翻转过一次，见下面单独那节——那次翻转修的是另一个 bug。
+
+### 「本端拨得动这条地址吗」是内核事实，不是部署配置（2026-08-08 加）
+
+`Endpoint::supported_transports() -> &[TransportKind]` 在 bind 时按 target + 配置算一次。
+清单的定义**紧挨着 `build_swarm` 住在 `crates/net/src/transport.rs`**，并有一条双向护栏测试
+（`supported_transports_match_the_assembled_stack`：既查"有"也查"无"）——只查其一会放过多报或少报。
+
+- 多报一种：用户能配下一条**永远连不上**的引导节点，且没有任何错误提示；
+- 少报一种：当场拒掉合法地址。
+
+上层判据在 `crates/core/src/infra/validate.rs`，**三端共用一份**：可解析 → 含合法 `/p2p/` →
+含可拨传输 → 该传输本端装配了 → 不是本机、不与既有条目重复。五条全部**无网络往返**。
+
+两个容易写错的点：
+
+- **circuit 地址取的是外层中继段的传输**（`/ip4/../tcp/../p2p/<relay>/p2p-circuit/p2p/<target>`
+  → `Tcp`），而那正是本机要拨的那一跳；身份则取末位（目标）。`Addr` 的 `transport()` 与
+  `p2p_node_id()` 各自已经是对的，别在上层再拼一遍。
+- **去重按「同 peer **且**同地址」**，不是按 peer。同一节点的 TCP 与 QUIC 地址是同一条关系的
+  两条路径，`upsert` 会合并；按 peer 去重会挡住用户补一条 QUIC 地址。
+
+⚠️ **不要用 `Endpoint::connect` 当连通性探测原语**：它把候选地址永久写进 address_book
+（无 TTL、无失败回滚，清理入口 `remove_infrastructure_peer` 会断连）；已连接时直接返回既有
+连接快照，所以对内置节点**永远绿**；而且它走直连，relay 的实际用法是 reservation。
+Web 端那颗「测试连通性」按钮就是这么变成一个不可能失败的测试的，已删。
+
+**相关文件**：`crates/net/src/transport.rs`、`crates/core/src/infra/validate.rs`
+
+### 并发拨号是**延迟**竞速，会系统性选出最慢的传输（2026-08-12 定）
+
+`dial_concurrency_factor` 没设（libp2p 默认 8），而候选地址通常 ≤5 —— 等于**全部并发发出，
+谁先建连谁赢**。问题是我们在意的是吞吐，而两者恰好反向：
+
+| | 建连延迟 | 吞吐 |
+|---|---|---|
+| 中继 | **最低**（复用一条已建立的连接） | **最差** |
+| webrtc-direct | 中（ICE + DTLS） | 72 MiB/s |
+| WebTransport | 略高（多一次 QUIC 握手） | 322 MiB/s |
+| 打洞 | **最高**（等 ICE 收敛数秒） | 好 |
+
+所以「谁赢」必须由**层级**决定，不能交给竞速。判据收在 `Addr::dial_tier()`
+（`crates/net-base`），三档：`DirectFast`（TCP/QUIC/WebTransport）→ `DirectSlow`
+（webrtc-direct/打洞）→ `Relayed`，`Ord` 方向是**越小越好**。
+
+**判定必须看 `/p2p-circuit` 的位置，不是有没有。** 三种地址都同时含 circuit 段与 WebRTC 段：
+
+| 地址 | 真身 | 档 |
+|---|---|---|
+| `…/webrtc-direct/certhash/…/p2p/R/p2p-circuit/p2p/T` | **中继**，第一跳恰好是 webrtc-direct | `Relayed` |
+| `…/p2p/R/p2p-circuit/webrtc/p2p/T` | **打洞**，circuit 只用于信令 | `DirectSlow` |
+| `…/udp/…/webrtc-direct/certhash/…/p2p/T` | 直连 | `DirectSlow` |
+
+第一行判错的后果最隐蔽：**浏览器的中继地址第一跳正是 webrtc-direct**，判成直连就会把
+「换一条中继」当成升级完成。护栏是 `circuit_is_judged_by_position_not_presence`。
+
+### 升级的判据是「有没有**更快的**直连」，不是「有没有直连」（2026-08-12 修）
+
+`try_upgrade_to_lan` / `try_upgrade_to_direct` 此前的前置条件是 `only_relayed(peer)`。
+后果：一旦升级到 webrtc-direct，`only_relayed` 变 false，**两条升级路径永久关闭**，
+从此锁死在慢传输上——而 WebTransport 上线后这恰好成了常态。
+
+现在统一走 `best_tier(peer)`（所有连接里最好的一档）+ `wants_upgrade_to(peer, target)`，
+两条特例收敛成一条规则。`lan_candidates` 随之改成**只拨严格更优的那一档，且只拨那一档**：
+层内可以继续竞速（同档差别不大），层间必须有序。
+
+⚠️ **筛「本端拨得动吗」必须排在挑档之前。** 浏览器最快的一档（对端自报的 `/tcp`、
+`/quic-v1`）恰好是它**唯一拨不动**的一档；先挑档再筛，浏览器会永远挑中拨不动的那条：
+拨号立刻失败 → 在途标记清掉 → 5 分钟后 identify 再来一轮挑同一条，**永远升不上去**，
+而每一步看起来都在正常工作。判据是 `transport::dialable_kind(kind, browser)`，
+纯函数以便两个 target 都能在 native 上测。
+
+### 升级必须**关掉劣档连接**，否则新流在两条连接间掷硬币（2026-08-12 修）
+
+`libp2p-stream` 的 `Shared::sender()` 是这一行：
+
+```rust
+.choose(&mut rand::thread_rng())
+```
+
+**在该 peer 的所有连接里均匀随机挑一条。** 而升级会新建一条连接、旧的不会自动消失，于是：
+
+> 只升级不关旧连接，等于把「走慢连接」的概率从 100% 降到 50%，而不是消除它。
+
+这条**早于按档升级就存在**（中继 → 打洞升级同样如此），且 UI 会显示「直连」——
+`best_conn` 按 `path_rank` 取最好的那条报给前端，于是**界面说直连、一半的流在走中继**：
+本仓最不喜欢的那类形态，一半诚实一半撒谎。
+
+现在 `prune_inferior_conns(peer)` 在两处触发：**连接建立后**（主路径——升级通常发生在
+identify 首帧，此时用户还没开始传，一关就干净）与**每次 identify**（自愈，补上被挡掉的轮次）。
+
+⚠️ **判据只能是「该 peer 一条流都没有」**（`StreamRegistry::is_idle`）。想关得更准就得知道
+「哪条流在哪条连接上」——而 `libp2p-stream` 随机挑完**并不回报挑了哪条**，从我们这侧根本
+观测不到，registry 也只按 `(peer, protocol)` 记账。所以宁可保守：有任何活跃流就整轮跳过，
+**绝不打断正在传的数据**。
+
+代价是「传输途中升级成功」那一格要等到下一轮 identify（~5 分钟）才收敛。**这个代价是对的**：
+那条正在传的流本来就已经绑在旧连接上，早关晚关都救不了它，而早关会直接把它打断。
+
+三条护栏：`inferior_conns_lists_everything_below_the_best_tier`（该关的都关）、
+`inferior_conns_keeps_every_connection_in_the_best_tier`（只有一条时无论多差都不关——
+关了就断线）、`is_idle_covers_both_directions_and_recovers_after_drop`（**入站也算活跃**，
+只看出站会把正在接收的会话判成空闲）。
+
+**相关文件**：`crates/net-base/src/addr.rs`（`DialTier`）、`crates/net/src/actor.rs`
+（`best_tier` / `lan_candidates`）、`crates/net/src/transport.rs`（`dialable_kind`）
+
+### 集成测试里的「没有传输层」：`impl IncomingTransferRuntime for ()`
+
+`run_event_loop` 的泛型约束是 `IncomingTransferRuntime`，而 `NetManager<()>` 本来就是
+既有集成测试的常规构造（`TransferRuntime for ()` 早就有）。所以 `()` 也实现了
+`IncomingTransferRuntime`，全部入站请求以 `AppError::Transfer` **婉拒而不是 panic**。
+
+写新的网络层集成测试时直接传 `()`，不要在测试文件里手写 5 个方法的 no-op 双——那份样板
+会在 trait 每次改动时红一遍，而它表达的东西 `()` 已经表达了。
+
+### `CandidateScope` 是「持有公网地址」，不是「不含私网地址」（2026-08-09 翻转）
+
+`CandidateScope::infer` 判 `Public` 的条件是**任一非 circuit 的公网可路由地址**
+（`CandidateScope::is_infra_public_addr`，`usable_public_addrs` 共用同一个谓词）。
+
+**别翻回「任一私网地址即判 Lan」。** 那是原始写法，它有一个静默失效的开关：
+`upsert` 按合并后的全部地址重算 scope，而地址表**只增不减**——自建 bootstrap 跑在同一
+局域网、用户按内网地址把它加进来，随后 identify 并入它的公网地址，旧判据就让 scope
+永久停在 `Lan`。而 `InfraSupervisor::exclusion_for` 正是拿这个位当公网闸门，于是关掉
+「公网可达性」的用户照样在一台真·公网中继上建了 reservation，被跨网直达，**开关无声失效**。
+
+翻过来之后 `Public` 是吸收态，方向是安全那一侧：地址只增不减，「见过公网地址」这个事实
+本就不该被后来的私网地址抹掉。纯局域网 helper（只有私网/回环地址）仍判 `Lan`、仍不受公网
+开关约束——「用户手点的本地 helper 不该被公网开关拦下」这条原意保留。
+
+**这个位有两个消费方，必须同源**：`exclusion_for` 的闸门，和读模型下发给三端的
+`scope`（shared-view / `node_health.rs` 拿它算 `configuredLanOnly`）。闸门另写一份地址
+判据就会出现「被拦下了但 UI 说不出为什么」——用户看到红色的「找不到任何节点」，而真相
+是他自己关的开关。`runtime.rs` 的启动注册同理复用 `infer`，不要在那里写第三份。
+
+**相关文件**：`crates/core/src/network/candidates.rs`、`crates/core/src/infra/supervisor.rs`、
+`crates/core/src/runtime.rs`
+
+### relay 边沿事件**不推** `NetworkStatus`——那条轨由 `watch_relays` 独占
+
+`actor.rs` 在 emit `RelayReservationAccepted` / `Lost` **之前**必然先写 `watch_relays`
+（`set_relay_state` / `set_relay_failed` 就在 emit 上一行）。而 `run_event_loop` 已经订阅
+了那条 watch，所以 core 的 `NetEvent` 分支里**不要**再 `publish_network_status`：两边都推
+= 每次转换重建两遍全量状态（候选快照克隆 + 两张 watch 深拷贝，移动端还要多过一次 uniffi）。
+
+更隐蔽的一半：reservation 每轮续期都发 `Accepted { renewal: true }`，而 watch 侧
+`send_if_modified` 判值相等**不通知**（那是刻意的静音）。NetEvent 分支会把这份静音拆回来，
+于是每个 relay 每个续期周期都在推一份一模一样的状态。
+
+两条轨的到达顺序不定（`select!` 随机），但这不构成问题：watch 只承载 relay 三态，
+`ever_active` 由 `infra.handle_event` 折叠，而 `deriveInfraLinkState` 先判 `relay == active`
+才看 `everActive`——两者唯一同时生效的组合（曾活跃过、现已失败）里，`ever_active` 早在更早
+那次 `Accepted` 就置位了。**加新的 relay 相关字段时要重新过一遍这个论证。**
+
+**相关文件**：`crates/core/src/network/event_loop.rs`、`crates/net/src/actor.rs`
 
 ### 与旧栈（swarm-p2p-core）的关键差异
 
@@ -271,16 +490,40 @@ Circuit Relay reservation 的应答地址，否则客户端会以 `NoAddressesIn
 拒绝 reservation。`Swarm::add_external_address` 又不保证回发
 `ExternalAddrConfirmed`，只依赖 watch 事件会让状态与实际 Swarm 配置分叉。
 
-**正确做法**：
-- 组合根在 `Endpoint::bind()` 前经 `Builder::external_addrs()` 登记已知公网
-  TCP / QUIC / WebSocket 地址；它们同时成为 `watch_addrs().external` 初值。
-- 运行期得到的地址经 `Endpoint::add_external_addr()` 登记；actor 同步更新同一
-  watch 状态并通知 address lookup。
-- WebRTC Direct 使用与 transport 完全相同的持久化 PEM，通过
-  `webrtc_direct_addr_from_pem()` 预先派生带 `certhash` 的公网地址，**不要**等待
-  listener 启动后从字符串猜 hash。
+**正确做法**（2026-08-12 起，见下节；此处保留问题描述）：
+- 组合根在 `Endpoint::bind()` 前经 `Builder::external_addrs()` 登记**不带 certhash 且恒定
+  不变**的那几条（TCP / QUIC）；它们同时成为 `watch_addrs().external` 初值。
+- 其余全部交给 `Builder::external_ip()`，由内核从监听地址映射。
 
-**相关文件**：`crates/net/src/{endpoint/{builder.rs,mod.rs},actor.rs,lib.rs}`、
+**相关文件**：`crates/net/src/{endpoint/builder.rs,actor.rs,addrset.rs}`、
+`crates/bootstrap/src/lib.rs`
+
+### 公网地址跟着监听地址走，不从证书第二次派生（2026-08-12）
+
+内核多了一条 external 来源：`Builder::external_ip(IpAddr)`。给了它之后，actor 持续维护
+「当前监听集合中每条**非 circuit** 地址 ⇒ IP 段换成这个 IP」这一份，与宿主声明的
+（`external_addrs`）、AutoNAT 确认的三者取并集下发。判据全在
+`crates/net/src/addrset.rs` 的 `map_to_public_ip`（circuit 排除 + 改写后去重），
+三条单元测试各守一条。
+
+**这条机制取代了两样东西**，两样都不要加回来：
+
+1. **bootstrap 里那个自制的地址跟踪任务**（watch 监听地址 → 筛 WebTransport → 改写 IP →
+   `set_external_addrs(静态 ∪ 观测)`）。它做的正是内核现在做的事，但记了第二份账；而
+   `set_external_addrs` 是整份替换，两个事实源不一致的症状是「某条地址悄悄不再被通告」，
+   本机日志完全正常。bootstrap 现在只剩一个**纯日志**的 watch 循环。
+2. **`swarmdrop_net::webrtc_direct_addr_from_pem()`**（已删除）。它是「从证书算 certhash」
+   的第二条路径，与传输启动时实际使用的那条并行存在；漂移的症状是浏览器在 TLS 阶段被拒、
+   日志毫无线索。映射版按定义不可能与传输不一致——certhash 直接取自监听地址本身。
+
+**为什么 TCP/QUIC 仍然静态声明一次**：它们不用等监听结果就能算出来，而 bind 返回到第一批
+`NewListenAddr` 抵达之间有个窗口，那期间来的 reservation 请求拿不到可拨地址会被客户端以
+`NoAddressesInReservation` 整个拒掉（上一节踩过）。映射随后算出同样两条，重合去重，所以
+这份预声明是纯保险。带 certhash 的两条不能这么办——静态算它们就得重新引入上面第 2 条。
+`bootstrap` 有一条测试（`statically_declared_addresses_agree_with_the_public_ip_mapping`）
+钉住「预声明的内容必须与映射结果一致」，否则就是凭空多通告一条从未监听过的地址。
+
+**相关文件**：`crates/net/src/{addrset.rs,actor.rs,endpoint/builder.rs}`、
 `crates/bootstrap/src/lib.rs`
 
 ### 公共基础设施地址由 Host 配置，核心只消费候选（2026-07-24）
@@ -549,6 +792,10 @@ Web 端曾是全局 `DEBUG`，libp2p 各层的日志（multistream 协商、每�
 「对端毫无响应」。现按 target 分层（`crates/web/src/lib.rs` 的 `Targets`），日志量降两个
 数量级。**碰 Web 端排障先确认 filter，别对着被冲掉的日志下结论。**
 
+> 反过来，**桌面与移动端的 filter 是太窄而不是太宽**：`swarmdrop=debug` 按前缀匹配
+> 够不着 `webrtc_p2p`，两端曾经一条 webrtc-direct 日志都收不到。2026-08-10 已单列
+> `webrtc_p2p=info`，见 [`rust-backend.md`](rust-backend.md) 的「tracing 的 target 是前缀匹配」。
+
 ### ⚠️ 浏览器接收侧**没有背压**——大文件的流控只能由应用层做（2026-08-06 修）
 
 **症状**：桌面向浏览器发 20 MB，传到 12–22% 断，发送侧会话消失。小文件（3 MB 以下）
@@ -697,6 +944,41 @@ relay server 的）。于是浏览器的可达地址里多出
 触发点是「ping 连续失败 → 主动断连重探」。要查它请开 `swarmdrop_net=trace` 并从
 `record_addr` 的四个调用方入手。
 
+### 双层 circuit 地址：`listen_on` 当场拒，而错误在日志里是**空的**（2026-08-10）
+
+上一条的同族问题，中转跳换成第三方就漏过来了。真机日志几十条刷屏、`error` 字段全是空：
+
+```
+relay circuit listen failed relay_addr=/ip4/192.168.50.105/udp/4001/quic-v1/p2p/12D3KooWCkaj…/p2p-circuit/p2p/12D3KooWMSUf…/p2p-circuit error=
+```
+
+**三件事叠在一起，任何一件单独发生都不难查：**
+
+1. **地址来源**：`request_relay_reservation` 取 `address_book` 的 `first()` 当 circuit 基址，
+   而簿里可以合法地混着「经第三方中转到该 relay」的地址——上一条的 `record_addr` 过滤只丢
+   **中转跳是本机**的，中转跳是别人时按设计放行。撞上那条，`circuit_base` 见到已有 `P2p`
+   就直接追加 `/p2p-circuit`，拼出双层。
+2. **错误看不见**：libp2p relay client 以 `MultipleCircuitRelayProtocolsUnsupported` 拒收，
+   这个判别码落在 `TransportError::Other` 上，而
+   **`TransportError` 的 Display 对 `Other` 分支写的是空串**（`core/src/transport.rs`）。
+   `%e` 因此渲染出一条没有错误内容的 warn。⚠️ **凡是 `listen_on` 的错误一律用 `?e` /
+   `{e:?}`**——同一个坑当时在 `crates/net` 里有三处（reservation listen、`/webrtc` listen、
+   `builder.rs` 的 `BindError::Listen { reason }`，最后那处会让 bind 失败**整句话没有原因**）。
+3. **无退避**：`listen_on` 是**同步**失败，上层 `InfraSupervisor` 的 2s→75s 退避又被 mDNS
+   刷新候选（`candidate_seen` 重置）反复清零，于是同一条注定失败的地址被秒级重放。
+
+**修法（各管一层，缺一不可）：**
+
+- `circuit_base` 改成返回 `Option`，输入已含 `/p2p-circuit` 时给 `None`——**判在拼装处，
+  不留给 `listen_on` 去拒**。三个调用点（reservation listen / `/webrtc` listen / `circuit_addr_for`）
+  统一走 `circuit_base_for`：取地址簿里第一条**能当基址**的，不是第一条。
+  护栏测试 `circuit_base_never_nests` / `circuit_base_skips_circuit_entries_in_address_book`。
+- `Actor::relay_retry` 是**同步失败**的重试闸门（档位与 `InfraSupervisor::rebuild_backoff`
+  同一套）。它不是重试策略——策略仍在 core；它挡的是「输入没变、答案必然相同」的重放。
+  地址簿真有新条目时整条清掉（新事实到达不必等退避），意图撤销时也清掉。
+  ⚠️ 闸门短路时**必须把状态压回 `Failed`**：`ensure_relay` 在调它之前刚翻成 `Connecting`，
+  不压回去，退避期内 UI 会一直显示「正在连接…」却给不出原因。
+
 ### DataChannel 的 `Connecting` 不是错误（wasm 侧）
 
 `PeerConnection` 的 `connected`（DTLS 完成）**早于** DataChannel 的 `open`（SCTP 完成）。
@@ -745,6 +1027,13 @@ accepted），所以极容易被当成网络问题查半天。真正发生的事
 2026-07-28 自研 `crates/webrtc-p2p` 重写 wasm 后端时只带过来第 1 条。
 **以后凡是「自研替换掉一个曾打过补丁的上游实现」，先把那些补丁逐条对照过来**——
 补丁在 fork 里躺着，不会自己跟着走。
+
+> **同族的第三种失效方式：补丁还在原地，产物里却没有它。** 移动端 2026-08-10 实证：
+> 一份 `pnpm patch` 打在 `expo-file-system` 上，`pnpm install` 全绿、`node_modules` 里的
+> Kotlin 确实是打过补丁的，Android 构建吃的却是预编译 AAR ⇒ **补丁三次都没参与编译**，
+> 还被反推出一条错误的「架构事实」。判据是**编译产物里的符号**（`javap`），不是源码。
+> 见 [toolchain.md](toolchain.md) 的「pnpm patch 打在有预编译产物的原生依赖上会静默失效」。
+> 三条放在一起是同一句话：**改动看起来在，不等于它进了产物。**
 
 同批漏抄的还有**累计读缓冲上限**（#6560 的 receive buffer 部分）：`onmessage` 在 Rust task
 再次 poll 之前能攒下多条各自合法的消息，没有上限就是浏览器 OOM，且它**不能拿单条消息
@@ -819,6 +1108,90 @@ listen 成功，但对端解析不出目标节点，拨不动。
 中继。`is_circuit()` 会把它判成 `Relayed`，于是 `path_rank` 把真直连排到中转之下、UI 显示
 也反了。`actor.rs` 的 `classify_path` 因此对含 `/webrtc` 的 circuit 地址返回 `Direct`
 （`is_hole_punched`），单测钉死。
+
+### 「是不是打洞」这一位归 `PathKind`，产品层不许反推（2026-08-12 修）
+
+`PathKind` 曾只有三档，`Direct` 一档里同时躺着**打洞建立的直连**与**直接拨通对端地址的
+直连**（公网 IP、Tailscale 之类的 mesh VPN 隧道）。而 `crates/core` 的
+`path_to_connection` 把这一档一对一映射成 `ConnectionType::Dcutr`（DCUtR = 打洞），于是
+**任何非私网非中继的连接在三端 UI 上都写着「打洞」**。真机形态：一条
+`/ip4/100.112.160.47/udp/62829/quic-v1/webtransport/…` 的 Tailscale 直拨，徽标显示「打洞」，
+点开的链路详情里写着 `WebTransport`。
+
+现在 `PathKind` 有四档，`HolePunched` 单列，`classify_path` 里那个**本来就存在**的
+`is_hole_punched` 分支直接返回它，`path_to_connection` 退回纯一对一。
+
+#### ⚠️ 中途走过的弯路：用「传输是不是 WebRTC」反推打洞 —— 别再走回去
+
+第一版修法是在 `path_to_connection` 里判 `TransportKind == Webrtc`。它当天是准的，
+但**错在两处**：
+
+1. **它依赖一条无人看守的谓词等价关系。** `is_hole_punched`（`net`）与
+   `Addr::transport() == Webrtc`（`net-base`）今天恒等，但它们问的不是同一件事——前者问
+   「这条链路是不是穿透来的」，后者问「字节跑在哪种传输上」。旁边还有个语义更宽的同名
+   `Addr::is_webrtc`（含 `WebRTCDirect`）等着被人「统一」进来。真漂移了两侧都编得过、
+   各自的测试都绿，只有 UI 自相矛盾。
+2. **它看不见 libp2p 自己的 DCUtR。** `presets.rs` 的 `Native` 写着 `.dcutr(true)`，
+   `runtime.rs` 的注释明说两套并存、「dcutr 走 TCP/QUIC 直连，ICE 走 UDP + STUN 候选，
+   覆盖的 NAT 类型不同、互为补充」。一次成功的 DCUtR 打洞产出的是普通
+   `/ip4/<公网>/udp/<port>/quic-v1`，按传输反推会把**真打洞判成「压根没打洞」**——
+   与修复前的错误方向正好相反。
+
+所以「**打洞只可能跑在 WebRTC 上**」这句话是**错的**，不要写进任何文档或注释（它一度进过
+三处 rustdoc 与 DESIGN.md）。判据的唯一归属是内核的 `PathKind`。
+
+#### 已知缺口：libp2p DCUtR 的打洞目前仍归 `Direct`
+
+`classify_path` 只认地址（circuit 段之后有没有 `/webrtc`），而 DCUtR 的产物在地址上认不
+出来。要认出它得接 `dcutr::Event::DirectConnectionUpgradeSucceeded` —— actor 目前把它落进
+`other => debug!("behaviour event")`。这是**缺口不是判据**：修它是给那个事件加一个分支、
+把对应连接标成 `HolePunched`，而不是回到按传输反推。
+
+#### 其余不变量
+
+- **`WebrtcDirect` 归 `Direct` 不归 `Dcutr`** —— 它拨裸 IP、免信令免穿透，与 `/webrtc`
+  是两个传输（DESIGN.md 明令不得合并）。
+- **`path_rank` 里 `Direct` 与 `HolePunched` 同分** —— 数据面质量相同，分档只为说清来路；
+  给谁加分都会让 `best_conn` 在两条等价连接之间偏心。
+- `infer_connection_type`（断连宽限期的地址回退推断）**永远推不出 `Dcutr`**，这是判据决定
+  的不是疏漏：打洞地址含 circuit 段，在第一个分支就归了中继。要认出它得看「最后一个 circuit
+  段之后还有没有传输段」（`dial_tier` 那套），而回退推断不值得重造一份易错的地址解析。
+
+### Tailscale 的 `100.64.0.0/10` 在三个谓词里两否一是
+
+`is_private_lan()` **false**（只认 RFC1918 + IPv6 ULA）、`is_public_routable()` **false**
+（显式排除共享地址空间）、`is_shared_address_space()` **true**。漏掉第三条的地方，隧道地址
+会**一档都不占**然后静默消失 —— `infer_connection_type` 此前就是这样，宽限期内 Tailscale
+连接的徽标凭空不见。写任何「按地址性质分类」的分支时三条一起判。
+
+#### ⚠️ 这只覆盖 IPv4 一半：Tailscale 的 IPv6 仍会被判成「局域网」
+
+Tailscale 的 v6 段 `fd7a:115c:a1e0::/48` 落在 ULA（`fc00::/7`）里，`is_private_lan()` 对它
+**为真** —— 于是同一条隧道走 v6 时 UI 显示「局域网」，与「隧道归 `Direct`」这条契约相反。
+
+**没有跟着修，是因为 IPv4 那半有通用判据而 v6 那半没有**：`100.64/10` 是 CGNAT 标准段，
+「不是真 LAN」这件事与用哪家 VPN 无关；而 ULA 本来就是给任何私有网络用的合法地址，
+Tailscale 只是自选了其中一个 /48，从地址上无法与真局域网区分。要认它只能把那个产品前缀
+写死进内核。
+
+**并且改这条不只是改一个徽标**：`is_private_lan` 是 `is_lan_discovered` 的输入，而后者是
+`PairingMethod::Direct` 的**唯一授权依据**（该模式没有配对码）。把 Tailscale v6 移出 LAN
+等于同时改掉「谁能免码配对」，那是安全判据，要单独评估——可能是想要的（隧道确实不是同一
+广播域），也可能打断现有用法。故留作待评估项，不夹带在一次 UI 修复里。
+
+⚠️ 另一处**尚未处理**的后果：`dial_tier` 只看传输段不看 IP，所以隧道上的 WebTransport 和
+真 LAN 的 WebTransport 同为 `DirectFast`。一旦连接落在隧道那条，`lan_candidates` 的
+`*tier < current` 恒 false、`wants_upgrade_to(_, DirectSlow)` 也 false —— **LAN 升级与打洞
+双双再也不会发起**，且 `prune_inferior_conns` 会把其它路径主动关掉。实测同网 20 MB/s 的
+链路因此停在 3 MB/s。修它要给 `DialTier` 加一档，而那一档排在 `DirectSlow` 前还是后取决于
+「Tailscale 走的是 direct 还是 DERP」——SwarmDrop 看不见这个状态，需要实测定档，故未动。
+
+### 移动端加 `ConnectionType` 变体不会编译报错，另两端会
+
+桌面与 Web 吃 specta/wasm-bindgen 生成的联合类型，`Record<ConnectionType, …>` 缺 key 当场
+编译失败；移动端隔着 uniffi 的**字符串**，`normalizeConnectionKind` 的 `default` 分支把未知
+值收成 `null`，表现是那种连接的设备卡上**整枚徽标消失**，静默。加变体时同改
+`mobile-core/src/device.rs` 的字符串化、`CONNECTION_META` 与那个 `switch`。
 
 ### `OptionalTransport` 只有 `From<T>`，没有 `From<Option<T>>`
 
@@ -1083,6 +1456,126 @@ Windows 上才是 `ConnectionReset`。只认后者等于在 Linux 上留了个�
 > `use webrtc::runtime::{gro_recv_buf_len, is_retryable_socket_recv_error}`。
 > **不要再在本仓重新实现它们**——留这两条记录只为解释「为什么它们值得一条 pin」。
 
+### ⚠️ udp_mux 的支路丢包在生产里曾经**完全隐形**（2026-08-10 修）
+
+`deliver()` 里支路满就丢包（`BRANCH_CAPACITY = 256`，见那个常量的注释：一条慢支路
+卡住整个端口不可接受）。这个设计本身没问题——UDP 允许丢包，DTLS 与 SCTP 各有重传。
+
+**问题在于它只留了一句 `tracing::debug!`，而桌面与移动的默认 filter 够不着
+`webrtc_p2p` 这个 target**（`EnvFilter` 按前缀匹配，`swarmdrop=debug` 覆盖不到它，
+详见 [`rust-backend.md`](rust-backend.md) 的同名条目）。于是这条路径在生产日志里
+一条都不出现。
+
+**为什么它要紧**：持续丢包会把 SCTP 的拥塞窗口压塌，表现为「吞吐从第一秒起就恒定在
+一个远低于链路能力的值上、但传输仍能完成」。2026-08-10 观测到的浏览器→桌面恒定
+3.3 MB/s 正是这个形状——3.3 MB/s ÷ 1 ms LAN RTT ⇒ 等效 cwnd ≈ 3 个 MTU。
+它既不是 CPU 瓶颈的形状（那会随负载波动），也不是带宽瓶颈的形状。
+
+现在按 **2 的幂次**限频打 `warn!`（第 1、2、4、8… 次）并带累计数。选 2 的幂次而不是
+定频（每 N 次一条）：真丢包时日志行数只有 log₂ 级、不刷屏，而**第一次丢包一定被记下来**
+——定频报告会把「只丢了几个」这种更值得警惕的情形整个吞掉。
+
+⚠️ **别急着调大 `BRANCH_CAPACITY` 或补 `SO_RCVBUF`**。诊断报告
+（[`../research/2026-08-10-transfer-throughput-diagnosis.md`](../research/2026-08-10-transfer-throughput-diagnosis.md)
+§1.3 / §4）把它们列为修复 #3/#4，但明确要求**先看丢包计数再改**：假设不成立的话，
+改了不仅白改，还平白加 2.4 MB/连接的内存。
+
+### ⚠️ SCTP 接收窗口**必须**从消息尺寸推导，配大了会静默丢数据（2026-08-11 修）
+
+webrtc-rs 的 driver 把每条收到的 DataChannel 消息 `try_send` 进一条深度 **256** 的通道
+（`DATA_CHANNEL_EVENT_CHANNEL_CAPACITY`，`pub(crate)` 未导出），**满了就直接丢**，
+只打一行 ERROR（[webrtc#858](https://github.com/webrtc-rs/webrtc/issues/858)）。
+
+那条队列在 **SCTP 之下**，所以 SCTP 的可靠性覆盖不到它：对端的数据确实送达、确实重组好了，
+然后被扔掉。上层 libp2p 字节流中间少一段，**永远等不齐**。
+
+**判据是硬的**：`SCTP 接收窗口 > 256 × max_message_size ⇒ 必然丢数据`。
+本仓曾配 8 MiB，而 8 KiB 消息下队列只装得下 2 MiB —— 超了 4 倍。
+
+**正确做法**：窗口从 `StreamConfig` 推导，两个模式各按自己的配置算
+（direct 用 `ctx.stream_config`，打洞用 `StreamConfig::default()`）。
+
+```rust
+fn sctp_receive_buffer(stream_config: StreamConfig) -> u32 {
+    DRIVER_EVENT_QUEUE_LEN.saturating_mul(stream_config.max_message_size() as u32)
+}
+```
+
+**不要做**：
+- 不要写死一个常量——它会与 driver 队列脱钩，而**没有任何编译期信号**。
+  `sctp_receive_buffer` 那两条护栏测试是唯一的兜底。
+- 不要以为「窗口越大吞吐越高」。旧注释写的是「1 MiB 默认会在 LAN 上掉线，spike 在 4 MiB
+  观察到失败」，据此调到 8 MiB ——**因果反了**。而且 libp2p 默认 16 KiB 消息下队列恰好
+  装 4 MiB，正是那个「观察到失败」的值。
+
+**这条缓解不完备**：队列按**条数**限、窗口按**字节**限，对端发大量小消息仍能撑爆它。
+之所以够用，是因为 libp2p 的 framing 会攒满 `max_data_size` 才 flush。**真正的修复在上游**
+——webrtc master 与 0.21.0-alpha.1 改成「队列满时停止从 core 拉取」并把这个旋钮整个删了。
+**crates.io 的 0.21.0-alpha.1 不能直升**，它缺 rtc#159/#161（driver 忙循环烧核）。
+注意措辞：**不是「0.21 回退了修复」，是发布早于修复**——#154 bump 版本在 08-09 23:48，
+而 #159 合于 08-10 23:38、#161 合于 08-11 01:51。两个仓的 master 现在都对了。
+
+已在 `chore/webrtc-0.21` 分支验证过一条可行路径（fork 集成分支 + `[patch.crates-io]`
+指 rtc master，三个修复一次拿全，门禁全绿、实测零丢），但那是独立的大改动，尚未合入。
+退出条件与实测数据见
+[`../research/2026-08-11-web-webrtc-throughput.md`](../research/2026-08-11-web-webrtc-throughput.md) §7.5。
+
+**相关文件**：`crates/webrtc-p2p/src/backend/native/mod.rs`、
+`crates/webrtc-p2p/src/backend/native/direct/upgrade.rs`、
+`crates/net/examples/transport_throughput.rs`（三方 transport 对照基准）
+
+### ⚠️ `set_send_high_water_mark` 是**下界**，不是 buffer 上界（2026-08-11 修）
+
+上一条讲的是**接收**侧丢消息。这条是**发送**侧，症状一模一样（传输卡住、零报错），
+根因完全不同，两条一起看才完整。
+
+`asynchronous-codec` 的 `Framed`：
+
+```rust
+fn poll_ready(..) { while buffer.len() >= high_water_mark { flush } }  // ← 攒够才 flush
+fn start_send(item) { encode(item, &mut buffer) }                      // ← 之后再追加一整条
+```
+
+于是 buffer 峰值 = `hwm - 1 + 一条完整帧`。而 `PollDataChannel::poll_write` 把**一次写出
+变成一条 SCTP 消息**，长度一旦超过协商的 `max_message_size`，rtc 直接拒收整条
+（`SctpHandler.handle_write got error: outbound packet larger than maximum message size`），
+那一帧就没了，上层字节流永不重同步。
+
+libp2p 原本写的是 `set_send_high_water_mark(config.max_data_size())`，注释还说这是为了
+避免超限——**方向反了**。正确值是 **1**：buffer 只要非空就 flush，于是每条帧单独成一条
+消息，既不会超限也符合 spec（每条 DataChannel 消息 = 一个 protobuf 帧）。已修，见
+libp2p PR #6560 的第二个 commit。
+
+**触发条件是混合帧尺寸**，这决定了测试怎么写：一串满尺寸帧**复现不出来**——每条都把
+buffer 顶过水位线、当场 flush，什么都不剩。必须先来一条**短帧**（留下的 buffer 低于
+水位线），再跟一条满尺寸帧，两者才会被一起写出。本仓实测（1 MiB / 8 KiB 上限）：
+125 次写出 8190 B，**3 次 8419 B**，SCTP 恰好拒了那三条，接收端少 49,467 B。
+
+**它被另一个 bug 掩盖了很久**：SDP 里 `a=max-message-size` 曾硬编码 16384，而本仓 framing
+用 8 KiB，合并后的写出正好卡在 16384 以内。把声明改成跟随配置（同 PR 第一个 commit）之后
+才炸出来。所以那两个 commit **必须一起进，只合前一个是净回归**——这也是「修一个 bug 前
+先确认它没在掩盖另一个」的实例。
+
+**判据**：`max_message_size` 的发送侧上限由 rtc 的
+`SctpTransport::calc_message_size(remote_sdp_advertised, local_can_send)` 取 **min** 决定，
+按它 resize `internal_buffer`，发送时判 `payload.len() > internal_buffer.len()`。也就是说
+**对端 SDP 声明的值直接决定本端能发多大**。
+
+### ⚠️ `webrtc` 与 `webrtc_p2p` 是**两个 target**，日志 filter 要分别放行
+
+这是上面那条 udp_mux 教训的**第二次**：`webrtc_p2p` 是本仓的传输 crate，`webrtc` 是
+webrtc-rs 自己。`EnvFilter` 按**字符串前缀**匹配，而 `"webrtc::…".starts_with("webrtc_p2p")`
+为 **false** —— 于是 `webrtc_p2p=info` 够不着 webrtc-rs 的任何日志。
+
+被挡住的正是上一条那个丢弃 ERROR。**回环实测：生产 filter 下丢掉 10 MiB，日志里零条记录。**
+
+**正确做法**：两端的 `DEFAULT_FILTER` 都要带 `webrtc=warn`（取 warn 不取 info：只要告警，
+不要每包 trace）。`EnvFilter` 取最长匹配，所以 `webrtc_p2p=info` 仍然更具体、不受影响。
+
+**相关文件**：`src-tauri/src/logging.rs`、
+`mobile/packages/swarmdrop-core/rust/mobile-core/src/logging/mod.rs`
+——**两份独立常量，改一端必须改另一端**，各自有一条护栏测试看守。
+
 ### 坑：mDNS socket 也走 `wrap_udp_socket`
 
 `MuxedRuntime` 若无差别替换，`PeerConnection` 额外绑的 `0.0.0.0:5353` 多播 socket
@@ -1184,6 +1677,42 @@ rtc `pub use` 了全套子 crate（`rtc::ice` / `rtc::stun` / `rtc::dtls` / …�
 （2026-07 那阵 rtc 被 `[patch]` 换成 git 源时这是必然发生的；patch 虽已删除，但换成
 版本号解析后，任何一次版本漂移都能重演同样的分叉，所以这条约束照旧。）
 
+### ⚠️ `rtc` 是 `webrtc` 仓的 **git submodule** —— 两个都 git 依赖必然分叉（2026-08-11）
+
+上一条说的是「别绕过 `rtc::`」。这条更硬：**`webrtc` 与 `rtc` 不能同时用 git 依赖。**
+
+`webrtc` 仓把 rtc 放在 `rtc/` 子目录（submodule，`url = https://github.com/webrtc-rs/rtc`），
+`Cargo.toml` 里写的是 `rtc = { version = "…", path = "rtc" }`。于是：
+
+```toml
+# ❌ 这么写，rtc 会有两份
+webrtc = { git = "https://github.com/webrtc-rs/webrtc", rev = "…" }
+rtc    = { git = "https://github.com/webrtc-rs/rtc",    rev = "…" }   # 与 webrtc 的 path 依赖不同源
+```
+
+cargo **会**拉 webrtc 的 submodule（能在 `~/.cargo/git/checkouts/webrtc-*/…/rtc/` 看到），
+但那是 path 依赖，与我们这条 git 依赖是两个 source。`[patch.crates-io]` 也救不了——
+它管不到 path 依赖。实测报错：
+
+```text
+expected `RTCDataChannelState`, found `rtc::data_channel::RTCDataChannelState`
+expected trait `webrtc::peer_connection::rtc_crypto::RTCCrypto`, found `rtc::rtc_crypto::RTCCrypto`
+```
+
+**唯一的解法是所有类型都从 `webrtc::` 取**，不出现 `rtc` 这个直接依赖。上游同意这个方向
+——`peer_connection/mod.rs` 明确写着「`rtc` is a private dependency of this crate」并为部分
+参数类型做了 re-export。但 2026-08-11 时**规则没走完**，本仓要用的 5 个不在其中
+（`MulticastDnsMode` / `NetworkType` / `RTCDtlsRole` / `SctpMaxMessageSize` /
+`CertificateParams`）。已提 [webrtc#869](https://github.com/webrtc-rs/webrtc/pull/869) 补齐。
+
+一个**不受此限**的例外：`rtc::stun`（`udp_mux` 解析入站 STUN 学 ufrag）。它的类型
+**不跨 API 边界**——我们只拿它解析字节得到一个 ufrag 字符串，不把 `StunMessage` 传给任何
+webrtc API，所以即便存在两份 stun crate 也不会撞类型。判据就是这句话：**分叉只在类型
+经过 API 边界时才致命**。
+
+（走 crates.io 版本号时没有这个问题：webrtc 的 path 依赖会被同版本号的 crates.io `rtc`
+统一解析。所以这条只在「想用 git master 提前拿修复」时才咬人。）
+
 ### direct 的 UDP 读循环挂在 `Transport::poll` 上
 
 与官方 `libp2p-webrtc` 同构：`UdpMux::poll` 由 `Transport::poll` 驱动，本 crate 全程
@@ -1235,7 +1764,10 @@ API、在这里必须绕：
 `crates/webrtc-p2p/src/backend/wasm/direct.rs`、
 `crates/webrtc-p2p/src/{config.rs,swarm/{transport,direct}.rs}`、
 `crates/webrtc-p2p/examples/direct_listener.rs`、`crates/webrtc-p2p/Cargo.toml`（`rtc` /
-`webrtc` 的版本下限说明）、根 `Cargo.toml` 的 `[patch.crates-io]`（两条 pin 与退出条件）
+`webrtc` 的版本下限说明——**两批修复卡出两个下限**：≥ 0.20.0 与 ≥ 0.20.2，后者见
+[`2026-08-11-webrtc-driver-busy-loop.md`](../research/2026-08-11-webrtc-driver-busy-loop.md)）。
+根 `Cargo.toml` 现无 `[patch.crates-io]` 段——2026-08-04 与 08-11 各有一批 patch，均已
+兑现退出条件删除
 
 ## wasm 工程约定
 
@@ -1251,7 +1783,7 @@ API、在这里必须绕：
 - `wasm-bindgen-futures` 必须精确 pin `=0.4.58`（master 的 libp2p-swarm 钉死了它）。
 - **`check-wasm.sh --clippy` 用 `-D warnings`，比本机 `cargo clippy` 严**：改 core/host 里
   会进 wasm 门禁的代码时，纯 `cargo clippy`（无 `-D warnings`）只当 warning 放行的 lint
-  （如给 `start_node` 加参数触发的 `too_many_arguments`）会在 wasm job 变硬错误挂 CI。
+  （如给组合根加参数触发的 `too_many_arguments`）会在 wasm job 变硬错误挂 CI。
   提交前对 wasm 侧改动跑 `bash scripts/check-wasm.sh --clippy`，别只信本机 clippy 绿。
 
 ## wire v2 契约点（改动前先看固化测试）
@@ -1263,9 +1795,17 @@ API、在这里必须绕：
 - transfer 数据面 `BlockData.proof` = bao-tree 逐块验签切片（u8 标志 + 可选 len-prefixed
   bytes）。**已启用（2026-07-18）**，不再恒 None：接入未 bump 协议版本（proof 是 opaque
   bytes，wire 布局不变）。选型 Approach B——proof 携完整 bao 切片、`data` 置空（叶子只出现
-  一次、无 2x 冗余）；root == `FileInfo.checksum`（标准 blake3，`BlockSize::from_chunk_log(4)`
-  下 chunk group 不改 root）；proof 缺失/验签失败 = 协议违规 → 断流走 Interrupted 恢复。
-  发送端 outboard 与 checksum 同一遍流式构建、落 `transfer_files.outboard` 供 resume 免重算。
+  一次、无 2x 冗余）；root == `FileInfo.checksum`（标准 blake3，chunk group 不改 root）；
+  proof 缺失/验签失败 = 协议违规 → 断流走 Interrupted 恢复。
+  发送端 outboard 与 checksum 同一遍流式构建（**2026-08 起才真是一遍**，此前是两遍读加一条
+  `debug_assert_eq!`），落 `transfer_files.outboard` 供 resume 免重算——可用性判据是长度
+  （`bao::is_outboard_usable`）而非「是否为空」。
+  **chunk group 自 2026-08 起 == `CHUNK_SIZE`（256KiB），每个传输块恰好一个叶子**；曾是
+  16KiB，验签粒度比传输块细 16 倍而无消费方，代价是 outboard 大 16 倍、构建时对
+  `read_source_chunk` 的调用次数大 16 倍（三端宿主都是每次重开文件，调用次数才是主导成本）。
+  改它等于改 wire（proof 树形状变，旧端第一个块就验签失败），**必须同时 bump
+  `TRANSFER_DATA_PROTOCOL`**；同一次变更摘除了 `/2` `/3` 的注册，不兼容因此表现为协商失败
+  而非「传输老是断」。
   实现见 `crates/transfer/src/bao.rs`（sync encode/decode 纯算法 wasm 可编；outboard 构建走
   bao-tree tokio_fsm + iroh-io 的 AsyncSliceReader 适配 FileAccess，均实测 wasm 可编，无 cfg）。
 - RPC 帧：u32 BE 长度前缀 + CBOR，上限 1MiB，恶意长度在**分配前**被拒
@@ -1302,16 +1842,232 @@ wasm-clean crate `swarmdrop-invite`（依赖 net-base，不依赖 core——core
   react-native-svg），**深模块 + 白底不随暗色反色**。
   `decode` 对 `SD` 二维码前缀和 Base32 payload 大小写不敏感；带 `:` 的 Base64URL 链接则必须
   保持原样，补有两类回归断言。
-- **地址瘦身**：每类网络分别只留 TCP（无则 QUIC，native）和 WebRTC（浏览器）各一条；
-  两类路径从该网络分类的全部地址中独立挑选，避免 TCP-only 网卡排在前面时误删 WebRTC。
-  Auto 最多保留 100.64/10 overlay（Tailscale）、LAN、公网与 relay 的 native/WebRTC
-  各一条；198.18/15 仅在没有 overlay 时回退。LocalOnly 只保留 LAN 的 native/WebRTC。
+- **地址瘦身**：每类网络分别只留 TCP（无则 QUIC，native）、**WebTransport** 和 WebRTC
+  （后两者都是浏览器可拨的直连传输）各一条；三类路径从该网络分类的全部地址中独立挑选，
+  避免 TCP-only 网卡排在前面时误删 WebRTC。Auto 最多保留 100.64/10 overlay（Tailscale）、
+  LAN、公网与 relay 的三类各一条；198.18/15 仅在没有 overlay 时回退。LocalOnly 只保留 LAN 那桶。
+  挑完还要过一道 **QR 密度闸**（下一节），地址多到扫不动时按价值反序回收。
 - **三端接线**：桌面命令 `generate_pair_invite`/`decode_pair_invite`/`invite_qr_svg`/
   `consume_pair_invite`；mobile uniffi 同名 + `pair_direct`（补回 Direct）+ `invite_qr_matrix`；
   web `WebNode::connect_invite`（decode 纯函数只需 net-base）。剪贴板感知（`hasStringAsync`
   探测亮 chip）与移动扫码（expo-camera `CameraView`：`barcodeTypes:["qr"]` + 前缀校验 +
   `lockRef` 一次性闸 + 权限三态 + AppState 回前台重拉）均已落地（`mobile/src/app/pairing/scan.tsx`）；
   原生 `CameraView` 需 `expo prebuild` 重编。
+
+### 邀请地址有 QR 密度上限，而它在 2026-08-12 之前就已经卡线（2026-08-12 加）
+
+**WebTransport 地址补进邀请**时才发现的：`select_invite_addrs` 是「每桶挑几条 × 桶数」，
+而**桶数没有上界** —— 一台同时有 CGNAT 覆盖网、局域网、公网直连的机器就是 3 个桶。
+补 WebTransport 之前，那种满配桌面的码面已经是 **97 模块**，距上限 98 只剩一格。
+
+上限从码面尺寸反推，不是拍的：三端最小码面 **196px**（移动端白卡内沿 `220-2×12`、
+Web 端 `QR_SIZE`；桌面 260px 更宽松），px/模块跌破 2 摄像头就读不出来 ⇒ 含 quiet zone
+≤ 98 模块。**容量从来不是约束**（ECL::M 下 2079 字节才到顶），先出事的永远是密度。
+
+一条 WebTransport 地址约 **+85B wire**（两个 certhash 占大头，轮换期两张证书都要在场），
+折成 base32 是 ~140 字符，比普通地址贵 3 倍。实测模块数（`INJECTED_NAME` 作设备名）：
+
+| 配置 | 不带 WT | 带上但不裁 | 现在（带 + 裁） |
+|---|---|---|---|
+| 家用 lan + circuit | 85 | 93 | **93**（5 条，一条没裁） |
+| 公网 lan + public + circuit | 89 | 105 ❌ | **97**（8 → 7，保住 WT） |
+| CGNAT shared + lan + circuit | 89 | 105 ❌ | **97**（8 → 7，保住 WT） |
+| 满配 四类齐全 | 97 | 117 ❌ | **97**（11 → 8，WT 全裁） |
+
+所以 `fit_to_scannable`（wire v1 时叫 `fit_invite_to_scannable`，住在
+`crates/core/src/pairing/manager.rs`；现已搬到 `crates/invite/src/compose.rs`）**逐次重编码 + 量码面**
+往回裁，判据就是最终码面本身、零推导误差。丢弃顺序 = 价值反序：
+
+1. **WebTransport** —— 纯增益。丢了浏览器仍能靠同桶的 webrtc-direct 拨通；配对一旦成功，
+   identify 会把完整监听地址交回来，**后续传输照样走 WebTransport**。所以邀请里的它只影响
+   「首次拨号那一下」，代价是慢不是连不上。同类里从后往前丢（公网 → 局域网 → 覆盖网）：
+   越靠前的桶越可能与扫码方同网，而同网正是 WT 唯一比 webrtc-direct 快一个数量级的场景。
+2. 其余直连地址，同样从后往前。
+3. **circuit 一条都不丢。** 跨网时它是唯一可达路径，而扫码方在哪个网络，生成邀请的这端
+   并不知道。
+
+回归钉是 `invite_stays_scannable_at_every_scale`，四档配置齐上。⚠️ 它必须用**固定
+capability**：`generate` 那份是随机的，而 base32 payload 里数字连段的长短会改变最优分段
+的取舍，码面因此浮动一档（`qr.rs` 的 `fixed_invite` 记着同一件事）。
+
+两条**必须留住**的下界，少任何一条都会产出比「扫不动」更糟的东西：
+
+- **circuit 一条都不丢**（跨网唯一可达路径）；
+- **最后一条地址也不丢，哪怕它不是 circuit**。零地址的邀请**编得出、扫得动、复制得走，
+  唯独没有任何东西可拨**，两端都不报错。这条不能只靠上一条兜：`LocalOnly` 邀请**根本
+  没有 circuit 地址**（只放私网那一桶），设备名长一点（`DeviceName::MAX_CHARS = 40`，
+  CJK 下约 120 字节）就会一路裁到空。
+
+所以这个函数给的是**尽力而为**，不是保证：真裁不下去时返回一条密度超标但语义完好的邀请
+—— 用户还能改用粘贴链接。
+
+⚠️ 丢 WebTransport 时 **`lan` 那条留到最后**，不是天真的「从后往前」。桶序是
+shared → lan → public，`rposition` 从尾部删等于「公网 → **局域网** → 覆盖网」，正好把最该
+留的排在中间：真正同网的是 RFC1918，不是 100.64/10 覆盖网，而那 4.5 倍只在真正同网时兑现。
+挂着 Tailscale 的笔记本（shared 桶有东西 ⇒ 密度压力最常见的来源）恰恰会踩中这个次序。
+
+> **下次往邀请里加东西之前先跑这条测试。** 越线不会有任何编译错误、QR 照样生成、链接照样
+> 能用 —— 只有真机扫码那一下失败，而那是最难归因的失败形态。
+
+> ⚠️ **本节描述的是 wire v1 的形态，数字与结论都已被 wire v2 取代**（2026-08-13）。
+> 保留它是因为「密度而非容量才是约束」「越线不会有任何编译错误」两条判断仍然成立，
+> 而那正是下一节要接着说的。当前数字见下一节。
+
+**当时一条有意接受的代价**：裁剪跑在 `encode_invite` 里，于是**链接分享也被裁**——而链接
+根本没有密度上限。当时的理由是「邀请只有一种对外文本形态，给两者各签一份会让『已复制』
+『撤销』『消费』全部要分辨手上是哪一份」。
+
+**wire v2 把这个两难消掉了**（见下一节）：地址提示移出签名覆盖范围后，裁剪不再是「另签
+一份」而是「同一份签名下少带几条提示」，capability 一字未变，于是撤销与消费根本分辨不出
+差别。「单一形态」那条约束也没被破——两者仍是同一种 canonical URL、同一个 capability。
+
+### wire v2：地址提示不进签名，紧凑编码，预算由 UI 传入（2026-08-13）
+
+三件事一起做的，因为它们是同一个死结的三个环。openspec: `invite-wire-v2`。
+
+#### ① 地址提示**不在签名覆盖范围内**
+
+判据：地址提示是**下游自证**的。拨过去之后身份由 Noise / QUIC-TLS 对**已签名的**
+`inviter_id` 强制校验，篡改地址只能导致拨号失败，或把受邀方引向一个**完不成握手**的第三方。
+签名保护的是 capability 真实性与 `LocalOnly` 不可降级——两样都在 `SignedCore` 里。
+
+代价如实记：能改写邀请文本的攻击者可以删空或替换地址提示，使受邀方拨不通。那是拒绝服务，
+与「把整串改坏」同级，不涉及身份或凭证。
+
+**换来的是 `SignedInvite`**：签一次之后地址可以任意增删而无需私钥。这不只是省下每轮一次
+ed25519——它让「按码面回收地址」从生成侧的一次性动作，变成**任何持串方**都能做的纯结构
+操作，于是裁剪可以搬到渲染侧。`SignedInvite::encode` **不吃密钥**，所以「循环里顺带重签名」
+在类型上无法发生。
+
+⚠️ 顺带去掉了一条隐式契约：V1 靠「序列化一遍占位签名、切掉末 64 字节当 signable」取签名
+对象，因此要求 `signature` 必须是结构体最后一个字段。V2 改为 `sign(域分隔标签 ‖ core 字节)`，
+显式且与字段位置无关。**别把位置约定加回来。**
+
+#### ② 紧凑地址编码住 `net-base`，不住 `invite`
+
+`swarmdrop_net_base::compact` 把 `&[Addr]` 编成 certhash / relay 身份各建一张去重表的形态。
+实测満配桌面地址区 **663 → 约 252 字节**，邀请链接同步腰斩（満配 854 → 676 字符）。
+
+**为什么不放 `crates/invite`**：反对结构化的常见理由是「会让 invite 认识 WebTransport」——
+但传输知识本来就全部收口在 net-base（`is_webtransport` / `is_circuit` / `transport` /
+`dial_tier` 都在 `addr.rs`）。放这里，invite 继续只搬 `Addr`，一行传输判断都不加。
+
+**为什么不是通用压缩（deflate）**：抓不到 `/p2p/<id>` 这类语义冗余（与字节表示不同），
+高熵尾部（签名 64 + capability 16 + 身份 32）不可压且要付 header，小 payload 会反涨 ⇒
+还得带一位「压没压」标志。结构化则逐段可算。
+
+**两条纪律，破了就是静默产出拨不通的地址**：
+- **认不出就 `Raw` 原样搬，绝不猜。** 段序不符建模的地址（如 TCP 后面挂 certhash）必须整条
+  落 `Raw`，不得重排后编码。`Raw` 也让「新传输要不要改 wire」这个问题消失。
+- **表里存原字节**（multihash / `PeerId` 全字节），不存剥了头的摘要。剥头每项省 6 字节、
+  全表十几字节，代价是非 sha2-256 / 非 ed25519 会被静默改写成另一个值。收益来自**去重**，
+  与剥不剥头无关。
+
+⚠️ **`/p2p/<本机>` 后缀省略这条优化不成立，别再想它。** 邀请的地址来自
+`Endpoint::watch_addrs().get().dialable()` = `listen ∪ external`，其中 circuit 地址是 libp2p
+relay listener 报的 `<relay-base>/p2p-circuit`，**不带自身身份**。那条带自身身份的由
+`Actor::circuit_addr_for` 拼出，唯一消费点是 `RelayState::Active` 的**诊断展示值**
+（它的 rustdoc 自己写着「不可当作可达地址分发给对端」）。
+
+#### ③ 密度预算由各端 UI 传入，裁剪搬到渲染侧
+
+`invite_qr_svg` / `invite_qr_matrix` 现在收 `face_px`，`crates/invite::qr` 里只留
+`MIN_PX_PER_MODULE = 2`。core 那个 `INVITE_QR_MAX_MODULES = 98` 删掉了。
+
+**为什么非改不可**：那个常量按**三端最小**码面（196px）一刀切，而桌面实际是 240px = 120
+模块。更要命的是它与三端 UI 的码面尺寸构成四份必须手工保持一致的数字，**没有任何门禁**
+——而那条漂移**真的发生过**：注释写着「桌面 260px（≈130 模块余量）」，实际调用点传的是
+`size={240}`。现在各端传自己的数，「要保持一致」的东西不存在了。
+
+**顺带修掉「链接为二维码受委屈」**：密度是二维码的约束，链接没有这回事。现在
+`encode_invite` 返回完整地址集，二维码在渲染时按自己的码面各裁各的。响应式码面也天然正确。
+
+⚠️ **传的必须是二维码实际占据的那块，不是白卡外框。** 三端语义不一样：桌面 padding 在外框
+上（`size` 就是码面），移动端在内（`size - 12*2` 才是）。这是搬这个数最容易错的一步。
+
+#### 最坏情况的主导变量从「地址数」变成了「设备名」
+
+实测（上限 98 模块）：家用 85 / 公网 89 / CGNAT 89 / **満配 93，12 条地址一条不裁**
+（wire v1 时満配要裁到 8 条）。
+
+**但把设备名换成顶格的 40 个中文字（`DeviceName::MAX_CHARS`，120 字节），満配不裁是 101。**
+那 120 字节比压缩后的整个地址区一半还多。所以：
+
+> 「压缩解决了密度问题」是**半句话**——对短名成立，对顶格名不成立。下次评估邀请体积时，
+> 先问设备名有多长，再数地址。
+
+护栏在 `crates/invite/src/compose.rs`：`invite_stays_scannable_at_every_scale`（五档，
+含顶格设备名那档）与 `the_budget_decides_whether_anything_is_trimmed`（同一条邀请，
+196px 会裁、240px 不裁）。
+
+#### ⚠️ 把字段移出签名覆盖范围，会顺带开两个口子（code-review 抓出来的）
+
+两条都不是「签名范围」本身的问题，而是**「这段数据从此由攻击者控制」这个推论没走完**。
+下次再动签名覆盖范围时，照着这两条各问一遍。
+
+**① 未签名区不能是递归类型 —— 反序列化跑在验签之前。**
+`CompactPath::Circuit` 一度持 `Box<CompactPath>`，于是 wire 可以嵌套任意深。而
+`PairInvite::decode` 的顺序是「postcard 反序列化 → 验签」，也就是说**攻击者的字节先被解析**。
+实测一条上万层嵌套的邀请文本让解码 `fatal runtime error: stack overflow` —— 栈溢出是
+**abort 不是 `Err`**，捕获不了，进程直接死。而邀请文本是从剪贴板**自动**读的
+（`use-clipboard-invite.ts` 在窗口 focus 时就调 decode），等于任何人发来一段文字就能杀掉 App。
+
+递归当时根本没被用到（circuit 的基址只可能是直连路径），现在由类型钉死：`base: Direct`。
+护栏是 `circuit_base_cannot_nest`。
+
+**② 未签名的集合必须有条数上限。**
+地址提示移出签名后，条数就是攻击者可控的。而受邀方拿到提示会经 `Endpoint::add_addrs` 全部
+登记并拨号 —— 一条被改写的邀请因此是一台**指哪打哪的连接洪泛发生器**。
+`TransportPolicy::LocalOnly` 不解决问题：它过滤成 `is_private_lan()`，那恰好是一份内网端口
+扫描清单。现在 `MAX_ADDR_HINTS = 32`（生成侧最多 5 个网络类别 × 3 条传输 = 15，留一倍余量）。
+
+**③ 顺带一条自查纪律：写完「不该出现 X」的测试，先去掉被测判断看它红不红。**
+「零地址邀请一律拒」这条的第一版护栏用两条裸 TCP 地址的夹具、只翻最低位 —— 去掉被测判断
+**照样绿**：两条地址里杀不死全部路径，裸 TCP 又没有下标可打坏，`^0x01` 还只能让下标 0↔1
+互换、始终落在表内。换成「单条带 certhash 的地址 + 翻遍 8 个 bit 位」之后才真正守住，
+而且立刻抓出了判据本身立错了：原本写的是「有提示但全丢了才拒」，漏掉最好构造的那种篡改
+——把路径数直接改成 0。正确判据是**零地址一律拒**。
+
+#### 「至少一条可拨地址」是 `PairInvite` 的**类型不变量**（2026-08-13 补齐生成侧）
+
+wire v2 落地时只做了一半：`decode` 拒收零地址邀请，`generate` 却照造不误。缺的那一半的
+表现极难归因 —— **发起方拿到一张完全正常的二维码，受邀方扫了才报错**，两人手上的信息对不上，
+而发起方永远不知道自己发出去的是废码。
+
+`PairInvite` 只有两条构造路径，现在两条都守住了：
+
+| 路径 | 判据 | 位置 |
+|---|---|---|
+| `PairInvite::generate` | `inviter_addrs` 为空 → `Err(NoDialableAddrs)` | `invite.rs` |
+| `PairInvite::decode` | `compact::unpack` 后为空 → `Err(Verify("邀请没有任何可拨地址"))` | 同上 |
+
+于是「拿到一个 `PairInvite` 就一定有地方可拨」在类型层面成立，下游不必各自再判一次空。
+第三条相关的闸在 `compose::drop_least_valuable_addr`（裁剪绝不裁到零），三者是同一条
+不变量的三个入口。
+
+**这条修复当初被估成「要动三端 IPC/FFI 签名，单独立项」，是高估了**：三端外层本来就是
+`AppResult<String>` / `FfiResult<String>` / `Result<String, JsValue>`，各加一个 `?` 而已。
+估算改动面时先看**外层签名**，不要看内层返回值 —— 它们经常已经是 `Result` 了。
+
+真正要想清楚的是**新 kind 的必要性**：`NoDialableAddrs` 与 `NodeNotStarted` 必须分开，
+因为用户动作相反（「等一下」vs「去启动」）。合并的表现是让用户去点一个已经亮着的开关。
+三端文案统一说「还没连上网络，请稍候重试」；浏览器侧归 `WebError::network`
+（那里几乎恒等于「relay reservation 还没建好」，与其他网络失败同一类瞬态）。
+
+⚠️ 浏览器是三端里最容易撞上这条的：它**一条本地监听地址都没有**，可拨地址全部来自
+relay reservation，所以 reservation 落定之前是**空集**而不是「少几条」。`pairing-panel.tsx`
+的生成按钮已用 `!reservation` 挡住主路径，这条闸兜的是那之外的窗口期。
+
+#### 邀请地址策略搬到了 `crates/invite/src/compose.rs`
+
+`select_invite_addrs` / `append_invite_transports` / `drop_least_valuable_addr` 从
+`swarmdrop_core::pairing::manager` 整体搬过来（连同约 380 行测试）。它们不碰 endpoint、
+不碰 store、不碰任何 core 状态。
+
+**必须住在一起的理由**：`drop_least_valuable_addr` 的判据全是对 `select_invite_addrs` 桶序
+的引用（「桶序是 shared → lan → public，所以从后往前等于……」）。分居两个 crate 的话，
+那些引用会变成跨 crate 且没有任何东西能校验它们还对不对——而 circuit 那条 bug 就长在
+这两套价值序的缝里。
 
 ### ⚠️ 客户端不要对邀请串做大小写归一（2026-07-29 修）
 
@@ -1330,6 +2086,329 @@ wasm-clean crate `swarmdrop-invite`（依赖 net-base，不依赖 core——core
 > `decode(&s.to_ascii_uppercase()).is_err()`——契约是对的，漏的是三端调用侧的同步。
 > 前缀长度变化同理：它既是判别码也是误匹配的唯一屏障。
 
+## WebTransport native transport（`crates/webtransport-p2p`，2026-08-12）
+
+rust-libp2p 只有 `transports/webtransport-websys`（浏览器侧拨号，wasm），**没有 native
+listener** —— 浏览器能拨、没人能接。上游 [PR #4348](https://github.com/libp2p/rust-libp2p/pull/4348)
+（维护者 mxinden 的 native draft）自 2023-10 停在 draft。本 crate 补的是这个缺口。
+
+底层库是 crates.io 的 **`wtransport` 0.7.1**（quinn 0.11 + rustls 0.23，与 libp2p-quic 同源）。
+选它而非 `web-transport-quinn` 的决定性理由是 `Endpoint::reload_config(cfg, rebind=false)`
+—— 换服务端证书**不断既有连接**，那是证书轮换的硬前提，对方没有对应 API。
+
+### 回环吞吐：比 webrtc-direct 快 4.5 倍，且方差小一个数量级
+
+同机回环、同一 `Endpoint` 应用层、只换 transport，64 MiB × **6 次取中位数**
+（`crates/net/examples/transport_throughput.rs`）：
+
+| transport | 中位数 | 区间 |
+|---|---|---|
+| TCP + Noise + yamux | 933 MiB/s | 927–1149 |
+| **WebTransport** | **322 MiB/s** | 286–326（±7%） |
+| QUIC | 266 MiB/s | 248–276 |
+| WebRTC-direct | 72 MiB/s | **43.7–288（6.6 倍）** |
+
+两条结论各自独立成立：
+
+1. **吞吐**：WebTransport ≈ 4.5× webrtc-direct。差距来自用户态栈的深度 —— QUIC 一层做完
+   可靠传输 + 多路复用 + TLS，WebRTC 要 ICE + DTLS + SCTP 三层各遍历一次数据。
+2. **稳定性**：webrtc-direct 的区间横跨 6.6 倍，WebTransport 只有 ±7%。对「传大文件要多久」
+   这类用户可感知的指标，方差比中位数更重要。
+
+⚠️ **WebTransport 比裸 QUIC 还快 21%，这一点尚未查清**（理论上它是 QUIC + HTTP/3 一层，
+应该更慢）。可能是 quinn 配置差异（buffer、拥塞控制）或 libp2p-quic 的 stream 包装层开销。
+**别把它当成已知结论去引用**。
+
+⚠️ 回环瓶颈是 CPU，跨网瓶颈通常是带宽与 RTT。**这组数字不能外推到真机** —— 真机测量仍是
+未做的前置（见下方"已知负债"）。
+
+### 架构：重心在证书生命周期，不在传输层
+
+与 `webrtc-p2p` 逐条对比，只有最后一行变复杂：
+
+| 维度 | `webrtc-p2p` | `webtransport-p2p` |
+|---|---|---|
+| 模式数 | 2（打洞 + direct） | 1 —— WebTransport 没有 NAT 穿透 |
+| 建连协商 | SDP、ICE、DTLS 角色、ufrag | 无，QUIC 握手是库的事 |
+| socket 复用 | 自写 1121 行 `UdpMux` | 无，独占端口 |
+| 子流 | DataChannel + 自做 framing + `init` 通道陷阱 | QUIC 流**本身就是流**，muxer 极薄 |
+| 后端抽象 | 必须（native / wasm 两套栈） | 不需要，浏览器侧用上游 websys |
+| 证书 | 一张，**永不改变** | **两张，会过期，14 天轮换** |
+
+那一行引入了 `webrtc-p2p` 里完全不存在的维度：**时间**。全 crate 约 1500 行，其中
+`certificate/rotation.rs` 是唯一有状态、有时钟、驱动外部可见行为（通告地址）的部分。
+
+分层：`addr` / `certificate`（纯逻辑，零 IO）→ `noise` / `muxer`（libp2p 语义）→
+`listener` / `dialer` / `transport`（wtransport 绑定）。
+
+⚠️ **「只有 L2 认识 wtransport」这句话不成立，别照抄。** 9 个源文件里 6 个 import 它：
+`certificate` 借 `wtransport::Identity` 当证书容器，`muxer` 直接绑它的流类型（为唯一一个
+实现造 trait 是 YAGNI）。真正成立的是——**换库时决定「行为」的部分一行不用动**：轮换状态机
+（456 行，全 crate 最复杂）、地址解析、Noise 语义都不认识 wtransport。这条差别很重要：
+第一版文档写的是前者，而 design.md 拿它兜底了三处论证，属于「先写断言、实现没跟上」。
+
+### ⚠️ 与 webrtc-direct 的 Noise **机制互斥**，照抄必失败
+
+| | webrtc-direct | WebTransport |
+|---|---|---|
+| 身份与信道绑定 | `libp2p-webrtc-noise:` + 双方 DTLS 指纹作 **prologue** | **`webtransport_certhashes` Noise 扩展**，**不设 prologue** |
+
+两者是同一目的的两种机制。照抄隔壁 crate 会让握手在第一条消息就失败，而症状看起来像
+「Noise 实现有 bug」，极难归因。`libp2p-noise` 的 `Config::with_webtransport_certhashes`
+两侧都现成（responder 上报 / initiator 验证），spec 里最难的一块不用自己写。
+
+### 通告地址的实际寿命是 28 天，不是 14
+
+spec 要求通告地址同时携带 `current` 与 `next` 两个 certhash。把时间轴画开：
+
+```
+第 0 天    通告 [A, B]  ← 客户端记下
+第 14 天   A 过期 → 通告 [B, C]
+           客户端持旧地址拨 → 服务端用 B → B ∈ {A,B} → 连得上
+第 28 天   B 过期 → 通告 [C, D]
+           客户端持旧地址拨 → 服务端用 C → C ∉ {A,B} → 断
+```
+
+即一条通告地址能撑过**一整轮**轮换。这条推论直接决定上层「多久刷新一次 bootstrap 清单」，
+由 `advertised_addr_survives_one_rotation` 钉死。
+
+**由此还得到一条不显然的必需品**：服务端的 Noise 扩展**必须带上刚退役的 certhash**。
+上表第 14 天那行，TLS 层过了（服务端出示 B，B 在客户端集合内），但 Noise 层若只上报
+`{B, C}`，`{A,B} ⊄ {B,C}` 就会失败 —— **TLS 过了 Noise 仍会挂**。spec 那句「近期过期的
+也建议带」不是可选优化。
+
+### 判据：libp2p-quic 不会抢走 WebTransport 地址
+
+WebTransport 地址形如 `/ip4/…/udp/…/quic-v1/webtransport/certhash/…`，同时含 `/quic-v1`。
+它没被 libp2p-quic 认领，唯一依据是上游 `multiaddr_to_socketaddr` 对 `/quic-v1` 之后的任何
+非 `/p2p` 段一律 `return None`（`transports/quic/src/transport.rs`）。
+
+**升 libp2p rev 时要重新确认这一条**。破了的话表现是 WebTransport 地址被 quic 认领、然后
+永远拨不通，且没有任何错误指向真正的原因。
+
+`Addr::transport()` 里同理：`/webtransport` 的判别**必须排在 `QuicV1` 之前**，否则会判成
+普通 QUIC —— 判据错了但没有编译错误。
+
+### 证书生命周期的四条判据（都是 code-review 抓出来的真 bug）
+
+第一版实现全绿、clippy 干净、61 条测试通过，仍然错了四处。四条各自独立，且**都不会在
+任何测试里表现为红**，只会在 14 天后、或某次重启后、或某台机器上悄悄发作：
+
+1. **两张证书必须重叠，不能首尾相接。** 轮换由 poll 里一个 60s 的定时器驱动，「该换了」与
+   「真的换了」之间必然有滞后。若判据是「`current` **已经过期**才换」，那段滞后里服务端
+   出示的是过期证书 —— 浏览器与 `wtransport` 客户端都直接判 `Expired`，**期间所有新连接
+   一律 TLS 失败**，每 14 天来一次。现在 `next` 提前 1 小时生效，切换点落在两张都有效的
+   重叠区里。
+2. **退役 certhash 必须跟着 PEM 一起持久化。** 它只活在内存里的话，**一次重启就把「旧地址
+   能撑过一整轮」打掉**：对端拿旧地址来拨，TLS 过得去（服务端出示的 current 在它的接受
+   集合内），Noise 却失败（判据是「期望 ⊆ 收到」，而重启后服务端不再上报退役的那个）。
+   解法是 `retired` 存整张证书而非只存 hash，`to_pem` 一并写出。
+3. **`store.load()` 报 IO 错时绝不能回写。** 读失败不等于数据坏了 —— 文件可能被杀软临时
+   锁住、权限被改、一次 EIO。覆盖它等于把一次瞬时故障变成**永久**的身份丢失。
+   CLAUDE.md 为设备身份文件写死过同一条判据（「读取失败不降级」），这里是同一个坑的第二次。
+4. **私钥的编码变体要挡在门口。** `wtransport::PrivateKey::from_der_pkcs8` 只是**贴标签**
+   不解析，而起监听走的是 rustls 的 `.expect("已经验证过")`。一份 SEC1 私钥
+   （`-----BEGIN EC PRIVATE KEY-----`，openssl 默认输出）会一路通过构造、在第一次
+   `listen_on` 时把整个 Swarm 线程 panic 掉。
+
+> 通用判据：**「有状态 + 有时钟 + 有持久化」的子系统，测试全绿不代表对。** 上面四条对应的
+> 是四个不同的时间尺度（一个检查周期 / 一次重启 / 一次 IO 抖动 / 一次手工换文件），任何一条都不在
+> 常规测试的观察窗口内。写这类代码时要专门列举「哪些时刻会发生什么」，而不是等测试告诉你。
+
+### 抗 DoS：`mpsc::channel(n)` 的容量不是 n
+
+`futures::channel::mpsc::channel(n)` 的真实容量是 **`n + Sender 个数`** —— 每 clone 一个
+Sender 就多一个保证槽位。accept 循环若给每条连接 clone 一个 Sender，那个数字就形同虚设，
+「靠通道容量做背压」整句话不成立。
+
+WebTransport 的 listener 因此改用**信号量限住在途握手数**（拿不到许可直接丢弃 incoming，
+不排队 —— 排队本身就是要防的那个堆积），并给 QUIC+CONNECT 那一段单独加了超时（`Config`
+里那个握手超时只盖交付给 Swarm **之后**的 Noise，管不到这段）。公网 relay 上这是可被远程
+触发的内存增长路径。
+
+### 部署形态
+
+- bootstrap 独占 **UDP 4004**，与 webrtc-direct 的 4003 **并存**（两条浏览器入口同时提供，
+  可对比吞吐后再决定是否下线前者）。
+- **WebTransport 的公网地址不能静态登记。** TCP/QUIC 的公网地址只由「IP + 端口」决定，
+  恒定不变；WebTransport 的地址带 certhash，静态算出来的那条会在第一次轮换后失效。
+  bootstrap 因此有一个后台任务盯着内核的监听地址视图，把 WebTransport 地址改写 IP 后
+  **连同静态那几条整份声明**给内核（`crates/bootstrap/src/lib.rs`）。整份声明这一点不是
+  风格选择，见下面「地址集合只增不删」。
+- **桌面与移动端都监听 WebTransport（2026-08-12 起）**，端口由系统分配。启用判据是**宿主
+  给没给证书端口**，不是「是不是原生端」（后者会让浏览器也被算进去，而它起不了任何监听，
+  `bind` 会直接失败）。浏览器传 `None`，只拨号。
+  > 移动端一度被判为「不该监听」，两条理由都不成立，值得记住怎么错的：
+  > ①「要动 uniffi 跨 FFI 契约」—— 那是把证书端口错挂在 `KeychainProvider` 上才有的代价，
+  > 它本来就不该挂在那儿（见下节）；落在 Rust 侧的文件里，跨 FFI 面一个字节没动。
+  > ②「手机在 NAT 后，浏览器直连走不通」—— 只对**公网**成立。局域网内浏览器直连手机是走
+  > 得通的，而那正是移动端**早就**在监听 webrtc-direct 的理由（`presets::Native` 里那条地址
+  > 的注释写的就是「浏览器到原生端的局域网直连入口」）。同一个场景，没有理由只开慢的那条。
+- **浏览器不需要写死 WebTransport 地址**：它先用 webrtc-direct 连上 bootstrap，经 identify
+  学到带**当前** certhash 的 WebTransport 地址。这天然绕开了「清单里的地址会过期」的问题，
+  也是 `docs/app/app/_lib/relay-helpers.ts` 不必改的原因。
+- 日志三个 target（`webtransport_p2p` / `wtransport` / `quinn`）互不为前缀，也都不以
+  `swarmdrop` 开头，**桌面与移动两份 `DEFAULT_FILTER` 要一起改**，各有一条断言看守。
+
+### 测试纪律：三条「假绿」，都是变异测试抓出来的
+
+变异测试（把实现改回缺陷形态，确认测试真的变红）在本轮抓出三条自以为有效的护栏。
+**写完护栏就变异一次**，成本是一分钟，而假绿护栏比没有护栏更糟 —— 它会让人以为那条
+判据有人看着。
+
+第三条在 `crates/net`（地址簿淘汰），前两条在 `crates/webtransport-p2p`：
+
+0. **`still_advertised_address_survives_a_flood_of_new_ones` 第一版是假绿的。** 它让那条
+   「仍在被上报」的地址每轮都 `touch` 一次，可 `touch` 对**已被淘汰**的地址等于重新插入
+   到簿首 —— 于是把淘汰逻辑换成「按物理位置截断」（即缺陷形态），测试照样通过：它验的
+   是「被重新插入」而不是「被保护」。修正的关键是先用新地址把它**推到物理最末位**，再
+   只刷新一次序号 —— 两种实现在这里才会分道扬镳。
+   **同类陷阱**：测「X 不该被删掉」时，要确认 X 没有在别处被悄悄重建。
+
+1. **`rejects_non_sha256_certhash` 原本是假绿的。** 它用 sha1（20 字节摘要）构造非法
+   certhash，而实现里挡住它的是**长度检查**不是 code 检查 —— 把 `hash.code() != SHA2_256`
+   整段删掉，测试照样通过。改用 blake3-256（摘要同为 32 字节）才真正验到 code 那条判据。
+   **同类陷阱**：用「哪儿都不对」的输入测一个多条件判据，只能验到最先失败的那条。
+2. **`rotation_keeps_existing_connections_alive` 原本会挂死而不是失败。** 把
+   `reload_config` 的 `rebind` 改成 `true`，reload 失败 → 不发任何事件 → `next_event`
+   永久 `Pending`。CI 里的表现是「job 超时」，看不出是谁挂的。现在所有等事件/等 IO 的
+   helper 都套了 10s 超时。**凡是等 `Poll::Pending` 的测试都要有超时**，否则「本该发生的
+   事没发生」这类 bug 的失败形态是不可读的。
+
+### ⚠️ `Watcher::get()` 不推进版本标记（写 watch 相关测试必踩）
+
+`Watcher::get()` 走的是 `borrow()`，**只有 `updated()` 里的 `borrow_and_update()` 会推进
+版本**。而 `Endpoint` 持有的那个 receiver 从来没被读过，于是 `watch_addrs()` 每次 clone
+出来的 `Watcher` 一开始就带着「有未读变更」—— **首次 `updated()` 必定立刻返回**。
+
+写「重复操作不该触发更新」这类测试时，拿 `get()` 当消费手段会得到一条永远失败的测试
+（测的是那个继承来的标记，与被测行为无关）。要消费积压只能用 `updated()`。
+
+另一个同源的坑：`watch_addrs` 覆盖**整个** `AddrsInfo`，监听地址到达同样会唤醒它。
+测「外部地址是否变化」时若还开着 listen，测的就成了「`NewListenAddr` 有没有恰好在这
+几百毫秒里到」——一条会随机变红的测试。两条都记在
+`crates/net/tests/lifecycle.rs` 的 `redeclaring_the_same_addresses_is_idempotent` 上。
+
+### 两个由 `/simplify` 审出来的真 bug（都不是风格问题）
+
+1. **「这对证书是不是刚生成的」在错误的地方二次派生。** `load_or_bootstrap` 明明知道自己
+   走了哪条路径，却把这个事实丢掉，让调用方再 `store.load()` 一次去反推。两处对「fresh」
+   的定义因此**对不上**：存量 PEM 损坏时，加载走的是「重新生成」，而反推看到
+   `Ok(Some(垃圾))` 判成「不是新的」→ **不落盘** → 下次启动再坏一次、再生成一次，
+   **certhash 每次重启都变**，而那正是这个持久化端口存在的唯一理由。
+   一条 warn，没有任何东西指向「文件坏了但没人修它」。
+   > 通用判据：**信息要在产生它的地方回报，不要在消费它的地方猜回来。** 猜得到的前提是
+   > 「输入没变过」，而这里恰恰变了。
+
+2. **Rust 侧加了传输种类，JS 侧两份镜像没跟上。** `TransportKind::Webtransport` 加进
+   `Addr::transport()` 时特意写了「必须排在 `QuicV1` 之前」的注释（WebTransport 地址
+   **同时含**两个段），但 `src/routes/_app/settings/-bootstrap-nodes-section.tsx` 与
+   `docs/app/app/_lib/relay-helpers.ts` 各有一份从 multiaddr 字符串猜传输的 if 链，
+   两处都把 `/quic` 排在前面 —— 地址被标成 "QUIC"，而同一屏的校验又以
+   `unsupportedTransport` 拒掉它并列出「本端支持 TCP · QUIC · WebRTC Direct」。
+   用户看到两句互相矛盾的话，无从判断错在哪。
+   > 通用判据：**顺序敏感的 if 链是"加一个变体就会静默出错"的结构**，而它们没有编译期
+   > 保护。仓里现在有三处（桌面 / Web / 后端），Web 那份已补了护栏测试
+   > （`docs/app/app/_lib/relay-helpers.test.ts`）。真正的解法是三处都改成消费后端下发的
+   > wire 名，别再猜 —— 后端已经有权威判据了。
+
+## 地址集合只增不删：同一个 bug 的两面（2026-08-12 修）
+
+带 `certhash` 的传输（WebTransport 14 天轮换、webrtc-direct 换证书时）让一个此前无害的
+形态变成了真缺陷：**内核里保存地址的集合都只去重、不淘汰**。它有对称的两面，当时只看见
+了一面。
+
+### 面一：本机通告出去的外部地址（`Endpoint::set_external_addrs`）
+
+后果分两级，**第二级最初漏评估了**：
+
+- **立即**：identify 发出的地址集 = external ∪ listen。对端学到的 WebTransport 候选里只有
+  1 条是活的；libp2p 的并发拨号预算默认 8 条，约 3 个月（6 次轮换）后死地址占满预算，
+  连接成功率随进程运行时长线性下降。
+- **最终**：identify 的 payload 走 `prost_codec::Codec::new(4096)`，而**编码端不检查长度、
+  解码端检查** —— 超限时不是本机报错，是**每一个对端**都静默地解不出这条 identify。
+  一条 WebTransport 地址约 89 字节，扣掉约 1.2KB 底噪后约 32 次轮换（≈15 个月）到顶。
+  bootstrap 正是那种会连续跑几个月的进程。
+
+**修法不是补一个 `remove_external_addr`，而是把 API 换成声明式的整份替换。** 命令式的
+add/remove 会把一份易错的记账纪律推给每一个调用方：自己维护「已登记集合」、部分失败时只
+回滚失败的那些、还要保证「先调用后记账」这个顺序不写反（写反的后果是一次瞬时失败让某条
+地址**永久**不再重试，而日志只有一行 warn）。声明式把这些全部消掉 —— 调用方每轮把「现在
+应该通告什么」整份发过来，重试就是把同一份声明再发一次，差量由内核算且只有一份实现。
+它还天生对**漏采样**免疫：`watch` 是 last-value-wins，轮换瞬间的中间态大概率被跳过，而
+每轮重新声明全集的话，跳过与否都不影响最终收敛。
+
+两条判据不能破：
+
+1. **声明的与自动确认的分开存。** 内核持 `declared_external`（宿主声明）与
+   `confirmed_external`（AutoNAT / identify 观测），视图是二者并集。合成一个集合的话，
+   宿主每声明一次就会抹掉 AutoNAT 刚确认的地址，下一轮 AutoNAT 又加回来，视图永久抖动。
+2. **差量以视图为基准，不以 Swarm 的 external 集合为基准。** LanHelper 会把私网监听地址
+   直接登记进 Swarm 却**刻意不进视图**（视图是给上层看的公网地址诊断）。改成「以 Swarm
+   为准全量重算」会把那条当多余的删掉，relay 的 reservation 应答随即失去可拨地址，
+   客户端报 `NoAddressesInReservation`。
+
+### 面二：地址簿里对端的地址（`Actor::address_book`）
+
+同一枚硬币的背面，而且更隐蔽：`record_addr` 只去重不淘汰，而 `address_book.remove` **只在
+注销基础设施节点时**调用 —— 普通对端的条目在进程生命周期内永不清除。进簿的四条路径
+（mDNS / DHT presence record / identify / 显式注入）都会随时间产出新地址：对端换 Wi-Fi 或
+DHCP 续租就是一批新 IP，带 certhash 的地址更是每次轮换必变一条。这边撑爆的不是 identify
+payload，而是**拨号预算**。
+
+修法是上限 32 + LRU，但**淘汰判据必须是「最久没被提及」而不是「进簿最早」**：
+
+- 一条一直可用的公网地址进簿最早、物理上排在最后，但只要对端还在 identify / DHT 里持续
+  上报它，它就不该被淘汰。按物理位置淘汰的话，恰恰是那条唯一还能用的地址被新涌入的私网
+  地址挤掉。
+- 「最近提及」用**逻辑计数器**而不是时间戳：这里要回答的只是「谁更久没被提及」这个相对
+  问题，而 wasm target 下没有可靠的单调时钟（kad 的 `Instant` 就为此分叉过）。
+- **物理顺序（= 拨号优先级）与淘汰序号是两件事**：重报只刷新序号、不挪位置，否则拨号
+  顺序会随 mDNS 的广播节奏抖动。
+
+护栏是 `still_advertised_address_survives_a_flood_of_new_ones`，它**第一版是假绿的** ——
+见下面「测试纪律」。
+
+### 证书端口为什么不挂在 `KeychainProvider` 上
+
+接桌面端时最初判断「要给 `KeychainProvider` 加三个方法，牵动 uniffi 跨 FFI 契约与 4 个
+入库的生成文件」，因此把它推迟成独立工作。**那个判断是错的**：那个 trait 的三组方法都是
+「读一次就完」的形态（身份与 webrtc 证书永不改变，宿主启动时交出去就不再过问），而
+WebTransport 的证书要轮换并**回写** —— 它需要的是长期持有的可写端口，本就不该挂上去。
+
+真正要解决的是另一件事：`webtransport_p2p::CertificateStore` 是 **native-only 依赖的类型**，
+wasm target 下根本不在依赖树里，直接用会逼着 `swarmdrop_core` 的组合根给参数和字段加
+`cfg(wasm_browser)` 分支 —— 而「业务层不写 cfg」是本仓的硬约束。做法是在 `crates/net` 定义
+一个平台中立的同名端口（native 侧 12 行 adapter 转回去），组合根于是零分支。
+
+**监听判据是「宿主给没给证书端口」，不是「是不是 Native」。** 后者把浏览器也算了进去，
+而它起不了任何监听 —— 多给一条监听地址会让 `bind` 直接失败。正反两条 core 测试看守它。
+
+**文件实现两端共用一份**（`crates/net` 的 `WebTransportFileCertificateStore`，各宿主只给
+路径），与 `JsonFileDeviceConfig` 同一体例。这里刻意不走「端口三端各写一份」的常规体例，
+判据是**实现里有没有容易写错、且错了没有反馈回路的不变量**：原子写（半截 PEM → 下次启动
+重新生成 → certhash 变，而日志一切正常）、`0600`（里面有私钥）、读失败不降级。三条各写
+两遍就是两次写错的机会。设备名那份用裸 `fs::write` 反而是对的 —— 丢了可以重设。
+
+## 浏览器手测怎么做（2026-08-12 实测流程）
+
+`serverCertificateHashes` 的准入只能在真浏览器里验，但**不需要人工点**：
+
+1. 起本地 bootstrap：`--listen-ip 127.0.0.1 --external-ip 127.0.0.1`。
+   **拨 `127.0.0.1` 能绕开 Chrome 的 LNA（Local Network Access）拦截** —— 拨局域网 IP 则
+   未必，那是另一个变量，别混在一起测。
+2. Chrome 走完整链路：`agent-browser` 打开 `/app/settings` → 「添加自定义引导节点」→ 粘贴
+   `/ip4/127.0.0.1/udp/4004/quic-v1/webtransport/certhash/<h1>/certhash/<h2>/p2p/<id>`。
+   判据看**服务端** debug 日志：入站连接的 `endpoint=Listener{ local_addr: …/webtransport/… }`
+   且带 `peer_id`（有 peer_id ⇒ Noise 已完成），随后 `ReservationReqAccepted`。
+3. Safari / Firefox 无法用 CDP 驱动。用一个最小页面拨 `wt.ready` 并把结论写进
+   `document.title`，再用 `osascript -e 'tell application "Safari" to get name of document 1'`
+   读回来 —— 不需要 safaridriver，也不需要 `do JavaScript` 权限。
+4. **每个浏览器都要做负面对照**（喂一个全零 certhash，期望 `Opening handshake failed`）。
+   没有它，「WT-OK」可能只是说明那个浏览器压根没校验 certhash。
+
+顺带可验证书持久化：重启 bootstrap 后 certhash 应**逐字不变**，浏览器经同一条地址重连成功。
+
 ## 已知负债（勿当 bug 重报）
 
 - mdns/autonat/dcutr 的 native 运行时行为未经自动化测试（依赖真机/多机冒烟）。
@@ -1339,3 +2418,46 @@ wasm-clean crate `swarmdrop-invite`（依赖 net-base，不依赖 core——core
   ws/webrtc-direct dial、circuit 被动接收、双向 RPC 五格全通，记录见
   `spike/net-web-smoke/README.md`。wasm 产物 598KB gzip（iroh spike 为 849KB）。
   未测：跨机器、Safari/Firefox、https 页面组合。
+
+**WebTransport（2026-08-12 落地）：**
+
+- ~~真机测量未做~~ **局域网已测（2026-08-12，v0.18.0）**：Android ↔ 桌面 Chrome，2 GB
+  单文件，手机发 **20 MB/s**、浏览器发 **9 MB/s**。前者落进 native↔native QUIC 的区间
+  （12–23 MB/s）——浏览器在**接收**方向上已不是瓶颈。
+  ⚠️ **不要拿它除 0.36–0.96 MB/s 得出倍数**：那个分母来自 `opt-level = "z"` 的旧构建
+  （`-Oz` 关掉内联后 WebRTC 的纯 Rust AES-GCM 慢一个数量级，正是改回 `3` 的理由），
+  改完之后 WebRTC 那条**没有在真机上重测过**。要倍数就得做同构建同链路的 A/B。
+  **跨网仍未测**——局域网数说明不了中转/打洞路径，「打洞 vs webrtc-direct」这个变量
+  至今没分离过。
+- **发送方向慢 2.2 倍（20 vs 9 MB/s）：归因是「接收端流水线化了、发送端没有」，
+  发送端已于 2026-08-12 补上（openspec: pipeline-send-path）。**
+  2026-08-10 那轮只拆了接收端（收帧 ‖ 消化），发送端的 `write_block` 一直是
+  `读 .await → 建 proof → 发 .await` 的串行链。串行本身两端都有，但代价只在浏览器那侧
+  显形：Android 的「读+算」是原生文件读 + NEON blake3，相对网络几乎免费；浏览器的是
+  promise 往返 + 无 SIMD 的 wasm blake3，且完全不与网络发送重叠。
+  现在发送端也是两条并发路径（备块 ‖ 发帧 + 有界队列 + `join`），与接收端同构。
+  已排除的：prepare（Web 端单独追踪 `activePrepare`，9 是纯数据面速率）、OPFS 写盘（收才写
+  而收更快）、wasm blake3 本身（两向工作量同量级）、`encode_proof` 的 O(n²)（按 range 走
+  O(块 + log n)）、停等窗口 RTT（4 MiB 一窗，2 GB 只停 512 次）。
+  ⚠️ 「发送侧多一份跨 JS↔wasm 拷贝」那条说法是**错的**——两向都跨两次，不对称的是**重叠**。
+  ⚠️ **天花板是 `proof`**：`join` 给的是并发不是并行，而 `encode_proof` 是 wasm 主线程上的
+  同步 CPU，谁也压不住它。每块壁钟从 `read + proof + write` 降到约 `proof + max(read, write)`，
+  **实际收益取决于 `proof` 的占比，至今未实测**。量它不用改代码：探针已拆成
+  `send`（read/proof/enqueue）与 `send-frame`（queue/write/ack/rest）两条，都打在浏览器
+  console 上（`swarmdrop_transfer` 在 Web 端是 DEBUG，探针发 `info!`）。判读表见
+  [`2026-08-12-webtransport-field-test.md`](../research/2026-08-12-webtransport-field-test.md)。
+- ~~桌面端未接入~~ **已接入（2026-08-12）**，且没有动 `KeychainProvider` —— 判据见下方
+  「地址集合只增不删」那节后面的「证书端口为什么不挂在 KeychainProvider 上」。
+- ~~旧的公网地址不会被撤销~~ **已修（2026-08-12）**，见下节。
+- ~~浏览器端到端未手测~~ **Chrome 完整链路 + Safari/Edge 准入层已实测**（2026-08-12）。
+  **Firefox（Gecko）仍未测** —— 本机没装。复现只需一条 URL，见下方「浏览器手测怎么做」。
+- **`connection closed by peer: 0` 被记成 WARN。** 浏览器每次刷新/关页都会在服务端刷一条
+  `connection closed with error … 建立 WebTransport 会话失败：接受入站子流失败`。
+  功能无碍，但正常操作产生 WARN 会淹掉真告警。**没有就地改**：libp2p 的 `StreamMuxer`
+  没有「正常结束」的表达位（连接终止一律经 Error 传播），把它在 muxer 层吞成 EOF 有
+  连带吞掉真实错误的风险，要改得先确认 quic / webrtc-direct 在同一场景下的表现，
+  不能只看 WebTransport 这一条。
+- **浏览器端到端未手测**（Chrome / Firefox / Safari 各拨通一次）。native↔native 的 9 条
+  集成测试已覆盖握手链路，但浏览器侧的 `serverCertificateHashes` 准入只能手测 ——
+  `wtransport` 客户端用的是同一套判据（有效期 ≤14 天、ECDSA P-256、窗口内），
+  所以 native 拨得通的东西浏览器**应该**也拨得通，但那是推论不是实测。

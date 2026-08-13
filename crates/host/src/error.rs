@@ -18,7 +18,7 @@ pub enum AppError {
     #[error("Network error: {0}")]
     Network(String),
 
-    /// 身份存储（keychain / 密钥材料）的读写**真的失败了**。
+    /// 身份存储（密钥材料）的读写**真的失败了**。
     ///
     /// **不要拿它当配对路径的垃圾桶。** 它一度承载了 8 处毫不相关的失败——peer_id 解析、
     /// multiaddr 解析、二维码生成、邀请标识格式、邀请状态没落盘、设备找不到——而前端按
@@ -31,7 +31,7 @@ pub enum AppError {
     /// 设备身份尚未就绪（私钥还没加载进内存）。
     ///
     /// 与 [`Self::Identity`] 的区别是「没走到」与「做了但失败」：这个通常意味着启动时的
-    /// `initialize_identity` 失败过或还没调用，用户的正确动作是重启应用，而不是排查钥匙串。
+    /// `initialize_identity` 失败过或还没调用，用户的正确动作是重启应用，而不是去翻身份文件。
     #[error("identity not ready")]
     IdentityNotReady,
 
@@ -57,6 +57,18 @@ pub enum AppError {
     /// 节点未启动
     #[error("Node not started")]
     NodeNotStarted,
+
+    /// 本机当前没有任何可拨地址，因此生成不出有意义的邀请。
+    ///
+    /// **与 [`Self::NodeNotStarted`] 是两回事，用户动作也不同**：那个是「根本没起，去启动
+    /// 它」，这个是「起来了但还没连上，等一下再来」。合并成一个 kind 会把「稍等片刻」说成
+    /// 「请先启动节点」，而节点明明正在运行 —— 用户会去点一个已经亮着的开关。
+    ///
+    /// 瞬态：浏览器端最容易撞上（可拨地址全部来自 relay reservation，reservation 落定前
+    /// 一条都没有）。判据的真源在 `swarmdrop_invite::NoDialableAddrs`，这里只是它到 UI 的
+    /// 投影。
+    #[error("no dialable address")]
+    NoDialableAddrs,
 
     /// 邀请已过期。
     ///
@@ -140,6 +152,7 @@ impl Serialize for AppError {
             AppError::InvitePersistFailed => ("InvitePersistFailed", self.to_string()),
             AppError::DeviceNotFound => ("DeviceNotFound", self.to_string()),
             AppError::NodeNotStarted => ("NodeNotStarted", self.to_string()),
+            AppError::NoDialableAddrs => ("NoDialableAddrs", self.to_string()),
             AppError::ExpiredCode => ("ExpiredCode", self.to_string()),
             AppError::InvalidCode => ("InvalidCode", self.to_string()),
             AppError::TaskJoin(e) => ("TaskJoin", e.to_string()),

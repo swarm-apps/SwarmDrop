@@ -11,6 +11,7 @@ members = [
     "crates/net-base",
     "crates/net",
     "crates/webrtc-p2p",
+    "crates/webtransport-p2p",
     "crates/bootstrap",
     "src-tauri",
     "mobile/packages/swarmdrop-core/rust/mobile-core",
@@ -81,19 +82,31 @@ swarmdrop-net = { path = "crates/net" }
 #
 # 拖得越久 rebase 成本越高——动 crates/net 时顺手跑一遍上面两条命令。
 # 升级 rev 必须走独立 PR + 全量测试 + wasm check，并同步 Cargo.lock。
-libp2p = { git = "https://github.com/yexiyue/rust-libp2p", rev = "d858435cfede61115d705ed4797187eef0258861" }
-libp2p-stream = { git = "https://github.com/yexiyue/rust-libp2p", rev = "d858435cfede61115d705ed4797187eef0258861" }
+libp2p = { git = "https://github.com/yexiyue/rust-libp2p", rev = "93fa526c6593334cfbcf3731bd3043714f5f0fa6" }
+libp2p-stream = { git = "https://github.com/yexiyue/rust-libp2p", rev = "93fa526c6593334cfbcf3731bd3043714f5f0fa6" }
 # crates/webrtc-p2p 用细粒度 core/swarm 而非 libp2p facade——它要独立发布，
 # 依赖 facade 会把整个协议栈拖进它的依赖树（官方 transport crate 同样只依赖这两个）。
-libp2p-core = { git = "https://github.com/yexiyue/rust-libp2p", rev = "d858435cfede61115d705ed4797187eef0258861" }
-libp2p-swarm = { git = "https://github.com/yexiyue/rust-libp2p", rev = "d858435cfede61115d705ed4797187eef0258861" }
+libp2p-core = { git = "https://github.com/yexiyue/rust-libp2p", rev = "93fa526c6593334cfbcf3731bd3043714f5f0fa6" }
+libp2p-swarm = { git = "https://github.com/yexiyue/rust-libp2p", rev = "93fa526c6593334cfbcf3731bd3043714f5f0fa6" }
 # DataChannel 之上的 libp2p framing（以及 Noise 握手、SDP 模板、certhash 编解码）。
 # 泛型且不依赖 webrtc-rs，两个 target 共用。
 #
 # 注意：官方的 `libp2p-webrtc`（webrtc-direct）已于 2026-07-28 **整体移除**——它的活
 # 由 `webrtc-p2p` 接了过来。留着它等于把 webrtc-rs 0.17 与 0.20 两套 ICE/DTLS/SCTP
 # 同时编进二进制。`libp2p-webrtc-utils` 是另一个 crate，仍然要用。
-libp2p-webrtc-utils = { git = "https://github.com/yexiyue/rust-libp2p", rev = "d858435cfede61115d705ed4797187eef0258861" }
+libp2p-webrtc-utils = { git = "https://github.com/yexiyue/rust-libp2p", rev = "93fa526c6593334cfbcf3731bd3043714f5f0fa6" }
+# Noise 握手。webtransport-p2p 只用它做**身份认证**（不加密——QUIC-TLS 已经加密），
+# 并借它现成的 `webtransport_certhashes` 扩展编解码（responder 上报 / initiator 验证两侧都有）。
+# **必须与 libp2p-core 同 git rev**：扩展的 protobuf 定义住在这个 crate 里，版本分叉会让
+# 同名类型变成两个。
+libp2p-noise = { git = "https://github.com/yexiyue/rust-libp2p", rev = "93fa526c6593334cfbcf3731bd3043714f5f0fa6" }
+# 自研 WebTransport 传输（native listener + dialer）。rust-libp2p 只有浏览器侧的
+# `webtransport-websys`，native 那半是缺口。只有 crates/net 依赖它。
+webtransport-p2p = { path = "crates/webtransport-p2p" }
+# WebTransport 的**浏览器**那一半（wasm，只能拨号）。与自研的 native 侧配对：
+# crates/net 按 target 二选一。它是上游现成的，没有理由自己再写一份 ——
+# 浏览器的 WebTransport 本来就是原生 API，包装层没有可优化的余地。
+libp2p-webtransport-websys = { git = "https://github.com/yexiyue/rust-libp2p", rev = "93fa526c6593334cfbcf3731bd3043714f5f0fa6" }
 # 自研 WebRTC 传输，**同时提供打洞（`/webrtc`）与 direct（`/webrtc-direct`）两种模式**，
 # 已完全取代官方 `libp2p-webrtc`。只有 crates/net 依赖它；打洞按 `Builder::webrtc_p2p`
 # 开关，direct 始终启用（它是浏览器拨公网/同网裸 IP 的入口）。
@@ -113,6 +126,7 @@ serde_json = "1"
 futures = "0.3.31"
 unsigned-varint = { version = "0.8.0", features = ["futures"] }
 strum = { version = "0.28", features = ["derive"] }
+tempfile = "3"
 thiserror = "2"
 tokio = "1.49.0"
 tokio-util = "0.7"
@@ -133,18 +147,46 @@ tracing-appender = "0.2.5"
 [profile.dev.package."*"]
 opt-level = 3
 
-# 移动端 release —— 包体优先，与桌面的 `[profile.release]`（速度优先）分开。
+# 移动端 release —— 与桌面的 `[profile.release]` 分开，但**不再是「包体优先」**。
 #
 # 为什么不直接写 `[profile.release]`：Cargo 只认 workspace root 的 profile，
 # **member 自己的 profile 会被静默忽略**（只有一行 warning）。mobile-core 并入
-# workspace 前是隐式 workspace root，自带这套 opt-level="z" 配置；并入后若不搬到
-# 这里，移动端包体优化就无声无息地没了。而桌面 release 需要 opt-level=3，两者不能共用。
+# workspace 前是隐式 workspace root，自带这套配置；并入后若不搬到这里，移动端的
+# profile 就无声无息地没了。分开保留是为了 `lto` / `codegen-units` / `strip` 这三项。
 #
 # 消费方：`ubrn build <platform> --profile mobile-release`（ubrn 的 -p 会覆盖 -r）。
 # 产物落在 `target/mobile-release/`，不是 `target/release/`。
+#
+# # 为什么 `opt-level` 从 `"z"` 改回了 3（2026-08-10）
+#
+# 因为 `"z"` 在**传输热路径**上的代价是数量级的，而它省下的体积并不可观——这一点被
+# 两次独立的实测撞出来，第二次证明了「开单包例外」是打地鼠：
+#
+# 1. **blake3**：`"z"` 会一路传到它 build.rs 的 cc 调用，把 aarch64 的 C NEON 实现
+#    （`c/blake3_neon.c`，对 little-endian aarch64 无条件启用）按在 `-Oz` 上。
+# 2. **WebRTC 数据面**：DTLS 记录层走的是 RustCrypto 的**纯 Rust** 实现
+#    （`aes` / `aes-gcm` / `ghash` / `polyval`…），不是 ring / aws-lc 那样的 asm；
+#    SCTP 每个包还要算 `crc`。纯 Rust 的 AES-GCM 与 GHASH 高度依赖内联与循环展开，
+#    而 `"z"` 恰好把这两样都关掉。这解释了三端实测里一条否则说不通的分裂：**同一台
+#    Android 手机**，走 QUIC/Noise 是 12–23 MB/s，走 WebRTC 掉到 0.36–0.96 MB/s；
+#    同一条 WebRTC 链路换成 `opt-level = 3` 的桌面端做对端就有 6–10+ MB/s。差别正是
+#    「加密走 asm（quinn/rustls → ring）还是走被 `-Oz` 阉割的纯 Rust（webrtc-rs →
+#    RustCrypto）」。详见 `dev-notes/research/2026-08-10-v0.15.2-field-test.md`。
+#
+# 判据是**按字节计费的热点**。问题在于这类热点遍布整棵依赖树（哈希、AEAD、GHASH、
+# CRC、分片、编解码…），逐个开 `[profile.mobile-release.package.*]` 例外既列不全，
+# 也会让「为什么是这几个包」变成一笔谁也不敢动的糊涂账。传输吞吐是本 App 的核心
+# 功能，不是可以拿来换几 MB 的东西。
+#
+# 体积由 `lto = "thin"` + `codegen-units = 1` + `strip = "symbols"` 承担——这三项都
+# **不牺牲**运行速度（前两项还会提升）。
+#
+# ⚠️ **`opt-level = 3` 目前是一个待验证的假设**：慢的那条链路同时还差着「打洞 vs
+# webrtc-direct」这个未分离的变量。重测同一条打洞链路才能定案。若实测证明与吞吐无关，
+# 回退前请先把结论写回上面那份报告——别让它变成又一条没人知道为什么存在的配置。
 [profile.mobile-release]
 inherits = "release"
 lto = "thin"
 codegen-units = 1
-opt-level = "z"
+opt-level = 3
 strip = "symbols"

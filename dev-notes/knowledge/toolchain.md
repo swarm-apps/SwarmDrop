@@ -73,6 +73,40 @@ committed 的绑定就是对的，直接
 
 **相关文件**：`mobile/pnpm-workspace.yaml`、`mobile/packages/swarmdrop-core/**/generated/`
 
+### 改了 FFI 签名要 regen 绑定：不必跑 `build:ios`（不需要 Xcode，快一个数量级）
+
+`pnpm --filter react-native-swarmdrop-core build:ios` 会为两个 iOS target 交叉编译 Rust，
+分钟级起步且要 Xcode。但**只是想让改过的 `#[uniffi::export]` 反映到 TS 绑定**时不需要它——
+ubrn 支持从任意一个已编好的动态库里提取定义：
+
+```bash
+# ① 编本机 target（几十秒，dev profile）
+cargo build -p swarmdrop-mobile-core
+
+# ② 从 .dylib 提取并重新生成 TS + C++ 绑定
+#    注意 cwd 必须是 crate 目录：ubrn 会在 cwd 跑 `cargo metadata`，
+#    在 packages/swarmdrop-core 下跑会报 "manifest path `Cargo.toml` does not exist"
+cd mobile/packages/swarmdrop-core/rust/mobile-core
+pnpm exec ubrn generate jsi bindings --library \
+  --ts-dir ../../src/generated --cpp-dir ../../cpp/generated \
+  /Volumes/yexiyue/SwarmDrop/target/debug/libswarmdrop_mobile_core.dylib
+
+# ③ 生成物在 src/generated，但 JS 侧 import 的是包的 lib/——必须再 build 一次，
+#    否则 `pnpm typecheck` 会报 "has no exported member 'MobileXxx'"，
+#    看起来像绑定没生成，其实是 lib/ 还是旧的
+cd /Volumes/yexiyue/SwarmDrop/mobile && pnpm --filter react-native-swarmdrop-core prepare
+```
+
+「No prettier found」「Skipping formatting C++」是正常提示，产物照常写出。真机构建仍要走
+`build:ios` / `build:android`，本路径只覆盖「绑定与类型」这一层。
+
+⚠️ **`lib/` 是 gitignore 的，所以第 ③ 步的产物进不了提交**——但这不会让 CI 红：
+`mobile-build-android.yml` 根本没有 `pnpm typecheck` 这一步，它 `pnpm install` 之后直接跑
+`build:android`（会重建整条桥接）。也就是说「绑定陈旧」只在**本地**表现为 typecheck 报
+「找不到某个新方法」，CI 上看不见。反过来说：CI 绿**不能**证明本地 regen 步骤做对了。
+
+**相关文件**：`mobile/packages/swarmdrop-core/ubrn.config.yaml`
+
 ### 官网 Hero 视频使用独立 Remotion 工程
 
 `video/` 是用于制作官网成片的独立 pnpm workspace，不参与桌面应用或 `docs/` 的依赖安装。Remotion
@@ -238,6 +272,57 @@ opt-level = 3
 
 **不要做**：删除这段配置或把 `*` 改成具体 crate 列表——会漏掉新加的 crypto/网络依赖。
 
+### `webrtc-p2p` 的建连测试在 CI 上会偶发超时（本地稳定通过）
+
+`crates/webrtc-p2p/tests/native_signaling.rs::established_connection_carries_data`
+在 2026-08-10 的 v0.15.2 发版跑里以「15s 内应完成开流: Elapsed(())」失败，**重跑即过**。
+
+判定它是 flaky 而非回归，用的是这三条（下次再遇到照同一套查，别急着改代码）：
+
+1. 那一轮的 commit **零改动** `crates/webrtc-p2p`（`git log --name-only` 一搜就知道）；
+2. 同一份代码本地 `cargo test --workspace` 该条通过；
+3. `gh run list --workflow=rust.yml` 近 15 次只有这一次红。
+
+成因是超时阈值对 CI 偏紧：这条测试要走完 SDP 交换 + ICE 收集 + DTLS 握手 + SCTP 建立，
+而 GitHub 共享 runner 的 CPU 是抢占式的，本机的 15s 余量在那里不一定够。
+
+**目前不改**——单次失败不足以判定为系统性 flaky，盲目放宽超时会掩盖真实的建连回归。
+但**它若再出现**，就该动阈值或加重试，而不是继续手动重跑：一条「每次都要重跑一下」的
+测试等于没有测试，因为没人分得清这次的红是 flaky 还是真的坏了。
+
+### ⚠️ `sed -i.bak` 还原会带回**旧 mtime**，骗过 cargo 的增量编译（2026-08-11 踩到）
+
+做「改坏 → 跑测试确认它会红 → 还原」这类**负向验证**时，常见写法是
+`sed -i.bak 's/好/坏/' f.rs`，验证完 `mv f.rs.bak f.rs` 还原。
+
+问题：`.bak` 保留的是**改动前的 mtime**，`mv` 回来后源文件比 target 里的编译产物还「旧」，
+cargo 判定没变化，**直接复用「坏」那次的产物**。表现是：代码明明是对的、`grep` 也确认
+了，测试却持续红——排查方向会全跑偏（我当时怀疑到了 crate 解析、feature 门控、`.bak`
+是否还原错文件）。
+
+**还原之后 `touch` 一下**，或者干脆用 `git checkout -- <file>`（它写的是新 mtime）。
+
+负向验证本身**必须做**：本轮有一条测试第一版就是假的——断言写对了，但用满尺寸帧
+复现不出要测的合并行为，改坏实现它照样绿。**「测试通过」不等于「测试有效」，只有让它
+红过一次才知道。**
+
+### 门禁顺序：`cargo test` 要排在 `cargo clippy --all-targets` **前面**
+
+跑一轮 `cargo test --workspace` 的墙钟里，**真正执行测试的只占 7%**。2026-08-10 实测：
+540 个测试全部跑完累计 **209 秒**，而墙钟是 **47 分钟**——另外 93% 全在 codegen 与链接。
+
+原因是这仓的两条放大器叠在一起：`[profile.dev.package."*"]` 的 `opt-level = 3` 让整棵
+依赖树（libp2p / webrtc-rs / tauri）都走优化编译，而 `--workspace` 有 **28 个测试二进制**，
+每个都要单独链接一遍那棵树，链接还是单线程的。
+
+**关键是 `check` / `clippy` 的产物 `test` 一个都用不上**：前两者只产 `rmeta`，测试要真
+codegen 出 rlib 与可执行文件；clippy 还带 `RUSTC_WORKSPACE_WRAPPER`，fingerprint 又是
+另一套。所以把 `clippy --all-targets` 排在 `test` 前面，等于让机器把同一批代码**编两遍
+且不能复用**——那轮白搭了二十多分钟。反过来 `test` 先跑，clippy 能复用它的 codegen 产物。
+
+顺带：这也是为什么「跑门禁时别再起第二条 cargo」。第二条会阻塞在 target 目录的文件锁上，
+看起来像它自己卡住了，实际还把正在跑的那条一起拖慢。
+
 ### `target/` 是 10G 量级，跑全量测试要留够盘
 
 `opt-level = 3` + libp2p / webrtc-rs / tauri 三棵大依赖树的合并后果：`cargo clean` 之后
@@ -248,9 +333,23 @@ opt-level = 3
 
 | 手段 | 腾出 | 代价 |
 |---|---|---|
-| `rm -rf target/debug/incremental` | ~3.7G | 只影响下次增量编译速度，**最安全** |
+| `rm -rf target/*/debug/incremental target/debug/incremental` | 见下 | 只影响下次增量编译速度，**最安全** |
 | `CARGO_INCREMENTAL=0` 跑 | 不再增长 | 单次编译略慢，适合一次性的门禁跑 |
-| `cargo clean` | ~10G | 全量重编（libp2p 那棵树十几分钟） |
+| `cargo clean` | 全部 | 全量重编（libp2p 那棵树十几分钟） |
+
+**「10G 量级」是 `cargo clean` 之后的一轮，不是长期稳态。** 2026-08-07 实测：长期开发
+（多 target × 多 profile 累积）后 `target/` 到了 **176G**，其中 `debug/deps` 101G、
+各 target 的 `incremental` 合计 39G、`wasm32-unknown-unknown` 11G，直接把 466G 的盘塞到
+只剩 467Mi，`cargo test --workspace` 与 clippy 全线报 `No space left on device`
+（症状是成片的 "could not compile ... due to 1 previous error"，**看着像代码问题**，
+要往上翻才看得到真正的 `couldn't create a temp dir` / `failed to write`）。
+
+删 incremental 那一条别只删 `target/debug/incremental`——iOS / Android / wasm 各 target
+都有自己的一份，那次合计 39G 里 `debug` 只占 26G。一条命令覆盖全部：
+
+```bash
+rm -rf target/debug/incremental target/*/debug/incremental
+```
 
 **`cargo clean` 治标不治本**：清完的余量若也只有 10G 出头，编一轮就又满了。真卡住时从
 项目外腾（Xcode DerivedData / Android 构建缓存都是纯派生物）比反复 clean 有效。
@@ -553,6 +652,29 @@ grep -o -- "--你新加的-token:[^;}]*" $CSS   # 空 = 产物是旧的
 这也是「一次只起一个 server」那条纪律的具体成因之一。要看真实形态用 `pnpm start`
 （`serve out`，只读静态产物，不碰 `.next`），别再开一个 dev。
 
+## 测试
+
+### mobile-core 的文件测试用**固定** temp 路径，别并发跑两次 `cargo test --workspace`
+
+`file_staging` 与 `file_access` 的 6 个测试各自写死了 `std::env::temp_dir().join("swarmdrop_staging_truncate")`
+这类固定目录名。同时跑两个 `cargo test --workspace`（比如一个丢后台、又在前台跑一次）会让
+两边抢同一个目录，表现是这 4 条稳定失败：
+
+```
+file_staging::tests::discard_removes_the_file
+file_staging::tests::truncate_clears_while_reopen_preserves
+file_access::tests::publish_to_local_renames_within_the_same_volume
+file_access::tests::publish_to_local_rejects_escape_through_symlink
+```
+
+**判据**：单独 `cargo test -p swarmdrop-mobile-core` 全过 = 是并发干扰，不是回归。2026-08-09
+就这么误判过一次。真要并发验证，先确认没有另一个 cargo test 在跑。
+
+（治本是给这些路径加唯一后缀，属于既有缺陷，未在本轮处理。）
+
+**相关文件**：`mobile/packages/swarmdrop-core/rust/mobile-core/src/file_staging.rs`、
+`mobile/packages/swarmdrop-core/rust/mobile-core/src/file_access.rs`
+
 ## 版本号同步：两条独立版本线
 
 单仓但**两条版本线**，各自打 tag、各自发版，互不干扰：
@@ -615,7 +737,7 @@ native-only 的东西，wasm target 下直接编不过）。所以改 `crates/we
 | 产物 | 谁生成 | 什么时候生成 |
 |---|---|---|
 | `src/lib/bindings.ts` | tauri-specta | `pnpm tauri dev`（debug 启动时）或 `cargo test -p swarmdrop export_ts_bindings` |
-| `crates/web/bindings/bindings.ts` | specta | `cargo test -p swarmdrop-web --features specta --test specta_export` |
+| `crates/web/bindings/bindings.ts` | specta | `cargo test -p swarmdrop-web --features specta --test specta_export` |（**漏了 `--features specta` 会静默什么都不做**，见下）
 | `mobile/packages/swarmdrop-core/src/generated/` | uniffi (ubrn) | `ubrn build ios/android --and-generate`（要 Xcode / NDK） |
 
 2026-08-01 那次简化里，三份**同时**被发现落后于已提交的 Rust：桌面那份还带着已删的
@@ -626,6 +748,20 @@ native-only 的东西，wasm target 下直接编不过）。所以改 `crates/we
 
 **做法**：改了跨 IPC/FFI 边界的类型或命令签名，当场重生成对应那份并一起提交。不要指望
 「下次 `tauri dev` 会自动更新」——那只在有人恰好跑 dev 的时候才发生，而 CI 从不跑 dev。
+
+### Web 那条：`cargo test -p swarmdrop-web` 漏了 `--features specta` 会**装作成功**
+
+导出测试整个文件是 `#![cfg(all(not(target_family = "wasm"), feature = "specta"))]`，所以不带
+feature 时它不是失败、也不是报错，而是被编译掉后显示：
+
+```
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out
+```
+
+`ok.` + 退出码 0，唯一的线索是那个 **`1 filtered out`**。2026-08-10 就是这么白等了一轮：
+桌面那份已经生成好了，Web 这份的命令跑完也报 ok，直到 `grep FilePublish` 零命中才发现。
+**判据不是退出码，是产物里有没有你刚加的类型**——重生成之后 grep 一下再说它好了。
 
 ### 没有 Xcode / NDK 时怎么重生成 uniffi 绑定
 
@@ -957,19 +1093,60 @@ iroh-ffi 有 `cargo make verify-swift-xcframework` / `verify-kotlin-android-cons
 **移动端 release profile 必须写在 workspace root**：
 
 ```toml
-# 根 Cargo.toml —— 不能写成 [profile.release]，那是桌面的（速度优先 opt-level=3）
+# 根 Cargo.toml —— 不能写成 [profile.release]，那是桌面壳的
 [profile.mobile-release]
 inherits = "release"
-opt-level = "z"   # 包体优先
 lto = "thin"
+codegen-units = 1
+opt-level = 3
 strip = "symbols"
 ```
 
-**Why**：Cargo 只认 workspace root 的 profile，**member 自己的 profile 会被静默忽略**
-（只有一行 warning）。mobile-core 并入前是隐式 workspace root、自带这套配置；并入后若不
-搬到根，移动端包体优化就无声消失。消费方是 `ubrn build <platform> --profile mobile-release`
-（ubrn 的 `-p` 覆盖 `-r`），产物落在 `target/mobile-release/` 而非 `target/release/`。
-ubrn 用 `cargo metadata` 的 `target_directory` 定位产物，会自动跟到仓库根，无需额外配置。
+**Why 必须在 root**：Cargo 只认 workspace root 的 profile，**member 自己的 profile 会被
+静默忽略**（只有一行 warning）。mobile-core 并入前是隐式 workspace root、自带这套配置；
+并入后若不搬到根，移动端的 profile 就无声消失。消费方是
+`ubrn build <platform> --profile mobile-release`（ubrn 的 `-p` 覆盖 `-r`），产物落在
+`target/mobile-release/` 而非 `target/release/`。ubrn 用 `cargo metadata` 的
+`target_directory` 定位产物，会自动跟到仓库根，无需额外配置。
+
+### `opt-level` 从 `"z"` 改回 3，并放弃「逐包例外」这条路（2026-08-10）
+
+这个 profile 直到 2026-08-10 都是 `opt-level = "z"`（包体优先）。**两次独立实测证明它在
+传输热路径上的代价是数量级的**，而第二次同时证明了「开单包例外」是打地鼠：
+
+1. **blake3**——`"z"` 在这个包上**穿透了 Rust 边界**：它的 `build.rs` 里
+   `!is_no_neon() && !is_pure() && is_aarch64() && is_little_endian()` 会
+   `build_neon_c_intrinsics()`，即 **iOS/Android 的 arm64 一律走 C 实现**
+   （`c/blake3_neon.c`），而 cc crate 把 profile 的 `opt-level` 原样翻译成给 clang 的
+   `-Oz`（实测确认）。被按住的不是几 KB Rust 代码，是那份 intrinsics 的内联与展开。
+2. **WebRTC 数据面**——DTLS 记录层走 RustCrypto 的**纯 Rust** 实现
+   （`aes` / `aes-gcm` / `ghash` / `polyval`…），不是 ring / aws-lc 那样的 asm；SCTP 每个
+   包还要算 `crc`。纯 Rust 的 AES-GCM 与 GHASH 高度依赖内联与循环展开，而 `"z"` 恰好把
+   这两样都关掉。
+
+第 2 条解释了三端实测里一条否则说不通的分裂：**同一台 Android 手机**，走 QUIC/Noise 是
+12–23 MB/s，走 WebRTC 掉到 0.36–0.96 MB/s；而同一条 WebRTC 链路换成 `opt-level = 3` 的
+桌面端做对端就有 6–10+ MB/s。**差别正是「加密走 asm（quinn/rustls → ring）还是走被 `-Oz`
+阉割的纯 Rust（webrtc-rs → RustCrypto）」**——依赖树里混着两种加密实现，而 profile 只
+影响得了后者。
+
+**为什么不继续开单包例外**：判据本身（「按字节计费的热点」）是对的，问题是这类热点遍布
+整棵依赖树——哈希、AEAD、GHASH、CRC、分片、编解码……逐个列既列不全（每次只在真机实测
+里冒头一个），也会让「为什么偏偏是这几个包」变成一笔谁也不敢动的糊涂账。传输吞吐是本
+App 的核心功能，不是可以拿来换几 MB 的东西。
+
+体积改由 `lto = "thin"` + `codegen-units = 1` + `strip = "symbols"` 承担——这三项都
+**不牺牲**运行速度（前两项还会提升）。
+
+> 与 `[profile.dev.package."*"]` 的 `opt-level = 3` 仍是**两件事**：那条管 dev 构建，
+> 这条管移动端 release 产物。两者现在恰好都是 3，理由不同，不要合并。
+
+⚠️ **`opt-level = 3` 目前仍是待验证的假设。** 慢的那条链路同时还差着「打洞 vs
+webrtc-direct」这个未分离的变量，只有重测同一条打洞链路才能定案。若实测证明与吞吐无关，
+回退前先把结论写回 `dev-notes/research/2026-08-10-v0.15.2-field-test.md`。
+
+⚠️ **profile 与单包覆写都只有 workspace root 的算数**——写在 `mobile-core/Cargo.toml` 里
+不会报错，只是不生效，而「不生效」在这里没有任何可观测信号（包能编、能跑，只是慢）。
 
 **相关文件**：`Cargo.toml`、`mobile/packages/swarmdrop-core/rust/mobile-core/Cargo.toml`、
 `mobile/packages/swarmdrop-core/package.json`
@@ -985,16 +1162,175 @@ channel 会随机变成 `Bad file descriptor`。传输层随后只看到 data st
 项目通过 `mobile/pnpm-workspace.yaml` 的 `patchedDependencies` 修复：
 
 - 持有 PFD 到 `FileHandle.close()`，并在 finally 中同时关闭；该部分来自 expo/expo#47176。
-- SAF 新传输用 `"wt"` 明确截断，续传用 `"rw"` 保留已有内容并做可定位写；同一进程恢复优先
-  复用现有 handle，不能用 `"w"` reopen，否则 checkpoint 还在而文件已被再次截断。
+- `read` / `write` 失败带上**异常类名**（`describe(e)`）。上游只取 `e.message`，而写失败最
+  要紧的那几种恰好 message 为 null（fd 失效的 `IOException`、`ClosedChannelException`），
+  丢了类名就只剩一句 `unknown error`。这条同时是「补丁到底有没有进构建」的**运行时探针**：
+  日志里的 reason 若是**裸** `'Bad file descriptor'`（无类名），说明吃的是未打补丁的版本。
+- `offset` setter 补 `ensureIsOpen()`，与 read/write 对齐。
+- **SAF 的 `"rw"` 保持上游的拒绝**——`FileOutputStream.getChannel()` 是 readable=false 的
+  channel，拿它冒充 "rw" 会得到一个「签名说能读、实际不能读」的句柄。接收侧也不再需要它：
+  staging 恒在应用私有目录（走 `forJavaFile` 的 `RandomAccessFile`），SAF 只在 publish 时被
+  **顺序**写一次。
+  > 本节此前写作「续传用 `"rw"` 保留已有内容并做可定位写」——**那与 patch 的实际内容相反**，
+  > 2026-08-10 更正。
 
 补丁配置必须留在 `pnpm-workspace.yaml`（pnpm 11 不读 package.json 的 `pnpm` 字段），更新后用
 `pnpm install --config.allowUnusedPatches=true` 并确认 `mobile/pnpm-lock.yaml` 出现对应
-`patch_hash`。升级 expo-file-system 时先核对上游是否同时覆盖 PFD 生命周期和 SAF `"rw"` 写通道，
-不能只看到 #47176 合入就直接删除整个补丁。
+`patch_hash`。升级 expo-file-system 时先核对上游是否覆盖 PFD 生命周期，不能只看到 #47176 合入
+就直接删除整个补丁。
+
+⚠️ **但这份补丁在 2026-08-10 之前从未真正进过 Android 构建**，原因见下一节——
+`pnpm install` 全绿、`node_modules` 里的 Kotlin 确实是打过补丁的，构建吃的却是预编译 AAR。
 
 **相关文件**：`mobile/patches/expo-file-system@56.0.8.patch`、
 `mobile/src/core/foreign-file-access.ts`、`mobile/pnpm-workspace.yaml`
+
+### pnpm patch 打在有预编译产物的原生依赖上会**静默失效**（2026-08-10 实证）
+
+上一节那份补丁写于 2026-08-07，改了三次、三次都以为修好了，**三次都是空的**：Android 构建
+拿的是 expo 发布的预编译 AAR，`node_modules` 里被 patch 过的 Kotlin 源码从来没参与编译。
+代价不只是 bug 没修——它还伪造出一条「架构事实」：因为「补丁都打了还是崩」，团队把它归因成
+「SAF 的 fd 天生不能用」，并把这条误诊写进了 `CLAUDE.md` 与三份知识库（已于同日更正，见
+[rust-backend.md](rust-backend.md) 的「接收是『暂存 → 发布』两段」）。
+
+**机制**：expo SDK 53+ 的 autolinking 对**发布了 maven / CocoaPods 产物**的模块默认走
+publication 而不是源码工程：
+
+```
+$ expo-modules-autolinking resolve -p android --json
+expo-file-system publication={groupId: host.exp.exponent, …, repository: local-maven-repo}
+                 shouldUsePublicationScriptPath: None
+```
+
+`shouldUsePublication` → `true` → `linkProject()` 被跳过 → gradle 只 `implementation` 那个
+AAR。同款坑在 Apple 侧一模一样（`platforms/apple/apple.js` 也吐 `buildFromSource`，
+预编译 XCFramework 会吃掉 `ios/` 下的 patch）。
+
+**修法**（`mobile/package.json` 顶层 `expo` 键，本仓已加）：
+
+```jsonc
+{ "expo": { "autolinking": { "android": { "buildFromSource": ["expo-file-system"] } } } }
+```
+
+**判据必须是编译产物里的符号，不是源码**。这是本条最值钱的一句：
+
+```bash
+# 源码打没打补丁（会骗人——它永远是打过的）
+grep parcelFileDescriptor node_modules/expo-file-system/android/src/main/java/**/FileSystemFileHandle.kt
+
+# 构建到底吃了什么（唯一可信）
+javap -p node_modules/expo-file-system/android/build/**/FileSystemFileHandle.class | grep -E 'parcelFileDescriptor|describe'
+```
+
+**通用判据：一个补丁的验收，必须落在「构建产物」这一侧。** 凡是依赖同时发布了预编译产物
+（AAR / XCFramework / prebuilt `.node` / wasm blob），「patch 应用成功」与「patch 参与构建」
+就是两件事，而包管理器只报前者。同族的坑：本文下面那节「本地 expo module 的 Kotlin 不在任何
+门禁里」、[net-kernel.md](net-kernel.md) 记的「自研替换掉一个曾打过补丁的上游实现时，补丁
+不会自己跟着走」——三条都是「改动看起来在、实际没进产物」。
+
+机器护栏：`mobile/scripts/check-expo-patches.mjs`（`javap` 符号断言必选、覆盖 Apple 侧的
+`buildFromSource`、只检查改动触及 `android/` 或 `ios/` 的 patch、`patchedDependencies` 从
+`mobile/pnpm-workspace.yaml` 读且 resolve 必须在 `mobile/` 下跑）。
+**这类事故只有机器守得住**——三个 commit、三次自评「已修复」，人工 review 一次都没拦下。
+
+### `biome.json` 里写注释 = 整份配置**静默失效**（2026-08-13 实证）
+
+同族的第三条：上一节是「补丁没进构建」，这条是「配置没进生效路径」，判据同样不能看
+「我写了吗」，要看「它读到了吗」。
+
+`biome.json` 是**严格 JSON**，`//` 注释是语法错误。而 biome 撞上这种配置**不报错，
+默认降级到内置配置继续跑** —— 于是：
+
+| | 真配置（`indentStyle: space`、`files.includes` 只列 ts/tsx） | 降级后（biome 默认） |
+|---|---|---|
+| 缩进 | 2 空格 | **tab** —— 全仓每个文件都「需要格式化」 |
+| 扫描范围 | `src/**` + `packages/**` + `modules/**` 的 ts/tsx | **`**`** —— 连 `modules/*/android/build/intermediates/**.json` 这种 Gradle 产物和 `global.css` 都进去了（后者还报 parse error） |
+| 错误数 | 2 | **195** |
+
+那 195 差点被当成「移动端 lint 早就烂了」而按既有债处理掉。真相是它**完全由那几行注释造成**
+——`git stash` 掉配置改动重跑一次基线就露馅了。**错误数突然一个数量级的跳变，先怀疑配置没读到，
+别急着修代码。**
+
+两条判据：
+
+```bash
+pnpm exec biome rage | grep -A1 "Biome Configuration"   # Status: Not set = 没读到
+pnpm exec biome ci src/ --config-path=.                 # 显式指定时解析失败会**硬报错**（带行号）
+```
+
+修法：**改用 `biome.jsonc`**（biome 自动识别，脚本不用改）。本仓需要在配置里写「为什么豁免」，
+所以是 jsonc 而不是删注释 —— 一条没有理由的 lint 豁免，下一个人只会把它删掉。
+
+### 一条没人跑的检查会退化成噪音（2026-08-13）
+
+`mobile/` 的 `typecheck` / `lint:ci` / `check:zustand-access` 三条同时红着，而
+`mobile-checks.yml` 只跑 `check:expo-patches` —— workflow 自己的注释里写着「将来也归这儿」，
+挂了很久。三条补进 CI 时的实际状态：biome 5 处、zustand 10 处。
+
+**zustand 那 10 处里有一多半根本不是新违规**：allowlist 是按 `{file, pattern}` 匹配的，其中
+一条写的是 `usePairingCodeStore`，而 6 位分享码换成 PairInvite 时 store 改名成了
+`usePairingInviteStore`。规则本身没错，只是它指向的东西不存在了 —— 于是同一段 orchestration
+代码一夜之间变成两条「违规」，而没人在跑它。同理 `src/core/paths.ts` 的豁免没跟到继任者
+`receive-location.ts`。
+
+**推论：正则里嵌了符号名的护栏，改名时必须一起改**，而保证这件事发生的唯一办法是让它在
+CI 里红。护栏脚本本身也要留下这条线索（本仓已在
+`mobile/scripts/check-zustand-store-access.mjs` 那条 allowlist 上写明）。
+
+顺带一提，那 10 处里真正该改的只有 3 处，而且改法不是加豁免：`previewInvite` 返回
+`boolean`、失败原因另放在 store 的 `previewReject` 字段里，于是三个调用点各自
+`getState().previewReject` 再抄一遍同样的三元链。**把结果并回返回值**（`Promise<"ok" | 判别码>`）
+一次消掉三处违规 + 三份重复 + 一个只写不读的 state 字段。**违规扎堆出现时先看它们像不像同一个
+设计问题的三个症状**，那比加三条豁免值钱。
+
+### apt 的 binaryen 会把 wasm 产物**编坏**——Web 端一加载就 `Table.grow` 失败（2026-08-13 实证）
+
+线上 Web 端一进页面就报，节点起不来：
+
+```
+RangeError: WebAssembly.Table.grow(): failed to grow table by 4
+    at __wbindgen_init_externref_table
+```
+
+**本地怎么试都复现不了**，因为坏的产物只在 CI 里生成。
+
+**根因是 wasm-opt 的版本。** `docs.yml` 此前为了摆脱「wasm-pack 裸下载 binaryen」那条不稳定的
+网络依赖（无重试无缓存，2026-08-12 报 `failed to download binaryen-version_117` 挂过一次），
+改成了 `apt-get install binaryen`——而 **Ubuntu noble 的 binaryen 停在 `108-1`**（2022 年）。
+那个版本优化时重排了 table，却**没有重映射导出索引**：
+
+| | `__wbindgen_externrefs` 指向 | 结果 |
+|---|---|---|
+| 本地（wasm-pack 自己拉的新版） | table#1 · externref · `max` 为空 | `grow(4)` 正常 |
+| CI（apt binaryen 108） | table#**0** · **funcref** · `min == max == 3598` | `grow(4)` 必抛 |
+
+JS glue 里那句 `wasm.__wbindgen_externrefs.grow(4)` 拿到的是一张**满的 funcref 表**，
+物理上不可能增长。错误信息只说「grow 失败」，完全指不到「导出索引错了」。
+
+**判据（不用装任何工具，解析 wasm 二进制即可）**：读 table section（id=4）与 export
+section（id=7），确认 `__wbindgen_externrefs` 指向的那张表是 `externref` 且**没有 `max`**。
+funcref 表恒为 `min == max`，一眼可辨。
+
+**现在的做法**：`docs.yml` **不再在 CI 里重新生成 wasm**，改吃入库的
+`packages/swarmdrop-web/`（docs 以 `link:` 引着）。binaryen 的**版本**与**下载稳定性**
+两条依赖一起消失，顺带省掉几分钟 wasm 编译。
+
+**不要做**：
+- 别再往 CI 里加 `apt-get install binaryen`。发行版的 binaryen 落后 wasm-bindgen 太多，
+  失败形态是**产物看起来正常、运行时才炸**，比编译失败难查一个量级。
+- 若将来要恢复 CI 重建，binaryen 必须**锁定一个新版本号**从 GitHub release 取（带
+  `curl --retry`），不能用发行版包，也不能让 wasm-pack 裸下载。
+
+**代价与兜底**：入库产物可能过期（改了 wire 却忘了重建 → 线上 Web 端静默停在旧协议）。
+`scripts/check-wasm-artifact.sh` 在 rust.yml 的 wasm job 里拦这件事，输入面与
+`check-wasm.sh` 的 `CRATES` 对齐（另加 `crates/entity` 与 `Cargo.lock`）。源码动了但产物
+字节确实不变时，用 commit message 里的 `[wasm-artifact-unchanged]` 放行——刻意要求留痕。
+
+**改了 wasm 侧 crate 的工作流**：`cd docs && pnpm build:wasm`，把产物一起提交
+（历史上那些 `chore(web): 重建 wasm 产物` 就是它）。
+
+**相关文件**：`.github/workflows/docs.yml`、`.github/workflows/rust.yml`、
+`scripts/check-wasm-artifact.sh`、`packages/swarmdrop-web/`
 
 ## 跨三个 workspace 共享 TS 包：`packages/shared-view`
 
@@ -1062,6 +1398,34 @@ root 放到仓库根意味着 turbopack 把**整个仓库**纳入文件系统边
 第二道是 `scripts/check-shared-view-imports.mjs`：非测试源文件只允许相对路径 import。
 两道合并在 `pnpm check:shared-view`，**要留在提交前清单里**——第一道只在对该包自身跑 tsc 时
 成立，三端各自 typecheck 用的是各自的 lib。
+
+### 定时器一类的平台能力：**参数化，且注入时要包一层箭头函数**（2026-08-10 实证）
+
+`packages/shared-view/src/transfer/session-timers.ts` 是本包第一个需要**平台能力**（而不只是
+纯计算）的原语——会话级定时器台账。上面那条 `lib: ["ES2022"]` 的门禁意味着 `setTimeout` 在
+这个包里**根本不存在**，所以调度器只能由调用点注入：
+`createSessionTimers<H>(setTimer, clearTimer)`。
+
+**注入时不能把 `setTimeout` 当值传。** 台账通常是模块级常量，
+`createSessionTimers(setTimeout, clearTimeout)` 等于在**模块求值那一刻**把全局函数快照下来：
+
+- `vi.useFakeTimers()` 替换的是 `globalThis.setTimeout`，而快照里握着的是真时钟 ⇒ 所有靠
+  `advanceTimersByTime` 推进的用例一起红，症状是「到点该发生的事成片不发生」，**看起来像
+  业务逻辑坏了**。桌面与 Web 在同一天各自独立踩了一次，两边都先怀疑共享原语有问题。
+- 浏览器里 `setTimeout` 是 WebIDL 方法，脱离 `window` 单独调用会 `Illegal invocation` ——
+  这条纯运行时，测试根本照不到。
+
+正确写法是让全局在**调用时**解析：
+
+```ts
+const timers = createSessionTimers(
+  (fire, delayMs) => setTimeout(fire, delayMs),
+  (handle) => clearTimeout(handle),
+);
+```
+
+推论：以后往这个包放任何「注入平台能力」的原语，签名文档里都要把这句写上——它不是调用风格
+问题，是两个不同的真实故障。
 
 ### `packages/` 统一在仓库根
 

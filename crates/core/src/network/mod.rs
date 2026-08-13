@@ -6,33 +6,29 @@ pub mod event_loop;
 pub mod manager;
 
 pub use candidates::{
-    BootstrapCandidate, BootstrapCandidateManager, BootstrapCandidateSource, CandidateHealth,
-    CandidateRoles, CandidateScope, CandidateSourceStatus,
+    BootstrapCandidate, BootstrapCandidateManager, BootstrapCandidateSource, CandidateRoles,
+    CandidateScope, CandidateSourceStatus,
 };
 pub use config::NetworkRuntimeConfig;
 pub use manager::{NetManager, SharedNetRefs, TransferRuntime};
 pub use swarmdrop_net::NatStatus;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use swarmdrop_net::{Addr, NodeId};
 
+use crate::infra::InfraLink;
+
 /// 节点运行状态。
-#[derive(Debug, Clone, Default, Serialize)]
+///
+/// `Copy + PartialEq`：它是个无字段两态枚举，而消费方（托盘健康度、MCP 投影）本就要
+/// 拿它做相等比较；缺了这两个 derive，每处都得退回 `matches!` 或先 `clone()`。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum NodeStatus {
     Running,
     #[default]
     Stopped,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub enum DiscoveryMode {
-    #[default]
-    Auto,
-    LanOnly,
 }
 
 /// 网络状态快照。
@@ -45,7 +41,8 @@ pub struct NetworkStatus {
     pub peer_id: Option<NodeId>,
     #[cfg_attr(feature = "specta", specta(type = Vec<String>))]
     pub listen_addrs: Vec<Addr>,
-    #[cfg_attr(feature = "specta", specta(type = String))]
+    /// NAT 状态。**不加 `specta(type = String)`**——`NatStatus` 自己 derive 了
+    /// `specta::Type`，抹成 `string` 会让前端的 `=== "public"` 写错也编得过。
     pub nat_status: NatStatus,
     #[cfg_attr(feature = "specta", specta(type = Option<String>))]
     pub public_addr: Option<Addr>,
@@ -63,8 +60,6 @@ pub struct NetworkStatus {
     pub relay_peers: Vec<NodeId>,
     /// 是否至少有一个引导节点已连接。
     pub bootstrap_connected: bool,
-    /// 当前发现模式。
-    pub discovery_mode: DiscoveryMode,
     /// 是否自动发现局域网协助节点。
     pub auto_discover_lan_helpers: bool,
     /// 本设备是否配置为提供局域网协助能力。
@@ -84,4 +79,10 @@ pub struct NetworkStatus {
     pub candidate_sources: Vec<CandidateSourceStatus>,
     /// 当前 relay peer 的候选来源。
     pub relay_source: Option<BootstrapCandidateSource>,
+    /// 逐条基础设施关系的完整状态。
+    ///
+    /// 上面那批标量（`relay_ready` / `relay_peers` / `candidate_sources` / …）都是
+    /// 它的不同压扁投影，保留是因为 MCP agent 面 schema 与几条 e2e 断言在消费它们；
+    /// **新 UI 一律读这个数组**——只有它能回答「哪一条连不上、为什么」。
+    pub infra_links: Vec<InfraLink>,
 }

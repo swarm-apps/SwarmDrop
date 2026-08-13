@@ -1,19 +1,24 @@
 import { useLingui } from "@lingui/react/macro";
+import { compareByTimelineDesc } from "@swarmdrop/shared-view";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Search, SearchX } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
-import { FlatList, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import type { MobileTransferProjection } from "react-native-swarmdrop-core";
-import { ActivityProjectionCard } from "@/components/activity-projection-card";
+import { FlatList } from "react-native";
 import {
+  ActivityProjectionCard,
+  transferSessionKey,
+} from "@/components/activity-projection-card";
+import {
+  AppScreen,
   InlineEmptyState,
-  LIST_CONTENT_PADDING,
+  LIST_CONTENT_PADDING_UNDER_HEADER,
+  ListItemGap,
 } from "@/components/mobile/screen";
 import { SearchHeader } from "@/components/search-header";
+
 import {
-  compareProjectionsByUpdatedAtDesc,
   projectionMatchesQuery,
+  shouldShowProgress,
 } from "@/core/transfer-types";
 import { useTransferStore } from "@/stores/transfer-store";
 
@@ -25,6 +30,8 @@ export default function TransferSearchScreen() {
   const router = useRouter();
   const { t } = useLingui();
   const projections = useTransferStore((s) => s.projections);
+  const progressBySession = useTransferStore((s) => s.progressBySession);
+  const publishingBySession = useTransferStore((s) => s.publishingBySession);
   const loadProjections = useTransferStore((s) => s.loadProjections);
   const [query, setQuery] = useState("");
 
@@ -41,8 +48,13 @@ export default function TransferSearchScreen() {
     if (!trimmedQuery) return [];
     return Object.values(projections)
       .filter((p) => projectionMatchesQuery(p, trimmedQuery))
-      .sort(compareProjectionsByUpdatedAtDesc);
+      .sort(compareByTimelineDesc);
   }, [projections, trimmedQuery]);
+
+  const listExtraData = useMemo(
+    () => [progressBySession, publishingBySession],
+    [progressBySession, publishingBySession],
+  );
 
   const goDetail = useCallback(
     (sessionId: string) => {
@@ -55,33 +67,39 @@ export default function TransferSearchScreen() {
   );
 
   return (
-    <SafeAreaView
-      style={{ flex: 1 }}
-      className="bg-background"
-      edges={["top"]}
+    <AppScreen
       testID="transfer-search-screen"
+      // 搜索头进 header 槽:它带返回与输入框,跟着结果滚走的话,改个关键词还得先翻回顶部。
+      header={
+        <SearchHeader
+          value={query}
+          onChangeText={setQuery}
+          placeholder={t`搜索设备或文件名`}
+          inputLabel={t`搜索传输记录`}
+          testIDPrefix="transfer-search"
+        />
+      }
+      bare
     >
       <FlatList
         data={results}
-        keyExtractor={searchKeyExtractor}
+        keyExtractor={transferSessionKey}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={LIST_CONTENT_PADDING}
-        ListHeaderComponent={
-          <View className="pb-4">
-            <SearchHeader
-              value={query}
-              onChangeText={setQuery}
-              placeholder={t`搜索设备或文件名`}
-              inputLabel={t`搜索传输记录`}
-              testIDPrefix="transfer-search"
-            />
-          </View>
-        }
+        contentContainerStyle={LIST_CONTENT_PADDING_UNDER_HEADER}
+        // 两张高频表都要进来：发布期没有新的进度事件（字节已收完），只挂
+        // progressBySession 的话「正在保存」这一态永远画不出来。
+        extraData={listExtraData}
         renderItem={({ item }) => (
-          <ActivityProjectionCard projection={item} onPress={goDetail} />
+          <ActivityProjectionCard
+            projection={item}
+            progress={progressBySession[item.sessionId]}
+            publishing={publishingBySession[item.sessionId]}
+            showProgress={shouldShowProgress(item)}
+            onPress={goDetail}
+          />
         )}
-        ItemSeparatorComponent={SearchItemGap}
+        ItemSeparatorComponent={ListItemGap}
         ListEmptyComponent={
           trimmedQuery ? (
             <InlineEmptyState
@@ -100,12 +118,9 @@ export default function TransferSearchScreen() {
           )
         }
       />
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 
-const searchKeyExtractor = (item: MobileTransferProjection) => item.sessionId;
-
-function SearchItemGap() {
-  return <View className="h-2" />;
-}
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";

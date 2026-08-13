@@ -324,36 +324,43 @@ function PolicySwitch({
   );
 }
 
+/**
+ * 信任级别的呈现。**四级的色彩语义三端同一套**（Web `TRUST_META`、移动 `trust-badge.tsx`）：
+ *
+ *   owned        品牌色 —— 唯一的饱和色留给最高信任（One Accent Rule）
+ *   collaborator 中性 —— 它是默认级别，多数设备都是它；上色会让整屏徽标全是彩的
+ *   temporary    warning
+ *   blocked      destructive
+ *
+ * 三端此前在前两级上各跑各的：桌面 owned 是绿、collaborator 反倒是品牌青绿，
+ * 移动把 collaborator 涂成 success 绿（凭空多出第二个饱和色）。
+ */
 export function trustConfig(trustLevel: DeviceTrustLevel) {
   switch (trustLevel) {
     case "owned":
       return {
         icon: ShieldCheck,
         label: <Trans>本人设备</Trans>,
-        className:
-          "bg-emerald-50 text-emerald-700 ring-emerald-600/10 dark:bg-emerald-500/12 dark:text-emerald-300 dark:ring-emerald-400/15",
+        className: "bg-primary/12 text-brand ring-primary/15",
       };
     case "temporary":
       return {
         icon: ShieldAlert,
         label: <Trans>临时设备</Trans>,
-        className:
-          "bg-amber-50 text-amber-700 ring-amber-600/10 dark:bg-amber-500/12 dark:text-amber-300 dark:ring-amber-400/15",
+        className: "bg-warning/15 text-warning-ink ring-warning/20",
       };
     case "blocked":
       return {
         icon: Ban,
         label: <Trans>已阻止</Trans>,
-        className:
-          "bg-red-50 text-red-700 ring-red-600/10 dark:bg-red-500/12 dark:text-red-300 dark:ring-red-400/15",
+        className: "bg-destructive/12 text-destructive-ink ring-destructive/15",
       };
     case "collaborator":
     default:
       return {
         icon: Shield,
         label: <Trans>协作者</Trans>,
-        className:
-          "bg-primary/10 text-brand ring-primary/10 dark:bg-primary/12 dark:ring-primary/15",
+        className: "bg-muted text-muted-foreground ring-border",
       };
   }
 }

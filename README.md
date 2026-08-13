@@ -24,8 +24,18 @@ The LocalSend experience, freed from the local network: send files between **any
 your devices, across any network, with only the sender and receiver able to decrypt
 them. Nothing to sign up for, no central server in the middle.
 
+It runs on desktop, Android and — with nothing to install — [in the browser](https://swarm-apps.github.io/SwarmDrop/app).
+All three are real transfer endpoints backed by the same Rust core, not a full client
+plus a companion web page.
+
 It also runs a local MCP server, so AI agents can deliver files across your devices and
 search what you've received.
+
+> **Project status.** The core is feature-complete and has been stable for a while:
+> cross-network transfer, pairing, resume, three clients, MCP. Current work is the
+> finishing pass — aligning interaction across the three clients, edge-case copy, and
+> converging the on-device links (cross-network especially). Bug reports and UX
+> friction are exactly what's most useful right now.
 
 ## Features
 
@@ -34,9 +44,12 @@ search what you've received.
 - **End-to-end encrypted** — every connection is Noise- or TLS 1.3-encrypted and
   mutually authenticated. Relays only ever forward ciphertext they hold no key for.
 - **No accounts, no servers** — pair with a one-time signed invite (link or QR), or let
-  LAN discovery find your devices. Ed25519 device identity, held in the OS keychain.
+  LAN discovery find your devices. Ed25519 device identity, held by the OS secure store on
+  mobile and in an owner-only file on desktop.
 - **Resumable** — per-chunk BLAKE3 verification via bao-tree; every block is checked as
   it lands. Survives drops, restarts and flaky links.
+- **Runs in the browser** — the same core compiled to wasm. Pairing, transfer, resume and
+  OPFS-backed storage, over WebRTC and WebTransport. No extension, no install.
 - **AI-drivable** — an embedded MCP server exposes transfers and inbox search to agents.
 
 ## Download
@@ -105,7 +118,7 @@ graph TB
         D["mDNS · LAN discovery"]
         E["Kademlia DHT · presence records"]
         F["Relay + DCUtR · NAT traversal"]
-        H["TCP · QUIC · WebRTC-Direct"]
+        H["TCP · QUIC · WebRTC · WebTransport"]
     end
     Shells -- "typed IPC / uniffi / wasm-bindgen" --> Core
     Core -- "Endpoint API" --> Net
@@ -113,8 +126,11 @@ graph TB
 
 **Security model**
 
-- **Identity** — Ed25519 keypair; the private key lives in the OS keychain (Keychain /
-  Credential Manager / Secret Service).
+- **Identity** — Ed25519 keypair. On mobile the private key lives in the OS secure store
+  (iOS Keychain / Android EncryptedSharedPreferences). On desktop it lives in an
+  owner-only file (`0600` on unix) under the app data directory — same shape as a
+  passphrase-less SSH key. It protects against other users, not against other processes
+  running as you.
 - **Pairing** — one-time signed invite: Ed25519 signature + 128-bit capability + 24h
   TTL. The capability rides in the URL fragment, so it never reaches a server.
 - **In transit** — Noise (TCP / WebRTC) or TLS 1.3 (QUIC). Every connection runs its own
@@ -137,8 +153,9 @@ graph TB
 | State / Routing | Zustand 5 · TanStack Router |
 | i18n | Lingui 6 (zh · zh-TW · en) + rust-i18n for native strings |
 | Backend | Rust 2024 · Tauri 2 · SeaORM + SQLite |
-| P2P | in-house `swarmdrop-net` — an iroh-style `Endpoint` API over libp2p (mDNS · Kademlia · Relay · DCUtR · WebRTC-Direct), native + wasm |
-| Security | OS keychain · Ed25519 · Noise / TLS 1.3 · BLAKE3 + bao-tree |
+| P2P | in-house `swarmdrop-net` — an iroh-style `Endpoint` API over libp2p (mDNS · Kademlia · Relay · DCUtR), native + wasm |
+| Transports | TCP · QUIC · WebRTC (hole-punching + direct) · WebTransport — the last two are our own libp2p transports, written because upstream had gaps on both |
+| Security | Ed25519 identity · Noise / TLS 1.3 · BLAKE3 + bao-tree |
 | AI | embedded MCP server (rmcp + axum, `127.0.0.1` only) |
 | IPC types | tauri-specta — commands and events, fully typed |
 
@@ -170,7 +187,9 @@ pnpm tauri build    # package
 - [x] File transfer — live progress, history, resume
 - [x] MCP server — agents can send files and search the inbox
 - [x] Mobile apps
-- [ ] Browser client (wasm) — usable at [`/app`](https://swarm-apps.github.io/SwarmDrop/app), still converging
+- [x] Browser client (wasm) — a full node at [`/app`](https://swarm-apps.github.io/SwarmDrop/app): pairing, transfer, resume
+- [ ] **Polish pass** — interaction parity across the three clients, edge-case states, on-device link convergence
+- [ ] Cross-network throughput measured on real devices (LAN is; the relayed and hole-punched paths are not yet)
 - [ ] Full transfer lifecycle over MCP — status · cancel · pause · resume
 - [ ] On-device content extraction for richer inbox search
 
@@ -188,11 +207,20 @@ rather than a public issue. Scope and threat model are in [SECURITY.md](SECURITY
 
 ## Related
 
-- **SwarmNote** — decentralized, encrypted notes.
-  [Desktop](https://github.com/swarm-apps/SwarmNote) · [Mobile](https://github.com/swarm-apps/SwarmNote-RN)
 - **SwarmHive** — self-hostable release & auto-update server for Tauri and React Native
   apps. SwarmDrop ships every update through it, and so can you.
   [Repo](https://github.com/swarm-apps/SwarmHive)
+- **SwarmNote** — decentralized, encrypted notes. **No longer maintained**: the notes
+  space is crowded enough that the effort is better spent here.
+  [Desktop](https://github.com/swarm-apps/SwarmNote) · [Mobile](https://github.com/swarm-apps/SwarmNote-RN)
+
+## Writing
+
+- [Why a browser can do peer-to-peer file transfer](https://juejin.cn/post/7673332898415263785)
+  (Chinese) — WebRTC, WebTransport and OPFS, and what it took to make the browser a real
+  node. Source in [`dev-notes/blogs/three-clients-web/`](dev-notes/blogs/three-clients-web/README.md).
+- [One Rust core, running on both Tauri and React Native](https://juejin.cn/post/7639930076302770216)
+  (Chinese) — the architecture this project is built on.
 
 ## License
 

@@ -92,7 +92,13 @@ export async function pickFromMediaLibrary(
  *
  * 返回的 TransferFile 数组里：
  * - `relativePath` 形如 `<rootDirName>/<sub>/<file.ext>`，保留目录结构
- * - `sourceId` 用 file:// URI（Rust core 端 ForeignFileAccess 用此打开源文件）
+ * - `sourceId` 是 expo-fs 的 entry URI。**在 Android 上它是 `content://`**——
+ *   `pickDirectoryAsync()` 走的是 SAF tree（`PickerType.DIRECTORY`），子项自然是
+ *   document URI；iOS 才是 `file://`。这里曾断言「用 file:// URI」，不成立。
+ *
+ *   所以读源那条路径**不能**假设 sourceId 是本地路径，它必须继续经
+ *   `ForeignFileAccess.readSourceChunk` 走 expo-file-system。这与接收侧不同：
+ *   接收的暂存区恒为应用私有目录，写入已整条下沉到 Rust。
  *
  * 注意：core 层 prepareSend 已支持任意 `relativePath`（包含 "/" 的视为嵌套），
  * RN 这里只负责拿到正确的相对路径串。文件 I/O 走 RN 的 ForeignFileAccess

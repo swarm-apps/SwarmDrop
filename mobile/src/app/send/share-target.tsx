@@ -11,32 +11,26 @@
 
 import { Trans, useLingui } from "@lingui/react/macro";
 import { type Href, useNavigation, useRouter } from "expo-router";
-import { Check, Files, Inbox, Send } from "lucide-react-native";
+import { Check, Files, MonitorSmartphone, Send } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import type {
-  MobileDevice as DeviceInfo,
-  MobilePrepareProgress,
-} from "react-native-swarmdrop-core";
-import { MobileCoreEvent_Tags } from "react-native-swarmdrop-core";
+import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import { ConnectionBadge } from "@/components/connection-badge";
 import {
+  AppScreen,
   BottomActionBar,
   EmptyState,
+  LIST_CONTENT_PADDING_UNDER_HEADER,
+  ListItemGap,
   Surface,
 } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
-import {
-  calcPercent,
-  formatBytes,
-  ProgressBar,
-} from "@/components/transfer/shared";
+import { PrepareProgressBar } from "@/components/transfer/prepare-progress-bar";
+import { formatBytes } from "@/components/transfer/shared";
 import { TrustBadge } from "@/components/trust-badge";
 import { Text } from "@/components/ui/text";
 import { canSendToDevice, resolveTrustLevel } from "@/core/device-trust";
-import { subscribeCoreEvents } from "@/core/event-bus";
 import { getMobileCore } from "@/core/mobile-core";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { deviceDisplayName } from "@/lib/device-name";
@@ -49,7 +43,10 @@ import {
   useMobileCoreStore,
 } from "@/stores/mobile-core-store";
 import { useShareStore } from "@/stores/share-store";
-import { useTransferStore } from "@/stores/transfer-store";
+import {
+  useActivePrepareProgress,
+  useTransferStore,
+} from "@/stores/transfer-store";
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
 
@@ -75,23 +72,14 @@ export default function ShareTargetScreen() {
 
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [prepareProgress, setPrepareProgress] =
-    useState<MobilePrepareProgress | null>(null);
+  // 住在 store：广播事件，且要在用户切走再回来时仍然可读。
+  const prepareProgress = useActivePrepareProgress();
 
   // 当前 screen 真正从栈中移除时清理；push 到文件检查页不会触发 beforeRemove。
   useEffect(
     () => navigation.addListener("beforeRemove", clearSharedFiles),
     [clearSharedFiles, navigation],
   );
-
-  // 准备阶段进度(与发送准备页一致,订阅 PrepareProgress 事件)。
-  useEffect(() => {
-    return subscribeCoreEvents((event) => {
-      if (event.tag === MobileCoreEvent_Tags.PrepareProgress) {
-        setPrepareProgress(event.inner.event);
-      }
-    });
-  }, []);
 
   // 节点未启动时自动启动一次(分享进来常处于冷启动、节点还没起)。
   const startedRef = useRef(false);
@@ -131,7 +119,6 @@ export default function ShareTargetScreen() {
   const onSend = useCallback(async () => {
     if (!selectedDevice || sending || sharedFiles.length === 0) return;
     setSending(true);
-    setPrepareProgress(null);
     try {
       const sessionId = await startSend({
         files: sharedFiles,
@@ -151,7 +138,6 @@ export default function ShareTargetScreen() {
       toast.error(t`发送失败`, panicDetail ?? getErrorMessage(err));
     } finally {
       setSending(false);
-      setPrepareProgress(null);
     }
   }, [
     selectedDevice,
@@ -164,9 +150,7 @@ export default function ShareTargetScreen() {
   ]);
 
   return (
-    <SafeAreaView style={{ flex: 1 }} className="bg-background" edges={["top"]}>
-      <SettingsHeader title={t`发送到`} />
-
+    <AppScreen header={<SettingsHeader title={t`发送到`} />} bare>
       <FlatList
         data={targetDevices}
         keyExtractor={(device) => device.peerId}
@@ -178,7 +162,7 @@ export default function ShareTargetScreen() {
             onPress={() => setSelectedPeerId(item.peerId)}
           />
         )}
-        ItemSeparatorComponent={DeviceSeparator}
+        ItemSeparatorComponent={ListItemGap}
         contentContainerStyle={SHARE_TARGET_CONTENT_STYLE}
         ListHeaderComponent={
           <View className="gap-4 pb-3">
@@ -229,7 +213,7 @@ export default function ShareTargetScreen() {
             </View>
           ) : (
             <EmptyState
-              icon={Inbox}
+              icon={MonitorSmartphone}
               title={<Trans>没有在线设备</Trans>}
               description={
                 <Trans>
@@ -243,10 +227,13 @@ export default function ShareTargetScreen() {
       />
 
       {/* 底部发送栏 */}
+      {/* 进度条**叠在按钮之上**，不替换它（与 /send/select-device、桌面同形）——
+          替换式的写法让准备期间这一屏一个可交互元素都不剩。 */}
       <BottomActionBar testID="share-target-action-bar">
-        {sending && prepareProgress ? (
-          <SharePrepareProgress progress={prepareProgress} />
-        ) : (
+        <View className="flex-1 gap-2">
+          {prepareProgress ? (
+            <PrepareProgressBar progress={prepareProgress} />
+          ) : null}
           <Pressable
             onPress={onSend}
             disabled={!canSend}
@@ -257,7 +244,11 @@ export default function ShareTargetScreen() {
                 : t`选择一个设备`
             }
             accessibilityState={{ busy: sending, disabled: !canSend }}
-            className="min-h-12 flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-primary px-4 active:opacity-70 disabled:opacity-50"
+            // 这里**不能**有 flex-1:外层那个 View 是纵向的,flexBasis:0% 会作用于**高度**,
+            // 把按钮压塌、内容对称溢出底栏 content box(prepare 期间按钮被屏底切断的根因)。
+            // 列容器默认 align-items: stretch,横向撑满本就不依赖 flex-1。
+            // 上一层 View 的 flex-1 是横向的(父是 BottomActionBar,flex-row),那个要留。
+            className="min-h-12 flex-row items-center justify-center gap-2 rounded-xl bg-primary px-4 active:opacity-70 disabled:opacity-50"
           >
             {sending ? (
               <ActivityIndicator
@@ -280,24 +271,21 @@ export default function ShareTargetScreen() {
               )}
             </Text>
           </Pressable>
-        )}
+        </View>
       </BottomActionBar>
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 
 /* ─── 可选目标设备行 ─── */
 
+// 派生自共享常量,别再抄 20 这个数:横向锚点与顶距跟着 header 契约走,
+// 只有底部因为下方压着 BottomActionBar 才收窄(不需要那 32 的滚动余量)。
 const SHARE_TARGET_CONTENT_STYLE = {
+  ...LIST_CONTENT_PADDING_UNDER_HEADER,
   flexGrow: 1,
-  paddingHorizontal: 20,
-  paddingTop: 8,
   paddingBottom: 16,
 } as const;
-
-function DeviceSeparator() {
-  return <View className="h-2" />;
-}
 
 function TargetDeviceRow({
   device,
@@ -362,32 +350,5 @@ function TargetDeviceRow({
   );
 }
 
-/* ─── 底部准备进度(与发送准备页一致) ─── */
-
-function SharePrepareProgress({
-  progress,
-}: {
-  progress: MobilePrepareProgress;
-}) {
-  const total = Number(progress.totalBytes);
-  const hashed = Number(progress.bytesHashed);
-  return (
-    <View className="flex-1 gap-2 py-1">
-      <View className="flex-row items-center justify-between gap-3">
-        <Text
-          className="flex-1 text-[13px] text-muted-foreground"
-          numberOfLines={1}
-        >
-          <Trans>
-            正在准备 ({progress.completedFiles.toString()}/
-            {progress.totalFiles.toString()})
-          </Trans>
-        </Text>
-        <Text className="text-[12px] text-muted-foreground">
-          {formatBytes(hashed)} / {formatBytes(total)}
-        </Text>
-      </View>
-      <ProgressBar percent={calcPercent(hashed, total)} heightClass="h-1.5" />
-    </View>
-  );
-}
+// 屏级错误兜底:异常只换掉本屏内容,导航栈与 tab 栏保持可用(见 components/app-error-boundary.tsx)
+export { AppErrorBoundary as ErrorBoundary } from "@/components/app-error-boundary";
