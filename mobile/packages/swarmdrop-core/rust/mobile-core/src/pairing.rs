@@ -114,7 +114,7 @@ impl MobileCore {
         } else {
             TransportPolicy::Auto
         };
-        Ok(pairing.encode_invite(&secret, policy).await)
+        Ok(pairing.encode_invite(&secret, policy).await?)
     }
 
     /// 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。

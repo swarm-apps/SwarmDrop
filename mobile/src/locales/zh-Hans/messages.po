@@ -39,7 +39,7 @@ msgid "{0} 后失效"
 msgstr "{0} 后失效"
 
 #. placeholder {0}: formatCountdown(remaining)
-#: src/components/pairing/invite-exchange.tsx:190
+#: src/components/pairing/invite-exchange.tsx:191
 msgid "{0} 后过期"
 msgstr "{0} 后过期"
 
@@ -191,7 +191,7 @@ msgstr "个文件"
 msgid "中止"
 msgstr "中止"
 
-#: src/components/connection-badge.tsx:58
+#: src/components/connection-badge.tsx:66
 #: src/core/network-labels.ts:154
 msgid "中继"
 msgstr "中继"
@@ -220,7 +220,7 @@ msgstr "主机名"
 msgid "主题已更新"
 msgstr "主题已更新"
 
-#: src/components/pairing/invite-qr.tsx:95
+#: src/components/pairing/invite-qr.tsx:105
 msgid "二维码生成失败"
 msgstr "二维码生成失败"
 
@@ -322,7 +322,7 @@ msgstr "保存到"
 msgid "保存失败"
 msgstr "保存失败"
 
-#: src/lib/errors.ts:58
+#: src/lib/errors.ts:61
 msgid "保存失败，请检查存储空间后重试"
 msgstr "保存失败，请检查存储空间后重试"
 
@@ -376,7 +376,7 @@ msgstr "允许中继自动接收"
 msgid "允许文件夹"
 msgstr "允许文件夹"
 
-#: src/app/pairing/scan.tsx:188
+#: src/app/pairing/scan.tsx:189
 msgid "允许相机权限"
 msgstr "允许相机权限"
 
@@ -430,7 +430,7 @@ msgstr "关闭"
 msgid "关闭后只接收单个文件或文件集合"
 msgstr "关闭后只接收单个文件或文件集合"
 
-#: src/app/pairing/scan.tsx:281
+#: src/app/pairing/scan.tsx:282
 msgid "关闭手电筒"
 msgstr "关闭手电筒"
 
@@ -475,7 +475,7 @@ msgstr "准备文件的进度"
 msgid "出了点问题，点下方「再试一次」。"
 msgstr "出了点问题，点下方「再试一次」。"
 
-#: src/lib/errors.ts:70
+#: src/lib/errors.ts:73
 msgid "出错了，请重试"
 msgstr "出错了，请重试"
 
@@ -587,7 +587,7 @@ msgstr "别名与分组"
 
 #: src/app/(main)/inbox.tsx:130
 #: src/app/(main)/inbox.tsx:171
-#: src/components/pairing/invite-exchange.tsx:211
+#: src/components/pairing/invite-exchange.tsx:212
 msgid "刷新"
 msgstr "刷新"
 
@@ -599,15 +599,15 @@ msgstr "剪贴板"
 msgid "剪贴板内容"
 msgstr "剪贴板内容"
 
-#: src/components/pairing/invite-exchange.tsx:316
+#: src/components/pairing/invite-exchange.tsx:310
 msgid "剪贴板里没有内容"
 msgstr "剪贴板里没有内容"
 
-#: src/app/pairing/scan.tsx:128
+#: src/app/pairing/scan.tsx:129
 msgid "剪贴板里没有配对邀请"
 msgstr "剪贴板里没有配对邀请"
 
-#: src/app/pairing/scan.tsx:132
+#: src/app/pairing/scan.tsx:133
 msgid "剪贴板里的邀请无效或已过期"
 msgstr "剪贴板里的邀请无效或已过期"
 
@@ -657,7 +657,7 @@ msgstr "原接收位置不可用"
 msgid "去中心化、跨网络、端到端加密文件传输"
 msgstr "去中心化、跨网络、端到端加密文件传输"
 
-#: src/app/pairing/scan.tsx:190
+#: src/app/pairing/scan.tsx:191
 msgid "去系统设置开启"
 msgstr "去系统设置开启"
 
@@ -847,7 +847,7 @@ msgstr "启动后，你的其他设备才能找到这台手机。"
 msgid "启动后显示可发送的设备"
 msgstr "启动后显示可发送的设备"
 
-#: src/app/_layout.tsx:52
+#: src/app/_layout.tsx:53
 msgid "启动失败"
 msgstr "启动失败"
 
@@ -957,7 +957,7 @@ msgstr "复制详情"
 msgid "复制远端地址"
 msgstr "复制远端地址"
 
-#: src/components/pairing/invite-exchange.tsx:221
+#: src/components/pairing/invite-exchange.tsx:222
 msgid "复制链接"
 msgstr "复制链接"
 
@@ -1075,11 +1075,11 @@ msgstr "导出日志"
 msgid "导出日志失败"
 msgstr "导出日志失败"
 
-#: src/app/pairing/scan.tsx:250
+#: src/app/pairing/scan.tsx:251
 msgid "将配对二维码放入框内"
 msgstr "将配对二维码放入框内"
 
-#: src/components/pairing/invite-exchange.tsx:161
+#: src/components/pairing/invite-exchange.tsx:162
 msgid "尚未生成邀请"
 msgstr "尚未生成邀请"
 
@@ -1087,7 +1087,7 @@ msgstr "尚未生成邀请"
 msgid "尚未设置"
 msgstr "尚未设置"
 
-#: src/components/connection-badge.tsx:37
+#: src/components/connection-badge.tsx:45
 #: src/core/network-labels.ts:148
 msgid "局域网"
 msgstr "局域网"
@@ -1100,7 +1100,7 @@ msgstr "局域网协助"
 msgid "局域网协助地址"
 msgstr "局域网协助地址"
 
-#: src/components/pairing/invite-exchange.tsx:71
+#: src/components/pairing/invite-exchange.tsx:72
 msgid "展示我的邀请"
 msgstr "展示我的邀请"
 
@@ -1167,7 +1167,7 @@ msgstr "已复制到剪贴板"
 msgid "已复制监听地址"
 msgstr "已复制监听地址"
 
-#: src/components/pairing/invite-exchange.tsx:152
+#: src/components/pairing/invite-exchange.tsx:153
 msgid "已复制邀请链接"
 msgstr "已复制邀请链接"
 
@@ -1313,7 +1313,7 @@ msgstr "应用重启后可恢复"
 msgid "延迟"
 msgstr "延迟"
 
-#: src/app/pairing/scan.tsx:164
+#: src/app/pairing/scan.tsx:165
 msgid "开启相机以扫码"
 msgstr "开启相机以扫码"
 
@@ -1393,7 +1393,7 @@ msgstr "我的 iPhone"
 msgid "我的设备"
 msgstr "我的设备"
 
-#: src/components/pairing/invite-exchange.tsx:110
+#: src/components/pairing/invite-exchange.tsx:111
 msgid "或"
 msgstr "或"
 
@@ -1417,7 +1417,7 @@ msgstr "打开"
 msgid "打开失败"
 msgstr "打开失败"
 
-#: src/app/pairing/scan.tsx:281
+#: src/app/pairing/scan.tsx:282
 msgid "打开手电筒"
 msgstr "打开手电筒"
 
@@ -1428,15 +1428,15 @@ msgstr "打开手电筒"
 msgid "打开文件夹"
 msgstr "打开文件夹"
 
-#: src/components/connection-badge.tsx:51
+#: src/components/connection-badge.tsx:59
 msgid "打洞"
 msgstr "打洞"
 
-#: src/components/pairing/invite-exchange.tsx:103
+#: src/components/pairing/invite-exchange.tsx:104
 msgid "扫描对方的二维码"
 msgstr "扫描对方的二维码"
 
-#: src/components/pairing/invite-exchange.tsx:77
+#: src/components/pairing/invite-exchange.tsx:78
 msgid "扫码或粘贴"
 msgstr "扫码或粘贴"
 
@@ -1444,7 +1444,7 @@ msgstr "扫码或粘贴"
 msgid "扫码配对"
 msgstr "扫码配对"
 
-#: src/app/pairing/scan.tsx:168
+#: src/app/pairing/scan.tsx:169
 msgid "扫码需要访问相机。SwarmDrop 只用相机识别配对二维码，不拍照、不录像、不上传。"
 msgstr "扫码需要访问相机。SwarmDrop 只用相机识别配对二维码，不拍照、不录像、不上传。"
 
@@ -1669,7 +1669,7 @@ msgstr "收起"
 msgid "收起诊断详情"
 msgstr "收起诊断详情"
 
-#: src/app/pairing/scan.tsx:202
+#: src/app/pairing/scan.tsx:203
 msgid "改用粘贴邀请"
 msgstr "改用粘贴邀请"
 
@@ -1692,7 +1692,7 @@ msgstr "放弃选择？"
 msgid "文件"
 msgstr "文件"
 
-#: src/lib/errors.ts:56
+#: src/lib/errors.ts:59
 msgid "文件传输失败，请重试"
 msgstr "文件传输失败，请重试"
 
@@ -1786,7 +1786,7 @@ msgstr "暂停接收"
 msgid "暂停期间节点仍在线可发现、可配对，但会自动婉拒新的接收请求。"
 msgstr "暂停期间节点仍在线可发现、可配对，但会自动婉拒新的接收请求。"
 
-#: src/app/_layout.tsx:247
+#: src/app/_layout.tsx:248
 msgid "暂只支持发送文件、图片和视频"
 msgstr "暂只支持发送文件、图片和视频"
 
@@ -1878,7 +1878,7 @@ msgstr "未启用"
 msgid "未开始"
 msgstr "未开始"
 
-#: src/lib/errors.ts:64
+#: src/lib/errors.ts:67
 msgid "未找到该设备"
 msgstr "未找到该设备"
 
@@ -1936,7 +1936,7 @@ msgstr "本机暂停"
 msgid "本机没有装配 {0} 传输，可用的是 {1}"
 msgstr "本机没有装配 {0} 传输，可用的是 {1}"
 
-#: src/components/pairing/invite-exchange.tsx:175
+#: src/components/pairing/invite-exchange.tsx:176
 msgid "本机配对邀请"
 msgstr "本机配对邀请"
 
@@ -2071,7 +2071,7 @@ msgstr "正在连接网络…"
 msgid "正在配对..."
 msgstr "正在配对..."
 
-#: src/app/pairing/scan.tsx:248
+#: src/app/pairing/scan.tsx:249
 msgid "正在验证邀请…"
 msgstr "正在验证邀请…"
 
@@ -2193,7 +2193,7 @@ msgstr "照片"
 msgid "现在没有正在进行的传输"
 msgstr "现在没有正在进行的传输"
 
-#: src/components/pairing/invite-exchange.tsx:240
+#: src/components/pairing/invite-exchange.tsx:241
 msgid "生成邀请"
 msgstr "生成邀请"
 
@@ -2225,11 +2225,11 @@ msgstr "留空则用对端名称"
 msgid "监听地址"
 msgstr "监听地址"
 
-#: src/components/connection-badge.tsx:44
+#: src/components/connection-badge.tsx:52
 msgid "直连"
 msgstr "直连"
 
-#: src/app/pairing/scan.tsx:173
+#: src/app/pairing/scan.tsx:174
 msgid "相机权限已被关闭。请到系统设置里为 SwarmDrop 开启相机，再回来扫码。"
 msgstr "相机权限已被关闭。请到系统设置里为 SwarmDrop 开启相机，再回来扫码。"
 
@@ -2338,16 +2338,16 @@ msgstr "策略设置"
 msgid "管理分组"
 msgstr "管理分组"
 
-#: src/components/pairing/invite-exchange.tsx:369
+#: src/components/pairing/invite-exchange.tsx:363
 msgid "粘贴"
 msgstr "粘贴"
 
-#: src/app/pairing/scan.tsx:309
-#: src/components/pairing/invite-exchange.tsx:369
+#: src/app/pairing/scan.tsx:310
+#: src/components/pairing/invite-exchange.tsx:363
 msgid "粘贴邀请"
 msgstr "粘贴邀请"
 
-#: src/components/pairing/invite-exchange.tsx:339
+#: src/components/pairing/invite-exchange.tsx:333
 msgid "粘贴配对邀请"
 msgstr "粘贴配对邀请"
 
@@ -2376,7 +2376,7 @@ msgstr "给设备取个名字"
 #: src/app/onboarding/device-name.tsx:65
 #: src/app/onboarding/receive-folder.tsx:68
 #: src/app/transfer/[sessionId].tsx:322
-#: src/components/pairing/invite-exchange.tsx:382
+#: src/components/pairing/invite-exchange.tsx:376
 msgid "继续"
 msgstr "继续"
 
@@ -2418,7 +2418,7 @@ msgstr "网络节点"
 msgid "网络诊断"
 msgstr "网络诊断"
 
-#: src/lib/errors.ts:55
+#: src/lib/errors.ts:58
 msgid "网络连接出现问题，请稍后重试"
 msgstr "网络连接出现问题，请稍后重试"
 
@@ -2499,7 +2499,7 @@ msgstr "解除阻止"
 msgid "计算中"
 msgstr "计算中"
 
-#: src/components/pairing/invite-exchange.tsx:178
+#: src/components/pairing/invite-exchange.tsx:179
 msgid "让另一台设备扫码或粘贴此邀请"
 msgstr "让另一台设备扫码或粘贴此邀请"
 
@@ -2583,7 +2583,7 @@ msgstr "设备策略要求确认"
 msgid "设备详情"
 msgstr "设备详情"
 
-#: src/lib/errors.ts:60
+#: src/lib/errors.ts:63
 msgid "设备身份尚未就绪，请重启应用后重试"
 msgstr "设备身份尚未就绪，请重启应用后重试"
 
@@ -2591,7 +2591,7 @@ msgstr "设备身份尚未就绪，请重启应用后重试"
 msgid "设备身份已就绪,可以开始配对和传输文件了"
 msgstr "设备身份已就绪,可以开始配对和传输文件了"
 
-#: src/lib/errors.ts:59
+#: src/lib/errors.ts:62
 msgid "设备身份读写失败"
 msgstr "设备身份读写失败"
 
@@ -2634,8 +2634,8 @@ msgstr "语言"
 msgid "语言已更新"
 msgstr "语言已更新"
 
-#: src/app/_layout.tsx:252
-#: src/app/_layout.tsx:297
+#: src/app/_layout.tsx:253
+#: src/app/_layout.tsx:298
 msgid "请先完成 SwarmDrop 设置"
 msgstr "请先完成 SwarmDrop 设置"
 
@@ -2703,7 +2703,7 @@ msgid "运行时长"
 msgstr "运行时长"
 
 #: src/app/device/[peerId].tsx:313
-#: src/app/pairing/scan.tsx:272
+#: src/app/pairing/scan.tsx:273
 #: src/app/send/select-device.tsx:221
 #: src/components/header-back-button.tsx:41
 msgid "返回"
@@ -2738,6 +2738,10 @@ msgstr "还没有设置接收位置"
 msgid "还没有配对设备"
 msgstr "还没有配对设备"
 
+#: src/lib/errors.ts:54
+msgid "还没连上网络，请稍候重试"
+msgstr "还没连上网络，请稍候重试"
+
 #: src/app/onboarding/receive-folder.tsx:48
 msgid "这个位置暂时不可用，换一个试试。"
 msgstr "这个位置暂时不可用，换一个试试。"
@@ -2762,9 +2766,7 @@ msgstr "这会删除收件箱记录，并尝试删除本机保存的文件。"
 msgid "这只删除收件箱索引，不会删除本地文件。"
 msgstr "这只删除收件箱索引，不会删除本地文件。"
 
-#: src/app/_layout.tsx:309
-#: src/app/pairing/scan.tsx:94
-#: src/components/pairing/invite-exchange.tsx:301
+#: src/core/pairing-labels.ts:29
 msgid "这是你自己的邀请"
 msgstr "这是你自己的邀请"
 
@@ -2776,7 +2778,7 @@ msgstr "这是本机的地址"
 msgid "这条地址已经在清单里了"
 msgstr "这条地址已经在清单里了"
 
-#: src/lib/errors.ts:57
+#: src/lib/errors.ts:60
 msgid "这条记录已经不在了，请返回列表重新开始"
 msgstr "这条记录已经不在了，请返回列表重新开始"
 
@@ -2891,24 +2893,21 @@ msgstr "邀请已撤销"
 msgid "邀请已撤销，但没能保存"
 msgstr "邀请已撤销，但没能保存"
 
-#: src/components/pairing/invite-exchange.tsx:160
-#: src/lib/errors.ts:53
+#: src/components/pairing/invite-exchange.tsx:161
+#: src/lib/errors.ts:56
 msgid "邀请已过期"
 msgstr "邀请已过期"
 
-#: src/app/_layout.tsx:311
-#: src/app/pairing/scan.tsx:96
-#: src/components/pairing/invite-exchange.tsx:303
+#: src/core/pairing-labels.ts:30
 msgid "邀请已过期，请让对方重新生成"
 msgstr "邀请已过期，请让对方重新生成"
 
-#: src/app/_layout.tsx:312
-#: src/components/pairing/invite-exchange.tsx:304
-#: src/lib/errors.ts:54
+#: src/core/pairing-labels.ts:31
+#: src/lib/errors.ts:57
 msgid "邀请无效或已被使用"
 msgstr "邀请无效或已被使用"
 
-#: src/app/pairing/scan.tsx:116
+#: src/app/pairing/scan.tsx:117
 msgid "邀请无效或已过期，请对准另一台设备的邀请二维码"
 msgstr "邀请无效或已过期，请对准另一台设备的邀请二维码"
 
@@ -2916,7 +2915,7 @@ msgstr "邀请无效或已过期，请对准另一台设备的邀请二维码"
 msgid "邀请有效期 24 小时，生成后会出现在这里，随时可以撤销。"
 msgstr "邀请有效期 24 小时，生成后会出现在这里，随时可以撤销。"
 
-#: src/lib/errors.ts:63
+#: src/lib/errors.ts:66
 msgid "邀请状态未能保存，本次配对已中止，请重新生成邀请"
 msgstr "邀请状态未能保存，本次配对已中止，请重新生成邀请"
 
@@ -2957,7 +2956,7 @@ msgstr "配对被拒绝"
 msgid "配对请求"
 msgstr "配对请求"
 
-#: src/components/pairing/invite-qr.tsx:107
+#: src/components/pairing/invite-qr.tsx:113
 msgid "配对邀请二维码"
 msgstr "配对邀请二维码"
 
@@ -2996,7 +2995,7 @@ msgstr "重命名 {0}"
 msgid "重新发送"
 msgstr "重新发送"
 
-#: src/components/pairing/invite-exchange.tsx:242
+#: src/components/pairing/invite-exchange.tsx:243
 msgid "重新生成邀请"
 msgstr "重新生成邀请"
 

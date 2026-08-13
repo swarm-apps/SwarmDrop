@@ -2219,6 +2219,10 @@ msgstr "还没有引导节点。"
 msgid "还没有引导节点。设置页可以添加。"
 msgstr "还没有引导节点。设置页可以添加。"
 
+#: src/lib/errors.ts
+msgid "还没连上网络，请稍候重试"
+msgstr "还没连上网络，请稍候重试"
+
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "这些信息仅保存在本机，不会同步给对端。"
 msgstr "这些信息仅保存在本机，不会同步给对端。"

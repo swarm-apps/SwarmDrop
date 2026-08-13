@@ -197,6 +197,7 @@ mod tests {
             "macos".into(),
             1_700_000_000,
         )
+        .expect("夹具带地址")
         .encode(&sk)
     }
 

@@ -107,9 +107,9 @@ pub async fn generate_pair_invite(
     };
     // display 名取 `PairingManager` 持有的本机 OsInfo（组合根从 DeviceConfig 端口装配），
     // 此处不再另传一份 `OsInfo::default()` —— 那正是邀请卡上恒显示占位主机名的成因。
-    with_manager!(net, |m| AppResult::Ok(
-        m.pairing().encode_invite(&secret, policy).await
-    ))
+    //
+    // 本机零可拨地址时这里会以 `NoDialableAddrs` 失败，而不是交出一张拨不动的码。
+    with_manager!(net, |m| m.pairing().encode_invite(&secret, policy).await)
 }
 
 /// 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。

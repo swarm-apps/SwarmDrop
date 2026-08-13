@@ -25,6 +25,10 @@ pub enum FfiError {
     DeviceNotFound,
     #[error("node not started")]
     NodeNotStarted,
+    /// 节点起来了但还没拿到任何可拨地址 —— 与 `NodeNotStarted` 的用户动作不同
+    /// （那个去启动，这个等一下），见 `swarmdrop_host::AppError::NoDialableAddrs`。
+    #[error("no dialable address")]
+    NoDialableAddrs,
     #[error("pairing code expired")]
     ExpiredCode,
     #[error("invalid pairing code")]
@@ -51,6 +55,7 @@ impl From<AppError> for FfiError {
             AppError::InvitePersistFailed => Self::InvitePersistFailed,
             AppError::DeviceNotFound => Self::DeviceNotFound,
             AppError::NodeNotStarted => Self::NodeNotStarted,
+            AppError::NoDialableAddrs => Self::NoDialableAddrs,
             AppError::ExpiredCode => Self::ExpiredCode,
             AppError::InvalidCode => Self::InvalidCode,
             AppError::TaskJoin(error) => Self::Network(error.to_string()),
@@ -77,6 +82,7 @@ impl From<FfiError> for AppError {
             FfiError::InvitePersistFailed => AppError::InvitePersistFailed,
             FfiError::DeviceNotFound => AppError::DeviceNotFound,
             FfiError::NodeNotStarted => AppError::NodeNotStarted,
+            FfiError::NoDialableAddrs => AppError::NoDialableAddrs,
             FfiError::ExpiredCode => AppError::ExpiredCode,
             FfiError::InvalidCode => AppError::InvalidCode,
             FfiError::SessionNotFound(message) => AppError::SessionNotFound(message),

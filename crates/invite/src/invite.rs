@@ -257,6 +257,23 @@ mod sig_serde {
     }
 }
 
+/// 本机当前没有任何可拨地址，因此**造不出**一条有意义的邀请。
+///
+/// 这是「一条邀请至少携带一条可拨地址」这条不变量的**生成侧**一半，与
+/// [`PairInvite::decode`] 里那句「邀请没有任何可拨地址」是同一条判断的两端：
+/// 那边保证本机不接受这种邀请，这边保证本机不产出它。
+///
+/// **为什么必须在这里挡住，而不是编出来再说。** 零地址邀请编得出、扫得动、也复制得走，
+/// 唯独没有任何东西可拨。此前生成侧不挡，于是发起方看到一张完全正常的二维码，受邀方拿到
+/// 它才报错 —— 认知分叉在两台设备之间，发起方永远不知道自己发出去的是废码。最容易撞上的
+/// 是浏览器端：它不 listen 本地 socket，可拨地址全部来自 relay reservation，在
+/// reservation 落定之前生成的每一条邀请都是空的。
+///
+/// 它是**瞬态**的，不是配置错误：等网络地址就绪后重新生成即可。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("本机当前没有任何可拨地址，邀请至少要携带一条")]
+pub struct NoDialableAddrs;
+
 /// 邀请串解析错误（分类照 iroh-tickets 的 ParseError 四分层）。
 #[derive(Debug, thiserror::Error)]
 pub enum InviteParseError {
@@ -275,7 +292,12 @@ pub enum InviteParseError {
 }
 
 impl PairInvite {
-    /// 生成并签名一个新邀请。`now` 为 Unix 秒（时间源由调用方注入，便于测试与 wasm）。
+    /// 生成一个新邀请。`now` 为 Unix 秒（时间源由调用方注入，便于测试与 wasm）。
+    ///
+    /// `inviter_addrs` 为空即 [`NoDialableAddrs`] —— 见那里的推导。这条闸让**「地址恒非空」
+    /// 成为 `PairInvite` 的类型不变量**：它只有两条构造路径（本方法与 [`Self::decode`]），
+    /// 两条都守住了，于是「拿到一个 `PairInvite` 就一定有地方可拨」在类型层面成立，下游
+    /// 不必各自再判一次空。
     pub fn generate(
         secret: &SecretKey,
         inviter_addrs: Vec<Addr>,
@@ -283,16 +305,19 @@ impl PairInvite {
         display_name: String,
         display_platform: String,
         now: u64,
-    ) -> Self {
+    ) -> Result<Self, NoDialableAddrs> {
+        if inviter_addrs.is_empty() {
+            return Err(NoDialableAddrs);
+        }
         let mut rng = rand::rng();
-        Self {
+        Ok(Self {
             capability: rand::RngExt::random(&mut rng),
             inviter: NodeAddr::with_addrs(secret.node_id(), inviter_addrs),
             expires_at: now + INVITE_TTL_SECS,
             transport_policy,
             display_name,
             display_platform,
-        }
+        })
     }
 
     /// 签名并编码为 canonical 邀请链接（[`INVITE_URL_PREFIX`] + base32-nopad）。
@@ -801,6 +826,7 @@ mod tests {
             "macos".into(),
             1_700_000_000,
         )
+        .expect("夹具带地址")
     }
 
     /// 前缀匹配必须大小写不敏感 —— **这条曾经是「前缀必须全小写」，被现实推翻**。
@@ -963,6 +989,7 @@ mod tests {
             "macos".into(),
             1_700_000_000,
         )
+        .expect("夹具带地址")
         .encode(&sk);
         assert!(
             matches!(
@@ -1001,7 +1028,8 @@ mod tests {
             "书房的 Mac".into(),
             "macos".into(),
             1_700_000_000,
-        );
+        )
+        .expect("夹具带地址");
         let bytes = BASE32_NOPAD
             .decode(extract_payload(&invite.encode(&sk)).unwrap().as_bytes())
             .unwrap();
@@ -1020,6 +1048,50 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// 生成侧的零地址闸 —— 与上面那条 `no_tampering_yields_a_zero_address_invite` 是
+    /// **同一条不变量的两端**：那条守「本机不接受零地址邀请」，这条守「本机不产出它」。
+    ///
+    /// 缺了这一半时的表现极难归因：发起方拿到一张完全正常的二维码，受邀方扫了才报错，
+    /// 而两人手上的信息对不上。浏览器端最容易撞上（可拨地址全部来自 relay reservation，
+    /// 落定之前是空集而非「少几条」）。
+    #[test]
+    fn generating_without_any_addr_is_refused() {
+        let sk = SecretKey::generate();
+        assert!(
+            matches!(
+                PairInvite::generate(
+                    &sk,
+                    vec![],
+                    TransportPolicy::Auto,
+                    "书房的 Mac".into(),
+                    "macos".into(),
+                    1_700_000_000,
+                ),
+                Err(NoDialableAddrs)
+            ),
+            "零地址邀请必须在生成侧就被拒，而不是编出来交给用户"
+        );
+    }
+
+    /// 把闸挡下的那种邀请**硬造出来**，确认它正是解码侧会拒的那一种。
+    ///
+    /// 上一条只证明「生成被拒了」，不能证明「被拒的是对的东西」——万一解码侧其实收得下
+    /// 零地址邀请，那道闸就是纯粹的多余限制。这条经 `addrs_mut`（不需要私钥的合法路径）
+    /// 绕过生成侧，直接验两端咬合。
+    #[test]
+    fn the_refused_shape_is_exactly_what_decode_rejects() {
+        let sk = SecretKey::generate();
+        let mut signed = test_invite(&sk, TransportPolicy::Auto).sign(&sk);
+        signed.addrs_mut().clear();
+        assert!(
+            matches!(
+                PairInvite::decode(&signed.encode()),
+                Err(InviteParseError::Verify(_))
+            ),
+            "生成侧挡下的形状，解码侧也必须拒 —— 否则那道闸是多余的"
+        );
     }
 
     /// 地址提示可被任意方**替换**，邀请仍然有效。
@@ -1601,7 +1673,8 @@ mod utf8_safety {
             "书房 Mac".into(),
             "macos".into(),
             1_700_000_000,
-        );
+        )
+        .expect("夹具带地址");
         let canonical = invite.encode(&sk);
 
         let cases = [

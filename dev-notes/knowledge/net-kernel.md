@@ -2028,6 +2028,36 @@ relay listener 报的 `<relay-base>/p2p-circuit`，**不带自身身份**。那�
 而且立刻抓出了判据本身立错了：原本写的是「有提示但全丢了才拒」，漏掉最好构造的那种篡改
 ——把路径数直接改成 0。正确判据是**零地址一律拒**。
 
+#### 「至少一条可拨地址」是 `PairInvite` 的**类型不变量**（2026-08-13 补齐生成侧）
+
+wire v2 落地时只做了一半：`decode` 拒收零地址邀请，`generate` 却照造不误。缺的那一半的
+表现极难归因 —— **发起方拿到一张完全正常的二维码，受邀方扫了才报错**，两人手上的信息对不上，
+而发起方永远不知道自己发出去的是废码。
+
+`PairInvite` 只有两条构造路径，现在两条都守住了：
+
+| 路径 | 判据 | 位置 |
+|---|---|---|
+| `PairInvite::generate` | `inviter_addrs` 为空 → `Err(NoDialableAddrs)` | `invite.rs` |
+| `PairInvite::decode` | `compact::unpack` 后为空 → `Err(Verify("邀请没有任何可拨地址"))` | 同上 |
+
+于是「拿到一个 `PairInvite` 就一定有地方可拨」在类型层面成立，下游不必各自再判一次空。
+第三条相关的闸在 `compose::drop_least_valuable_addr`（裁剪绝不裁到零），三者是同一条
+不变量的三个入口。
+
+**这条修复当初被估成「要动三端 IPC/FFI 签名，单独立项」，是高估了**：三端外层本来就是
+`AppResult<String>` / `FfiResult<String>` / `Result<String, JsValue>`，各加一个 `?` 而已。
+估算改动面时先看**外层签名**，不要看内层返回值 —— 它们经常已经是 `Result` 了。
+
+真正要想清楚的是**新 kind 的必要性**：`NoDialableAddrs` 与 `NodeNotStarted` 必须分开，
+因为用户动作相反（「等一下」vs「去启动」）。合并的表现是让用户去点一个已经亮着的开关。
+三端文案统一说「还没连上网络，请稍候重试」；浏览器侧归 `WebError::network`
+（那里几乎恒等于「relay reservation 还没建好」，与其他网络失败同一类瞬态）。
+
+⚠️ 浏览器是三端里最容易撞上这条的：它**一条本地监听地址都没有**，可拨地址全部来自
+relay reservation，所以 reservation 落定之前是**空集**而不是「少几条」。`pairing-panel.tsx`
+的生成按钮已用 `!reservation` 挡住主路径，这条闸兜的是那之外的窗口期。
+
 #### 邀请地址策略搬到了 `crates/invite/src/compose.rs`
 
 `select_invite_addrs` / `append_invite_transports` / `drop_least_valuable_addr` 从

@@ -359,7 +359,8 @@ mod tests {
             "字".repeat(40),
             "macos".into(),
             1_700_000_000,
-        );
+        )
+        .expect("夹具带地址");
         // 链接：完整地址集，不经任何裁剪。
         let link = invite.sign(&secret).encode();
         let link_addrs = crate::PairInvite::decode(&link)

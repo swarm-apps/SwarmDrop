@@ -39,7 +39,7 @@ msgid "{0} 后失效"
 msgstr "expires in {0}"
 
 #. placeholder {0}: formatCountdown(remaining)
-#: src/components/pairing/invite-exchange.tsx:190
+#: src/components/pairing/invite-exchange.tsx:191
 msgid "{0} 后过期"
 msgstr "Expires in {0}"
 
@@ -191,7 +191,7 @@ msgstr "files"
 msgid "中止"
 msgstr "Abort"
 
-#: src/components/connection-badge.tsx:58
+#: src/components/connection-badge.tsx:66
 #: src/core/network-labels.ts:154
 msgid "中继"
 msgstr "Relay"
@@ -220,7 +220,7 @@ msgstr "Hostname"
 msgid "主题已更新"
 msgstr "Theme updated"
 
-#: src/components/pairing/invite-qr.tsx:95
+#: src/components/pairing/invite-qr.tsx:105
 msgid "二维码生成失败"
 msgstr "Failed to generate QR code"
 
@@ -322,7 +322,7 @@ msgstr "Save to"
 msgid "保存失败"
 msgstr "Save failed"
 
-#: src/lib/errors.ts:58
+#: src/lib/errors.ts:61
 msgid "保存失败，请检查存储空间后重试"
 msgstr "Saving failed. Check your storage space and try again."
 
@@ -376,7 +376,7 @@ msgstr "Allow relay auto receive"
 msgid "允许文件夹"
 msgstr "Allow folders"
 
-#: src/app/pairing/scan.tsx:188
+#: src/app/pairing/scan.tsx:189
 msgid "允许相机权限"
 msgstr "Allow camera access"
 
@@ -430,7 +430,7 @@ msgstr "Close"
 msgid "关闭后只接收单个文件或文件集合"
 msgstr "When off, only single files or file bundles are accepted"
 
-#: src/app/pairing/scan.tsx:281
+#: src/app/pairing/scan.tsx:282
 msgid "关闭手电筒"
 msgstr "Turn off flashlight"
 
@@ -475,7 +475,7 @@ msgstr "File preparation progress"
 msgid "出了点问题，点下方「再试一次」。"
 msgstr "Something went wrong. Tap “Try again” below."
 
-#: src/lib/errors.ts:70
+#: src/lib/errors.ts:73
 msgid "出错了，请重试"
 msgstr "Something went wrong, please try again"
 
@@ -587,7 +587,7 @@ msgstr "Alias & groups"
 
 #: src/app/(main)/inbox.tsx:130
 #: src/app/(main)/inbox.tsx:171
-#: src/components/pairing/invite-exchange.tsx:211
+#: src/components/pairing/invite-exchange.tsx:212
 msgid "刷新"
 msgstr "Refresh"
 
@@ -599,15 +599,15 @@ msgstr "Clipboard"
 msgid "剪贴板内容"
 msgstr "Clipboard content"
 
-#: src/components/pairing/invite-exchange.tsx:316
+#: src/components/pairing/invite-exchange.tsx:310
 msgid "剪贴板里没有内容"
 msgstr "Clipboard is empty"
 
-#: src/app/pairing/scan.tsx:128
+#: src/app/pairing/scan.tsx:129
 msgid "剪贴板里没有配对邀请"
 msgstr "No pairing invite in the clipboard"
 
-#: src/app/pairing/scan.tsx:132
+#: src/app/pairing/scan.tsx:133
 msgid "剪贴板里的邀请无效或已过期"
 msgstr "The invite in the clipboard is invalid or expired"
 
@@ -657,7 +657,7 @@ msgstr "Previous save location unavailable"
 msgid "去中心化、跨网络、端到端加密文件传输"
 msgstr "Decentralized, cross-network, end-to-end encrypted file transfer"
 
-#: src/app/pairing/scan.tsx:190
+#: src/app/pairing/scan.tsx:191
 msgid "去系统设置开启"
 msgstr "Open system settings"
 
@@ -847,7 +847,7 @@ msgstr "Once started, your other devices will be able to find this phone."
 msgid "启动后显示可发送的设备"
 msgstr "Start the node to show devices you can send to"
 
-#: src/app/_layout.tsx:52
+#: src/app/_layout.tsx:53
 msgid "启动失败"
 msgstr "Startup failed"
 
@@ -957,7 +957,7 @@ msgstr "Copy details"
 msgid "复制远端地址"
 msgstr "Copy remote address"
 
-#: src/components/pairing/invite-exchange.tsx:221
+#: src/components/pairing/invite-exchange.tsx:222
 msgid "复制链接"
 msgstr "Copy link"
 
@@ -1075,11 +1075,11 @@ msgstr "Export logs"
 msgid "导出日志失败"
 msgstr "Couldn't export logs"
 
-#: src/app/pairing/scan.tsx:250
+#: src/app/pairing/scan.tsx:251
 msgid "将配对二维码放入框内"
 msgstr "Point at the pairing QR code"
 
-#: src/components/pairing/invite-exchange.tsx:161
+#: src/components/pairing/invite-exchange.tsx:162
 msgid "尚未生成邀请"
 msgstr "No invite yet"
 
@@ -1087,7 +1087,7 @@ msgstr "No invite yet"
 msgid "尚未设置"
 msgstr "Not set"
 
-#: src/components/connection-badge.tsx:37
+#: src/components/connection-badge.tsx:45
 #: src/core/network-labels.ts:148
 msgid "局域网"
 msgstr "LAN"
@@ -1100,7 +1100,7 @@ msgstr "LAN helper"
 msgid "局域网协助地址"
 msgstr "LAN helper address"
 
-#: src/components/pairing/invite-exchange.tsx:71
+#: src/components/pairing/invite-exchange.tsx:72
 msgid "展示我的邀请"
 msgstr "My Invite"
 
@@ -1167,7 +1167,7 @@ msgstr "Copied to clipboard"
 msgid "已复制监听地址"
 msgstr "Listening address copied"
 
-#: src/components/pairing/invite-exchange.tsx:152
+#: src/components/pairing/invite-exchange.tsx:153
 msgid "已复制邀请链接"
 msgstr "Invite link copied"
 
@@ -1313,7 +1313,7 @@ msgstr "Recoverable after app restart"
 msgid "延迟"
 msgstr "Latency"
 
-#: src/app/pairing/scan.tsx:164
+#: src/app/pairing/scan.tsx:165
 msgid "开启相机以扫码"
 msgstr "Enable camera to scan"
 
@@ -1393,7 +1393,7 @@ msgstr "My iPhone"
 msgid "我的设备"
 msgstr "My device"
 
-#: src/components/pairing/invite-exchange.tsx:110
+#: src/components/pairing/invite-exchange.tsx:111
 msgid "或"
 msgstr "or"
 
@@ -1417,7 +1417,7 @@ msgstr "Open"
 msgid "打开失败"
 msgstr "Open failed"
 
-#: src/app/pairing/scan.tsx:281
+#: src/app/pairing/scan.tsx:282
 msgid "打开手电筒"
 msgstr "Turn on flashlight"
 
@@ -1428,15 +1428,15 @@ msgstr "Turn on flashlight"
 msgid "打开文件夹"
 msgstr "Open folder"
 
-#: src/components/connection-badge.tsx:51
+#: src/components/connection-badge.tsx:59
 msgid "打洞"
 msgstr "Hole-punched"
 
-#: src/components/pairing/invite-exchange.tsx:103
+#: src/components/pairing/invite-exchange.tsx:104
 msgid "扫描对方的二维码"
 msgstr "Scan Their QR Code"
 
-#: src/components/pairing/invite-exchange.tsx:77
+#: src/components/pairing/invite-exchange.tsx:78
 msgid "扫码或粘贴"
 msgstr "Scan or Paste"
 
@@ -1444,7 +1444,7 @@ msgstr "Scan or Paste"
 msgid "扫码配对"
 msgstr "Pair by QR code"
 
-#: src/app/pairing/scan.tsx:168
+#: src/app/pairing/scan.tsx:169
 msgid "扫码需要访问相机。SwarmDrop 只用相机识别配对二维码，不拍照、不录像、不上传。"
 msgstr "Scanning needs camera access. SwarmDrop only uses the camera to read pairing QR codes — no photos, no recording, nothing uploaded."
 
@@ -1669,7 +1669,7 @@ msgstr "Collapse"
 msgid "收起诊断详情"
 msgstr "Collapse diagnostics"
 
-#: src/app/pairing/scan.tsx:202
+#: src/app/pairing/scan.tsx:203
 msgid "改用粘贴邀请"
 msgstr "Paste an invite instead"
 
@@ -1692,7 +1692,7 @@ msgstr "Discard selection?"
 msgid "文件"
 msgstr "files"
 
-#: src/lib/errors.ts:56
+#: src/lib/errors.ts:59
 msgid "文件传输失败，请重试"
 msgstr "File transfer failed, please try again"
 
@@ -1786,7 +1786,7 @@ msgstr "Pause receiving"
 msgid "暂停期间节点仍在线可发现、可配对，但会自动婉拒新的接收请求。"
 msgstr "While paused, the node stays online and discoverable, and pairing still works, but new receive requests are automatically declined."
 
-#: src/app/_layout.tsx:247
+#: src/app/_layout.tsx:248
 msgid "暂只支持发送文件、图片和视频"
 msgstr "Only files, images, and videos can be sent for now"
 
@@ -1878,7 +1878,7 @@ msgstr "Disabled"
 msgid "未开始"
 msgstr "Not started"
 
-#: src/lib/errors.ts:64
+#: src/lib/errors.ts:67
 msgid "未找到该设备"
 msgstr "Device not found"
 
@@ -1936,7 +1936,7 @@ msgstr "Paused locally"
 msgid "本机没有装配 {0} 传输，可用的是 {1}"
 msgstr "This device has no {0} transport; available ones are {1}"
 
-#: src/components/pairing/invite-exchange.tsx:175
+#: src/components/pairing/invite-exchange.tsx:176
 msgid "本机配对邀请"
 msgstr "This device's pairing invite"
 
@@ -2071,7 +2071,7 @@ msgstr "Connecting to the network…"
 msgid "正在配对..."
 msgstr "Pairing..."
 
-#: src/app/pairing/scan.tsx:248
+#: src/app/pairing/scan.tsx:249
 msgid "正在验证邀请…"
 msgstr "Verifying invite…"
 
@@ -2193,7 +2193,7 @@ msgstr "Photos"
 msgid "现在没有正在进行的传输"
 msgstr "No transfers in progress"
 
-#: src/components/pairing/invite-exchange.tsx:240
+#: src/components/pairing/invite-exchange.tsx:241
 msgid "生成邀请"
 msgstr "Generate Invite"
 
@@ -2225,11 +2225,11 @@ msgstr "Leave empty to use the device's own name"
 msgid "监听地址"
 msgstr "Listen addresses"
 
-#: src/components/connection-badge.tsx:44
+#: src/components/connection-badge.tsx:52
 msgid "直连"
 msgstr "Direct"
 
-#: src/app/pairing/scan.tsx:173
+#: src/app/pairing/scan.tsx:174
 msgid "相机权限已被关闭。请到系统设置里为 SwarmDrop 开启相机，再回来扫码。"
 msgstr "Camera access is turned off. Enable the camera for SwarmDrop in system settings, then come back to scan."
 
@@ -2338,16 +2338,16 @@ msgstr "Policy settings"
 msgid "管理分组"
 msgstr "Manage groups"
 
-#: src/components/pairing/invite-exchange.tsx:369
+#: src/components/pairing/invite-exchange.tsx:363
 msgid "粘贴"
 msgstr "Paste"
 
-#: src/app/pairing/scan.tsx:309
-#: src/components/pairing/invite-exchange.tsx:369
+#: src/app/pairing/scan.tsx:310
+#: src/components/pairing/invite-exchange.tsx:363
 msgid "粘贴邀请"
 msgstr "Paste Invite"
 
-#: src/components/pairing/invite-exchange.tsx:339
+#: src/components/pairing/invite-exchange.tsx:333
 msgid "粘贴配对邀请"
 msgstr "Paste pairing invite"
 
@@ -2376,7 +2376,7 @@ msgstr "Name this device"
 #: src/app/onboarding/device-name.tsx:65
 #: src/app/onboarding/receive-folder.tsx:68
 #: src/app/transfer/[sessionId].tsx:322
-#: src/components/pairing/invite-exchange.tsx:382
+#: src/components/pairing/invite-exchange.tsx:376
 msgid "继续"
 msgstr "Continue"
 
@@ -2418,7 +2418,7 @@ msgstr "Network node"
 msgid "网络诊断"
 msgstr "Network diagnostics"
 
-#: src/lib/errors.ts:55
+#: src/lib/errors.ts:58
 msgid "网络连接出现问题，请稍后重试"
 msgstr "A network problem occurred, please try again later"
 
@@ -2499,7 +2499,7 @@ msgstr "Unblock"
 msgid "计算中"
 msgstr "Calculating"
 
-#: src/components/pairing/invite-exchange.tsx:178
+#: src/components/pairing/invite-exchange.tsx:179
 msgid "让另一台设备扫码或粘贴此邀请"
 msgstr "Have the other device scan or paste this invite"
 
@@ -2583,7 +2583,7 @@ msgstr "Device policy requires confirmation"
 msgid "设备详情"
 msgstr "Device details"
 
-#: src/lib/errors.ts:60
+#: src/lib/errors.ts:63
 msgid "设备身份尚未就绪，请重启应用后重试"
 msgstr "Device identity isn't ready yet. Restart the app and try again."
 
@@ -2591,7 +2591,7 @@ msgstr "Device identity isn't ready yet. Restart the app and try again."
 msgid "设备身份已就绪,可以开始配对和传输文件了"
 msgstr "Identity is ready. You can pair and transfer files now."
 
-#: src/lib/errors.ts:59
+#: src/lib/errors.ts:62
 msgid "设备身份读写失败"
 msgstr "Could not read or write the device identity"
 
@@ -2634,8 +2634,8 @@ msgstr "Language"
 msgid "语言已更新"
 msgstr "Language updated"
 
-#: src/app/_layout.tsx:252
-#: src/app/_layout.tsx:297
+#: src/app/_layout.tsx:253
+#: src/app/_layout.tsx:298
 msgid "请先完成 SwarmDrop 设置"
 msgstr "Complete SwarmDrop setup first"
 
@@ -2703,7 +2703,7 @@ msgid "运行时长"
 msgstr "Uptime"
 
 #: src/app/device/[peerId].tsx:313
-#: src/app/pairing/scan.tsx:272
+#: src/app/pairing/scan.tsx:273
 #: src/app/send/select-device.tsx:221
 #: src/components/header-back-button.tsx:41
 msgid "返回"
@@ -2738,6 +2738,10 @@ msgstr "No save location set yet"
 msgid "还没有配对设备"
 msgstr "No paired devices yet"
 
+#: src/lib/errors.ts:54
+msgid "还没连上网络，请稍候重试"
+msgstr "Not connected to a network yet — please retry shortly"
+
 #: src/app/onboarding/receive-folder.tsx:48
 msgid "这个位置暂时不可用，换一个试试。"
 msgstr "That location isn’t available right now. Try another one."
@@ -2762,9 +2766,7 @@ msgstr "This deletes the Inbox record and attempts to delete locally saved files
 msgid "这只删除收件箱索引，不会删除本地文件。"
 msgstr "This only deletes the Inbox index. Local files are kept."
 
-#: src/app/_layout.tsx:309
-#: src/app/pairing/scan.tsx:94
-#: src/components/pairing/invite-exchange.tsx:301
+#: src/core/pairing-labels.ts:29
 msgid "这是你自己的邀请"
 msgstr "This is your own invite"
 
@@ -2776,7 +2778,7 @@ msgstr "That's this device's own address"
 msgid "这条地址已经在清单里了"
 msgstr "That address is already on the list"
 
-#: src/lib/errors.ts:57
+#: src/lib/errors.ts:60
 msgid "这条记录已经不在了，请返回列表重新开始"
 msgstr "This entry is no longer there. Go back to the list and start over."
 
@@ -2891,24 +2893,21 @@ msgstr "Invite revoked"
 msgid "邀请已撤销，但没能保存"
 msgstr "Invite revoked, but not saved"
 
-#: src/components/pairing/invite-exchange.tsx:160
-#: src/lib/errors.ts:53
+#: src/components/pairing/invite-exchange.tsx:161
+#: src/lib/errors.ts:56
 msgid "邀请已过期"
 msgstr "Invite expired"
 
-#: src/app/_layout.tsx:311
-#: src/app/pairing/scan.tsx:96
-#: src/components/pairing/invite-exchange.tsx:303
+#: src/core/pairing-labels.ts:30
 msgid "邀请已过期，请让对方重新生成"
 msgstr "This invite has expired — ask them to create a new one"
 
-#: src/app/_layout.tsx:312
-#: src/components/pairing/invite-exchange.tsx:304
-#: src/lib/errors.ts:54
+#: src/core/pairing-labels.ts:31
+#: src/lib/errors.ts:57
 msgid "邀请无效或已被使用"
 msgstr "This invite is invalid or has already been used"
 
-#: src/app/pairing/scan.tsx:116
+#: src/app/pairing/scan.tsx:117
 msgid "邀请无效或已过期，请对准另一台设备的邀请二维码"
 msgstr "Invite is invalid or expired — point at the other device's invite QR code"
 
@@ -2916,7 +2915,7 @@ msgstr "Invite is invalid or expired — point at the other device's invite QR c
 msgid "邀请有效期 24 小时，生成后会出现在这里，随时可以撤销。"
 msgstr "Invites last 24 hours. Anything you generate shows up here and can be revoked at any time."
 
-#: src/lib/errors.ts:63
+#: src/lib/errors.ts:66
 msgid "邀请状态未能保存，本次配对已中止，请重新生成邀请"
 msgstr "The invite state could not be saved, so pairing was aborted. Please generate a new invite."
 
@@ -2957,7 +2956,7 @@ msgstr "Pairing rejected"
 msgid "配对请求"
 msgstr "Pairing request"
 
-#: src/components/pairing/invite-qr.tsx:107
+#: src/components/pairing/invite-qr.tsx:113
 msgid "配对邀请二维码"
 msgstr "Pairing invite QR code"
 
@@ -2996,7 +2995,7 @@ msgstr "Rename {0}"
 msgid "重新发送"
 msgstr "Send again"
 
-#: src/components/pairing/invite-exchange.tsx:242
+#: src/components/pairing/invite-exchange.tsx:243
 msgid "重新生成邀请"
 msgstr "Regenerate Invite"
 

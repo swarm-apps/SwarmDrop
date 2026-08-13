@@ -49,6 +49,9 @@ export function isErrorKind(err: unknown, tag: string): boolean {
  */
 const KIND_MESSAGES: Record<string, MessageDescriptor> = {
   NodeNotStarted: msg`节点未启动`,
+  // **不能说成「节点未启动」**：节点正在运行，只是还没拿到任何可拨地址（刚联网、
+  // 还没建好中继预留）。说错了用户会去点一个已经亮着的开关，而正确动作只是等一下。
+  NoDialableAddrs: msg`还没连上网络，请稍候重试`,
   // 判别码名字是 6 位配对码时代的历史，语义早已是 PairInvite（见 crates/host 的注释）。
   ExpiredCode: msg`邀请已过期`,
   InvalidCode: msg`邀请无效或已被使用`,

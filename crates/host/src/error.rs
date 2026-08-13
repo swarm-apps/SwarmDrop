@@ -58,6 +58,18 @@ pub enum AppError {
     #[error("Node not started")]
     NodeNotStarted,
 
+    /// 本机当前没有任何可拨地址，因此生成不出有意义的邀请。
+    ///
+    /// **与 [`Self::NodeNotStarted`] 是两回事，用户动作也不同**：那个是「根本没起，去启动
+    /// 它」，这个是「起来了但还没连上，等一下再来」。合并成一个 kind 会把「稍等片刻」说成
+    /// 「请先启动节点」，而节点明明正在运行 —— 用户会去点一个已经亮着的开关。
+    ///
+    /// 瞬态：浏览器端最容易撞上（可拨地址全部来自 relay reservation，reservation 落定前
+    /// 一条都没有）。判据的真源在 `swarmdrop_invite::NoDialableAddrs`，这里只是它到 UI 的
+    /// 投影。
+    #[error("no dialable address")]
+    NoDialableAddrs,
+
     /// 邀请已过期。
     ///
     /// 变体名沿用「Code」是历史（6 位配对码时代），现在承载的是 PairInvite 的过期
@@ -140,6 +152,7 @@ impl Serialize for AppError {
             AppError::InvitePersistFailed => ("InvitePersistFailed", self.to_string()),
             AppError::DeviceNotFound => ("DeviceNotFound", self.to_string()),
             AppError::NodeNotStarted => ("NodeNotStarted", self.to_string()),
+            AppError::NoDialableAddrs => ("NoDialableAddrs", self.to_string()),
             AppError::ExpiredCode => ("ExpiredCode", self.to_string()),
             AppError::InvalidCode => ("InvalidCode", self.to_string()),
             AppError::TaskJoin(e) => ("TaskJoin", e.to_string()),

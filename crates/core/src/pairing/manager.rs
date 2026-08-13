@@ -230,11 +230,15 @@ impl PairingManager {
     /// display（名字 + 平台）读本机 [`Self::os_info`] 当下的快照（改名后新发的邀请立即带
     /// 新名字，见 [`Self::set_device_name`]），**不由调用方传入**：三端曾各自
     /// 传一份，桌面与移动传的都是 `OsInfo::default()`，邀请卡上的设备名于是恒为占位主机名。
+    ///
+    /// 本机一条可拨地址都没有时返回 [`AppError::NoDialableAddrs`]，**而不是交出一张废码**
+    /// —— 判据的真源是 `swarmdrop_invite::PairInvite::generate`（那里是类型不变量），这里
+    /// 只负责把它投影成三端 UI 认得的 kind。
     pub async fn encode_invite(
         &self,
         secret: &swarmdrop_net::SecretKey,
         policy: TransportPolicy,
-    ) -> String {
+    ) -> AppResult<String> {
         let now = now_secs();
         let os_info = self.os_info();
         let invite = PairInvite::generate(
@@ -244,7 +248,11 @@ impl PairingManager {
             os_info.display_name(),
             os_info.platform,
             now,
-        );
+        )
+        // 手工 map 而不是 `#[from]`：`AppError` 住在 `swarmdrop-host`，`NoDialableAddrs`
+        // 住在 `swarmdrop-invite`，两个都不是本 crate 的类型，孤儿规则不允许在这里写
+        // `impl From`。让 host 反过来依赖 invite 只为省这一行不值得。
+        .map_err(|_| AppError::NoDialableAddrs)?;
         // 先落盘再返回串：邀请一旦交到用户手上就可能被立刻使用，注册表里没有它就等于
         // 「不认识」→ 直接拒绝。
         //
@@ -259,7 +267,7 @@ impl PairingManager {
         // **不裁剪**：密度是二维码的约束，链接没有这回事。回收地址发生在渲染侧
         // （`swarmdrop_invite::qr` 按各端自己的码面 px 裁），所以这里交出去的是完整地址集
         // —— 复制粘贴那条路径不必再为扫码受委屈。
-        invite.encode(secret)
+        Ok(invite.encode(secret))
     }
 
     /// 撤销本机发出的邀请：重新生成覆盖旧串、用户主动放弃、关闭邀请界面时调用。
@@ -1100,22 +1108,44 @@ mod tests {
         let manager = manager_with_os_info(endpoint, injected_os_info());
 
         // ⚠️ 必须先给它一条**非 loopback** 的可拨地址。测试端点只绑 loopback，而
-        // `select_invite_addrs` 把 loopback 全滤掉 —— 于是生成的是一条零地址邀请，
-        // 而 `PairInvite::decode` 现在会拒收那种邀请（它编得出、扫得动，唯独拨不动）。
-        //
-        // 这不是本测试的关注点，但它顺带记下一条真实的产品缺口：**本机没有任何可拨地址时
-        // 生成的邀请是废的，而生成侧不会告诉用户**——最可能撞上的是浏览器端在 relay
-        // reservation 落定之前。见 openspec `invite-wire-v2` 的遗留项。
+        // `select_invite_addrs` 把 loopback 全滤掉 —— 零地址现在是 `NoDialableAddrs`，
+        // 生成会直接失败（见 `encode_invite`），这条测试就跑不到它真正要断言的东西。
         manager
             .endpoint
             .set_external_addrs(vec!["/ip4/198.51.100.10/tcp/4001".parse().unwrap()])
             .await
             .expect("注入外部地址");
-        let encoded = manager.encode_invite(&secret, TransportPolicy::Auto).await;
+        let encoded = manager
+            .encode_invite(&secret, TransportPolicy::Auto)
+            .await
+            .expect("有可拨地址时应当生成得出邀请");
         let invite = PairInvite::decode(&encoded).expect("解码本机刚生成的邀请");
 
         assert_eq!(invite.display_name, INJECTED_NAME);
         assert_eq!(invite.display_platform, "macos");
+    }
+
+    /// 本机一条可拨地址都没有时，`encode_invite` 必须**失败**而不是交出一张废码。
+    ///
+    /// 夹具天然成立：测试端点只绑 loopback，而 `select_invite_addrs` 把 loopback 全滤掉
+    /// —— 上一条测试要靠 `set_external_addrs` 才跑得动，正是同一个事实的另一面。这条把
+    /// 那个「顺带发现」变成正面断言。
+    ///
+    /// **判据是 kind 不是「失败了就行」**：`NoDialableAddrs` 与 `NodeNotStarted` 对用户是
+    /// 两回事（等一下 vs 去启动），三端按 kind 渲染文案，落错档就会让用户去点一个已经
+    /// 亮着的开关。
+    #[tokio::test]
+    async fn encode_invite_refuses_when_nothing_is_dialable() {
+        let secret = SecretKey::generate();
+        let endpoint = test_endpoint_with(secret.clone()).await;
+        let manager = manager_with_os_info(endpoint, injected_os_info());
+
+        let result = manager.encode_invite(&secret, TransportPolicy::Auto).await;
+        assert!(
+            matches!(result, Err(AppError::NoDialableAddrs)),
+            "零可拨地址时应当报 NoDialableAddrs，实得 {:?}",
+            result.map(|_| "Ok(邀请串)")
+        );
     }
 
     /// 回归锚点：改名**不得**动 `name` 以外的任何字段，尤其是 `capabilities`。

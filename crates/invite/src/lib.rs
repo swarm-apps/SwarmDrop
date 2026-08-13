@@ -28,7 +28,7 @@ pub use compose::select_invite_addrs;
 
 pub use invite::{
     INVITE_TTL_SECS, InviteParseError, InviteRegistry, InviteRejectReason, InviteSummary,
-    PairInvite, SignedInvite, TransportPolicy,
+    NoDialableAddrs, PairInvite, SignedInvite, TransportPolicy,
 };
 pub use qr::{MIN_PX_PER_MODULE, QrError, invite_qr_matrix, invite_qr_svg, max_modules_for};
 pub use store::{

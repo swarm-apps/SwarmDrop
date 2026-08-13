@@ -109,9 +109,12 @@ pnpm wdio
 pnpm install
 pnpm ios / pnpm android
 pnpm typecheck
-pnpm lint:ci            # biome（import 排序 + 格式）。⚠️ **和 typecheck 一样零 CI 覆盖**
-                        #   —— mobile-checks.yml 目前只跑 check:expo-patches，
-                        #   所以这两条的唯一执行者就是这份清单
+pnpm lint:ci            # biome（import 排序 + 格式）。配置是 **biome.jsonc** 不是 .json
+                        #   —— 后者写注释会让整份配置**静默失效**并降级到默认值
+                        #   （表现是「全仓每个文件都要重新格式化」，见 toolchain.md）
+pnpm check:zustand-access
+                        # 以上三条 2026-08-13 起由 mobile-checks.yml 接管（此前零 CI
+                        # 覆盖，三条同时红着没人知道）
 pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 ```
 
@@ -461,6 +464,13 @@ driver 丢弃可靠消息）。桌面与移动是两份独立常量，**要一�
 「裁地址不需要私钥」。实现在 `crates/invite`（地址策略在 `compose.rs`），设计见
 `openspec/changes/pair-invite-protocol/design.md` 与 `openspec/changes/invite-wire-v2/`。
 
+**「至少一条可拨地址」是 `PairInvite` 的类型不变量**，两条构造路径各守一半：`generate`
+零地址报 `NoDialableAddrs`、`decode` 零地址报 `Verify`，外加 `drop_least_valuable_addr`
+裁剪绝不裁到零。零地址邀请编得出、扫得动、复制得走，唯独没有任何东西可拨——生成侧不挡的话，
+发起方拿到的是一张看起来完全正常的码，只有受邀方那边报错。浏览器最容易撞上（它没有本地
+监听地址，可拨地址全部来自 relay reservation）。`NoDialableAddrs` **不得**与
+`NodeNotStarted` 合并：用户动作相反（等一下 vs 去启动）。
+
 **DHT 的用途已变**：不再用于分享码查找，改为已配对设备的 **presence 在线记录**
 （`crates/core/src/presence/`）。
 
@@ -586,7 +596,8 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | `rust.yml` | `cargo fmt --check` + `cargo check --workspace --all-targets` + `cargo test --workspace`；**wasm 双 target 门禁**（check + clippy）；native 的 clippy job 暂 `continue-on-error`（存量 warning 基线未清）。⚠️ **但 `wasm` job 里的 clippy 是硬失败的**——它跑 `check-wasm.sh --clippy`（`-D warnings`），不受那条豁免保护。v0.16.0 就是这么红的（4 处 `needless_borrow`），而红着也照样发了版，因为 release.yml 由 tag 触发、不看 rust.yml 的脸色。**动了 wasm 七 crate 就本地跑一遍 `./scripts/check-wasm.sh --clippy`**，别指望 native 那条豁免 |
 | `release.yml` | `v*` tag 触发。generate-changelog → build-tauri（四目标 + 上传 SwarmHive draft）→ finalize-swarmhive → update-latest-json（仅手动 dispatch）→ publish-release |
 | `mobile-release.yml` | `mobile-v*` tag，仅 Android |
-| `mobile-build-android.yml` / `bootstrap-release.yml` / `docs.yml` | 移动构建 / 引导节点发布 / 文档站（含 develop → GitHub Pages） |
+| `mobile-checks.yml` | `mobile/**` 的 push / PR。typecheck + biome + zustand + expo-patches 四条，**全部硬失败**（前三条 2026-08-13 才接进来，此前零覆盖且三条同时红着） |
+| `mobile-build-android.yml` / `bootstrap-release.yml` / `docs.yml` | 移动构建 / 引导节点发布 / 文档站（含 develop → GitHub Pages）。docs 那条会**在当前提交重新生成 wasm**，并从 apt 装 binaryen —— 否则 wasm-pack 每次都去 GitHub 裸下 tarball，无重试无缓存，2026-08-12 就这么挂过一次 |
 
 > Rust CI 目前**只跑 ubuntu**，Windows / macOS 的编译问题要到打 tag 才暴露。
 

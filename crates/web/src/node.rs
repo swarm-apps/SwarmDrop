@@ -564,7 +564,12 @@ impl WebNode {
     /// `local_only=true` 走 LocalOnly（受邀方只用私网地址）。邀请自包含本机 dialable 地址提示——
     /// 浏览器不 listen 本地 socket，其可达地址来自 **relay reservation**（circuit 地址）；故桌面要
     /// 拨得到本机，本机需先经 [`infra_ensure`](Self::infra_ensure) 在某引导节点上建 reservation
-    /// （等到 `active`），否则邀请里无可拨地址、消费方连不上。
+    /// （等到 `active`）。
+    ///
+    /// reservation 没建好时**这里直接失败**（`NoDialableAddrs` → `WebError::Network`），不再
+    /// 交出一条零地址邀请 —— 三端里浏览器最容易撞上这条：它一条本地监听地址都没有，所以
+    /// 「可拨地址」在 reservation 落定之前是**空集**而不是「少几条」。
+    ///
     /// **async 化于 invite-persistence**：生成时要把邀请写穿进 IndexedDB，否则刷新页面
     /// 后本机就不认识刚发出去的那条邀请了（注册表 fail-closed，查不到即拒绝）。
     pub async fn generate_invite(&self, local_only: bool) -> Result<String, JsValue> {
@@ -577,7 +582,8 @@ impl WebNode {
             .net_manager
             .pairing()
             .encode_invite(&self.secret, policy)
-            .await)
+            .await
+            .map_err(WebError::from)?)
     }
 
     /// 邀请二维码的 SVG 字符串（深模块 + 透明背景，渲染端自己套白卡）。

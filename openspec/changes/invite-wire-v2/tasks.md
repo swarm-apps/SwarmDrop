@@ -161,8 +161,10 @@
 
 ### 遗留（本 change 不做，已记录）
 
-- **本机没有任何可拨地址时生成的邀请是废的，而生成侧不告诉用户。** 解码方现在会立刻说
-  「邀请没有任何可拨地址」，但发起方看到的仍是一张正常的码 —— 认知分叉在两端之间。
-  最可能撞上的是浏览器端在 relay reservation 落定之前。修法要让 `encode_invite` 能失败，
-  那会动三端 IPC/FFI 签名，单独立项。**这是既有缺口**（v1 同样会生成零地址邀请），
-  本改动只是让症状提前且落在了正确的位置。
+- ~~**本机没有任何可拨地址时生成的邀请是废的，而生成侧不告诉用户。**~~
+  **已于 2026-08-13 修复**（`invite-generation-guard`）。原判「会动三端 IPC/FFI 签名」是
+  **高估了**：三端的外层签名本来就是 `AppResult<String>` / `FfiResult<String>` /
+  `Result<String, JsValue>`，改动只是各加一个 `?`。真正的改动面是
+  `PairInvite::generate` 返回 `Result<_, NoDialableAddrs>`（把「地址恒非空」提为
+  `PairInvite` 的类型不变量，与 `decode` 那一半咬合）+ `AppError::NoDialableAddrs`
+  这个新 kind + 三端文案。

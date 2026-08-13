@@ -3570,6 +3570,7 @@ export enum FfiError_Tags {
     InvitePersistFailed = "InvitePersistFailed",
     DeviceNotFound = "DeviceNotFound",
     NodeNotStarted = "NodeNotStarted",
+    NoDialableAddrs = "NoDialableAddrs",
     ExpiredCode = "ExpiredCode",
     InvalidCode = "InvalidCode",
     SessionNotFound = "SessionNotFound",
@@ -3902,6 +3903,37 @@ Readonly<
 
     }
 
+    type NoDialableAddrs__interface = {
+        tag: FfiError_Tags.NoDialableAddrs
+    };
+    /**
+     * 节点起来了但还没拿到任何可拨地址 —— 与 `NodeNotStarted` 的用户动作不同
+     * （那个去启动，这个等一下），见 `swarmdrop_host::AppError::NoDialableAddrs`。
+     */
+    class NoDialableAddrs_ extends UniffiError implements NoDialableAddrs__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "FfiError";
+        readonly tag = FfiError_Tags.NoDialableAddrs;
+        constructor() {
+            super("FfiError", "NoDialableAddrs");
+        }
+
+        static new(): NoDialableAddrs_ {
+            return new NoDialableAddrs_();
+        }
+
+        static instanceOf(obj: any): obj is NoDialableAddrs_ {
+            return obj.tag === FfiError_Tags.NoDialableAddrs;
+        }
+        static hasInner(obj: any): obj is NoDialableAddrs_ {
+            return false;
+        }
+
+    }
+
     type ExpiredCode__interface = {
         tag: FfiError_Tags.ExpiredCode
     };
@@ -4143,6 +4175,7 @@ Readonly<
   InvitePersistFailed: InvitePersistFailed_, 
   DeviceNotFound: DeviceNotFound_, 
   NodeNotStarted: NodeNotStarted_, 
+  NoDialableAddrs: NoDialableAddrs_, 
   ExpiredCode: ExpiredCode_, 
   InvalidCode: InvalidCode_, 
   SessionNotFound: SessionNotFound_, 
@@ -4153,7 +4186,7 @@ Readonly<
 
 })();
 export type FfiError = InstanceType<
-    typeof FfiError['Io' | 'Serialization' | 'Network' | 'Identity' | 'IdentityNotReady' | 'InvalidArgument' | 'InvitePersistFailed' | 'DeviceNotFound' | 'NodeNotStarted' | 'ExpiredCode' | 'InvalidCode' | 'SessionNotFound' | 'StorageFailed' | 'Transfer' | 'Database']
+    typeof FfiError['Io' | 'Serialization' | 'Network' | 'Identity' | 'IdentityNotReady' | 'InvalidArgument' | 'InvitePersistFailed' | 'DeviceNotFound' | 'NodeNotStarted' | 'NoDialableAddrs' | 'ExpiredCode' | 'InvalidCode' | 'SessionNotFound' | 'StorageFailed' | 'Transfer' | 'Database']
 >;
 
 // FfiConverter for enum FfiError
@@ -4172,12 +4205,13 @@ const FfiConverterTypeFfiError = (() => {
                 case 7: return new FfiError.InvitePersistFailed();
                 case 8: return new FfiError.DeviceNotFound();
                 case 9: return new FfiError.NodeNotStarted();
-                case 10: return new FfiError.ExpiredCode();
-                case 11: return new FfiError.InvalidCode();
-                case 12: return new FfiError.SessionNotFound(FfiConverterString.read(from));
-                case 13: return new FfiError.StorageFailed(FfiConverterString.read(from));
-                case 14: return new FfiError.Transfer(FfiConverterString.read(from));
-                case 15: return new FfiError.Database(FfiConverterString.read(from));
+                case 10: return new FfiError.NoDialableAddrs();
+                case 11: return new FfiError.ExpiredCode();
+                case 12: return new FfiError.InvalidCode();
+                case 13: return new FfiError.SessionNotFound(FfiConverterString.read(from));
+                case 14: return new FfiError.StorageFailed(FfiConverterString.read(from));
+                case 15: return new FfiError.Transfer(FfiConverterString.read(from));
+                case 16: return new FfiError.Database(FfiConverterString.read(from));
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
@@ -4229,34 +4263,38 @@ const FfiConverterTypeFfiError = (() => {
                     ordinalConverter.write(9, into);
                     return;
                 }
-                case FfiError_Tags.ExpiredCode: {
+                case FfiError_Tags.NoDialableAddrs: {
                     ordinalConverter.write(10, into);
                     return;
                 }
-                case FfiError_Tags.InvalidCode: {
+                case FfiError_Tags.ExpiredCode: {
                     ordinalConverter.write(11, into);
                     return;
                 }
-                case FfiError_Tags.SessionNotFound: {
+                case FfiError_Tags.InvalidCode: {
                     ordinalConverter.write(12, into);
-                    const inner = value.inner;
-                    FfiConverterString.write(inner[0], into);
                     return;
                 }
-                case FfiError_Tags.StorageFailed: {
+                case FfiError_Tags.SessionNotFound: {
                     ordinalConverter.write(13, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner[0], into);
                     return;
                 }
-                case FfiError_Tags.Transfer: {
+                case FfiError_Tags.StorageFailed: {
                     ordinalConverter.write(14, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner[0], into);
                     return;
                 }
-                case FfiError_Tags.Database: {
+                case FfiError_Tags.Transfer: {
                     ordinalConverter.write(15, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner[0], into);
+                    return;
+                }
+                case FfiError_Tags.Database: {
+                    ordinalConverter.write(16, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner[0], into);
                     return;
@@ -4310,33 +4348,36 @@ const FfiConverterTypeFfiError = (() => {
                 case FfiError_Tags.NodeNotStarted: {
                     return ordinalConverter.allocationSize(9);
                 }
-                case FfiError_Tags.ExpiredCode: {
+                case FfiError_Tags.NoDialableAddrs: {
                     return ordinalConverter.allocationSize(10);
                 }
-                case FfiError_Tags.InvalidCode: {
+                case FfiError_Tags.ExpiredCode: {
                     return ordinalConverter.allocationSize(11);
                 }
-                case FfiError_Tags.SessionNotFound: {
-                    const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(12);
-                    size += FfiConverterString.allocationSize(inner[0]);
-                    return size;
+                case FfiError_Tags.InvalidCode: {
+                    return ordinalConverter.allocationSize(12);
                 }
-                case FfiError_Tags.StorageFailed: {
+                case FfiError_Tags.SessionNotFound: {
                     const inner = value.inner;
                     let size = ordinalConverter.allocationSize(13);
                     size += FfiConverterString.allocationSize(inner[0]);
                     return size;
                 }
-                case FfiError_Tags.Transfer: {
+                case FfiError_Tags.StorageFailed: {
                     const inner = value.inner;
                     let size = ordinalConverter.allocationSize(14);
                     size += FfiConverterString.allocationSize(inner[0]);
                     return size;
                 }
-                case FfiError_Tags.Database: {
+                case FfiError_Tags.Transfer: {
                     const inner = value.inner;
                     let size = ordinalConverter.allocationSize(15);
+                    size += FfiConverterString.allocationSize(inner[0]);
+                    return size;
+                }
+                case FfiError_Tags.Database: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(16);
                     size += FfiConverterString.allocationSize(inner[0]);
                     return size;
                 }

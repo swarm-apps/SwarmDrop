@@ -2220,6 +2220,10 @@ msgstr "還沒有引導節點。"
 msgid "还没有引导节点。设置页可以添加。"
 msgstr "還沒有引導節點。設定頁可以新增。"
 
+#: src/lib/errors.ts
+msgid "还没连上网络，请稍候重试"
+msgstr "還沒連上網路，請稍候重試"
+
 #: src/routes/_app/devices/-components/device-organization-dialogs.tsx
 msgid "这些信息仅保存在本机，不会同步给对端。"
 msgstr "這些資訊僅儲存在本機，不會同步給對端。"
