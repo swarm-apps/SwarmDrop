@@ -83,6 +83,7 @@ export default async function HomePage() {
       <Agents />
       <Downloads catalog={initialCatalog} mobileCatalog={initialMobileCatalog} />
       <Closing />
+      <StatusNote />
       <Footer />
     </main>
   );
@@ -259,8 +260,8 @@ function PlatformStrip() {
 const ROUTES: Array<{ name: string; how: string; transports: string }> = [
   {
     name: "局域网直连",
-    how: "mDNS 在同一网段里发现对方，数据不出这间屋子。",
-    transports: "TCP · QUIC · WebRTC Direct",
+    how: "mDNS 在同一网段里发现对方，数据不出这间屋子。浏览器走 WebTransport——它是浏览器上的 QUIC，回环实测是 WebRTC Direct 的 4.5 倍。",
+    transports: "TCP · QUIC · WebTransport · WebRTC Direct",
   },
   {
     name: "NAT 打洞",
@@ -278,6 +279,11 @@ const ROUTES: Array<{ name: string; how: string; transports: string }> = [
  * 真实地址取自一台正在运行的节点（`get_network_status` 的 `listenAddrs`），
  * **只做截断**。截断处留 `…`：一条把中段悄悄去掉的 multiaddr 仍然像一条完整地址，
  * 会被原样粘进 issue——这条规则写在 DESIGN.md 的 Device Card Contract 里。
+ *
+ * **这里刻意没有 WebTransport 那条**（形态是
+ * `…/udp/4004/quic-v1/webtransport/certhash/<当前>/certhash/<下一张>/p2p/<id>`）：
+ * 手头没有一份真实抓下来的 certhash，而这一页的规矩是只截断不编造。它的机制写在下面
+ * 那段说明文字里，等抓到真地址再补进这张表。
  */
 const REAL_ADDRS: Array<{ label: string; addr: string }> = [
   {
@@ -343,10 +349,12 @@ function Routing() {
           </dl>
         </div>
 
-        <p className="reveal mt-6 max-w-[68ch] text-[13px] leading-6 text-fd-muted-foreground">
-          浏览器只能走 WebRTC Direct —— https 页面拨公网裸 IP 的 <Mono>ws://</Mono>{" "}
-          会被 mixed content 拦下，<Mono>wss://</Mono>{" "}
-          又要域名和证书。所以引导节点在 4003 端口上专门为它开了一条。
+        <p className="reveal mt-6 max-w-[72ch] text-[13px] leading-6 text-fd-muted-foreground">
+          浏览器有两条入口，各管一段。<Mono>webrtc-direct</Mono>{" "}
+          负责发现与打洞——它是唯一能穿透 NAT 的那条，引导节点在 4003 端口上为它开着。
+          <Mono>WebTransport</Mono>{" "}
+          负责同网快通道，本质是浏览器上的 QUIC；它连的机器没有域名，靠地址里的证书哈希建立信任，
+          而那张自签证书的有效期被规范限死在 14 天，所以地址里总是带着两个哈希——当前这张，和下一张。
         </p>
       </div>
     </Section>
@@ -663,6 +671,36 @@ function Closing() {
 }
 
 /* ────────────────────────────  FOOTER  ──────────────────────────── */
+
+/**
+ * 页脚上方多一条状态带。
+ *
+ * **它不该出现在 hero 里**：hero 只留一个重心，而「还在打磨」这种限定语放在首屏
+ * 会先给产品打个折。但它也不能不说——首页最重要的属性是说的话是真的，而这个项目
+ * 确实处在「功能齐了、细节在磨」的阶段。放在页脚上方：想下载的人早就点走了，
+ * 读到这里的人正是会去开 issue 的那批。
+ */
+function StatusNote() {
+  return (
+    <div className="border-t border-fd-border bg-fd-card/40">
+      <div className={`${SHELL} py-7`}>
+        <p className="max-w-[74ch] text-[13px] leading-6 text-fd-muted-foreground">
+          <span className="font-medium text-fd-foreground">项目现状：</span>
+          核心功能已经完成并稳定跑了一段时间——跨网络传输、配对、断点续传、三端客户端、MCP。
+          当前的工作是收尾打磨：三端交互对齐、边界状态的文案、真机链路的收敛（尤其是跨网络那条）。
+          用起来有别扭或看不懂的地方，
+          <a
+            href={`${links.repo}/issues`}
+            className="text-[var(--brand)] transition-opacity hover:opacity-80"
+          >
+            开一个 issue
+          </a>
+          是这个阶段最有价值的反馈。
+        </p>
+      </div>
+    </div>
+  );
+}
 
 function Footer() {
   return (
