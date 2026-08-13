@@ -3,15 +3,23 @@
 # 为什么新开一条而不是塞进 rust.yml：那条 workflow 从名字到每个 job 的装配（rust
 # toolchain、apt 的 webkit/appindicator、swatinem/rust-cache）都是 Rust 专用的，塞一个
 # Node/expo 的 job 进去，名字就开始说谎，而且它没有 paths 过滤——所有 PR 都会被迫跑一遍
-# mobile 的 pnpm install。这里是移动端自己的落点，将来 mobile 的 typecheck / biome /
-# check:zustand-access（目前**零 CI 覆盖**）也归这儿。
+# mobile 的 pnpm install。这里是移动端自己的落点。
 #
 # 为什么它必须存在：`check:expo-patches` 此前只接在 workflow_dispatch 的
 # mobile-build-android 与 mobile-v* 的 mobile-release 上——两条都不是 PR / push 触发，
 # 于是「patch 又变回不进构建」这种回归最早只能在**发版当天**暴露。护栏本身没问题，
 # 接错了地方。
 #
-# 这个 job 只读文件（pnpm-workspace.yaml / package.json / patch / node_modules），
+# typecheck / biome / check:zustand-access 曾在上面那段注释里挂了很久的「将来也归这儿」，
+# 而三条同时红着谁都不知道（2026-08-13 补进来时：biome 5 处、zustand 10 处）。zustand 那
+# 10 处里有一多半根本不是新违规，是 allowlist 里的 store 名跟着重构漂了却没人发现——
+# **一条没人跑的检查会退化成噪音，而噪音等于没有检查**。所以它们现在是硬失败的 step，
+# 不是 continue-on-error。
+#
+# 排序按「快的先跑」：三条静态检查合计几秒，expo-patches 要跑 autolinking 慢得多，
+# 让常见的失败尽早红。四条共用同一次 `pnpm install`，加进来几乎不花时间。
+#
+# expo-patches 只读文件（pnpm-workspace.yaml / package.json / patch / node_modules），
 # 判红的三道硬判据不依赖 JDK、gradle 或 Android SDK；javap 的产物诊断是软的，
 # ubuntu runner 自带 JDK 就顺带跑，没有也只是少几行提示。
 
@@ -40,8 +48,8 @@ env:
   NODE_VERSION: "22"
 
 jobs:
-  expo-patches:
-    name: Expo patches enter the build
+  checks:
+    name: Typecheck · lint · zustand · expo patches
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -66,6 +74,18 @@ jobs:
       - name: Install dependencies
         working-directory: mobile
         run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: mobile
+        run: pnpm typecheck
+
+      - name: Lint (biome)
+        working-directory: mobile
+        run: pnpm lint:ci
+
+      - name: Zustand store access
+        working-directory: mobile
+        run: pnpm check:zustand-access
 
       - name: Assert expo patches actually enter the build
         working-directory: mobile

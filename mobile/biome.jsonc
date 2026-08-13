@@ -1,0 +1,55 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.2.0/schema.json",
+  "files": {
+    "includes": [
+      "src/**/*.ts",
+      "src/**/*.tsx",
+      "packages/**/*.ts",
+      "packages/**/*.tsx",
+      "modules/**/*.ts",
+      "modules/**/*.tsx"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always"
+    }
+  },
+  "overrides": [
+    {
+      // 这三个文件由 `@swarmhive-rn` registry 分发，实现的是 `@swarm-hive/sdk` 的
+      // UpdateAdapter —— 那个接口的签名就写着 `install(handle): Promise<void | InstallBlocked>`。
+      // 也就是说「void 出现在联合里」是**上游的类型契约**，不是本仓的建模选择，本仓这三处
+      // 一处都改不动：rn-adapter 改了与 SDK 类型不兼容，ports / expo-installer 改了下次
+      // `shadcn add @swarmhive-rn/rn-adapter` 原样覆盖回来——那正是这条 lint 长期红着、
+      // 每次「修完」又复发的成因。
+      //
+      // 豁免的是**这条规则在这三个文件上**，不是「这三个文件不做 lint」：它们的其他问题
+      // 照抓。真要修得去上游 SwarmHive 改 UpdateAdapter 的签名，再重新拉 registry。
+      "includes": [
+        "src/lib/ports.ts",
+        "src/lib/rn-adapter.ts",
+        "src/lib/expo-installer.ts"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConfusingVoidType": "off"
+          }
+        }
+      }
+    }
+  ]
+}

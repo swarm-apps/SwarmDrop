@@ -1233,6 +1233,56 @@ javap -p node_modules/expo-file-system/android/build/**/FileSystemFileHandle.cla
 `mobile/pnpm-workspace.yaml` 读且 resolve 必须在 `mobile/` 下跑）。
 **这类事故只有机器守得住**——三个 commit、三次自评「已修复」，人工 review 一次都没拦下。
 
+### `biome.json` 里写注释 = 整份配置**静默失效**（2026-08-13 实证）
+
+同族的第三条：上一节是「补丁没进构建」，这条是「配置没进生效路径」，判据同样不能看
+「我写了吗」，要看「它读到了吗」。
+
+`biome.json` 是**严格 JSON**，`//` 注释是语法错误。而 biome 撞上这种配置**不报错，
+默认降级到内置配置继续跑** —— 于是：
+
+| | 真配置（`indentStyle: space`、`files.includes` 只列 ts/tsx） | 降级后（biome 默认） |
+|---|---|---|
+| 缩进 | 2 空格 | **tab** —— 全仓每个文件都「需要格式化」 |
+| 扫描范围 | `src/**` + `packages/**` + `modules/**` 的 ts/tsx | **`**`** —— 连 `modules/*/android/build/intermediates/**.json` 这种 Gradle 产物和 `global.css` 都进去了（后者还报 parse error） |
+| 错误数 | 2 | **195** |
+
+那 195 差点被当成「移动端 lint 早就烂了」而按既有债处理掉。真相是它**完全由那几行注释造成**
+——`git stash` 掉配置改动重跑一次基线就露馅了。**错误数突然一个数量级的跳变，先怀疑配置没读到，
+别急着修代码。**
+
+两条判据：
+
+```bash
+pnpm exec biome rage | grep -A1 "Biome Configuration"   # Status: Not set = 没读到
+pnpm exec biome ci src/ --config-path=.                 # 显式指定时解析失败会**硬报错**（带行号）
+```
+
+修法：**改用 `biome.jsonc`**（biome 自动识别，脚本不用改）。本仓需要在配置里写「为什么豁免」，
+所以是 jsonc 而不是删注释 —— 一条没有理由的 lint 豁免，下一个人只会把它删掉。
+
+### 一条没人跑的检查会退化成噪音（2026-08-13）
+
+`mobile/` 的 `typecheck` / `lint:ci` / `check:zustand-access` 三条同时红着，而
+`mobile-checks.yml` 只跑 `check:expo-patches` —— workflow 自己的注释里写着「将来也归这儿」，
+挂了很久。三条补进 CI 时的实际状态：biome 5 处、zustand 10 处。
+
+**zustand 那 10 处里有一多半根本不是新违规**：allowlist 是按 `{file, pattern}` 匹配的，其中
+一条写的是 `usePairingCodeStore`，而 6 位分享码换成 PairInvite 时 store 改名成了
+`usePairingInviteStore`。规则本身没错，只是它指向的东西不存在了 —— 于是同一段 orchestration
+代码一夜之间变成两条「违规」，而没人在跑它。同理 `src/core/paths.ts` 的豁免没跟到继任者
+`receive-location.ts`。
+
+**推论：正则里嵌了符号名的护栏，改名时必须一起改**，而保证这件事发生的唯一办法是让它在
+CI 里红。护栏脚本本身也要留下这条线索（本仓已在
+`mobile/scripts/check-zustand-store-access.mjs` 那条 allowlist 上写明）。
+
+顺带一提，那 10 处里真正该改的只有 3 处，而且改法不是加豁免：`previewInvite` 返回
+`boolean`、失败原因另放在 store 的 `previewReject` 字段里，于是三个调用点各自
+`getState().previewReject` 再抄一遍同样的三元链。**把结果并回返回值**（`Promise<"ok" | 判别码>`）
+一次消掉三处违规 + 三份重复 + 一个只写不读的 state 字段。**违规扎堆出现时先看它们像不像同一个
+设计问题的三个症状**，那比加三条豁免值钱。
+
 ## 跨三个 workspace 共享 TS 包：`packages/shared-view`
 
 三端共享的**纯视图逻辑**（设备显示投影 + 格式化）住在仓库根的 `packages/shared-view`。

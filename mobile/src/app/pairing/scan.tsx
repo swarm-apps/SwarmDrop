@@ -27,6 +27,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { HeaderBackButton } from "@/components/header-back-button";
 import { Text } from "@/components/ui/text";
 import { INVITE_IN_TEXT_PATTERN, INVITE_PATTERN } from "@/core/invite-link";
+import { PREVIEW_REJECT_MESSAGE } from "@/core/pairing-labels";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { cn } from "@/lib/utils";
 import { usePairingInviteStore } from "@/stores/pairing-invite-store";
@@ -76,8 +77,8 @@ export default function ScanInvite() {
       setError(null);
       // 原样交给 core。canonical 载体整串大小写不敏感（payload 是 base32），所以这里
       // 既不需要也不该做归一——统一由 core 那侧完成，前端多一步就多一处能漂移的地方。
-      const ok = await previewInvite(raw);
-      if (ok) {
+      const outcome = await previewInvite(raw);
+      if (outcome === "ok") {
         Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
         ).catch(() => {});
@@ -88,13 +89,13 @@ export default function ScanInvite() {
       setWorking(false);
       // 按判别码给话：「自己的邀请」「已过期」「链接坏了」是三回事，说成一样会让用户
       // 反复重新生成、重新扫，而问题可能只是他扫了自己那张码。
-      const reject = usePairingInviteStore.getState().previewReject;
+      //
+      // `invalid` 走调用点给的 hint：这屏的两个入口（相机 / 剪贴板）下一步动作不同，
+      // 另外两类则与载体无关，共用 `PREVIEW_REJECT_MESSAGE`。
       setError(
-        reject === "self"
-          ? t`这是你自己的邀请`
-          : reject === "expired"
-            ? t`邀请已过期，请让对方重新生成`
-            : invalidHint,
+        outcome === "invalid"
+          ? invalidHint
+          : t(PREVIEW_REJECT_MESSAGE[outcome]),
       );
       // 去抖 1.5s 再解锁，避免坏码高频重触发。
       setTimeout(() => {

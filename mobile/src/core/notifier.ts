@@ -160,9 +160,9 @@ export function fireNotifyTransferOffer(
   deviceName: string,
   fileCount: number,
 ): void {
-  notifyTransferOffer(sessionId, deviceName, fileCount).catch((err) => {
-    console.warn("[notifier] notifyTransferOffer failed:", err);
-  });
+  fire("notifyTransferOffer", () =>
+    notifyTransferOffer(sessionId, deviceName, fileCount),
+  );
 }
 
 export function fireNotifyPairingRequest(
@@ -170,9 +170,9 @@ export function fireNotifyPairingRequest(
   pendingId: bigint,
   code: string | undefined,
 ): void {
-  notifyPairingRequest(peerId, pendingId, code).catch((err) => {
-    console.warn("[notifier] notifyPairingRequest failed:", err);
-  });
+  fire("notifyPairingRequest", () =>
+    notifyPairingRequest(peerId, pendingId, code),
+  );
 }
 
 /** 更新就绪通知的固定 id —— 同一条覆盖更新,离开 ready 时按它撤销。 */
@@ -205,14 +205,12 @@ async function notifyUpdateReady(version: string): Promise<void> {
 }
 
 export function fireNotifyUpdateReady(version: string): void {
-  notifyUpdateReady(version).catch((err) => {
-    console.warn("[notifier] notifyUpdateReady failed:", err);
-  });
+  fire("notifyUpdateReady", () => notifyUpdateReady(version));
 }
 
 /** 撤销更新就绪通知(装上了 / 产物失效 / 用户改主意)。 */
 export function fireCancelUpdateReady(): void {
-  notifee.cancelNotification(UPDATE_READY_NOTIFICATION_ID).catch((err) => {
-    console.warn("[notifier] cancelUpdateReady failed:", err);
-  });
+  fire("cancelUpdateReady", () =>
+    notifee.cancelNotification(UPDATE_READY_NOTIFICATION_ID),
+  );
 }

@@ -1,11 +1,11 @@
 import { Trans, useLingui } from "@lingui/react/macro";
+import { lanHelperAddresses } from "@swarmdrop/shared-view";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { Copy, RadioTower } from "lucide-react-native";
 import { Pressable, View } from "react-native";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { lanHelperAddresses } from "@swarmdrop/shared-view";
 import { toast } from "@/lib/toast";
 
 export function LanHelperAddresses({

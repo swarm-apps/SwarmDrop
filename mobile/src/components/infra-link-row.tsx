@@ -1,5 +1,6 @@
 import { useLingui } from "@lingui/react/macro";
 import type { InfraLinkPresentation } from "@swarmdrop/shared-view";
+import { truncateAddr as sharedTruncateAddr } from "@swarmdrop/shared-view";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { Copy } from "lucide-react-native";
@@ -18,7 +19,6 @@ import type { InfraLinkRow } from "@/hooks/use-node-health";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
-import { truncateAddr as sharedTruncateAddr } from "@swarmdrop/shared-view";
 
 /**
  * 地址太长时中间省略，但复制拿到的始终是完整串。

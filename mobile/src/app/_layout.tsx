@@ -23,6 +23,7 @@ import { UpdateProvider } from "@/components/update-provider";
 import { initMobileCore } from "@/core/mobile-core";
 import { initNotifications } from "@/core/notifications";
 import { useIsOnboardingComplete } from "@/core/onboarding-flow";
+import { PREVIEW_REJECT_MESSAGE } from "@/core/pairing-labels";
 import {
   subscribePendingInvite,
   takePendingInvite,
@@ -298,19 +299,12 @@ function DeepLinkInviteHandler() {
         return;
       }
       // 原样交给 core：canonical 载体整串大小写不敏感，归一统一在那侧做。
-      const ok = await previewInvite(invite);
-      if (ok) {
+      const outcome = await previewInvite(invite);
+      if (outcome === "ok") {
         router.push({ pathname: "/pairing/found-device" });
         return;
       }
-      const reject = usePairingInviteStore.getState().previewReject;
-      toast.error(
-        reject === "self"
-          ? t`这是你自己的邀请`
-          : reject === "expired"
-            ? t`邀请已过期，请让对方重新生成`
-            : t`邀请无效或已被使用`,
-      );
+      toast.error(t(PREVIEW_REJECT_MESSAGE[outcome]));
     };
 
     const unsubscribe = subscribePendingInvite(() => {
