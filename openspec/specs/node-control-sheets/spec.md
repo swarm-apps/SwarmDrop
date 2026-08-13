@@ -65,17 +65,78 @@ TBD - created by archiving change mobile-home-pages. Update Purpose after archiv
 - **THEN** 计算 `Date.now() - startedAt`，格式化为"X 小时 Y 分钟"（不足 1 小时显示"Y 分钟"，不足 1 分钟显示"刚刚启动"）
 
 ### Requirement: Responsive node control dialog entry points
-节点控制弹窗 SHALL 可从多个入口触发打开。
 
-#### Scenario: Open from mobile status bar stop button
-- **WHEN** 用户点击移动端网络状态条上的"停止"按钮
-- **THEN** 打开停止节点确认弹窗
+节点状态面 SHALL 可从常驻状态位打开，且该入口 SHALL 在每一条路由上都在场。
 
-#### Scenario: Open from mobile empty state start button
-- **WHEN** 用户点击移动端离线空状态中的"启动节点"按钮
-- **THEN** 打开启动节点确认弹窗
+各端载体（分叉是有意的，三端导航形态不同）：
 
-#### Scenario: Open from sidebar network status (desktop)
-- **WHEN** 用户在桌面端点击侧边栏底部的网络状态区域
-- **THEN** 打开节点控制 Dialog（根据当前节点状态显示启动或停止内容）
+- **桌面**：`AppTopBar` 的状态 pill。桌面端**没有侧边栏**——全局导航是顶栏 + 面包屑，这是既定的刻意简化。
+- **移动**：主屏 AppHeader 的状态 pill。
+- **Web**：常驻侧栏底部（宽屏）与顶栏右侧（窄屏）的状态 pill。
+
+状态 pill SHALL 具备可访问名，说明它可点开查看详情，SHALL NOT 只暴露状态词。
+
+#### Scenario: 桌面任意路由可达
+
+- **WHEN** 用户在桌面端处于任意一条应用路由
+- **THEN** 顶栏状态 pill 在场且可点开节点状态面
+
+#### Scenario: 状态入口有可访问名
+
+- **WHEN** 读屏用户聚焦到状态 pill
+- **THEN** 可访问名同时说明当前状态与「点开查看详情」
+
+### Requirement: 节点状态面是单一面，动作随状态切换
+
+节点状态面 SHALL 是**一个组件**，其动作区按当前生命周期状态在「启动节点」与「停止节点」之间切换。
+
+SHALL NOT 拆成两个各自独立的组件——拆开后停机态那一屏无法读取真实状态，只能摆硬编码占位值（当前桌面 `StartNodeSheet` 的节点状态、监听地址与两格计数全部是写死的）。
+
+节点状态面 SHALL NOT 以破坏性动作作为其主要目的：它的主要目的是回答「我现在的网络状况如何」，启停只是其中一个动作。
+
+#### Scenario: 停机态也展示真实状态
+
+- **WHEN** 节点未运行时打开节点状态面
+- **THEN** 展示的节点状态、地址与计数来自真实数据源，而非硬编码占位值
+
+#### Scenario: 动作随状态切换
+
+- **WHEN** 节点处于 `running`
+- **THEN** 动作区提供「停止节点」；否则提供「启动节点」
+
+### Requirement: 信息位不得因视口尺寸被丢弃
+
+节点状态面 SHALL NOT 使用视口尺寸作为信息披露的开关。空间不足时 SHALL 折叠或内滚。
+
+当前桌面实现以 `window.innerHeight >= 700` 门控七个信息块（两格统计、中继、引导节点、局域网协助、候选来源、公网地址、监听地址），矮窗口下这些信息静默消失且无任何入口找回。
+
+#### Scenario: 矮窗口信息可达
+
+- **WHEN** 桌面窗口高度小于 700px 时打开节点状态面
+- **THEN** 全部信息位仍可经折叠或滚动到达
+
+### Requirement: 地址与标识符要么可复制要么不像可点
+
+节点状态面中展示的节点 ID、可达地址、监听地址、失败原因 SHALL 可复制。截断显示时，复制内容与悬停提示 SHALL 是完整值。
+
+#### Scenario: 节点 ID 可复制
+
+- **WHEN** 用户点击节点状态面中截断显示的节点 ID
+- **THEN** 完整值被复制到剪贴板并给出反馈
+
+#### Scenario: 失败原因可复制
+
+- **WHEN** 某条基础设施链路展示失败原因
+- **THEN** 该字符串可整段复制
+
+### Requirement: 停止节点前检查在途传输
+
+停止或重启节点前，系统 SHALL 检查是否存在在途传输，并在存在时明确告知用户该操作会中断它们。
+
+当前实现直接调用停止流程且无任何检查，确认文案也只说「断开所有连接、其他设备将无法发现你」，不提正在传输的文件会中断。本变更增加了新的重启触发点，因此该防护 SHALL 先于那些触发点落地。
+
+#### Scenario: 有在途传输时告知后果
+
+- **WHEN** 存在活跃传输会话且用户触发停止或重启节点
+- **THEN** 确认界面明确说明这些传输会被中断，并给出会话数量
 
