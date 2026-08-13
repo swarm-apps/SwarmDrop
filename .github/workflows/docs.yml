@@ -54,6 +54,19 @@ jobs:
 
       - uses: jetli/wasm-pack-action@v0.4.0
 
+      # wasm-pack 在 release 构建里会跑 wasm-opt，而它找 wasm-opt 的顺序是
+      # **先 `which`、找不到才去 GitHub release 下载 binaryen tarball**。那次下载没有
+      # 重试也没有缓存，2026-08-12 就这么挂过一次（v0.21.0 的文档站部署，报
+      # `failed to download binaryen-version_117`）—— 编译已经跑完 1m37s 才在最后一步
+      # 因为一个与本仓无关的下载失败整条红掉，而线上 Web 端因此停在了上一个 wire 版本。
+      #
+      # 从 apt 装进 PATH 之后 wasm-pack 直接命中第一条分支，那条网络依赖整个消失。
+      - name: Install binaryen (provides wasm-opt)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binaryen
+          wasm-opt --version
+
       - name: Build WebAssembly
         run: pnpm build:wasm
 
