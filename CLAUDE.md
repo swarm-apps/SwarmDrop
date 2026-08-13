@@ -496,6 +496,11 @@ schema 变更**直接换，不写迁移 / 回填 / 双写**（Web 端还没有�
 
 wasm 是 CI 一等公民：`./scripts/check-wasm.sh` 在 PR 阶段拦截破坏浏览器 target 的改动。
 
+**wasm 产物入库，且线上吃的就是入库的那份**（`packages/swarmdrop-web/`）——文档站 CI
+**不重新生成**它（理由见下方 CI 表格与 toolchain.md）。所以改了 wasm 侧的 crate 就要
+`cd docs && pnpm build:wasm` 并把产物一起提交，否则线上 Web 端会静默停在旧代码上。
+`scripts/check-wasm-artifact.sh` 在 rust.yml 里拦这件事。
+
 **前端形态（#90 起）：持久侧边栏 + 五条路由**，分区对齐桌面端但导航形态有意分叉：
 
 | 路由 | 常驻导航 | 内容 |
@@ -572,7 +577,7 @@ token 经 `@theme inline` 映射层从 fumadocs 的 `--color-fd-*` 接过来；*
 | `e2e/` | 桌面 e2e（WebdriverIO + tauri-plugin-wdio）与演示录制脚本 |
 | `openspec/` | 变更提案（`changes/`）与规格（`specs/`）——需求与设计的落点 |
 | `video/` | Remotion 后期工程（Demo / Hero 素材） |
-| `scripts/` | `check-wasm.sh`、`check-zustand-store-access.mjs`、`web-bench` |
+| `scripts/` | `check-wasm.sh`、`check-wasm-artifact.sh`（入库产物新鲜度）、`check-zustand-store-access.mjs`、`web-bench` |
 | `dev-notes/` | 知识库、博客、调研、归档；`archive/` 存重构前设计与已完成 roadmap |
 | `dev-notes/prompts/` | **给新会话的启动提示词**（跨会话交接用）。与 `research/` 的区别：那边记「为什么这么决策」，这边记「接下来怎么开工」——含前置阅读、硬约束、已知坑、验收标准 |
 | `dev-notes/research/` | **未落地方案**的调研与 spike 结论，每篇带决策状态。与 `knowledge/` 分开是刻意的——后者被 `/dev-workflow` 当「现行架构的事实」加载，混入调研会让人把「评估中的方案」读成「已有的能力」 |
@@ -597,7 +602,7 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | `release.yml` | `v*` tag 触发。generate-changelog → build-tauri（四目标 + 上传 SwarmHive draft）→ finalize-swarmhive → update-latest-json（仅手动 dispatch）→ publish-release |
 | `mobile-release.yml` | `mobile-v*` tag，仅 Android |
 | `mobile-checks.yml` | `mobile/**` 的 push / PR。typecheck + biome + zustand + expo-patches 四条，**全部硬失败**（前三条 2026-08-13 才接进来，此前零覆盖且三条同时红着） |
-| `mobile-build-android.yml` / `bootstrap-release.yml` / `docs.yml` | 移动构建 / 引导节点发布 / 文档站（含 develop → GitHub Pages）。docs 那条会**在当前提交重新生成 wasm**，并从 apt 装 binaryen —— 否则 wasm-pack 每次都去 GitHub 裸下 tarball，无重试无缓存，2026-08-12 就这么挂过一次 |
+| `mobile-build-android.yml` / `bootstrap-release.yml` / `docs.yml` | 移动构建 / 引导节点发布 / 文档站（含 develop → GitHub Pages）。⚠️ docs 那条**不再重新生成 wasm**，吃的是入库的 `packages/swarmdrop-web/`（2026-08-13 起）—— 此前两版分别栽在「wasm-pack 裸下 binaryen 无重试」与「apt 的 binaryen 停在 108，产出的 `__wbindgen_externrefs` 指向不可 grow 的 funcref 表，线上一加载就 `RangeError`」。产物新鲜度改由 rust.yml 的 `check-wasm-artifact.sh` 拦，详见 toolchain.md |
 
 > Rust CI 目前**只跑 ubuntu**，Windows / macOS 的编译问题要到打 tag 才暴露。
 

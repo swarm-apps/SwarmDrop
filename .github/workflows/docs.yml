@@ -5,10 +5,10 @@ on:
     branches: [main, develop]
     paths:
       - "docs/**"
-      # try 页面依赖 crates/web 生成的 WASM；网络内核和依赖锁变更同样会改变产物。
-      - "crates/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
+      # Web 应用区吃的是**入库**的 wasm 产物（CI 不再重建，见下方 build 步骤的注释），
+      # 所以触发判据是产物本身变没变，不是 crates/ 源码变没变。
+      # 三个本地包 docs 都以 file:/link: 引着（file-browser / shared-view / swarmdrop-web）。
+      - "packages/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -47,29 +47,28 @@ jobs:
       - name: pnpm install
         run: pnpm install --frozen-lockfile
 
-      # Pages 必须在当前提交重新生成 WASM，不能复用仓库中可能已经过期的产物包。
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - uses: jetli/wasm-pack-action@v0.4.0
-
-      # wasm-pack 在 release 构建里会跑 wasm-opt，而它找 wasm-opt 的顺序是
-      # **先 `which`、找不到才去 GitHub release 下载 binaryen tarball**。那次下载没有
-      # 重试也没有缓存，2026-08-12 就这么挂过一次（v0.21.0 的文档站部署，报
-      # `failed to download binaryen-version_117`）—— 编译已经跑完 1m37s 才在最后一步
-      # 因为一个与本仓无关的下载失败整条红掉，而线上 Web 端因此停在了上一个 wire 版本。
+      # ⚠️ **这里刻意没有「重新生成 WASM」这一步。** 用的是仓库入库的
+      # `packages/swarmdrop-web/`（docs 以 `link:` 引着，pnpm install 后直接吃到）。
       #
-      # 从 apt 装进 PATH 之后 wasm-pack 直接命中第一条分支，那条网络依赖整个消失。
-      - name: Install binaryen (provides wasm-opt)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y binaryen
-          wasm-opt --version
-
-      - name: Build WebAssembly
-        run: pnpm build:wasm
-
+      # 2026-08-13 从「每次在 CI 重新生成」改成现在这样，起因是一条只在 Pages 上出现、
+      # 本地怎么都复现不了的故障：Web 端一加载就报
+      # `RangeError: WebAssembly.Table.grow(): failed to grow table by 4`，节点起不来。
+      #
+      # 根因是 wasm-opt 的版本。上一版为了摆脱 wasm-pack 裸下载 binaryen（无重试无缓存，
+      # 2026-08-12 就这么挂过一次：`failed to download binaryen-version_117`，编译跑完
+      # 1m37s 才在最后一步红掉）改成了 `apt install binaryen` —— 而 **Ubuntu noble 的
+      # binaryen 是 108-1**，2022 年的版本。它优化时重排了 table 却没重映射导出索引，
+      # 产出的 `__wbindgen_externrefs` 指向 **funcref 表**（`min == max == 3612`，
+      # 物理上不可 grow），而不是本该指向的 externref 表（无 `max`）。于是 JS glue 里
+      # 那句 `table.grow(4)` 必然抛 RangeError。本地 wasm-pack 自己拉的是新版 binaryen，
+      # 产物一直是对的 —— 这就是本地复现不了的原因。
+      #
+      # 改用入库产物后，binaryen 的**版本**与**下载稳定性**两条依赖一起消失，顺带省掉
+      # 几分钟 wasm 编译。代价是产物可能过期，由 `scripts/check-wasm-artifact.sh`
+      # 在 PR 阶段兜底（rust.yml 的 wasm job）。
+      #
+      # 改了 wasm 侧的 crate 就要本地跑 `pnpm build:wasm`（在 docs/ 下）并提交产物 ——
+      # 就是历史上那些 `chore(web): 重建 wasm 产物` 提交。
       - name: Build docs (static export)
         env:
           # 自定义域名部署在域名根，**没有 basePath**。这里只注入 origin，

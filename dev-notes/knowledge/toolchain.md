@@ -1283,6 +1283,55 @@ CI 里红。护栏脚本本身也要留下这条线索（本仓已在
 一次消掉三处违规 + 三份重复 + 一个只写不读的 state 字段。**违规扎堆出现时先看它们像不像同一个
 设计问题的三个症状**，那比加三条豁免值钱。
 
+### apt 的 binaryen 会把 wasm 产物**编坏**——Web 端一加载就 `Table.grow` 失败（2026-08-13 实证）
+
+线上 Web 端一进页面就报，节点起不来：
+
+```
+RangeError: WebAssembly.Table.grow(): failed to grow table by 4
+    at __wbindgen_init_externref_table
+```
+
+**本地怎么试都复现不了**，因为坏的产物只在 CI 里生成。
+
+**根因是 wasm-opt 的版本。** `docs.yml` 此前为了摆脱「wasm-pack 裸下载 binaryen」那条不稳定的
+网络依赖（无重试无缓存，2026-08-12 报 `failed to download binaryen-version_117` 挂过一次），
+改成了 `apt-get install binaryen`——而 **Ubuntu noble 的 binaryen 停在 `108-1`**（2022 年）。
+那个版本优化时重排了 table，却**没有重映射导出索引**：
+
+| | `__wbindgen_externrefs` 指向 | 结果 |
+|---|---|---|
+| 本地（wasm-pack 自己拉的新版） | table#1 · externref · `max` 为空 | `grow(4)` 正常 |
+| CI（apt binaryen 108） | table#**0** · **funcref** · `min == max == 3598` | `grow(4)` 必抛 |
+
+JS glue 里那句 `wasm.__wbindgen_externrefs.grow(4)` 拿到的是一张**满的 funcref 表**，
+物理上不可能增长。错误信息只说「grow 失败」，完全指不到「导出索引错了」。
+
+**判据（不用装任何工具，解析 wasm 二进制即可）**：读 table section（id=4）与 export
+section（id=7），确认 `__wbindgen_externrefs` 指向的那张表是 `externref` 且**没有 `max`**。
+funcref 表恒为 `min == max`，一眼可辨。
+
+**现在的做法**：`docs.yml` **不再在 CI 里重新生成 wasm**，改吃入库的
+`packages/swarmdrop-web/`（docs 以 `link:` 引着）。binaryen 的**版本**与**下载稳定性**
+两条依赖一起消失，顺带省掉几分钟 wasm 编译。
+
+**不要做**：
+- 别再往 CI 里加 `apt-get install binaryen`。发行版的 binaryen 落后 wasm-bindgen 太多，
+  失败形态是**产物看起来正常、运行时才炸**，比编译失败难查一个量级。
+- 若将来要恢复 CI 重建，binaryen 必须**锁定一个新版本号**从 GitHub release 取（带
+  `curl --retry`），不能用发行版包，也不能让 wasm-pack 裸下载。
+
+**代价与兜底**：入库产物可能过期（改了 wire 却忘了重建 → 线上 Web 端静默停在旧协议）。
+`scripts/check-wasm-artifact.sh` 在 rust.yml 的 wasm job 里拦这件事，输入面与
+`check-wasm.sh` 的 `CRATES` 对齐（另加 `crates/entity` 与 `Cargo.lock`）。源码动了但产物
+字节确实不变时，用 commit message 里的 `[wasm-artifact-unchanged]` 放行——刻意要求留痕。
+
+**改了 wasm 侧 crate 的工作流**：`cd docs && pnpm build:wasm`，把产物一起提交
+（历史上那些 `chore(web): 重建 wasm 产物` 就是它）。
+
+**相关文件**：`.github/workflows/docs.yml`、`.github/workflows/rust.yml`、
+`scripts/check-wasm-artifact.sh`、`packages/swarmdrop-web/`
+
 ## 跨三个 workspace 共享 TS 包：`packages/shared-view`
 
 三端共享的**纯视图逻辑**（设备显示投影 + 格式化）住在仓库根的 `packages/shared-view`。
