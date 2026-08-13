@@ -55,8 +55,10 @@ fi
 
 changed="$(git diff --name-only "$BASE...HEAD")"
 
-touched_sources="$(printf '%s\n' "$changed" \
-  | grep -E "^($(IFS='|'; echo "${WASM_SOURCES[*]}"))(/|$)" || true)"
+# 这些条目会拼成正则，所以 `.` 要转义 —— 否则 `Cargo.lock` 里的点是通配符。
+pattern="$(IFS='|'; printf '%s' "${WASM_SOURCES[*]}" | sed 's/\./\\./g')"
+
+touched_sources="$(printf '%s\n' "$changed" | grep -E "^(${pattern})(/|$)" || true)"
 
 if [ -z "$touched_sources" ]; then
   echo "✅ 本次改动不涉及 wasm 侧源码，无需重建产物。"
