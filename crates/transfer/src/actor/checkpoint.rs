@@ -320,7 +320,7 @@ mod tests {
         bitmaps.insert(file.file_id, vec![0u8; 1]);
 
         assert!(
-            ensure_files_complete(&[file.clone()], &bitmaps).is_ok(),
+            ensure_files_complete(std::slice::from_ref(&file), &bitmaps).is_ok(),
             "按字节看：空文件没有缺失的段"
         );
         assert!(

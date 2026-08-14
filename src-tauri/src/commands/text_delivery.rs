@@ -1,7 +1,6 @@
 //! 文本投递 IPC 薄壳。
 
-use swarmdrop_core::transfer::text_delivery::TextDeliveryRecord;
-use swarmdrop_core::transfer::text_service::PendingTextDeliverySummary;
+use swarmdrop_core::transfer::text_delivery::{PendingTextDeliverySummary, TextDeliveryRecord};
 use tauri::State;
 use uuid::Uuid;
 
@@ -55,7 +54,7 @@ pub async fn pending_text_deliveries(
     net: State<'_, NetManagerState>,
 ) -> crate::AppResult<Vec<PendingTextDeliverySummary>> {
     let transfer = super::transfer::get_transfer(&net).await?;
-    Ok(transfer.text_delivery_service()?.pending().await)
+    Ok(transfer.text_delivery_service()?.pending().await?)
 }
 
 #[tauri::command]

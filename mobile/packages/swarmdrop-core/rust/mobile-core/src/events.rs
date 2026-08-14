@@ -144,10 +144,23 @@ pub struct MobilePairedDevice {
     pub device_name: String,
 }
 
+/// 文本到达的最小注意力载荷；正文不跨事件边界，避免通知与日志泄露。
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MobileTextDeliveryAttention {
+    pub delivery_id: String,
+    pub peer_id: String,
+    pub peer_name: String,
+    pub kind: String,
+    pub created_at: i64,
+}
+
 // ─────────────── MobileCoreEvent ───────────────
 
 #[derive(Debug, Clone, uniffi::Enum)]
 pub enum MobileCoreEvent {
+    TextDeliveryAttention {
+        attention: MobileTextDeliveryAttention,
+    },
     NetworkStatusChanged {
         status: MobileNetworkStatus,
     },
@@ -251,6 +264,19 @@ impl EventBus for MobileEventBusAdapter {
 
 fn map_event(event: CoreEvent) -> Option<MobileCoreEvent> {
     let mapped = match event {
+        CoreEvent::TextDeliveryAttention { attention } => MobileCoreEvent::TextDeliveryAttention {
+            attention: MobileTextDeliveryAttention {
+                delivery_id: attention.delivery_id.to_string(),
+                peer_id: attention.peer_id,
+                peer_name: attention.peer_name,
+                kind: match attention.kind {
+                    swarmdrop_core::transfer::text_delivery::TextDeliveryAttentionKind::ConfirmationRequired => "confirmation_required",
+                    swarmdrop_core::transfer::text_delivery::TextDeliveryAttentionKind::Received => "received",
+                }
+                .to_string(),
+                created_at: attention.created_at,
+            },
+        },
         CoreEvent::NetworkStatusChanged { status } => MobileCoreEvent::NetworkStatusChanged {
             status: status.into(),
         },
@@ -416,6 +442,10 @@ mod tests {
 /// 装配（含 `router` 保活）委托 core 的
 /// [`spawn_event_loop`](swarmdrop_core::network::event_loop::spawn_event_loop)；本壳只做
 /// [`MobileEventBusAdapter`] → `dyn EventBus` 的类型擦除。
+#[allow(
+    clippy::items_after_test_module,
+    reason = "事件映射测试紧邻映射函数，事件循环装配随后保留以便阅读运行时入口"
+)]
 pub(crate) fn spawn_event_loop(
     events: Events,
     shared: SharedNetRefs<TransferManager>,

@@ -54,40 +54,6 @@ pub const TRANSFER_DATA_PROTOCOL: ProtocolId =
 /// 传输控制面 typed RPC：`TransferRequest → TransferResponse`。
 pub const TRANSFER_CTRL: Rpc<TransferRequest, TransferResponse> = Rpc::new(TRANSFER_CTRL_PROTOCOL);
 
-/// 纯文本投递协议。它与文件控制/数据面分开，避免正文被错误带入分块、路径或会话恢复语义。
-pub const TEXT_DELIVERY_PROTOCOL: ProtocolId =
-    ProtocolId::from_static("/swarmdrop/text-delivery/1");
-
-pub const TEXT_DELIVERY: Rpc<TextDeliveryRequest, TextDeliveryResponse> =
-    Rpc::new(TEXT_DELIVERY_PROTOCOL);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "kind")]
-pub enum TextDeliveryRequest {
-    Deliver { delivery_id: Uuid, body: Vec<u8> },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", tag = "kind")]
-pub enum TextDeliveryResponse {
-    Delivered { inbox_item_id: Uuid },
-    Rejected { reason: TextDeliveryRejectReason },
-    Expired,
-}
-
-/// 只含发送方可安全理解的拒绝类别；不泄露接收端具体策略。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TextDeliveryRejectReason {
-    NotPaired,
-    ReceivingPaused,
-    PolicyRejected,
-    InvalidPayload,
-    QueueFull,
-    ProtocolConflict,
-    StorageUnavailable,
-}
-
 /// 传输文件元信息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

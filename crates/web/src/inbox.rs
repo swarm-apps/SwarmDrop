@@ -9,8 +9,8 @@
 //! [`WebInboxTable`] 是**自包含**的：自己的内存 map、自己的 IndexedDB 读写，不认识会话表。
 //! 唯一需要跨界的是 [`WebInboxTable::ensure_from_session`]——它要读会话行与文件行，
 //! 于是那两样**作为参数传进来**，依赖方向单向（会话表 → 收件箱表，反向没有边）。
-//! 同理，`InboxItemDetail.transfer` 这一格由 `WebTransferStore` 在委托返回后补，
-//! 本模块一律留 `None`。
+//! 同理，文件条目的 `InboxItemContent::Files.transfer` 由 `WebTransferStore` 在委托返回后补，
+//! 本模块一律留 `None`；文本条目没有会话投影。
 //!
 //! 条目的标题 / 内容指纹 / 聚合文本 / 来源分类 / 命中判据 / 片段全部调
 //! [`swarmdrop_transfer::inbox`] 的共享规则，**Web 侧一行都不重写**——分叉了同一批文件
@@ -618,7 +618,7 @@ fn detail_of(stored: &StoredInboxItem) -> InboxItemDetail {
                         missing: file.missing,
                     })
                     .collect(),
-                transfer: None,
+                transfer: Box::new(None),
             },
         },
     }
@@ -810,6 +810,13 @@ mod tests {
         items.iter().map(|detail| detail.item.id).collect()
     }
 
+    fn file_entries(detail: &InboxItemDetail) -> &[InboxItemFileEntry] {
+        match &detail.content {
+            InboxItemContent::Files { entries, .. } => entries,
+            InboxItemContent::Text { .. } => panic!("文件收件箱条目不应变成文本条目"),
+        }
+    }
+
     fn hit_ids(hits: &[InboxSearchHit]) -> Vec<Uuid> {
         hits.iter().map(|hit| hit.id).collect()
     }
@@ -899,12 +906,15 @@ mod tests {
         assert_eq!(table.list(true).len(), 1, "表里只应有一条条目");
         assert_eq!(first.item.transfer_session_id, Some(session_id));
         assert_eq!(first.item.item_count, 2);
-        assert_eq!(first.files.len(), 2);
+        assert_eq!(file_entries(&first).len(), 2);
         assert_eq!(first.item.received_at, 1_000, "received_at 取会话完成时刻");
         assert_eq!(first.item.root_path.as_deref(), Some(SAVE_ROOT));
-        assert!(first.files.iter().all(|file| !file.missing));
+        assert!(file_entries(&first).iter().all(|file| !file.missing));
         assert!(
-            first.transfer.is_none(),
+            matches!(
+                &first.content,
+                InboxItemContent::Files { transfer, .. } if transfer.is_none()
+            ),
             "收件箱表看不见会话表，投影这一格必须留给 WebTransferStore 补"
         );
     }
@@ -1044,10 +1054,10 @@ mod tests {
         // 上面的等值断言只保证「往返没变」，这几条保证往返的**内容**本身不是空壳。
         assert!(after.item.last_opened_at.is_some());
         assert!(after.item.archived_at.is_some());
-        assert_eq!(after.files.len(), 2);
-        assert!(after.files[1].missing);
+        assert_eq!(file_entries(&after).len(), 2);
+        assert!(file_entries(&after)[1].missing);
         assert_eq!(
-            after.files[1].local_path,
+            file_entries(&after)[1].local_path,
             "/inbox-table-test/docs/readme.md"
         );
 
@@ -1210,10 +1220,7 @@ mod tests {
             "不属于该条目的 file_id 必须报错，不能改到别人的文件上"
         );
         assert!(
-            table
-                .detail(other)
-                .expect("另一条条目还在")
-                .files
+            file_entries(&table.detail(other).expect("另一条条目还在"))
                 .iter()
                 .all(|file| !file.missing),
             "另一条条目的文件不该被牵连"
@@ -1231,7 +1238,7 @@ mod tests {
             .await
             .expect("自己的文件应可标记");
         let detail = table.detail(single).expect("条目");
-        assert!(detail.files[0].missing);
+        assert!(file_entries(&detail)[0].missing);
         assert!(detail.item.missing, "条目级 missing 由文件行聚合");
     }
 

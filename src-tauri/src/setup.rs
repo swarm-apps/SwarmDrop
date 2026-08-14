@@ -128,6 +128,7 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             events::PairedDeviceAdded,
             events::PairedDeviceRemoved,
             events::DeviceRenamed,
+            events::TextDeliveryAttentionReceived,
             events::TransferOffer,
             events::TransferProgress,
             events::PrepareProgress,

@@ -450,7 +450,7 @@ impl MobileFileAccessAdapter {
         let (slot, label) = route.log_slot();
         // Relaxed 足够：这些计数只用来抽样，谁先谁后不影响任何判断。
         let count = self.dispatch_counts[slot].fetch_add(1, Ordering::Relaxed) + 1;
-        if count != 1 && count % DISPATCH_LOG_EVERY != 0 {
+        if count != 1 && !count.is_multiple_of(DISPATCH_LOG_EVERY) {
             return;
         }
         debug!(

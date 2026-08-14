@@ -9,8 +9,8 @@ import {
   RefreshCw,
   Search,
 } from "lucide-react-native";
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, FlatList, Pressable, View } from "react-native";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { ActivityIndicator, FlatList, Pressable, View } from "react-native";
 import { useShallow } from "zustand/react/shallow";
 import {
   FilterRail,
@@ -31,7 +31,6 @@ import { formatBytes, formatRelativeTime } from "@/components/transfer/shared";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { getMobileCore } from "@/core/mobile-core";
 import { toast } from "@/lib/toast";
 import { type InboxPreviewItem, useInboxStore } from "@/stores/inbox-store";
 
@@ -39,7 +38,6 @@ export default function InboxScreen() {
   const { t } = useLingui();
   const router = useRouter();
   const [filter, setFilter] = useState<InboxFilter>("all");
-  const pendingTextDialogOpen = useRef(false);
   const { loading, items, action, lastError, refresh, repairMissingItems } =
     useInboxStore(
       useShallow((s) => ({
@@ -55,58 +53,9 @@ export default function InboxScreen() {
   useFocusEffect(
     useCallback(() => {
       void refresh();
-      let cancelled = false;
-      const presentNextPending = async () => {
-        if (cancelled || pendingTextDialogOpen.current) return;
-        try {
-          const [pending] = await getMobileCore().pendingTextDeliveries();
-          if (!pending || cancelled) return;
-          pendingTextDialogOpen.current = true;
-          Alert.alert(
-            t`接收文本`,
-            `${pending.peerName}\n\n${pending.body}`,
-            [
-              {
-                text: t`拒绝`,
-                style: "destructive",
-                onPress: () => void (async () => {
-                  try {
-                    await getMobileCore().confirmTextDelivery(pending.deliveryId, false);
-                  } catch (error) {
-                    toast.error(t`拒绝文本失败`, error);
-                  } finally {
-                    pendingTextDialogOpen.current = false;
-                    void presentNextPending();
-                  }
-                })(),
-              },
-              {
-                text: t`接收`,
-                onPress: () => void (async () => {
-                  try {
-                    await getMobileCore().confirmTextDelivery(pending.deliveryId, true);
-                    await refresh();
-                  } catch (error) {
-                    toast.error(t`接收文本失败`, error);
-                  } finally {
-                    pendingTextDialogOpen.current = false;
-                    void presentNextPending();
-                  }
-                })(),
-              },
-            ],
-          );
-        } catch (error) {
-          if (!cancelled) toast.error(t`读取待确认文本失败`, error);
-        }
-      };
-      void presentNextPending();
-      const timer = setInterval(() => void presentNextPending(), 3_000);
-      return () => {
-        cancelled = true;
-        clearInterval(timer);
-      };
-    }, [refresh, t]),
+      // 文本确认由根级 TextDeliveryAttentionHost 统一承载；收件箱只负责结果浏览。
+      return undefined;
+    }, [refresh]),
   );
 
   const openDetail = useCallback(

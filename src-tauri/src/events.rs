@@ -14,6 +14,7 @@ use swarmdrop_core::transfer::progress::{
     TransferRejectedEvent, TransferResumedEvent,
 };
 use swarmdrop_core::transfer::store::TransferProjection;
+use swarmdrop_core::transfer::text_delivery::TextDeliveryAttention;
 
 // === 网络状态 ===
 
@@ -69,6 +70,11 @@ pub struct PairedDeviceAdded(pub PairedDeviceInfo);
 pub struct PairedDeviceRemoved(pub String);
 
 // === 传输 ===
+
+/// 文本到达注意力事件；正文不在事件中，前端按 deliveryId 再走本地读取/确认路径。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct TextDeliveryAttentionReceived(pub TextDeliveryAttention);
 
 #[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
 #[serde(transparent)]

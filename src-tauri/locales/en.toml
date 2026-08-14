@@ -22,3 +22,7 @@ body = "%{hostname} wants to pair with you"
 [notif.incoming_transfer]
 title = "Incoming file transfer"
 body = "%{name} wants to send you files"
+
+[notif.incoming_text]
+title = "New text received"
+body = "You received a text from %{name}"

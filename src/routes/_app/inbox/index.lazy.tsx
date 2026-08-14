@@ -41,7 +41,6 @@ import {
   type InboxItemDetail,
   type InboxItemSummary,
   type InboxSearchHit,
-  type PendingTextDeliverySummary,
 } from "@/lib/bindings";
 import { useInboxStore } from "@/stores/inbox-store";
 import { useTransferStore } from "@/stores/transfer-store";
@@ -130,16 +129,6 @@ function InboxPage() {
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteLocalFiles, setDeleteLocalFiles] = useState(false);
-  const [pendingTexts, setPendingTexts] = useState<PendingTextDeliverySummary[]>([]);
-
-  const refreshPendingTexts = useCallback(async () => {
-    try {
-      setPendingTexts(await commands.pendingTextDeliveries());
-    } catch (error) {
-      // 待确认请求不是收件箱主列表的前置条件；轮询失败时保留上一次可用结果，避免闪空。
-      console.error("[inbox] pending text deliveries refresh failed", error);
-    }
-  }, []);
 
   const navigate = useNavigate();
   const isSearching = query.trim() !== "";
@@ -238,12 +227,6 @@ function InboxPage() {
   useEffect(() => {
     void loadItems(showArchived);
   }, [loadItems, showArchived]);
-
-  useEffect(() => {
-    void refreshPendingTexts();
-    const timer = window.setInterval(() => void refreshPendingTexts(), 3_000);
-    return () => window.clearInterval(timer);
-  }, [refreshPendingTexts]);
 
   // 选中项变化时加载详情
   useEffect(() => {
@@ -353,26 +336,6 @@ function InboxPage() {
 
   return (
     <>
-      {pendingTexts.length > 0 ? (
-        <div className="mx-auto mb-3 w-full max-w-5xl space-y-2 px-4">
-          {pendingTexts.map((pending) => (
-            <DesktopPendingTextConfirmation
-              key={pending.deliveryId}
-              pending={pending}
-              onRespond={async (accepted) => {
-                try {
-                  await commands.confirmTextDelivery(pending.deliveryId, accepted);
-                  setPendingTexts((items) => items.filter((item) => item.deliveryId !== pending.deliveryId));
-                  if (accepted) await refreshCurrentView();
-                  await refreshPendingTexts();
-                } catch (error) {
-                  toast.error(getErrorMessage(error));
-                }
-              }}
-            />
-          ))}
-        </div>
-      ) : null}
       <MasterDetailShell
         testId="inbox-page"
         drawerLabel={t`收件箱`}
@@ -1320,29 +1283,6 @@ function InboxEmptyState() {
 
 function Dot() {
   return <span className="mx-1.5 text-foreground/25">·</span>;
-}
-
-function DesktopPendingTextConfirmation({
-  pending,
-  onRespond,
-}: {
-  pending: PendingTextDeliverySummary;
-  onRespond: (accepted: boolean) => void;
-}) {
-  return (
-    <section className="rounded-2xl border border-warning/30 bg-warning/5 p-4 shadow-sm" aria-label="待确认文本">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground"><Trans>接收文本</Trans> · {pending.peerName}</p>
-          <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">{pending.body}</p>
-        </div>
-        <div className="flex shrink-0 gap-2">
-          <Button type="button" variant="outline" onClick={() => onRespond(false)}><Trans>拒绝</Trans></Button>
-          <Button type="button" onClick={() => onRespond(true)}><Trans>接收</Trans></Button>
-        </div>
-      </div>
-    </section>
-  );
 }
 
 function Pill({

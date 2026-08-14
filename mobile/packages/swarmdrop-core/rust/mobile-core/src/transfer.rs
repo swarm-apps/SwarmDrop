@@ -8,9 +8,7 @@
 //! 文件 I/O 通过 `ForeignFileAccess` callback 走 RN 的 expo-file-system。
 
 use swarmdrop_core::transfer::HostEnumeratedFile;
-use swarmdrop_core::transfer::incoming::{
-    IncomingTransferRuntime, TransferOfferEvent, TransferOfferFileEvent,
-};
+use swarmdrop_core::transfer::incoming::{TransferOfferEvent, TransferOfferFileEvent};
 use uuid::Uuid;
 
 use crate::app::MobileCore;

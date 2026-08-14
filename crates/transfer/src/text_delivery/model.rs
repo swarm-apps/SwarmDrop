@@ -11,6 +11,10 @@ use crate::{AppError, AppResult};
 /// UTF-8 正文的最大字节数。
 pub const MAX_TEXT_DELIVERY_BYTES: usize = 64 * 1024;
 
+/// 手动确认的有效期。接收端重启后也必须沿用这条界限，不能把已经超时的请求重新展示给用户。
+pub const TEXT_DELIVERY_CONFIRMATION_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(300);
+
 /// 文本列表摘要的最大 UTF-8 字节数。
 pub const TEXT_DELIVERY_PREVIEW_BYTES: usize = 160;
 
@@ -71,6 +75,15 @@ impl TextDeliveryRecord {
             )
     }
 
+    /// 判断接收方的手动确认窗口是否已经结束；时钟回拨时保守地保留请求，避免误过期。
+    pub fn confirmation_window_expired(&self, now_ms: i64) -> bool {
+        self.direction == TextDeliveryDirection::Receive
+            && self.status == TextDeliveryStatus::WaitingConfirmation
+            && now_ms.saturating_sub(self.created_at)
+                >= i64::try_from(TEXT_DELIVERY_CONFIRMATION_TIMEOUT.as_millis())
+                    .expect("确认超时时间必须可表示为毫秒")
+    }
+
     /// 进程重启不能重发敏感正文，只把在途状态恢复为用户可见的显式重试。
     pub fn recover_after_restart(&mut self, now_ms: i64) -> bool {
         if self.direction != TextDeliveryDirection::Send
@@ -129,8 +142,8 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        MAX_TEXT_DELIVERY_BYTES, TextDeliveryRecord, decode_text_body, text_preview,
-        validate_text_body,
+        MAX_TEXT_DELIVERY_BYTES, TEXT_DELIVERY_CONFIRMATION_TIMEOUT, TextDeliveryRecord,
+        decode_text_body, text_preview, validate_text_body,
     };
 
     #[test]
@@ -208,5 +221,36 @@ mod tests {
 
         record.body = "x".repeat(200);
         assert_eq!(record.preview(), format!("{}…", "x".repeat(160)));
+    }
+
+    #[test]
+    fn confirmation_expiry_keeps_its_exact_boundary_and_direction() {
+        let mut record = TextDeliveryRecord {
+            delivery_id: Uuid::new_v4(),
+            direction: TextDeliveryDirection::Receive,
+            peer_id: "peer".into(),
+            peer_name: "设备".into(),
+            body: "正文".into(),
+            status: TextDeliveryStatus::WaitingConfirmation,
+            failure: None,
+            attempt_count: 1,
+            created_at: 10,
+            updated_at: 10,
+        };
+        let timeout_ms = i64::try_from(TEXT_DELIVERY_CONFIRMATION_TIMEOUT.as_millis())
+            .expect("确认超时时间必须可表示为毫秒");
+
+        assert!(!record.confirmation_window_expired(10 + timeout_ms - 1));
+        assert!(record.confirmation_window_expired(10 + timeout_ms));
+        assert!(
+            !record.confirmation_window_expired(9),
+            "时钟回拨不能误判过期"
+        );
+
+        record.direction = TextDeliveryDirection::Send;
+        assert!(!record.confirmation_window_expired(10 + timeout_ms));
+        record.direction = TextDeliveryDirection::Receive;
+        record.status = TextDeliveryStatus::Delivered;
+        assert!(!record.confirmation_window_expired(10 + timeout_ms));
     }
 }

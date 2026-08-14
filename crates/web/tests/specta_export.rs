@@ -13,8 +13,8 @@ use std::borrow::Cow;
 use specta::datatype::{DataType, Primitive};
 use specta::{Format, FormatError, Type, Types};
 use specta_util::Remapper;
+use swarmdrop_transfer::text_delivery::PendingTextDeliverySummary;
 use swarmdrop_transfer::text_delivery::TextDeliveryRecord;
-use swarmdrop_transfer::text_service::PendingTextDeliverySummary;
 use swarmdrop_web::{
     ConnectionJson, Device, InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary,
     InboxSearchHit, InfraAddrError, InfraLink, InviteListItemJson, OfferJson,

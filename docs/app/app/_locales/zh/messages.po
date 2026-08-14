@@ -60,6 +60,11 @@ msgstr "{0} 台 · 在线 {onlineCount}"
 msgid "{0} 台设备"
 msgstr "{0} 台设备"
 
+#. placeholder {0}: pending.peerName
+#: app/app/_components/receive-panel.tsx
+msgid "{0} 想向你发送一段文本。"
+msgstr "{0} 想向你发送一段文本。"
+
 #. placeholder {0}: item.name
 #: ../packages/file-browser/src/file-row.tsx
 msgid "{0} 的进度"
@@ -228,6 +233,10 @@ msgstr "仅 DHT 种子"
 msgid "仅同一网络内可用"
 msgstr "仅同一网络内可用"
 
+#: app/app/_components/text-notification-panel.tsx
+msgid "仅在你允许后，浏览器在后台时才会显示文本提醒。"
+msgstr "仅在你允许后，浏览器在后台时才会显示文本提醒。"
+
 #: app/app/_components/connection-panel.tsx
 msgid "仅在需要接入私有或备用网络时添加。"
 msgstr "仅在需要接入私有或备用网络时添加。"
@@ -335,6 +344,10 @@ msgstr "停止节点"
 msgid "允许文件夹"
 msgstr "允许文件夹"
 
+#: app/app/_components/text-notification-panel.tsx
+msgid "允许通知"
+msgstr "允许通知"
+
 #: app/app/_components/device-grid.tsx
 #: app/app/_components/transfer-labels.ts
 msgid "全部"
@@ -377,6 +390,10 @@ msgstr "关闭后经中继来的传输一律要确认，即使开了自动接收
 msgid "其他网络的设备可以连到你"
 msgstr "其他网络的设备可以连到你"
 
+#: app/app/_components/send-panel.tsx
+msgid "最近发送"
+msgstr "最近发送"
+
 #: app/app/_components/inbox-views.tsx
 #~ msgid "准备中…"
 #~ msgstr "准备中…"
@@ -412,6 +429,7 @@ msgstr "删掉「{0}」？设备不受影响，只是不再归在这一组里。
 
 #: app/app/_components/group-manager-dialog.tsx
 #: app/app/_components/inbox-views.tsx
+#: app/app/_components/send-panel.tsx
 #: app/app/_components/transfer-detail.tsx
 msgid "删除"
 msgstr "删除"
@@ -464,6 +482,10 @@ msgstr "刷新页面后需要重新配对。"
 msgid "剪贴板"
 msgstr "剪贴板"
 
+#: app/app/_components/send-panel.tsx
+msgid "剪贴板中没有可用文本"
+msgstr "剪贴板中没有可用文本"
+
 #: app/app/_components/transfer-detail.tsx
 msgid "剩余"
 msgstr "剩余"
@@ -507,8 +529,16 @@ msgid "发送"
 msgstr "发送"
 
 #: app/app/_components/send-panel.tsx
+msgid "发送中"
+msgstr "发送中"
+
+#: app/app/_components/send-panel.tsx
 msgid "发送中…"
 msgstr "发送中…"
+
+#: app/app/_components/send-panel.tsx
+msgid "发送内容类型"
+msgstr "发送内容类型"
 
 #: app/app/_components/forward-to-device-dialog.tsx
 msgid "发送到 {name}"
@@ -602,6 +632,14 @@ msgstr "可达"
 msgid "可达地址"
 msgstr "可达地址"
 
+#: app/app/_components/send-panel.tsx
+msgid "可重试，送达状态未知"
+msgstr "可重试，送达状态未知"
+
+#: app/app/_components/text-notification-panel.tsx
+msgid "后台文本提醒"
+msgstr "后台文本提醒"
+
 #: app/app/_components/node-panel.tsx
 msgid "否"
 msgstr "否"
@@ -646,6 +684,7 @@ msgid "处理中"
 msgstr "处理中"
 
 #: app/app/_components/pairing-request-host.tsx
+#: app/app/_components/receive-panel.tsx
 #: app/app/_components/transfer-offer-host.tsx
 msgid "处理中…"
 msgstr "处理中…"
@@ -655,6 +694,7 @@ msgid "处理完这条后，还有 {queued} 条请求在等待"
 msgstr "处理完这条后，还有 {queued} 条请求在等待"
 
 #: app/app/_components/copy-button.tsx
+#: app/app/_components/inbox-views.tsx
 msgid "复制"
 msgstr "复制"
 
@@ -825,6 +865,10 @@ msgstr "已中断"
 msgid "已从剪贴板识别到一条邀请。"
 msgstr "已从剪贴板识别到一条邀请。"
 
+#: app/app/_lib/event-dispatch.ts
+msgid "已保存到收件箱"
+msgstr "已保存到收件箱"
+
 #: app/app/_components/send-panel.tsx
 msgid "已发出，等待对方接受"
 msgstr "已发出，等待对方接受"
@@ -833,6 +877,7 @@ msgstr "已发出，等待对方接受"
 msgid "已发出的邀请（未过期）"
 msgstr "已发出的邀请（未过期）"
 
+#: app/app/_components/send-panel.tsx
 #: app/app/_components/transfer-labels.ts
 #: app/app/_lib/view-types.ts
 msgid "已取消"
@@ -844,6 +889,10 @@ msgstr "已取消"
 #: app/app/_components/transfer-detail.tsx
 msgid "已复制"
 msgstr "已复制"
+
+#: app/app/_components/inbox-views.tsx
+msgid "已复制文本"
+msgstr "已复制文本"
 
 #: app/app/_components/node-panel.tsx
 msgid "已复制节点 ID"
@@ -860,6 +909,10 @@ msgstr "已完成"
 #: app/app/_lib/network-view.ts
 msgid "已就绪"
 msgstr "已就绪"
+
+#: app/app/_components/text-notification-panel.tsx
+msgid "已开启"
+msgstr "已开启"
 
 #. placeholder {0}: file.name
 #. placeholder {0}: plan.fileName
@@ -879,6 +932,7 @@ msgstr "已归档"
 #~ msgid "已恢复引导节点，正在连接…"
 #~ msgstr "已恢复引导节点，正在连接…"
 
+#: app/app/_components/send-panel.tsx
 #: app/app/_components/transfer-labels.ts
 msgid "已拒绝"
 msgstr "已拒绝"
@@ -925,6 +979,10 @@ msgstr "已落盘的接收文件；待处理的入站请求也在这里决策。
 msgid "已被使用"
 msgstr "已被使用"
 
+#: app/app/_components/text-notification-panel.tsx
+msgid "已被阻止"
+msgstr "已被阻止"
+
 #. placeholder {0}: preview.displayName || t`对方设备`
 #: app/app/_components/pairing-panel.tsx
 msgid "已识别到「{0}」的邀请"
@@ -935,6 +993,7 @@ msgstr "已识别到「{0}」的邀请"
 msgid "已跳过 {0} 个文件"
 msgstr "已跳过 {0} 个文件"
 
+#: app/app/_components/send-panel.tsx
 #: app/app/_lib/invite.ts
 msgid "已过期"
 msgstr "已过期"
@@ -1034,6 +1093,10 @@ msgstr "当前使用内置引导节点。"
 msgid "当前没有在外面等待使用的邀请。"
 msgstr "当前没有在外面等待使用的邀请。"
 
+#: app/app/_components/text-notification-panel.tsx
+msgid "当前浏览器不支持系统通知。"
+msgstr "当前浏览器不支持系统通知。"
+
 #: app/app/_components/secure-context-banner.tsx
 msgid "当前非 secure context，接收文件会失败。"
 msgstr "当前非 secure context，接收文件会失败。"
@@ -1107,6 +1170,7 @@ msgstr "把这 {0} 个文件发给另一台已配对的设备。"
 
 #: app/app/_components/incoming-offers-panel.tsx
 #: app/app/_components/pairing-request-host.tsx
+#: app/app/_components/receive-panel.tsx
 #: app/app/_components/transfer-offer-host.tsx
 msgid "拒绝"
 msgstr "拒绝"
@@ -1129,9 +1193,18 @@ msgstr "排查连接问题时把这些贴进 issue"
 msgid "接受"
 msgstr "接受"
 
+#: app/app/_components/receive-panel.tsx
 #: app/app/_components/transfer-labels.ts
 msgid "接收"
 msgstr "接收"
+
+#: app/app/_components/receive-panel.tsx
+msgid "接收文本"
+msgstr "接收文本"
+
+#: app/app/_components/text-notification-panel.tsx
+msgid "提醒"
+msgstr "提醒"
 
 #: app/app/_components/inbox-views.tsx
 msgid "搜索中…"
@@ -1153,6 +1226,11 @@ msgstr "撤销"
 msgid "撤销中…"
 msgstr "撤销中…"
 
+#: app/app/_components/receive-panel.tsx
+#: app/app/_components/send-panel.tsx
+msgid "操作失败，请重试"
+msgstr "操作失败，请重试"
+
 #: app/app/_components/inbox-views.tsx
 #: app/app/_lib/nav.ts
 msgid "收件箱"
@@ -1166,6 +1244,15 @@ msgstr "收件箱列表"
 msgid "收到文件请求"
 msgstr "收到文件请求"
 
+#: app/app/_lib/event-dispatch.ts
+msgid "收到文本"
+msgstr "收到文本"
+
+#. placeholder {0}: value.attention.peerName
+#: app/app/_lib/event-dispatch.ts
+msgid "收到来自 {0} 的文本"
+msgstr "收到来自 {0} 的文本"
+
 #: app/app/_components/receive-panel.tsx
 msgid "收到的文件"
 msgstr "收到的文件"
@@ -1176,6 +1263,7 @@ msgstr "收到的文件"
 
 #: ../packages/file-browser/src/file-browser.tsx
 #: app/app/_components/inbox-views.tsx
+#: app/app/_components/send-panel.tsx
 #: app/app/_components/transfer-detail.tsx
 #: app/app/_components/transfer-offer-host.tsx
 #: app/app/_lib/view-types.ts
@@ -1190,9 +1278,19 @@ msgstr "文件视图"
 msgid "文件缺失"
 msgstr "文件缺失"
 
+#: app/app/_components/send-panel.tsx
 #: app/app/_lib/view-types.ts
 msgid "文本"
 msgstr "文本"
+
+#: app/app/_components/inbox-views.tsx
+#: app/app/_components/send-panel.tsx
+msgid "文本内容"
+msgstr "文本内容"
+
+#: app/app/_components/send-panel.tsx
+msgid "文本超过 64 KiB，请缩短后发送。"
+msgstr "文本超过 64 KiB，请缩短后发送。"
 
 #: app/app/_components/transfer-detail.tsx
 msgid "断点信息将一并清除，无法再续传；已接收的文件仍在收件箱"
@@ -1214,6 +1312,14 @@ msgstr "新建"
 #: app/app/_components/device-organization-dialog.tsx
 msgid "新建分组"
 msgstr "新建分组"
+
+#: app/app/_components/inbox-views.tsx
+msgid "无法写入剪贴板，请检查权限"
+msgstr "无法写入剪贴板，请检查权限"
+
+#: app/app/_components/send-panel.tsx
+msgid "无法读取剪贴板，请检查权限"
+msgstr "无法读取剪贴板，请检查权限"
 
 #: app/app/_components/about-panel.tsx
 msgid "无账户 · 无服务器"
@@ -1255,6 +1361,10 @@ msgstr "暂无文件"
 #: app/app/_components/send-panel.tsx
 msgid "更换"
 msgstr "更换"
+
+#: app/app/_components/send-panel.tsx
+msgid "更新于"
+msgstr "更新于"
 
 #: app/app/_components/about-panel.tsx
 msgid "更新日志"
@@ -1497,9 +1607,17 @@ msgstr "浏览器不能被直接拨号，需要经引导节点建立一个可达
 msgid "浏览器可能需要你允许「本地网络访问」；也可能是对方的防火墙拦了入站连接。 文件仍会经中继送达，只是更慢。"
 msgstr "浏览器可能需要你允许「本地网络访问」；也可能是对方的防火墙拦了入站连接。 文件仍会经中继送达，只是更慢。"
 
+#: app/app/_components/text-notification-panel.tsx
+msgid "浏览器在后台时，新的文本会以系统通知提醒你。"
+msgstr "浏览器在后台时，新的文本会以系统通知提醒你。"
+
 #: app/app/_components/secure-context-banner.tsx
 msgid "浏览器在此环境不提供 <0>navigator.storage</0> / <1>crypto.subtle</1>，接收方落盘无法完成。请改用 <2>https</2>、<3>http://localhost</3> 或 <4>http://127.0.0.1</4> 访问，不要用 http 私网 IP。"
 msgstr "浏览器在此环境不提供 <0>navigator.storage</0> / <1>crypto.subtle</1>，接收方落盘无法完成。请改用 <2>https</2>、<3>http://localhost</3> 或 <4>http://127.0.0.1</4> 访问，不要用 http 私网 IP。"
+
+#: app/app/_components/text-notification-panel.tsx
+msgid "浏览器已阻止提醒；请在站点权限中重新允许通知。"
+msgstr "浏览器已阻止提醒；请在站点权限中重新允许通知。"
 
 #. placeholder {0}: error.transport
 #. placeholder {1}: error.supported.join(" / ")
@@ -1664,6 +1782,10 @@ msgstr "端到端加密"
 #~ msgid "等待中"
 #~ msgstr "等待中"
 
+#: app/app/_lib/event-dispatch.ts
+msgid "等待你的确认"
+msgstr "等待你的确认"
+
 #: app/app/_components/transfer-labels.ts
 msgid "等待处理"
 msgstr "等待处理"
@@ -1676,10 +1798,18 @@ msgstr "等待对方使用"
 msgid "等待对方接受"
 msgstr "等待对方接受"
 
+#: app/app/_components/send-panel.tsx
+msgid "等待确认"
+msgstr "等待确认"
+
 #: app/app/_components/device-grid.tsx
 #: app/app/_components/group-manager-dialog.tsx
 msgid "管理分组"
 msgstr "管理分组"
+
+#: app/app/_components/send-panel.tsx
+msgid "粘贴"
+msgstr "粘贴"
 
 #: app/app/_components/pairing-panel.tsx
 msgid "粘贴对方给你的邀请"
@@ -1700,6 +1830,10 @@ msgstr "续传中"
 #: app/app/_lib/view-types.ts
 msgid "续传进度已失效，请重新发送"
 msgstr "续传进度已失效，请重新发送"
+
+#: app/app/_components/send-panel.tsx
+msgid "编辑后重发"
+msgstr "编辑后重发"
 
 #: app/app/_components/node-panel.tsx
 msgid "编辑设备名：{displayName}"
@@ -1877,6 +2011,10 @@ msgstr "身份存放位置"
 #: app/app/_lib/view-types.ts
 msgid "身份错误"
 msgstr "身份错误"
+
+#: app/app/_components/send-panel.tsx
+msgid "输入或粘贴文本"
+msgstr "输入或粘贴文本"
 
 #: app/app/_lib/view-types.ts
 msgid "输入无效"
@@ -2180,6 +2318,7 @@ msgid "重新连接"
 msgstr "重新连接"
 
 #: ../packages/file-browser/src/item-actions.tsx
+#: app/app/_components/send-panel.tsx
 msgid "重试"
 msgstr "重试"
 

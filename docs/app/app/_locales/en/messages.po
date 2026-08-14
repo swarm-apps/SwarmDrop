@@ -60,6 +60,11 @@ msgstr "{0} paired · {onlineCount} online"
 msgid "{0} 台设备"
 msgstr "{0} devices"
 
+#. placeholder {0}: pending.peerName
+#: app/app/_components/receive-panel.tsx
+msgid "{0} 想向你发送一段文本。"
+msgstr ""
+
 #. placeholder {0}: item.name
 #: ../packages/file-browser/src/file-row.tsx
 msgid "{0} 的进度"
@@ -228,6 +233,10 @@ msgstr "DHT seed only"
 msgid "仅同一网络内可用"
 msgstr "Same network only"
 
+#: app/app/_components/text-notification-panel.tsx
+msgid "仅在你允许后，浏览器在后台时才会显示文本提醒。"
+msgstr ""
+
 #: app/app/_components/connection-panel.tsx
 msgid "仅在需要接入私有或备用网络时添加。"
 msgstr "Add only when you need to join a private or backup network."
@@ -335,6 +344,10 @@ msgstr "Stop node"
 msgid "允许文件夹"
 msgstr "Allow folders"
 
+#: app/app/_components/text-notification-panel.tsx
+msgid "允许通知"
+msgstr ""
+
 #: app/app/_components/device-grid.tsx
 #: app/app/_components/transfer-labels.ts
 msgid "全部"
@@ -377,6 +390,10 @@ msgstr "Off means relayed transfers always ask, even with auto-accept on."
 msgid "其他网络的设备可以连到你"
 msgstr "Devices on other networks can reach you"
 
+#: app/app/_components/send-panel.tsx
+msgid "最近发送"
+msgstr ""
+
 #: app/app/_components/inbox-views.tsx
 #~ msgid "准备中…"
 #~ msgstr "Preparing…"
@@ -412,6 +429,7 @@ msgstr "Delete “{0}”? Devices are unaffected — they just stop belonging to
 
 #: app/app/_components/group-manager-dialog.tsx
 #: app/app/_components/inbox-views.tsx
+#: app/app/_components/send-panel.tsx
 #: app/app/_components/transfer-detail.tsx
 msgid "删除"
 msgstr "Delete"
@@ -464,6 +482,10 @@ msgstr "You'll need to pair again after refreshing the page."
 msgid "剪贴板"
 msgstr "Clipboard"
 
+#: app/app/_components/send-panel.tsx
+msgid "剪贴板中没有可用文本"
+msgstr ""
+
 #: app/app/_components/transfer-detail.tsx
 msgid "剩余"
 msgstr "Remaining"
@@ -507,8 +529,16 @@ msgid "发送"
 msgstr "Send"
 
 #: app/app/_components/send-panel.tsx
+msgid "发送中"
+msgstr ""
+
+#: app/app/_components/send-panel.tsx
 msgid "发送中…"
 msgstr "Sending…"
+
+#: app/app/_components/send-panel.tsx
+msgid "发送内容类型"
+msgstr ""
 
 #: app/app/_components/forward-to-device-dialog.tsx
 msgid "发送到 {name}"
@@ -602,6 +632,14 @@ msgstr "Reachable"
 msgid "可达地址"
 msgstr "Reachable address"
 
+#: app/app/_components/send-panel.tsx
+msgid "可重试，送达状态未知"
+msgstr ""
+
+#: app/app/_components/text-notification-panel.tsx
+msgid "后台文本提醒"
+msgstr ""
+
 #: app/app/_components/node-panel.tsx
 msgid "否"
 msgstr "No"
@@ -646,6 +684,7 @@ msgid "处理中"
 msgstr "Working"
 
 #: app/app/_components/pairing-request-host.tsx
+#: app/app/_components/receive-panel.tsx
 #: app/app/_components/transfer-offer-host.tsx
 msgid "处理中…"
 msgstr "Working…"
@@ -655,6 +694,7 @@ msgid "处理完这条后，还有 {queued} 条请求在等待"
 msgstr "{queued} more request(s) waiting after this one"
 
 #: app/app/_components/copy-button.tsx
+#: app/app/_components/inbox-views.tsx
 msgid "复制"
 msgstr "Copy"
 
@@ -825,6 +865,10 @@ msgstr "Interrupted"
 msgid "已从剪贴板识别到一条邀请。"
 msgstr "Picked up an invite from your clipboard."
 
+#: app/app/_lib/event-dispatch.ts
+msgid "已保存到收件箱"
+msgstr ""
+
 #: app/app/_components/send-panel.tsx
 msgid "已发出，等待对方接受"
 msgstr "Sent — waiting for the other device to accept"
@@ -833,6 +877,7 @@ msgstr "Sent — waiting for the other device to accept"
 msgid "已发出的邀请（未过期）"
 msgstr "Invites you sent (still valid)"
 
+#: app/app/_components/send-panel.tsx
 #: app/app/_components/transfer-labels.ts
 #: app/app/_lib/view-types.ts
 msgid "已取消"
@@ -844,6 +889,10 @@ msgstr "Cancelled"
 #: app/app/_components/transfer-detail.tsx
 msgid "已复制"
 msgstr "Copied"
+
+#: app/app/_components/inbox-views.tsx
+msgid "已复制文本"
+msgstr ""
 
 #: app/app/_components/node-panel.tsx
 msgid "已复制节点 ID"
@@ -860,6 +909,10 @@ msgstr "Completed"
 #: app/app/_lib/network-view.ts
 msgid "已就绪"
 msgstr "Ready"
+
+#: app/app/_components/text-notification-panel.tsx
+msgid "已开启"
+msgstr ""
 
 #. placeholder {0}: file.name
 #. placeholder {0}: plan.fileName
@@ -879,6 +932,7 @@ msgstr "Archived"
 #~ msgid "已恢复引导节点，正在连接…"
 #~ msgstr "Bootstrap node restored, connecting…"
 
+#: app/app/_components/send-panel.tsx
 #: app/app/_components/transfer-labels.ts
 msgid "已拒绝"
 msgstr "Declined"
@@ -925,6 +979,10 @@ msgstr "Files that finished landing on disk. Pending inbound requests are decide
 msgid "已被使用"
 msgstr "Used"
 
+#: app/app/_components/text-notification-panel.tsx
+msgid "已被阻止"
+msgstr ""
+
 #. placeholder {0}: preview.displayName || t`对方设备`
 #: app/app/_components/pairing-panel.tsx
 msgid "已识别到「{0}」的邀请"
@@ -935,6 +993,7 @@ msgstr "Invite from “{0}” detected"
 msgid "已跳过 {0} 个文件"
 msgstr "Skipped {0} file(s)"
 
+#: app/app/_components/send-panel.tsx
 #: app/app/_lib/invite.ts
 msgid "已过期"
 msgstr "Expired"
@@ -1034,6 +1093,10 @@ msgstr "Currently using the built-in bootstrap nodes."
 msgid "当前没有在外面等待使用的邀请。"
 msgstr "No invites are currently out there waiting to be used."
 
+#: app/app/_components/text-notification-panel.tsx
+msgid "当前浏览器不支持系统通知。"
+msgstr ""
+
 #: app/app/_components/secure-context-banner.tsx
 msgid "当前非 secure context，接收文件会失败。"
 msgstr "This is not a secure context, so receiving files will fail."
@@ -1107,6 +1170,7 @@ msgstr "Send these {0} files to another paired device."
 
 #: app/app/_components/incoming-offers-panel.tsx
 #: app/app/_components/pairing-request-host.tsx
+#: app/app/_components/receive-panel.tsx
 #: app/app/_components/transfer-offer-host.tsx
 msgid "拒绝"
 msgstr "Decline"
@@ -1129,9 +1193,18 @@ msgstr "Paste these into an issue when reporting a connection problem"
 msgid "接受"
 msgstr "Accept"
 
+#: app/app/_components/receive-panel.tsx
 #: app/app/_components/transfer-labels.ts
 msgid "接收"
 msgstr "Receive"
+
+#: app/app/_components/receive-panel.tsx
+msgid "接收文本"
+msgstr ""
+
+#: app/app/_components/text-notification-panel.tsx
+msgid "提醒"
+msgstr ""
 
 #: app/app/_components/inbox-views.tsx
 msgid "搜索中…"
@@ -1153,6 +1226,11 @@ msgstr "Revoke"
 msgid "撤销中…"
 msgstr "Revoking…"
 
+#: app/app/_components/receive-panel.tsx
+#: app/app/_components/send-panel.tsx
+msgid "操作失败，请重试"
+msgstr ""
+
 #: app/app/_components/inbox-views.tsx
 #: app/app/_lib/nav.ts
 msgid "收件箱"
@@ -1166,6 +1244,15 @@ msgstr "Inbox list"
 msgid "收到文件请求"
 msgstr "Incoming file request"
 
+#: app/app/_lib/event-dispatch.ts
+msgid "收到文本"
+msgstr ""
+
+#. placeholder {0}: value.attention.peerName
+#: app/app/_lib/event-dispatch.ts
+msgid "收到来自 {0} 的文本"
+msgstr ""
+
 #: app/app/_components/receive-panel.tsx
 msgid "收到的文件"
 msgstr "Received files"
@@ -1176,6 +1263,7 @@ msgstr "Received files"
 
 #: ../packages/file-browser/src/file-browser.tsx
 #: app/app/_components/inbox-views.tsx
+#: app/app/_components/send-panel.tsx
 #: app/app/_components/transfer-detail.tsx
 #: app/app/_components/transfer-offer-host.tsx
 #: app/app/_lib/view-types.ts
@@ -1190,9 +1278,19 @@ msgstr "File view"
 msgid "文件缺失"
 msgstr "File missing"
 
+#: app/app/_components/send-panel.tsx
 #: app/app/_lib/view-types.ts
 msgid "文本"
 msgstr "Text"
+
+#: app/app/_components/inbox-views.tsx
+#: app/app/_components/send-panel.tsx
+msgid "文本内容"
+msgstr ""
+
+#: app/app/_components/send-panel.tsx
+msgid "文本超过 64 KiB，请缩短后发送。"
+msgstr ""
 
 #: app/app/_components/transfer-detail.tsx
 msgid "断点信息将一并清除，无法再续传；已接收的文件仍在收件箱"
@@ -1214,6 +1312,14 @@ msgstr "Create"
 #: app/app/_components/device-organization-dialog.tsx
 msgid "新建分组"
 msgstr "New group"
+
+#: app/app/_components/inbox-views.tsx
+msgid "无法写入剪贴板，请检查权限"
+msgstr ""
+
+#: app/app/_components/send-panel.tsx
+msgid "无法读取剪贴板，请检查权限"
+msgstr ""
 
 #: app/app/_components/about-panel.tsx
 msgid "无账户 · 无服务器"
@@ -1255,6 +1361,10 @@ msgstr "No files"
 #: app/app/_components/send-panel.tsx
 msgid "更换"
 msgstr "Change"
+
+#: app/app/_components/send-panel.tsx
+msgid "更新于"
+msgstr ""
 
 #: app/app/_components/about-panel.tsx
 msgid "更新日志"
@@ -1497,9 +1607,17 @@ msgstr "A browser cannot be dialed directly. It needs a bootstrap node to establ
 msgid "浏览器可能需要你允许「本地网络访问」；也可能是对方的防火墙拦了入站连接。 文件仍会经中继送达，只是更慢。"
 msgstr "Your browser may need you to allow local network access; a firewall on the other side could also be blocking inbound connections. Files still arrive over the relay, just slower."
 
+#: app/app/_components/text-notification-panel.tsx
+msgid "浏览器在后台时，新的文本会以系统通知提醒你。"
+msgstr ""
+
 #: app/app/_components/secure-context-banner.tsx
 msgid "浏览器在此环境不提供 <0>navigator.storage</0> / <1>crypto.subtle</1>，接收方落盘无法完成。请改用 <2>https</2>、<3>http://localhost</3> 或 <4>http://127.0.0.1</4> 访问，不要用 http 私网 IP。"
 msgstr "Here the browser does not provide <0>navigator.storage</0> or <1>crypto.subtle</1>, so the receiving side cannot write to disk. Use <2>https</2>, <3>http://localhost</3>, or <4>http://127.0.0.1</4> instead — not a plain-http private IP."
+
+#: app/app/_components/text-notification-panel.tsx
+msgid "浏览器已阻止提醒；请在站点权限中重新允许通知。"
+msgstr ""
 
 #. placeholder {0}: error.transport
 #. placeholder {1}: error.supported.join(" / ")
@@ -1664,6 +1782,10 @@ msgstr "End-to-end encrypted"
 #~ msgid "等待中"
 #~ msgstr "Waiting"
 
+#: app/app/_lib/event-dispatch.ts
+msgid "等待你的确认"
+msgstr ""
+
 #: app/app/_components/transfer-labels.ts
 msgid "等待处理"
 msgstr "Awaiting decision"
@@ -1676,10 +1798,18 @@ msgstr "Waiting to be used"
 msgid "等待对方接受"
 msgstr "Waiting for acceptance"
 
+#: app/app/_components/send-panel.tsx
+msgid "等待确认"
+msgstr ""
+
 #: app/app/_components/device-grid.tsx
 #: app/app/_components/group-manager-dialog.tsx
 msgid "管理分组"
 msgstr "Manage groups"
+
+#: app/app/_components/send-panel.tsx
+msgid "粘贴"
+msgstr ""
 
 #: app/app/_components/pairing-panel.tsx
 msgid "粘贴对方给你的邀请"
@@ -1700,6 +1830,10 @@ msgstr "Resuming"
 #: app/app/_lib/view-types.ts
 msgid "续传进度已失效，请重新发送"
 msgstr "The resume progress is no longer valid. Please send it again."
+
+#: app/app/_components/send-panel.tsx
+msgid "编辑后重发"
+msgstr ""
 
 #: app/app/_components/node-panel.tsx
 msgid "编辑设备名：{displayName}"
@@ -1877,6 +2011,10 @@ msgstr "Identity storage"
 #: app/app/_lib/view-types.ts
 msgid "身份错误"
 msgstr "Identity error"
+
+#: app/app/_components/send-panel.tsx
+msgid "输入或粘贴文本"
+msgstr ""
 
 #: app/app/_lib/view-types.ts
 msgid "输入无效"
@@ -2180,6 +2318,7 @@ msgid "重新连接"
 msgstr "Reconnect"
 
 #: ../packages/file-browser/src/item-actions.tsx
+#: app/app/_components/send-panel.tsx
 msgid "重试"
 msgstr "Retry"
 

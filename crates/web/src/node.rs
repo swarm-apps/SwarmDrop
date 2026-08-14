@@ -1013,7 +1013,8 @@ impl WebNode {
             .text_delivery_service()
             .map_err(WebError::from)?
             .pending()
-            .await;
+            .await
+            .map_err(WebError::from)?;
         crate::serialize::to_js(&pending)
             .map_err(|error| WebError::network(error.to_string()).into())
     }

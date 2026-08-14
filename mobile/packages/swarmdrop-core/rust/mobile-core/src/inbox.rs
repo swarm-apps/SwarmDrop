@@ -161,6 +161,10 @@ impl From<InboxItemFileEntry> for MobileInboxFileEntry {
 }
 
 #[derive(Debug, Clone, uniffi::Enum)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "UniFFI 枚举按字段跨 FFI 编码；此处保留直接的可选记录，避免额外堆分配和桥接类型分叉"
+)]
 pub enum MobileInboxItemContent {
     Files {
         entries: Vec<MobileInboxFileEntry>,

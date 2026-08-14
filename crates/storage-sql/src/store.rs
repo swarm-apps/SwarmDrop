@@ -382,6 +382,26 @@ impl TextDeliveryStore for SqlSessionStore {
         .await
     }
 
+    async fn create_pending_incoming_text_delivery(
+        &self,
+        record: TextDeliveryRecord,
+    ) -> AppResult<()> {
+        text_delivery::create_pending_incoming(&self.db, record).await
+    }
+
+    async fn list_pending_incoming_text_deliveries(&self) -> AppResult<Vec<TextDeliveryRecord>> {
+        text_delivery::list_pending_incoming(&self.db).await
+    }
+
+    async fn finalize_pending_incoming_text_delivery(
+        &self,
+        delivery_id: Uuid,
+        status: entity::TextDeliveryStatus,
+        updated_at: i64,
+    ) -> AppResult<()> {
+        text_delivery::finalize_pending_incoming(&self.db, delivery_id, status, updated_at).await
+    }
+
     async fn persist_incoming_text_delivery(
         &self,
         record: TextDeliveryRecord,

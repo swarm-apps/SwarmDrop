@@ -22,12 +22,12 @@ use crate::network::config::{
 use crate::pairing::{PairingManager, PairingPorts, PairingService};
 use crate::presence::OnlineRecordLookup;
 use crate::protocol::{
-    IDENTIFY_PROTOCOL, PAIRING, PAIRING_PROTOCOL, TEXT_DELIVERY, TEXT_DELIVERY_PROTOCOL,
-    TRANSFER_CTRL, TRANSFER_CTRL_PROTOCOL, TRANSFER_DATA_PROTOCOL,
+    IDENTIFY_PROTOCOL, PAIRING, PAIRING_PROTOCOL, TRANSFER_CTRL, TRANSFER_CTRL_PROTOCOL,
+    TRANSFER_DATA_PROTOCOL,
 };
 use crate::transfer::incoming::TransferCtrlService;
 use crate::transfer::manager::TransferManager;
-use crate::transfer::text_service::TextDeliveryService;
+use crate::transfer::text_delivery::{TEXT_DELIVERY, TEXT_DELIVERY_PROTOCOL, TextDeliveryService};
 use crate::transfer::wire::TransferDataHandler;
 use swarmdrop_invite::InviteStore;
 
@@ -255,6 +255,7 @@ pub fn build_router(
         Arc::downgrade(&transfer),
         pairing.clone(),
         endpoint.clone(),
+        notifier.clone(),
     ));
     transfer.set_text_delivery_service(text_delivery.clone());
     Router::builder(endpoint.clone())

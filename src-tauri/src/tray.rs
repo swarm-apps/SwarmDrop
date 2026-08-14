@@ -22,7 +22,6 @@ use tracing::warn;
 use crate::AppResult;
 use crate::events::{ReceivingPausedChanged, TrayOpenReceiveFolder, TrayOpenSettings};
 use crate::network::NetManagerState;
-use swarmdrop_core::transfer::incoming::IncomingTransferRuntime;
 use swarmdrop_core::transfer::manager::TransferManager;
 
 // 菜单项 id

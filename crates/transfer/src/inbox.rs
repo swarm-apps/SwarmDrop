@@ -74,7 +74,7 @@ pub struct InboxItemFileEntry {
 pub enum InboxItemContent {
     Files {
         entries: Vec<InboxItemFileEntry>,
-        transfer: Option<TransferProjection>,
+        transfer: Box<Option<TransferProjection>>,
     },
     Text {
         body: String,
@@ -569,7 +569,7 @@ mod tests {
                 item: summary_stub(),
                 content: InboxItemContent::Files {
                     entries: files,
-                    transfer: None,
+                    transfer: Box::new(None),
                 },
             });
             spy

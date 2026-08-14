@@ -315,6 +315,25 @@ pub trait TextDeliveryStore: Send + Sync {
         updated_at: i64,
     ) -> AppResult<()>;
 
+    /// 持久化尚待用户确认的接收文本，但不得创建或暴露 Inbox 投影。
+    ///
+    /// 同一投递标识只能对应相同的来源和正文；重放必须幂等，篡改必须拒绝。
+    async fn create_pending_incoming_text_delivery(
+        &self,
+        record: TextDeliveryRecord,
+    ) -> AppResult<()>;
+
+    /// 读取尚待处理的接收文本，供宿主重新挂载或事件遗漏后重建确认队列。
+    async fn list_pending_incoming_text_deliveries(&self) -> AppResult<Vec<TextDeliveryRecord>>;
+
+    /// 将待确认接收文本写入拒绝或过期终态；终态不得再次回到确认队列。
+    async fn finalize_pending_incoming_text_delivery(
+        &self,
+        delivery_id: Uuid,
+        status: entity::TextDeliveryStatus,
+        updated_at: i64,
+    ) -> AppResult<()>;
+
     /// 幂等持久化接收文本，并在同一事务内创建对应的 Inbox 投影。
     ///
     /// 既有相同 ID 必须同时校验来源和正文：相同内容返回原详情；不同内容返回协议冲突，

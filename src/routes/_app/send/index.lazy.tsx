@@ -1,6 +1,6 @@
 /**
  * Send Page (Lazy)
- * 发送文件页面 — 从设备页面点击发送跳转至此
+ * 发送内容页面 — 从设备页面点击发送跳转至此
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -28,7 +28,12 @@ import { readText } from "@/lib/clipboard";
 import {
   deviceGroupNames,
   deviceIdentityHint,
+  formatTextDeliveryKiB,
+  isTextDeliveryRetryable,
+  isTextDeliveryWithinLimit,
   organizedDeviceName,
+  TEXT_DELIVERY_MAX_BYTES,
+  utf8ByteLength,
 } from "@swarmdrop/shared-view";
 import { formatFileSize } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -223,7 +228,7 @@ interface SendViewProps {
 
 /* ─────────────────── 桌面端视图 ─────────────────── */
 
-function DesktopSendView({
+export function DesktopSendView({
   device,
   displayName,
   identityHint,
@@ -248,8 +253,8 @@ function DesktopSendView({
   );
   const view = usePreferencesStore((state) => state.fileBrowserViews.send);
   const setFileBrowserView = usePreferencesStore((state) => state.setFileBrowserView);
-  const textBytes = new TextEncoder().encode(textBody).byteLength;
-  const textValid = textBody.length > 0 && textBytes <= 64 * 1024;
+  const textBytes = utf8ByteLength(textBody);
+  const textValid = isTextDeliveryWithinLimit(textBody);
 
   const refreshOutbox = useCallback(async () => {
     setOutboxLoading(true);
@@ -392,6 +397,7 @@ function DesktopSendView({
             type="button"
             size="sm"
             variant={mode === "files" ? "secondary" : "ghost"}
+            className="min-h-11 w-28"
             onClick={() => setMode("files")}
             role="tab"
             aria-selected={mode === "files"}
@@ -403,6 +409,7 @@ function DesktopSendView({
             type="button"
             size="sm"
             variant={mode === "text" ? "secondary" : "ghost"}
+            className="min-h-11 w-28"
             onClick={() => setMode("text")}
             role="tab"
             aria-selected={mode === "text"}
@@ -472,13 +479,19 @@ function DesktopSendView({
                 onChange={(event) => setTextBody(event.target.value)}
                 placeholder="输入或粘贴文本"
                 aria-label="要发送的文本"
-                maxLength={64 * 1024}
                 className="min-h-52 flex-1 resize-none rounded-2xl border border-border bg-background/70 p-4 text-sm leading-6 outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
               />
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span><Trans>支持 UTF-8 文本，最长 64 KiB</Trans></span>
-                <span className={textBytes > 64 * 1024 ? "text-destructive" : undefined}>{textBytes} / 65536 B</span>
+                <span className={textBytes > TEXT_DELIVERY_MAX_BYTES ? "text-destructive" : undefined}>
+                  {formatTextDeliveryKiB(textBytes)} / {formatTextDeliveryKiB(TEXT_DELIVERY_MAX_BYTES)}
+                </span>
               </div>
+              {textBody.length > 0 && !textValid ? (
+                <p className="text-xs text-destructive">
+                  <Trans>文本超过 64 KiB，请缩短后发送。</Trans>
+                </p>
+              ) : null}
               <TextOutbox
                 records={outbox}
                 loading={outboxLoading}
@@ -552,7 +565,7 @@ function TextOutbox({
 }
 
 function isRetryableTextStatus(status: TextDeliveryRecord["status"]) {
-  return status === "retryable" || status === "expired" || status === "waiting_confirmation";
+  return isTextDeliveryRetryable(status);
 }
 
 function textDeliveryStatusLabel(status: TextDeliveryRecord["status"]) {

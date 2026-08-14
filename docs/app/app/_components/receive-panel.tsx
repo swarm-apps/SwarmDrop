@@ -12,9 +12,9 @@
 // 零可见性（符合「安全边界」设计，不是本面板的缺陷）。#79 验收标准里的「需先配对」提示因此
 // 落在发送侧：见 send-panel.tsx 消费 `rejections` 域。
 //
-// #96 拆成两块并挂到 /app/inbox：待处理请求是**决策**（有时效），收件箱是**结果**（可回看）。
-// 两者混在一个卡里时，一条永久列表会把一条限时动作压下去。多路由后请求的可见性由导航徽标
-// 兜底（见 app-nav.tsx），用户不在收件箱页也知道有东西等着。
+// #96 将入站内容拆为两类：待处理请求是**决策**（有时效），收件箱是**结果**（可回看）。
+// 文本确认与文件 offer 同样由 layout 的全局宿主承载；本页只保留已落定的结果，避免用户正在
+// 发送或浏览设备时看不见需要决定的文本。
 //
 // #108 收件箱从「只能滚的列表」补成可用：检索 / 已读 / 归档 / 删除四件事各自接上内核既有的
 // 导出。此前那五个方法是完整实现却零调用方——能力在内核里，UI 上不存在。
@@ -25,7 +25,6 @@ import type { FileBrowserTarget } from "@swarmdrop/file-browser";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import { MasterDetail } from "./master-detail";
 // 呈现层（列表行 / 详情 / 空态 / 检索框）住在 `inbox-views.tsx`——本文件只做编排。
 import {
@@ -53,7 +52,6 @@ import {
   type InboxItemFileEntry,
   type InboxSearchHit,
   type WebError,
-  type PendingTextDeliverySummary,
 } from "../_lib/view-types";
 import {
   ZIP_SIZE_WARN_BYTES,
@@ -150,7 +148,6 @@ function InboxPanelInner() {
    * 少了它，从传输页跳进来的用户会先看到一帧「找不到」再看到条目。
    */
   const [loaded, setLoaded] = useState(false);
-  const [pendingTexts, setPendingTexts] = useState<PendingTextDeliverySummary[]>([]);
   /** 本次挂载期间已标记过已读的条目，防同一条目多文件并发下载各标记一次（见 `download`）。 */
   const markedOpened = useRef<Set<string>>(new Set());
   /**
@@ -164,18 +161,6 @@ function InboxPanelInner() {
   const itemAction = useKeyedAsyncAction();
 
   const ready = status === "running";
-
-  const refreshPendingTexts = useCallback(async () => {
-    const node = getNode();
-    if (!node) return;
-    try {
-      setPendingTexts(await node.pending_text_deliveries() as PendingTextDeliverySummary[]);
-    } catch (error) {
-      // 请求确认区应独立降级，不能因短暂的 wasm 调用失败清空已展示的待确认内容。
-      console.error("[web] pending_text_deliveries() failed", error);
-    }
-  }, []);
-
   // 同路由内 query 变化**不重挂组件**，所以初值之外还要跟着 param 走（知识库「静态导出的三条
   // 硬限制」第 3 条记的正是这个坑）。今天 `?item=` 的唯一生产者在 `/app/transfer`，两次跳转
   // 之间本页会卸载重挂，看似不需要——但那是导航图的偶然，不是机制保证：谁在收件箱内部加一条
@@ -216,13 +201,6 @@ function InboxPanelInner() {
       cancelled = true;
     };
   }, [ready, inboxRevision]);
-
-  useEffect(() => {
-    if (!ready) return;
-    void refreshPendingTexts();
-    const timer = window.setInterval(() => void refreshPendingTexts(), 3_000);
-    return () => window.clearInterval(timer);
-  }, [ready, refreshPendingTexts]);
 
   // 检索走内核的 `search_inbox`，**不在前端 filter 这个内存数组**。命中判据在
   // `crates/transfer/src/inbox.rs::inbox_matches` 有规范定义（大小写、四列覆盖面、
@@ -519,40 +497,13 @@ function InboxPanelInner() {
     () => rows.find((row) => row.item.id === focusedId) ?? null,
     [rows, focusedId],
   );
-
   return (
-    <MasterDetail
+    <>
+      <MasterDetail
       testId="inbox-master-detail"
       drawerLabel={t`收件箱列表`}
       list={({ closeDrawer }) => (
         <div className="flex min-h-0 flex-col gap-3 p-4">
-          {pendingTexts.map((pending) => (
-            <section key={pending.deliveryId} className="rounded-lg border border-warning/30 bg-warning/5 p-3">
-              <p className="text-sm font-semibold text-foreground"><Trans>接收文本</Trans> · {pending.peerName}</p>
-              <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-foreground">{pending.body}</p>
-              <div className="mt-3 flex justify-end gap-2">
-                <Button size="sm" variant="outline" onClick={() => void (async () => {
-                  try {
-                    await getNode()?.confirm_text_delivery(pending.deliveryId, false);
-                    await refreshPendingTexts();
-                  } catch (error) {
-                    toast.error(t`操作失败，请重试`);
-                    console.error("[web] reject text delivery failed", error);
-                  }
-                })()}><Trans>拒绝</Trans></Button>
-                <Button size="sm" onClick={() => void (async () => {
-                  try {
-                    await getNode()?.confirm_text_delivery(pending.deliveryId, true);
-                    await refreshPendingTexts();
-                    webNodeActions.refreshInbox();
-                  } catch (error) {
-                    toast.error(t`操作失败，请重试`);
-                    console.error("[web] accept text delivery failed", error);
-                  }
-                })()}><Trans>接收</Trans></Button>
-              </div>
-            </section>
-          ))}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-foreground">
               <Trans>已接收</Trans>
@@ -703,6 +654,7 @@ function InboxPanelInner() {
           <InboxDetailEmpty openList={openList} hasRows={rows.length > 0} />
         )
       }
-    />
+      />
+    </>
   );
 }

@@ -32,7 +32,15 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { canSendToDevice, organizedDeviceName } from "@swarmdrop/shared-view";
+import {
+  canSendToDevice,
+  formatTextDeliveryKiB,
+  isTextDeliveryRetryable,
+  isTextDeliveryWithinLimit,
+  organizedDeviceName,
+  TEXT_DELIVERY_MAX_BYTES,
+  utf8ByteLength,
+} from "@swarmdrop/shared-view";
 import { FileBrowser, type FileBrowserTarget } from "@swarmdrop/file-browser";
 import { Button } from "@/components/ui/button";
 import {
@@ -146,7 +154,7 @@ function SendPanelInner() {
   const canSend =
     ready &&
     targetValid &&
-    (contentMode === "files" ? files.length > 0 : textBody.trim().length > 0) &&
+    (contentMode === "files" ? files.length > 0 : isTextDeliveryWithinLimit(textBody)) &&
     !sendAction.pending;
 
   const refreshTextOutbox = useCallback(async () => {
@@ -186,7 +194,7 @@ function SendPanelInner() {
     const node = getNode();
     if (!node || !peerId) return;
     if (contentMode === "text") {
-      if (!textBody.trim()) return;
+      if (!isTextDeliveryWithinLimit(textBody)) return;
       sendAction.run(
         () => node.send_text_delivery(peerId, textBody),
         () => {
@@ -294,7 +302,7 @@ function SendPanelInner() {
         onChangeRequest={() => setPickerOpen(true)}
       />
 
-      <div className="flex rounded-lg bg-muted p-1" role="group" aria-label={t`发送内容类型`}>
+      <div className="inline-flex w-fit rounded-lg bg-muted p-1" role="group" aria-label={t`发送内容类型`}>
         {[
           ["files", <Paperclip key="files" className="size-3.5" aria-hidden />, <Trans key="files-label">文件</Trans>],
           ["text", <Clipboard key="text" className="size-3.5" aria-hidden />, <Trans key="text-label">文本</Trans>],
@@ -305,7 +313,7 @@ function SendPanelInner() {
             disabled={sendAction.pending}
             onClick={() => setContentMode(mode as "files" | "text")}
             className={cn(
-              "flex flex-1 items-center justify-center gap-1.5 rounded-md py-2 text-xs font-medium",
+              "flex min-h-11 w-28 items-center justify-center gap-1.5 rounded-md py-2 text-xs font-medium",
               contentMode === mode ? "bg-card text-foreground shadow-xs" : "text-muted-foreground",
             )}
           >
@@ -423,12 +431,19 @@ function SendPanelInner() {
           <textarea
             id="text-delivery"
             value={textBody}
-            maxLength={64 * 1024}
             onChange={(event) => setTextBody(event.target.value)}
             placeholder={t`输入或粘贴文本`}
             className="min-h-52 w-full resize-y rounded-md border bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring"
           />
-          <p className="text-right text-xs text-muted-foreground">{new TextEncoder().encode(textBody).byteLength} / 64 KB</p>
+          <p className={cn(
+            "text-right text-xs text-muted-foreground",
+            utf8ByteLength(textBody) > TEXT_DELIVERY_MAX_BYTES && "text-destructive",
+          )}>
+            {formatTextDeliveryKiB(utf8ByteLength(textBody))} / {formatTextDeliveryKiB(TEXT_DELIVERY_MAX_BYTES)}
+          </p>
+          {textBody.length > 0 && !isTextDeliveryWithinLimit(textBody) ? (
+            <p className="text-xs text-destructive"><Trans>文本超过 64 KiB，请缩短后发送。</Trans></p>
+          ) : null}
           {textOutbox.length > 0 ? (
             <div className="border-t pt-3">
               <p className="mb-2 text-xs font-semibold text-muted-foreground"><Trans>最近发送</Trans></p>
@@ -599,7 +614,7 @@ function SentSessionCard({
 }
 
 function webTextRetryable(status: TextDeliveryRecord["status"]) {
-  return status === "retryable" || status === "expired" || status === "waiting_confirmation";
+  return isTextDeliveryRetryable(status);
 }
 
 function webTextStatus(status: TextDeliveryRecord["status"]) {

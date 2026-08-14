@@ -7,8 +7,8 @@ use entity::{
     TextDeliveryStatus,
 };
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, IntoActiveModel, QueryFilter,
-    QueryOrder, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
+    IntoActiveModel, QueryFilter, QueryOrder, Set, TransactionTrait,
 };
 use swarmdrop_host::{AppError, AppResult};
 use swarmdrop_transfer::inbox::InboxItemDetail;
@@ -112,6 +112,89 @@ pub(crate) async fn update_outgoing(
     Ok(())
 }
 
+pub(crate) async fn create_pending_incoming(
+    db: &DatabaseConnection,
+    record: TextDeliveryRecord,
+) -> AppResult<()> {
+    if record.direction != TextDeliveryDirection::Receive
+        || record.status != TextDeliveryStatus::WaitingConfirmation
+    {
+        return Err(AppError::Transfer("待确认文本记录状态无效".into()));
+    }
+    validate_text_body(&record.body)?;
+    if let Some(existing) = get(db, record.delivery_id).await? {
+        if existing.direction == TextDeliveryDirection::Receive
+            && existing.peer_id == record.peer_id
+            && existing.body == record.body
+        {
+            return Ok(());
+        }
+        return Err(AppError::Transfer("文本投递标识与既有内容冲突".into()));
+    }
+    model_from_record(record).insert(db).await?;
+    Ok(())
+}
+
+pub(crate) async fn list_pending_incoming(
+    db: &DatabaseConnection,
+) -> AppResult<Vec<TextDeliveryRecord>> {
+    Ok(entity::TextDelivery::find()
+        .filter(entity::text_delivery::Column::Direction.eq(TextDeliveryDirection::Receive))
+        .filter(entity::text_delivery::Column::Status.eq(TextDeliveryStatus::WaitingConfirmation))
+        .order_by_asc(entity::text_delivery::Column::CreatedAt)
+        .order_by_asc(entity::text_delivery::Column::DeliveryId)
+        .all(db)
+        .await?
+        .into_iter()
+        .map(record_from_model)
+        .collect())
+}
+
+pub(crate) async fn finalize_pending_incoming(
+    db: &DatabaseConnection,
+    delivery_id: Uuid,
+    status: TextDeliveryStatus,
+    updated_at: i64,
+) -> AppResult<()> {
+    if !matches!(
+        status,
+        TextDeliveryStatus::Rejected | TextDeliveryStatus::Expired
+    ) {
+        return Err(AppError::Transfer(
+            "待确认文本只能进入拒绝或过期终态".into(),
+        ));
+    }
+    let failure = (status == TextDeliveryStatus::Expired).then_some(TextDeliveryFailure::Expired);
+    let result = entity::TextDelivery::update_many()
+        .col_expr(
+            entity::text_delivery::Column::Status,
+            sea_orm::sea_query::Expr::value(status.clone()),
+        )
+        .col_expr(
+            entity::text_delivery::Column::Failure,
+            sea_orm::sea_query::Expr::value(failure),
+        )
+        .col_expr(
+            entity::text_delivery::Column::UpdatedAt,
+            sea_orm::sea_query::Expr::value(updated_at),
+        )
+        .filter(entity::text_delivery::Column::DeliveryId.eq(delivery_id))
+        .filter(entity::text_delivery::Column::Direction.eq(TextDeliveryDirection::Receive))
+        .filter(entity::text_delivery::Column::Status.eq(TextDeliveryStatus::WaitingConfirmation))
+        .exec(db)
+        .await?;
+    if result.rows_affected == 1 {
+        return Ok(());
+    }
+    let Some(existing) = get(db, delivery_id).await? else {
+        return Err(AppError::Transfer("待确认文本投递不存在或已被处理".into()));
+    };
+    if existing.direction == TextDeliveryDirection::Receive && existing.status == status {
+        return Ok(());
+    }
+    Err(AppError::Transfer("待确认文本投递已被并发处理".into()))
+}
+
 pub(crate) async fn persist_incoming(
     db: &DatabaseConnection,
     record: TextDeliveryRecord,
@@ -126,35 +209,11 @@ pub(crate) async fn persist_incoming(
     }
 
     let delivery_id = record.delivery_id;
-    let body_size = i64::try_from(record.body.len())
-        .map_err(|_| AppError::Transfer("文本长度超出可表示范围".into()))?;
-    let received_at = record.updated_at;
-    let peer_id = PeerId(record.peer_id.clone());
-    let peer_name = record.peer_name.clone();
-    let title = text_preview(&record.body);
     let transaction = db.begin().await?;
-    model_from_record(record).insert(&transaction).await?;
-    entity::inbox_item::ActiveModel {
-        id: Set(Uuid::new_v4()),
-        transfer_session_id: Set(None),
-        text_delivery_id: Set(Some(delivery_id)),
-        source_peer_id: Set(peer_id),
-        source_name: Set(peer_name),
-        source_kind: Set(InboxSourceKind::PairedDevice),
-        content_kind: Set(InboxContentKind::Text),
-        // 列表必须无需再取正文就能辨识内容；此处是正文预览，不是本地化文案。
-        title: Set(title),
-        item_count: Set(1),
-        total_size: Set(body_size),
-        root_path: Set(None),
-        content_hash: Set(None),
-        received_at: Set(received_at),
-        last_opened_at: Set(None),
-        archived_at: Set(None),
-        deleted_at: Set(None),
-    }
-    .insert(&transaction)
-    .await?;
+    model_from_record(record.clone())
+        .insert(&transaction)
+        .await?;
+    insert_inbox_projection(&transaction, &record).await?;
     transaction.commit().await?;
 
     inbox::get_inbox_item_by_text_delivery_id(db, delivery_id)
@@ -173,9 +232,65 @@ async fn existing_incoming_detail(
     {
         return Err(AppError::Transfer("文本投递标识与既有内容冲突".into()));
     }
+    if existing.status == TextDeliveryStatus::WaitingConfirmation {
+        let transaction = db.begin().await?;
+        let result = entity::TextDelivery::update_many()
+            .col_expr(
+                entity::text_delivery::Column::Status,
+                sea_orm::sea_query::Expr::value(TextDeliveryStatus::Delivered),
+            )
+            .col_expr(
+                entity::text_delivery::Column::Failure,
+                sea_orm::sea_query::Expr::value(None::<TextDeliveryFailure>),
+            )
+            .col_expr(
+                entity::text_delivery::Column::UpdatedAt,
+                sea_orm::sea_query::Expr::value(incoming.updated_at),
+            )
+            // 仅允许一个确认操作取得终局写入权；并发的另一个操作随后读取已创建的 Inbox。
+            .filter(entity::text_delivery::Column::DeliveryId.eq(existing.delivery_id))
+            .filter(
+                entity::text_delivery::Column::Status.eq(TextDeliveryStatus::WaitingConfirmation),
+            )
+            .exec(&transaction)
+            .await?;
+        if result.rows_affected == 1 {
+            insert_inbox_projection(&transaction, incoming).await?;
+        }
+        transaction.commit().await?;
+    }
     inbox::get_inbox_item_by_text_delivery_id(db, existing.delivery_id)
         .await?
         .ok_or_else(|| AppError::Transfer("既有文本投递缺少收件箱投影".into()))
+}
+
+async fn insert_inbox_projection<C>(db: &C, record: &TextDeliveryRecord) -> AppResult<()>
+where
+    C: ConnectionTrait,
+{
+    let body_size = i64::try_from(record.body.len())
+        .map_err(|_| AppError::Transfer("文本长度超出可表示范围".into()))?;
+    entity::inbox_item::ActiveModel {
+        id: Set(Uuid::new_v4()),
+        transfer_session_id: Set(None),
+        text_delivery_id: Set(Some(record.delivery_id)),
+        source_peer_id: Set(PeerId(record.peer_id.clone())),
+        source_name: Set(record.peer_name.clone()),
+        source_kind: Set(InboxSourceKind::PairedDevice),
+        content_kind: Set(InboxContentKind::Text),
+        title: Set(text_preview(&record.body)),
+        item_count: Set(1),
+        total_size: Set(body_size),
+        root_path: Set(None),
+        content_hash: Set(None),
+        received_at: Set(record.updated_at),
+        last_opened_at: Set(None),
+        archived_at: Set(None),
+        deleted_at: Set(None),
+    }
+    .insert(db)
+    .await?;
+    Ok(())
 }
 
 pub(crate) async fn delete_outgoing(db: &DatabaseConnection, delivery_id: Uuid) -> AppResult<()> {
@@ -217,7 +332,7 @@ mod tests {
 
     use migration::{Migrator, MigratorTrait};
     use sea_orm::{ConnectOptions, Database};
-    use swarmdrop_transfer::store::InboxStore;
+    use swarmdrop_transfer::store::{InboxStore, TextDeliveryStore};
 
     use super::*;
     use crate::store::SqlSessionStore;
@@ -280,6 +395,102 @@ mod tests {
                 .await
                 .expect("读取收件箱")
                 .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn pending_text_becomes_visible_only_with_its_inbox_projection() {
+        let (db, store) = store().await;
+        let delivery_id = Uuid::new_v4();
+        let mut pending = incoming(delivery_id, "needs confirmation");
+        pending.status = TextDeliveryStatus::WaitingConfirmation;
+
+        store
+            .create_pending_incoming_text_delivery(pending.clone())
+            .await
+            .expect("持久化待确认文本");
+        assert!(
+            store
+                .list_inbox_items(false)
+                .await
+                .expect("读取收件箱")
+                .is_empty(),
+            "待确认阶段不得提前暴露到收件箱"
+        );
+
+        let mut delivered = pending;
+        delivered.status = TextDeliveryStatus::Delivered;
+        delivered.updated_at = 2;
+        let detail = store
+            .persist_incoming_text_delivery(delivered)
+            .await
+            .expect("确认后写入收件箱");
+        assert_eq!(detail.item.text_delivery_id, Some(delivery_id));
+        assert_eq!(
+            get(&db, delivery_id)
+                .await
+                .expect("读取投递账本")
+                .expect("投递记录存在")
+                .status,
+            TextDeliveryStatus::Delivered,
+            "账本与收件箱投影必须在同一提交后可见"
+        );
+    }
+
+    #[tokio::test]
+    async fn rejected_or_expired_pending_text_cannot_reenter_the_confirmation_queue() {
+        let (db, store) = store().await;
+        let rejected_id = Uuid::new_v4();
+        let expired_id = Uuid::new_v4();
+        for delivery_id in [rejected_id, expired_id] {
+            let mut pending = incoming(delivery_id, "needs a decision");
+            pending.status = TextDeliveryStatus::WaitingConfirmation;
+            store
+                .create_pending_incoming_text_delivery(pending)
+                .await
+                .expect("创建待确认文本");
+        }
+        assert_eq!(
+            store
+                .list_pending_incoming_text_deliveries()
+                .await
+                .expect("读取待确认文本")
+                .len(),
+            2
+        );
+
+        store
+            .finalize_pending_incoming_text_delivery(rejected_id, TextDeliveryStatus::Rejected, 2)
+            .await
+            .expect("写入拒绝终态");
+        store
+            .finalize_pending_incoming_text_delivery(expired_id, TextDeliveryStatus::Expired, 3)
+            .await
+            .expect("写入过期终态");
+
+        assert!(
+            store
+                .list_pending_incoming_text_deliveries()
+                .await
+                .expect("重读待确认文本")
+                .is_empty(),
+            "终态记录不得在恢复时再次排队"
+        );
+        assert_eq!(
+            get(&db, rejected_id)
+                .await
+                .expect("读取拒绝记录")
+                .expect("拒绝记录存在")
+                .status,
+            TextDeliveryStatus::Rejected
+        );
+        assert_eq!(
+            get(&db, expired_id)
+                .await
+                .expect("读取过期记录")
+                .expect("过期记录存在")
+                .failure,
+            Some(TextDeliveryFailure::Expired)
         );
     }
 }

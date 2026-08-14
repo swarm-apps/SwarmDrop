@@ -95,6 +95,8 @@ pub struct WebTransferStore {
     sessions: Mutex<HashMap<Uuid, StoredSession>>,
     /// 发送方向的文本账本。接收方向与 Inbox 共存于 `WebInboxTable`，见其单记录原子写入。
     text_outbox: Mutex<HashMap<Uuid, TextDeliveryRecord>>,
+    /// 待确认的接收文本与 Inbox 分离落盘，避免刷新后丢失确认入口或提前泄露正文。
+    pending_text_inbox: Mutex<HashMap<Uuid, TextDeliveryRecord>>,
     /// 收件箱表（另一个 object store）。`InboxStore` 的 10 个方法全部委托给它，
     /// 只有 `repair_*` 留在本类型上——那条要同时看见会话与收件箱两边。
     inbox: WebInboxTable,
@@ -111,11 +113,12 @@ impl WebTransferStore {
         // IndexedDB 往返摞在启动时延里。并发跑它们；两个 future 都持 `JsValue`（`!Send`），
         // 故 join 必须发生在同一个 `SendWrapper` 边界**之内**（在外面 join 等于把 !Send
         // 的组合 future 暴露给 Send 约束）。
-        let (inbox, records, text_outbox) = SendWrapper::new(async {
+        let (inbox, records, text_outbox, pending_text_inbox) = SendWrapper::new(async {
             futures::join!(
                 WebInboxTable::load(),
                 idb::get_all(idb::SESSION_STORE),
                 idb::get_all(idb::TEXT_OUTBOX_STORE),
+                idb::get_all(idb::PENDING_TEXT_INBOX_STORE),
             )
         })
         .await;
@@ -140,6 +143,19 @@ impl WebTransferStore {
             }
         } else {
             tracing::warn!("读取文本发送账本失败，本次以内存态运行");
+        }
+        if let Ok(records) = pending_text_inbox {
+            let mut pending = store.pending_text_inbox.lock().unwrap();
+            for record in records {
+                let Some(json) = record.as_string() else {
+                    continue;
+                };
+                if let Ok(record) = serde_json::from_str::<TextDeliveryRecord>(&json) {
+                    pending.insert(record.delivery_id, record);
+                }
+            }
+        } else {
+            tracing::warn!("读取待确认文本账本失败，本次以内存态运行");
         }
         let records = match records {
             Ok(records) => records,
@@ -295,7 +311,7 @@ impl WebTransferStore {
 
     /// 给收件箱详情补上关联传输会话的投影。
     ///
-    /// [`WebInboxTable`] 一律返回 `transfer: None`（它看不见会话表），这一格由本类型补——
+    /// [`WebInboxTable`] 的文件内容一律返回 `transfer: None`（它看不见会话表），这一格由本类型补——
     /// 与 SQL 实现在 `detail_from_model` 里查一次投影是同一件事，只是这边的会话在内存里。
     /// 会话已被删除或清空时留 `None`，与 SQL 侧外键置空后的表现一致。
     fn attach_transfer(&self, mut detail: InboxItemDetail) -> InboxItemDetail {
@@ -310,7 +326,7 @@ impl WebTransferStore {
         let map = self.sessions.lock().unwrap();
         for detail in details {
             if let InboxItemContent::Files { transfer, .. } = &mut detail.content {
-                *transfer = detail
+                **transfer = detail
                     .item
                     .transfer_session_id
                     .and_then(|session_id| map.get(&session_id))
@@ -338,6 +354,25 @@ impl WebTransferStore {
             .map_err(|error| AppError::Transfer(format!("序列化文本发送记录失败: {error}")))?;
         SendWrapper::new(idb::put_string(
             idb::TEXT_OUTBOX_STORE,
+            &delivery_id.to_string(),
+            &json,
+        ))
+        .await
+        .map_err(AppError::from)
+    }
+
+    async fn persist_pending_text_inbox(&self, delivery_id: Uuid) -> AppResult<()> {
+        let record = self
+            .pending_text_inbox
+            .lock()
+            .unwrap()
+            .get(&delivery_id)
+            .cloned()
+            .ok_or_else(|| AppError::Transfer("待确认文本记录不存在".into()))?;
+        let json = serde_json::to_string(&record)
+            .map_err(|error| AppError::Transfer(format!("序列化待确认文本失败: {error}")))?;
+        SendWrapper::new(idb::put_string(
+            idb::PENDING_TEXT_INBOX_STORE,
             &delivery_id.to_string(),
             &json,
         ))
@@ -888,7 +923,21 @@ impl TextDeliveryStore for WebTransferStore {
         if let Some(record) = self.text_outbox.lock().unwrap().get(&delivery_id).cloned() {
             return Ok(Some(record));
         }
-        Ok(self.inbox.text_delivery(delivery_id))
+        // 收件箱是已送达的权威事实。IndexedDB 清理待确认副本失败时，两者可能短暂共存；
+        // 先读 pending 会把已送达的幂等重试误判成仍待确认，最终又触发一次确认流程。
+        if let Some(record) = self.inbox.text_delivery(delivery_id) {
+            return Ok(Some(record));
+        }
+        if let Some(record) = self
+            .pending_text_inbox
+            .lock()
+            .unwrap()
+            .get(&delivery_id)
+            .cloned()
+        {
+            return Ok(Some(record));
+        }
+        Ok(None)
     }
 
     async fn list_outgoing_text_deliveries(
@@ -937,7 +986,111 @@ impl TextDeliveryStore for WebTransferStore {
         if record.direction != entity::TextDeliveryDirection::Receive {
             return Err(AppError::Transfer("只能持久化接收方向的文本记录".into()));
         }
-        self.inbox.persist_text_delivery(record).await
+        let delivery_id = record.delivery_id;
+        let detail = self.inbox.persist_text_delivery(record).await?;
+        self.pending_text_inbox.lock().unwrap().remove(&delivery_id);
+        if let Err(error) = SendWrapper::new(idb::delete(
+            idb::PENDING_TEXT_INBOX_STORE,
+            &delivery_id.to_string(),
+        ))
+        .await
+        {
+            // 收件箱已经是用户可见的持久化事实；清理旧的待确认副本失败只能留待重试，不能把送达结果倒退成失败。
+            tracing::warn!(%delivery_id, ?error, "清理 Web 待确认文本副本失败");
+        }
+        Ok(detail)
+    }
+
+    async fn create_pending_incoming_text_delivery(
+        &self,
+        record: TextDeliveryRecord,
+    ) -> AppResult<()> {
+        if record.direction != entity::TextDeliveryDirection::Receive
+            || record.status != entity::TextDeliveryStatus::WaitingConfirmation
+        {
+            return Err(AppError::Transfer("待确认文本记录状态无效".into()));
+        }
+        validate_text_body(&record.body)?;
+        let delivery_id = record.delivery_id;
+        if let Some(existing) = self.inbox.text_delivery(delivery_id) {
+            if existing.peer_id == record.peer_id && existing.body == record.body {
+                return Ok(());
+            }
+            return Err(AppError::Transfer("文本投递标识与既有内容冲突".into()));
+        }
+        {
+            let mut pending = self.pending_text_inbox.lock().unwrap();
+            if let Some(existing) = pending.get(&delivery_id) {
+                if existing.peer_id == record.peer_id && existing.body == record.body {
+                    return Ok(());
+                }
+                return Err(AppError::Transfer("文本投递标识与既有内容冲突".into()));
+            }
+            pending.insert(delivery_id, record);
+        }
+        if let Err(error) = self.persist_pending_text_inbox(delivery_id).await {
+            self.pending_text_inbox.lock().unwrap().remove(&delivery_id);
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    async fn list_pending_incoming_text_deliveries(&self) -> AppResult<Vec<TextDeliveryRecord>> {
+        let mut pending: Vec<_> = self
+            .pending_text_inbox
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|record| {
+                record.direction == entity::TextDeliveryDirection::Receive
+                    && record.status == entity::TextDeliveryStatus::WaitingConfirmation
+            })
+            .cloned()
+            .collect();
+        pending.sort_by_key(|record| (record.created_at, record.delivery_id));
+        Ok(pending)
+    }
+
+    async fn finalize_pending_incoming_text_delivery(
+        &self,
+        delivery_id: Uuid,
+        status: entity::TextDeliveryStatus,
+        updated_at: i64,
+    ) -> AppResult<()> {
+        if !matches!(
+            status,
+            entity::TextDeliveryStatus::Rejected | entity::TextDeliveryStatus::Expired
+        ) {
+            return Err(AppError::Transfer(
+                "待确认文本只能进入拒绝或过期终态".into(),
+            ));
+        }
+        let previous = {
+            let mut pending = self.pending_text_inbox.lock().unwrap();
+            let record = pending
+                .get_mut(&delivery_id)
+                .ok_or_else(|| AppError::Transfer("待确认文本投递不存在或已被处理".into()))?;
+            if record.status == status {
+                return Ok(());
+            }
+            if record.status != entity::TextDeliveryStatus::WaitingConfirmation {
+                return Err(AppError::Transfer("待确认文本投递已被并发处理".into()));
+            }
+            let previous = record.clone();
+            record.status = status;
+            record.failure = (record.status == entity::TextDeliveryStatus::Expired)
+                .then_some(entity::TextDeliveryFailure::Expired);
+            record.updated_at = updated_at;
+            previous
+        };
+        if let Err(error) = self.persist_pending_text_inbox(delivery_id).await {
+            self.pending_text_inbox
+                .lock()
+                .unwrap()
+                .insert(delivery_id, previous);
+            return Err(error);
+        }
+        Ok(())
     }
 
     async fn delete_outgoing_text_delivery(&self, delivery_id: Uuid) -> AppResult<()> {
@@ -1058,6 +1211,20 @@ impl From<PersistedSession> for StoredSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn file_entries_len(detail: &InboxItemDetail) -> usize {
+        match &detail.content {
+            InboxItemContent::Files { entries, .. } => entries.len(),
+            InboxItemContent::Text { .. } => panic!("文件收件箱条目不应变成文本条目"),
+        }
+    }
+
+    fn has_file_transfer(detail: &InboxItemDetail) -> bool {
+        matches!(
+            &detail.content,
+            InboxItemContent::Files { transfer, .. } if transfer.is_some()
+        )
+    }
 
     use swarmdrop_transfer::protocol::FileInfo;
     use wasm_bindgen_test::wasm_bindgen_test;
@@ -1206,16 +1373,12 @@ mod tests {
         let store = WebTransferStore::default();
         let receive_id = Uuid::new_v4();
         let item_id = seed_inbox_item(&store, receive_id, "小明的 Mac").await;
-        assert!(
-            store
-                .get_inbox_item_detail(item_id)
-                .await
-                .unwrap()
-                .expect("条目")
-                .transfer
-                .is_some(),
-            "会话还在时详情应带上传输投影"
-        );
+        let detail = store
+            .get_inbox_item_detail(item_id)
+            .await
+            .unwrap()
+            .expect("条目");
+        assert!(has_file_transfer(&detail), "会话还在时详情应带上传输投影");
         // 压成全表最旧的一条终态会话，保证它必是淘汰的那个
         set_updated_at(&store, receive_id, 0);
 
@@ -1244,9 +1407,9 @@ mod tests {
             .unwrap()
             .expect("收件箱条目不该随会话一起被淘汰");
         assert_eq!(detail.item.title, "报告.pdf");
-        assert_eq!(detail.files.len(), 1, "条目的文件行也必须还在");
+        assert_eq!(file_entries_len(&detail), 1, "条目的文件行也必须还在");
         assert!(
-            detail.transfer.is_none(),
+            !has_file_transfer(&detail),
             "关联会话已被淘汰，投影这一格留空"
         );
         assert_eq!(store.list_inbox_items(false).await.unwrap().len(), 1);
@@ -1414,12 +1577,12 @@ mod tests {
             .find(|d| d.item.id == item_id)
             .expect("收件箱条目必须跨 load() 存活");
         assert_eq!(detail.item.title, "报告.pdf");
-        assert_eq!(detail.files.len(), 1, "条目的文件行也要一起回来");
+        assert_eq!(file_entries_len(&detail), 1, "条目的文件行也要一起回来");
         assert_eq!(detail.item.transfer_session_id, Some(session_id));
         // 这一格由 `attach_transfers` 从**会话表**补——它非空即证明两张表都读回来了，
         // 而不是只有收件箱那一张。
         assert!(
-            detail.transfer.is_some(),
+            has_file_transfer(&detail),
             "关联会话也必须跨 load() 回来（否则 join! 里另一半没读到）"
         );
         assert!(

@@ -2,8 +2,7 @@
 //!
 //! 正文与重试语义留在 core；移动端只拿到稳定的 Record/Enum 镜像，不在 TypeScript 侧重建
 //! 状态机，也不通过剪贴板读取来隐式发送。
-use swarmdrop_core::transfer::text_delivery::TextDeliveryRecord;
-use swarmdrop_core::transfer::text_service::PendingTextDeliverySummary;
+use swarmdrop_core::transfer::text_delivery::{PendingTextDeliverySummary, TextDeliveryRecord};
 use uuid::Uuid;
 
 use crate::app::MobileCore;
@@ -189,6 +188,7 @@ impl MobileCore {
             .text_delivery_service()?
             .pending()
             .await
+            .map_err(FfiError::from)?
             .into_iter()
             .map(Into::into)
             .collect())

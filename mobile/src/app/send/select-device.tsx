@@ -4,14 +4,22 @@
  * 入口：(main) 点击在线设备 → push 到这里（携带 peerId）。
  * 流程：
  *   1. 顶部 device header（不再让用户选设备，已经在主屏选过）
- *   2. 「添加文件 / 添加文件夹 / 照片 / 视频」按钮组，多次点击累加
- *   3. FileBrowser 渲染已选；点 X 移除单个文件 / 子目录
- *   4. 底部「取消 / 发送」操作栏；发送过程显示 prepareSend 进度条
- *   5. 发送成功 → router.replace 到 `/transfer/[sessionId]` 看实时进度
+ *   2. 文件/文本紧凑分段控件：文件默认但不预设入口语义
+ *   3. 文件模式以「添加文件 / 添加文件夹 / 照片 / 视频」累加；文本模式提供编辑器与剪贴板
+ *   4. 底部「取消 / 发送」操作栏；文件发送过程显示 prepareSend 进度条
+ *   5. 文件发送成功 → router.replace 到 `/transfer/[sessionId]` 看实时进度
  */
 
 import { Trans, useLingui } from "@lingui/react/macro";
-import { organizedDeviceName } from "@swarmdrop/shared-view";
+import {
+  formatTextDeliveryKiB,
+  isTextDeliveryRetryable,
+  isTextDeliveryWithinLimit,
+  organizedDeviceName,
+  TEXT_DELIVERY_MAX_BYTES,
+  utf8ByteLength,
+  type TextDeliveryStatus,
+} from "@swarmdrop/shared-view";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   FileText,
@@ -185,7 +193,7 @@ export default function SendPreparePage() {
       !device ||
       sending ||
       (contentMode === "files" && selectedFiles.length === 0) ||
-      (contentMode === "text" && textBody.trim().length === 0)
+      (contentMode === "text" && !isTextDeliveryWithinLimit(textBody))
     ) {
       return;
     }
@@ -233,27 +241,32 @@ export default function SendPreparePage() {
     displayName,
     startSend,
     clearSelectedFiles,
+    refreshTextOutbox,
     router,
     t,
   ]);
 
   const onCancel = useCallback(() => {
-    if (selectedFiles.length > 0) {
-      Alert.alert(t`放弃选择？`, t`已选的文件将被清空。`, [
-        { text: t`继续选择`, style: "cancel" },
-        {
-          text: t`放弃`,
-          style: "destructive",
-          onPress: () => {
-            clearSelectedFiles();
-            router.back();
+    if (selectedFiles.length > 0 || textBody.length > 0) {
+      Alert.alert(
+        t`放弃发送内容？`,
+        contentMode === "text" ? t`输入的文本将被清空。` : t`已选的文件将被清空。`,
+        [
+          { text: t`继续选择`, style: "cancel" },
+          {
+            text: t`放弃`,
+            style: "destructive",
+            onPress: () => {
+              clearSelectedFiles();
+              router.back();
+            },
           },
-        },
-      ]);
+        ],
+      );
     } else {
       router.back();
     }
-  }, [selectedFiles.length, clearSelectedFiles, router, t]);
+  }, [selectedFiles.length, textBody.length, contentMode, clearSelectedFiles, router, t]);
 
   // ── 渲染 ───────────────────────────────────────────────────
   if (!device) {
@@ -334,6 +347,7 @@ export default function SendPreparePage() {
                   accessibilityRole="button"
                   accessibilityLabel={t`从剪贴板粘贴`}
                   disabled={sending}
+                  testID="send-text-paste-button"
                   onPress={() => {
                     void clipboard.readText()
                       .then((value) => {
@@ -341,7 +355,7 @@ export default function SendPreparePage() {
                           toast.error(t`剪贴板中没有可用文本`);
                           return;
                         }
-                        setTextBody(value.slice(0, 64 * 1024));
+                        setTextBody(value);
                       })
                       .catch((error) => toast.error(t`读取剪贴板失败`, error));
                   }}
@@ -356,14 +370,20 @@ export default function SendPreparePage() {
             <TextInput
               multiline
               value={textBody}
-              onChangeText={(value) => setTextBody(value.slice(0, 64 * 1024))}
+              onChangeText={setTextBody}
               editable={!sending}
               accessibilityLabel={t`要发送的文本`}
+              testID="send-text-editor"
               placeholder={t`输入或粘贴文本`}
               placeholderTextColor={colors.mutedForeground}
               textAlignVertical="top"
               className="min-h-48 rounded-xl border border-border bg-muted/30 p-3 text-[15px] leading-6 text-foreground"
             />
+            {textBody.length > 0 && !isTextDeliveryWithinLimit(textBody) ? (
+              <Text className="text-[12px] text-destructive-ink">
+                <Trans>文本超过 64 KiB，请缩短后发送。</Trans>
+              </Text>
+            ) : null}
             {outbox.length > 0 ? (
               <View className="gap-2 border-t border-border pt-3">
                 <Text className="text-[13px] font-semibold text-muted-foreground">
@@ -378,7 +398,7 @@ export default function SendPreparePage() {
                     <Text className="text-[11px] text-muted-foreground"><Trans>更新于</Trans> {formatRelativeTime(record.updatedAt)}</Text>
                     <View className="flex-row justify-end gap-2">
                       <Pressable accessibilityRole="button" onPress={() => setTextBody(record.body)} className="rounded-lg border border-border px-3 py-1.5 active:opacity-70"><Text className="text-[12px] font-semibold text-foreground"><Trans>编辑后重发</Trans></Text></Pressable>
-                      {mobileTextRetryable(record.status) ? <Pressable accessibilityRole="button" onPress={() => void getMobileCore().retryTextDelivery(record.deliveryId).then(refreshTextOutbox).catch((error) => toast.error(t`重试失败`, error))} className="rounded-lg border border-border px-3 py-1.5 active:opacity-70"><Text className="text-[12px] font-semibold text-foreground"><Trans>重试</Trans></Text></Pressable> : null}
+                      {mobileTextRetryable(record.status) ? <Pressable accessibilityRole="button" testID={`send-text-retry-${record.deliveryId}`} onPress={() => void getMobileCore().retryTextDelivery(record.deliveryId).then(refreshTextOutbox).catch((error) => toast.error(t`重试失败`, error))} className="rounded-lg border border-border px-3 py-1.5 active:opacity-70"><Text className="text-[12px] font-semibold text-foreground"><Trans>重试</Trans></Text></Pressable> : null}
                       <Pressable accessibilityRole="button" onPress={() => void getMobileCore().deleteTextOutboxRecord(record.deliveryId).then(refreshTextOutbox).catch((error) => toast.error(t`删除失败`, error))} className="rounded-lg border border-border px-3 py-1.5 active:opacity-70"><Text className="text-[12px] font-semibold text-foreground"><Trans>删除</Trans></Text></Pressable>
                     </View>
                   </View>
@@ -403,7 +423,9 @@ export default function SendPreparePage() {
               numberOfLines={1}
             >
               {contentMode === "text" ? (
-                <Trans>{new TextEncoder().encode(textBody).byteLength} / 64 KB</Trans>
+                <>
+                  {formatTextDeliveryKiB(utf8ByteLength(textBody))} / {formatTextDeliveryKiB(TEXT_DELIVERY_MAX_BYTES)}
+                </>
               ) : selectedFiles.length > 0 ? (
                 <Trans>
                   {selectedFiles.length} 个文件 · {formatBytes(totalSize)}
@@ -429,12 +451,13 @@ export default function SendPreparePage() {
               <Pressable
                 onPress={onSend}
                 accessibilityRole="button"
+                testID={contentMode === "text" ? "send-text-action" : "send-files-action"}
                 disabled={
                   sending ||
                   !sendable ||
                   (contentMode === "files"
                     ? selectedFiles.length === 0
-                    : textBody.trim().length === 0)
+                    : !isTextDeliveryWithinLimit(textBody))
                 }
                 className={cn(
                   "h-10 min-w-25 flex-row items-center justify-center gap-1.5 rounded-xl bg-primary px-4",
@@ -460,7 +483,19 @@ export default function SendPreparePage() {
 }
 
 function mobileTextRetryable(status: MobileTextDeliveryStatus) {
-  return status === MobileTextDeliveryStatus.Retryable || status === MobileTextDeliveryStatus.Expired || status === MobileTextDeliveryStatus.WaitingConfirmation;
+  return isTextDeliveryRetryable(mobileTextDeliveryStatus(status));
+}
+
+function mobileTextDeliveryStatus(status: MobileTextDeliveryStatus): TextDeliveryStatus {
+  switch (status) {
+    case MobileTextDeliveryStatus.Sending: return "sending";
+    case MobileTextDeliveryStatus.WaitingConfirmation: return "waiting_confirmation";
+    case MobileTextDeliveryStatus.Delivered: return "delivered";
+    case MobileTextDeliveryStatus.Rejected: return "rejected";
+    case MobileTextDeliveryStatus.Retryable: return "retryable";
+    case MobileTextDeliveryStatus.Expired: return "expired";
+    case MobileTextDeliveryStatus.Cancelled: return "cancelled";
+  }
 }
 
 function mobileTextStatus(status: MobileTextDeliveryStatus): ReactNode {
@@ -490,7 +525,7 @@ function ContentModeSwitch({
   ];
   const colors = useThemeColors();
   return (
-    <View className="flex-row rounded-xl bg-muted p-1">
+    <View className="self-start flex-row rounded-xl bg-muted p-1">
       {options.map(({ value: option, label, icon: Icon }) => {
         const active = option === value;
         return (
@@ -500,8 +535,9 @@ function ContentModeSwitch({
             accessibilityState={{ selected: active }}
             disabled={disabled}
             onPress={() => onChange(option)}
+            testID={`send-content-mode-${option}`}
             className={cn(
-              "flex-1 flex-row items-center justify-center gap-1.5 rounded-lg py-2",
+              "h-11 w-28 flex-row items-center justify-center gap-1.5 rounded-lg",
               active ? "bg-card" : "",
               "disabled:opacity-50",
             )}

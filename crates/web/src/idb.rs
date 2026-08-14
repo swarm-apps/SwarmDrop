@@ -37,11 +37,12 @@ const DB_NAME: &str = "swarmdrop-web";
 /// v4 新增 `inbox`（收件箱条目独立成表，不再是已完成接收会话的投影）；
 /// v5 = `inbox` 行里 `title` 的**含义**变了：从拼好的整句标题变成首文件名；
 /// v6 = 接收文本账本与其 Inbox 投影合并为同一条 inbox 记录，保证单记录原子提交；
-/// v7 = 新增发送文本账本，接收文本仍和 Inbox 复用同一条记录。
+/// v7 = 新增发送文本账本，接收文本仍和 Inbox 复用同一条记录；
+/// v8 = 新增待确认接收文本账本，确认前不得暴露到 Inbox。
 ///
 /// **加 store 要提版本号**（否则 `onupgradeneeded` 不触发、新 store 建不出来），
 /// **换字段含义同样要提**——v5 一个 store 都没加，但不提就没有任何地方能丢掉旧行。
-const DB_VERSION: u32 = 7;
+const DB_VERSION: u32 = 8;
 
 /// 单例键值 store（身份 / 已配对设备）。
 pub const KV_STORE: &str = "kv";
@@ -53,6 +54,8 @@ pub const INVITE_STORE: &str = "invites";
 pub const INBOX_STORE: &str = "inbox";
 /// 发送文本账本 store（key = delivery uuid 字符串）。
 pub const TEXT_OUTBOX_STORE: &str = "text-outbox";
+/// 待确认接收文本账本 store（key = delivery uuid 字符串）。
+pub const PENDING_TEXT_INBOX_STORE: &str = "pending-text-inbox";
 
 /// 全部 object store 及其**记录格式版本**——建表清单与丢弃判据的单一事实源。
 ///
@@ -72,6 +75,7 @@ const STORES: &[(&str, u32)] = &[
     // v4 引入，v5 换了 `title` 的含义（拼好的整句 → 首文件名）。
     (INBOX_STORE, 6),
     (TEXT_OUTBOX_STORE, 7),
+    (PENDING_TEXT_INBOX_STORE, 8),
 ];
 
 /// 读一个键（不存在 → `None`）。

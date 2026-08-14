@@ -99,7 +99,7 @@ async fn detail_from_model(
         };
         InboxItemContent::Files {
             entries: item.files.clone().into_iter().map(file_entry).collect(),
-            transfer,
+            transfer: Box::new(transfer),
         }
     };
     Ok(InboxItemDetail {
@@ -504,12 +504,12 @@ pub(crate) async fn delete_inbox_item_record(
         .await?
     {
         // 文本正文只随收件箱记录存在；删除时必须一并抹去，不能留在独立账本中。
-        if item.content_kind == InboxContentKind::Text {
-            if let Some(delivery_id) = item.text_delivery_id {
-                entity::TextDelivery::delete_by_id(delivery_id)
-                    .exec(&transaction)
-                    .await?;
-            }
+        if item.content_kind == InboxContentKind::Text
+            && let Some(delivery_id) = item.text_delivery_id
+        {
+            entity::TextDelivery::delete_by_id(delivery_id)
+                .exec(&transaction)
+                .await?;
         }
         let mut model = item.into_active_model();
         model.deleted_at = Set(Some(now_ms()));

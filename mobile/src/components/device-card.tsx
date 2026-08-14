@@ -136,7 +136,7 @@ function DeviceCardComponent({
           }}
           disabled={!sendable}
           accessibilityRole="button"
-          accessibilityLabel={t`发送文件给 ${displayName}`}
+          accessibilityLabel={t`向 ${displayName} 发送内容`}
           className="size-11 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:bg-muted"
         >
           <Send
@@ -221,7 +221,7 @@ function DeviceCardComponent({
           }}
           disabled={!sendable}
           accessibilityRole="button"
-          accessibilityLabel={t`发送文件给 ${displayName}`}
+          accessibilityLabel={t`向 ${displayName} 发送内容`}
           className="size-11 items-center justify-center rounded-xl bg-primary active:opacity-70 disabled:bg-muted"
         >
           <Send

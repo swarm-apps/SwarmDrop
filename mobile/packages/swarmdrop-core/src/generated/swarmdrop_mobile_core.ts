@@ -576,7 +576,7 @@ export const MobileSaveLocation = (() => {
 
     type Path__interface = {
         tag: MobileSaveLocation_Tags.Path;
-        inner: 
+        inner:
 Readonly<{path: string}>
     };
     /**
@@ -589,7 +589,7 @@ Readonly<{path: string}>
          */
         readonly [uniffiTypeNameSymbol] = "MobileSaveLocation";
         readonly tag = MobileSaveLocation_Tags.Path;
-        readonly inner: 
+        readonly inner:
 Readonly<{path: string}>;
         constructor(
 inner: {path: string }) {
@@ -1488,7 +1488,7 @@ Readonly<{retentionDays: number}>
          */
         readonly [uniffiTypeNameSymbol] = "MobileFailureCode";
         readonly tag = MobileFailureCode_Tags.SessionExpired;
-        readonly inner: 
+        readonly inner:
 Readonly<{retentionDays: number}>;
         constructor(
 inner: {retentionDays: number }) {
@@ -3254,6 +3254,64 @@ const FfiConverterTypeMobileSendResult = (() => {
     return new FFIConverter();
 })();
 
+/**
+ * 文本到达的最小注意力载荷；正文不跨事件边界，避免通知与日志泄露。
+ */
+export type MobileTextDeliveryAttention = {
+    deliveryId: string,
+    peerId: string,
+    peerName: string,
+    kind: string,
+    createdAt: bigint
+}
+
+/**
+ * Generated factory for {@link MobileTextDeliveryAttention} record objects.
+ */
+export const MobileTextDeliveryAttention = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileTextDeliveryAttention, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileTextDeliveryAttention>,
+    });
+})();
+
+const FfiConverterTypeMobileTextDeliveryAttention = (() => {
+    type TypeName = MobileTextDeliveryAttention;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                deliveryId: FfiConverterString.read(from),
+                peerId: FfiConverterString.read(from),
+                peerName: FfiConverterString.read(from),
+                kind: FfiConverterString.read(from),
+                createdAt: FfiConverterInt64.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.deliveryId, into);
+            FfiConverterString.write(value.peerId, into);
+            FfiConverterString.write(value.peerName, into);
+            FfiConverterString.write(value.kind, into);
+            FfiConverterInt64.write(value.createdAt, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.deliveryId) +
+             FfiConverterString.allocationSize(value.peerId) +
+             FfiConverterString.allocationSize(value.peerName) +
+             FfiConverterString.allocationSize(value.kind) +
+             FfiConverterInt64.allocationSize(value.createdAt);
+
+        }
+    };
+    return new FFIConverter();
+})();
+
 export enum MobileTextDeliveryDirection {
     Send,
     Receive
@@ -3601,7 +3659,7 @@ export const MobileTransferOrigin = (() => {
 
     type Mcp__interface = {
         tag: MobileTransferOrigin_Tags.Mcp;
-        inner: 
+        inner:
 Readonly<{client?: string}>
     };
     class Mcp_ extends UniffiEnum implements Mcp__interface {
@@ -3611,7 +3669,7 @@ Readonly<{client?: string}>
          */
         readonly [uniffiTypeNameSymbol] = "MobileTransferOrigin";
         readonly tag = MobileTransferOrigin_Tags.Mcp;
-        readonly inner: 
+        readonly inner:
 Readonly<{client?: string}>;
         constructor(
 inner: {client?: string }) {
@@ -4780,6 +4838,7 @@ const FfiConverterTypeFfiError = (() => {
 
 // Enum: MobileCoreEvent
 export enum MobileCoreEvent_Tags {
+    TextDeliveryAttention = "TextDeliveryAttention",
     NetworkStatusChanged = "NetworkStatusChanged",
     DevicesChanged = "DevicesChanged",
     PairingRequestReceived = "PairingRequestReceived",
@@ -4802,6 +4861,37 @@ export enum MobileCoreEvent_Tags {
     Error = "Error"
 }
 export const MobileCoreEvent = (() => {
+
+    type TextDeliveryAttention__interface = {
+        tag: MobileCoreEvent_Tags.TextDeliveryAttention;
+        inner:
+Readonly<{attention: MobileTextDeliveryAttention}>
+    };
+    class TextDeliveryAttention_ extends UniffiEnum implements TextDeliveryAttention__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileCoreEvent";
+        readonly tag = MobileCoreEvent_Tags.TextDeliveryAttention;
+        readonly inner:
+Readonly<{attention: MobileTextDeliveryAttention}>;
+        constructor(
+inner: {attention: MobileTextDeliveryAttention }) {
+            super("MobileCoreEvent", "TextDeliveryAttention");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {attention: MobileTextDeliveryAttention }): TextDeliveryAttention_ {
+            return new TextDeliveryAttention_(inner);
+        }
+
+        static instanceOf(obj: any): obj is TextDeliveryAttention_ {
+            return obj.tag === MobileCoreEvent_Tags.TextDeliveryAttention;
+        }
+
+    }
 
     type NetworkStatusChanged__interface = {
         tag: MobileCoreEvent_Tags.NetworkStatusChanged;
@@ -5426,6 +5516,7 @@ inner: {message: string }): Error_ {
 
     return Object.freeze({
         instanceOf,
+  TextDeliveryAttention: TextDeliveryAttention_,
   NetworkStatusChanged: NetworkStatusChanged_, 
   DevicesChanged: DevicesChanged_, 
   PairingRequestReceived: PairingRequestReceived_, 
@@ -5450,7 +5541,7 @@ inner: {message: string }): Error_ {
 
 })();
 export type MobileCoreEvent = InstanceType<
-    typeof MobileCoreEvent['NetworkStatusChanged' | 'DevicesChanged' | 'PairingRequestReceived' | 'PairingCompleted' | 'PairedDeviceAdded' | 'PairedDeviceRemoved' | 'DeviceRenamed' | 'TransferOfferReceived' | 'TransferProgress' | 'TransferAccepted' | 'TransferRejected' | 'TransferCompleted' | 'TransferFailed' | 'TransferPaused' | 'TransferResumed' | 'TransferProjectionUpdate' | 'TransferDbError' | 'PrepareProgress' | 'FilePublish' | 'Error']
+    typeof MobileCoreEvent['TextDeliveryAttention' | 'NetworkStatusChanged' | 'DevicesChanged' | 'PairingRequestReceived' | 'PairingCompleted' | 'PairedDeviceAdded' | 'PairedDeviceRemoved' | 'DeviceRenamed' | 'TransferOfferReceived' | 'TransferProgress' | 'TransferAccepted' | 'TransferRejected' | 'TransferCompleted' | 'TransferFailed' | 'TransferPaused' | 'TransferResumed' | 'TransferProjectionUpdate' | 'TransferDbError' | 'PrepareProgress' | 'FilePublish' | 'Error']
 >;
 
 // FfiConverter for enum MobileCoreEvent
@@ -5460,43 +5551,50 @@ const FfiConverterTypeMobileCoreEvent = (() => {
     class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
         read(from: RustBuffer): TypeName {
             switch (ordinalConverter.read(from)) {
-                case 1: return new MobileCoreEvent.NetworkStatusChanged({status: FfiConverterTypeMobileNetworkStatus.read(from) });
-                case 2: return new MobileCoreEvent.DevicesChanged();
-                case 3: return new MobileCoreEvent.PairingRequestReceived({peerId: FfiConverterString.read(from), pendingId: FfiConverterUInt64.read(from), code: FfiConverterOptionalString.read(from) });
-                case 4: return new MobileCoreEvent.PairingCompleted({peerId: FfiConverterString.read(from) });
-                case 5: return new MobileCoreEvent.PairedDeviceAdded({device: FfiConverterTypeMobilePairedDevice.read(from) });
-                case 6: return new MobileCoreEvent.PairedDeviceRemoved({peerId: FfiConverterString.read(from) });
-                case 7: return new MobileCoreEvent.DeviceRenamed({name: FfiConverterOptionalString.read(from), displayName: FfiConverterString.read(from) });
-                case 8: return new MobileCoreEvent.TransferOfferReceived({offer: FfiConverterTypeMobileTransferOffer.read(from) });
-                case 9: return new MobileCoreEvent.TransferProgress({progress: FfiConverterTypeMobileTransferProgress.read(from) });
-                case 10: return new MobileCoreEvent.TransferAccepted({sessionId: FfiConverterString.read(from) });
-                case 11: return new MobileCoreEvent.TransferRejected({sessionId: FfiConverterString.read(from), reason: FfiConverterOptionalString.read(from) });
-                case 12: return new MobileCoreEvent.TransferCompleted({sessionId: FfiConverterString.read(from) });
-                case 13: return new MobileCoreEvent.TransferFailed({sessionId: FfiConverterString.read(from), error: FfiConverterString.read(from) });
-                case 14: return new MobileCoreEvent.TransferPaused({sessionId: FfiConverterString.read(from) });
-                case 15: return new MobileCoreEvent.TransferResumed({event: FfiConverterTypeMobileTransferResumed.read(from) });
-                case 16: return new MobileCoreEvent.TransferProjectionUpdate({projection: FfiConverterTypeMobileTransferProjection.read(from) });
-                case 17: return new MobileCoreEvent.TransferDbError({sessionId: FfiConverterString.read(from), message: FfiConverterString.read(from) });
-                case 18: return new MobileCoreEvent.PrepareProgress({event: FfiConverterTypeMobilePrepareProgress.read(from) });
-                case 19: return new MobileCoreEvent.FilePublish({event: FfiConverterTypeMobileFilePublish.read(from) });
-                case 20: return new MobileCoreEvent.Error({message: FfiConverterString.read(from) });
+                case 1: return new MobileCoreEvent.TextDeliveryAttention({attention: FfiConverterTypeMobileTextDeliveryAttention.read(from) });
+                case 2: return new MobileCoreEvent.NetworkStatusChanged({status: FfiConverterTypeMobileNetworkStatus.read(from) });
+                case 3: return new MobileCoreEvent.DevicesChanged();
+                case 4: return new MobileCoreEvent.PairingRequestReceived({peerId: FfiConverterString.read(from), pendingId: FfiConverterUInt64.read(from), code: FfiConverterOptionalString.read(from) });
+                case 5: return new MobileCoreEvent.PairingCompleted({peerId: FfiConverterString.read(from) });
+                case 6: return new MobileCoreEvent.PairedDeviceAdded({device: FfiConverterTypeMobilePairedDevice.read(from) });
+                case 7: return new MobileCoreEvent.PairedDeviceRemoved({peerId: FfiConverterString.read(from) });
+                case 8: return new MobileCoreEvent.DeviceRenamed({name: FfiConverterOptionalString.read(from), displayName: FfiConverterString.read(from) });
+                case 9: return new MobileCoreEvent.TransferOfferReceived({offer: FfiConverterTypeMobileTransferOffer.read(from) });
+                case 10: return new MobileCoreEvent.TransferProgress({progress: FfiConverterTypeMobileTransferProgress.read(from) });
+                case 11: return new MobileCoreEvent.TransferAccepted({sessionId: FfiConverterString.read(from) });
+                case 12: return new MobileCoreEvent.TransferRejected({sessionId: FfiConverterString.read(from), reason: FfiConverterOptionalString.read(from) });
+                case 13: return new MobileCoreEvent.TransferCompleted({sessionId: FfiConverterString.read(from) });
+                case 14: return new MobileCoreEvent.TransferFailed({sessionId: FfiConverterString.read(from), error: FfiConverterString.read(from) });
+                case 15: return new MobileCoreEvent.TransferPaused({sessionId: FfiConverterString.read(from) });
+                case 16: return new MobileCoreEvent.TransferResumed({event: FfiConverterTypeMobileTransferResumed.read(from) });
+                case 17: return new MobileCoreEvent.TransferProjectionUpdate({projection: FfiConverterTypeMobileTransferProjection.read(from) });
+                case 18: return new MobileCoreEvent.TransferDbError({sessionId: FfiConverterString.read(from), message: FfiConverterString.read(from) });
+                case 19: return new MobileCoreEvent.PrepareProgress({event: FfiConverterTypeMobilePrepareProgress.read(from) });
+                case 20: return new MobileCoreEvent.FilePublish({event: FfiConverterTypeMobileFilePublish.read(from) });
+                case 21: return new MobileCoreEvent.Error({message: FfiConverterString.read(from) });
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
         write(value: TypeName, into: RustBuffer): void {
             switch (value.tag) {
-                case MobileCoreEvent_Tags.NetworkStatusChanged: {
+                case MobileCoreEvent_Tags.TextDeliveryAttention: {
                     ordinalConverter.write(1, into);
+                    const inner = value.inner;
+                    FfiConverterTypeMobileTextDeliveryAttention.write(inner.attention, into);
+                    return;
+                }
+                case MobileCoreEvent_Tags.NetworkStatusChanged: {
+                    ordinalConverter.write(2, into);
                     const inner = value.inner;
                     FfiConverterTypeMobileNetworkStatus.write(inner.status, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.DevicesChanged: {
-                    ordinalConverter.write(2, into);
+                    ordinalConverter.write(3, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.PairingRequestReceived: {
-                    ordinalConverter.write(3, into);
+                    ordinalConverter.write(4, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.peerId, into);
                     FfiConverterUInt64.write(inner.pendingId, into);
@@ -5504,107 +5602,107 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                     return;
                 }
                 case MobileCoreEvent_Tags.PairingCompleted: {
-                    ordinalConverter.write(4, into);
+                    ordinalConverter.write(5, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.peerId, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.PairedDeviceAdded: {
-                    ordinalConverter.write(5, into);
+                    ordinalConverter.write(6, into);
                     const inner = value.inner;
                     FfiConverterTypeMobilePairedDevice.write(inner.device, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.PairedDeviceRemoved: {
-                    ordinalConverter.write(6, into);
+                    ordinalConverter.write(7, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.peerId, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.DeviceRenamed: {
-                    ordinalConverter.write(7, into);
+                    ordinalConverter.write(8, into);
                     const inner = value.inner;
                     FfiConverterOptionalString.write(inner.name, into);
                     FfiConverterString.write(inner.displayName, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferOfferReceived: {
-                    ordinalConverter.write(8, into);
+                    ordinalConverter.write(9, into);
                     const inner = value.inner;
                     FfiConverterTypeMobileTransferOffer.write(inner.offer, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferProgress: {
-                    ordinalConverter.write(9, into);
+                    ordinalConverter.write(10, into);
                     const inner = value.inner;
                     FfiConverterTypeMobileTransferProgress.write(inner.progress, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferAccepted: {
-                    ordinalConverter.write(10, into);
+                    ordinalConverter.write(11, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.sessionId, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferRejected: {
-                    ordinalConverter.write(11, into);
+                    ordinalConverter.write(12, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.sessionId, into);
                     FfiConverterOptionalString.write(inner.reason, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferCompleted: {
-                    ordinalConverter.write(12, into);
+                    ordinalConverter.write(13, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.sessionId, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferFailed: {
-                    ordinalConverter.write(13, into);
+                    ordinalConverter.write(14, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.sessionId, into);
                     FfiConverterString.write(inner.error, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferPaused: {
-                    ordinalConverter.write(14, into);
+                    ordinalConverter.write(15, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.sessionId, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferResumed: {
-                    ordinalConverter.write(15, into);
+                    ordinalConverter.write(16, into);
                     const inner = value.inner;
                     FfiConverterTypeMobileTransferResumed.write(inner.event, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferProjectionUpdate: {
-                    ordinalConverter.write(16, into);
+                    ordinalConverter.write(17, into);
                     const inner = value.inner;
                     FfiConverterTypeMobileTransferProjection.write(inner.projection, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.TransferDbError: {
-                    ordinalConverter.write(17, into);
+                    ordinalConverter.write(18, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.sessionId, into);
                     FfiConverterString.write(inner.message, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.PrepareProgress: {
-                    ordinalConverter.write(18, into);
+                    ordinalConverter.write(19, into);
                     const inner = value.inner;
                     FfiConverterTypeMobilePrepareProgress.write(inner.event, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.FilePublish: {
-                    ordinalConverter.write(19, into);
+                    ordinalConverter.write(20, into);
                     const inner = value.inner;
                     FfiConverterTypeMobileFilePublish.write(inner.event, into);
                     return;
                 }
                 case MobileCoreEvent_Tags.Error: {
-                    ordinalConverter.write(20, into);
+                    ordinalConverter.write(21, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.message, into);
                     return;
@@ -5616,18 +5714,24 @@ const FfiConverterTypeMobileCoreEvent = (() => {
         }
         allocationSize(value: TypeName): number {
             switch (value.tag) {
-                case MobileCoreEvent_Tags.NetworkStatusChanged: {
+                case MobileCoreEvent_Tags.TextDeliveryAttention: {
                     const inner = value.inner;
                     let size = ordinalConverter.allocationSize(1);
+                    size += FfiConverterTypeMobileTextDeliveryAttention.allocationSize(inner.attention);
+                    return size;
+                }
+                case MobileCoreEvent_Tags.NetworkStatusChanged: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(2);
                     size += FfiConverterTypeMobileNetworkStatus.allocationSize(inner.status);
                     return size;
                 }
                 case MobileCoreEvent_Tags.DevicesChanged: {
-                    return ordinalConverter.allocationSize(2);
+                    return ordinalConverter.allocationSize(3);
                 }
                 case MobileCoreEvent_Tags.PairingRequestReceived: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(3);
+                    let size = ordinalConverter.allocationSize(4);
                     size += FfiConverterString.allocationSize(inner.peerId);
                     size += FfiConverterUInt64.allocationSize(inner.pendingId);
                     size += FfiConverterOptionalString.allocationSize(inner.code);
@@ -5635,107 +5739,107 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                 }
                 case MobileCoreEvent_Tags.PairingCompleted: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(4);
+                    let size = ordinalConverter.allocationSize(5);
                     size += FfiConverterString.allocationSize(inner.peerId);
                     return size;
                 }
                 case MobileCoreEvent_Tags.PairedDeviceAdded: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(5);
+                    let size = ordinalConverter.allocationSize(6);
                     size += FfiConverterTypeMobilePairedDevice.allocationSize(inner.device);
                     return size;
                 }
                 case MobileCoreEvent_Tags.PairedDeviceRemoved: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(6);
+                    let size = ordinalConverter.allocationSize(7);
                     size += FfiConverterString.allocationSize(inner.peerId);
                     return size;
                 }
                 case MobileCoreEvent_Tags.DeviceRenamed: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(7);
+                    let size = ordinalConverter.allocationSize(8);
                     size += FfiConverterOptionalString.allocationSize(inner.name);
                     size += FfiConverterString.allocationSize(inner.displayName);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferOfferReceived: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(8);
+                    let size = ordinalConverter.allocationSize(9);
                     size += FfiConverterTypeMobileTransferOffer.allocationSize(inner.offer);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferProgress: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(9);
+                    let size = ordinalConverter.allocationSize(10);
                     size += FfiConverterTypeMobileTransferProgress.allocationSize(inner.progress);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferAccepted: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(10);
+                    let size = ordinalConverter.allocationSize(11);
                     size += FfiConverterString.allocationSize(inner.sessionId);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferRejected: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(11);
+                    let size = ordinalConverter.allocationSize(12);
                     size += FfiConverterString.allocationSize(inner.sessionId);
                     size += FfiConverterOptionalString.allocationSize(inner.reason);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferCompleted: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(12);
+                    let size = ordinalConverter.allocationSize(13);
                     size += FfiConverterString.allocationSize(inner.sessionId);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferFailed: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(13);
+                    let size = ordinalConverter.allocationSize(14);
                     size += FfiConverterString.allocationSize(inner.sessionId);
                     size += FfiConverterString.allocationSize(inner.error);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferPaused: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(14);
+                    let size = ordinalConverter.allocationSize(15);
                     size += FfiConverterString.allocationSize(inner.sessionId);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferResumed: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(15);
+                    let size = ordinalConverter.allocationSize(16);
                     size += FfiConverterTypeMobileTransferResumed.allocationSize(inner.event);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferProjectionUpdate: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(16);
+                    let size = ordinalConverter.allocationSize(17);
                     size += FfiConverterTypeMobileTransferProjection.allocationSize(inner.projection);
                     return size;
                 }
                 case MobileCoreEvent_Tags.TransferDbError: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(17);
+                    let size = ordinalConverter.allocationSize(18);
                     size += FfiConverterString.allocationSize(inner.sessionId);
                     size += FfiConverterString.allocationSize(inner.message);
                     return size;
                 }
                 case MobileCoreEvent_Tags.PrepareProgress: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(18);
+                    let size = ordinalConverter.allocationSize(19);
                     size += FfiConverterTypeMobilePrepareProgress.allocationSize(inner.event);
                     return size;
                 }
                 case MobileCoreEvent_Tags.FilePublish: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(19);
+                    let size = ordinalConverter.allocationSize(20);
                     size += FfiConverterTypeMobileFilePublish.allocationSize(inner.event);
                     return size;
                 }
                 case MobileCoreEvent_Tags.Error: {
                     const inner = value.inner;
-                    let size = ordinalConverter.allocationSize(20);
+                    let size = ordinalConverter.allocationSize(21);
                     size += FfiConverterString.allocationSize(inner.message);
                     return size;
                 }
@@ -10134,6 +10238,7 @@ export default Object.freeze({
     FfiConverterTypeMobileSendResult,
     FfiConverterTypeMobileSuspendedReason,
     FfiConverterTypeMobileTerminalReason,
+    FfiConverterTypeMobileTextDeliveryAttention,
     FfiConverterTypeMobileTextDeliveryDirection,
     FfiConverterTypeMobileTextDeliveryFailure,
     FfiConverterTypeMobileTextDeliveryRecord,

@@ -657,6 +657,18 @@ export type TerminalReason = "completed" | "cancelled" | "rejected" | "fatal_err
  */
 "expired";
 
+/**  已持久化或已进入待确认队列的文本投递注意力。 */
+export type TextDeliveryAttention = {
+    deliveryId: string,
+    peerId: string,
+    peerName: string,
+    kind: TextDeliveryAttentionKind,
+    createdAt: number,
+};
+
+/**  用户需要处理的文本投递状态。事件不含正文，避免系统通知或日志泄露敏感内容。 */
+export type TextDeliveryAttentionKind = "confirmation_required" | "received";
+
 /**  文本投递账本的方向。 */
 export type TextDeliveryDirection = "send" | "receive";
 
@@ -884,7 +896,7 @@ export type WebError =
  *  `TransferEvent` 本身未 derive `Serialize`（transfer 不改）——与桌面把它映射进
  *  `CoreEvent` 的适配范式一致。`events()` 的 ReadableStream 逐条产出本类型的序列化对象。
  */
-export type WebTransferEvent = { type: "transferOfferReceived"; offer: TransferOfferEvent } | { type: "transferProgress"; event: TransferProgressEvent } | { type: "transferAccepted"; event: TransferAcceptedEvent } | { type: "transferRejected"; event: TransferRejectedEvent } | { type: "transferCompleted"; event: TransferCompleteEvent } | { type: "transferFailed"; event: TransferFailedEvent } | { type: "transferPaused"; event: TransferPausedEvent } | { type: "transferResumed"; event: TransferResumedEvent } | { type: "transferDbError"; event: TransferDbErrorEvent } | { type: "transferProjection"; projection: TransferProjection } | { type: "prepareProgress"; event: PrepareProgressEvent } | { type: "filePublish"; event: FilePublishEvent };
+export type WebTransferEvent = { type: "textDeliveryAttention"; attention: TextDeliveryAttention } | { type: "transferOfferReceived"; offer: TransferOfferEvent } | { type: "transferProgress"; event: TransferProgressEvent } | { type: "transferAccepted"; event: TransferAcceptedEvent } | { type: "transferRejected"; event: TransferRejectedEvent } | { type: "transferCompleted"; event: TransferCompleteEvent } | { type: "transferFailed"; event: TransferFailedEvent } | { type: "transferPaused"; event: TransferPausedEvent } | { type: "transferResumed"; event: TransferResumedEvent } | { type: "transferDbError"; event: TransferDbErrorEvent } | { type: "transferProjection"; projection: TransferProjection } | { type: "prepareProgress"; event: PrepareProgressEvent } | { type: "filePublish"; event: FilePublishEvent };
 
 
 
@@ -1473,6 +1485,7 @@ export interface InitOutput {
     readonly default_device_name: () => [number, number];
     readonly get_device_name: () => any;
     readonly set_device_name: (a: number, b: number) => any;
+    readonly start: () => void;
     readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly default_receive_policy: (a: any, b: number) => [number, number, number];
     readonly inbox_search_limit: () => number;
@@ -1529,7 +1542,6 @@ export interface InitOutput {
     readonly webnode_take_skipped_forward_paths: (a: number) => [number, number];
     readonly webnode_transfer_history: (a: number) => any;
     readonly webnode_update_paired_device_policy: (a: number, b: number, c: number, d: any, e: number) => any;
-    readonly start: () => void;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
     readonly intounderlyingbytesource_cancel: (a: number) => void;

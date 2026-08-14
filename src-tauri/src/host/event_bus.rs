@@ -7,8 +7,9 @@ use tauri_specta::Event as _;
 use crate::events::{
     DeviceRenamed, DevicesChanged, FilePublish, NetworkStatusChanged, PairedDeviceAdded,
     PairedDeviceRemoved, PairingRequestPayload, PairingRequestReceived, PrepareProgress,
-    TransferAccepted, TransferComplete, TransferDbError, TransferFailed, TransferOffer,
-    TransferPaused, TransferProgress, TransferProjectionUpdate, TransferRejected, TransferResumed,
+    TextDeliveryAttentionReceived, TransferAccepted, TransferComplete, TransferDbError,
+    TransferFailed, TransferOffer, TransferPaused, TransferProgress, TransferProjectionUpdate,
+    TransferRejected, TransferResumed,
 };
 
 /// 把 core 的 [`CoreEvent`] 翻译成 tauri-specta 的 typed event 广播。
@@ -35,6 +36,11 @@ impl EventBus for TauriEventBus {
         let map_err = |e: tauri::Error| swarmdrop_core::AppError::Network(e.to_string());
 
         match event {
+            CoreEvent::TextDeliveryAttention { attention } => {
+                TextDeliveryAttentionReceived(attention)
+                    .emit(&self.app)
+                    .map_err(map_err)?;
+            }
             CoreEvent::NetworkStatusChanged { status } => {
                 // 托盘的「在线」此前只由生命周期命令写死传入，说不出「它连得上东西吗」。
                 // 这里是唯一每次状态变化都会经过的点，健康度顺路搭在同一条推送上，

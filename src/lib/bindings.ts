@@ -400,6 +400,7 @@ export const events = {
 	pairingRequestReceived: makeEvent<PairingRequestReceived>("pairing-request-received"),
 	prepareProgress: makeEvent<PrepareProgress>("prepare-progress"),
 	receivingPausedChanged: makeEvent<ReceivingPausedChanged>("receiving-paused-changed"),
+	textDeliveryAttentionReceived: makeEvent<TextDeliveryAttentionReceived>("text-delivery-attention-received"),
 	transferAccepted: makeEvent<TransferAccepted>("transfer-accepted"),
 	transferComplete: makeEvent<TransferComplete>("transfer-complete"),
 	transferDbError: makeEvent<TransferDbError>("transfer-db-error"),
@@ -762,7 +763,34 @@ export type InboxHitFile = {
  * 
  *  文件与文本不以空数组或空正文互相伪装；调用方必须穷尽处理，避免把文本展示成文件操作。
  */
-export type InboxItemContent = { kind: "files"; entries: InboxItemFileEntry[]; transfer: TransferProjection | null } | { kind: "text"; body: string };
+export type InboxItemContent = { kind: "files"; entries: InboxItemFileEntry[]; transfer: {
+	sessionId: string,
+	direction: TransferDirection,
+	peerId: string,
+	peerName: string,
+	phase: TransferPhase,
+	suspendedReason: SuspendedReason | null,
+	terminalReason: TerminalReason | null,
+	recoverable: boolean,
+	epoch: number,
+	totalSize: number,
+	transferredBytes: number,
+	startedAt: number,
+	updatedAt: number,
+	finishedAt: number | null,
+	/**  失败判别码（见 [`crate::failure`]）。曾是直达三端 UI 的自由中文文本。 */
+	failure: FailureCode | null,
+	policyAction: string | null,
+	policyReason: string | null,
+	savePath: CoreSaveLocation | null,
+	/**
+	 *  「打开文件夹」应定位的真实容器目录 URI(收到内容实际所在的文件夹),已在 core 解析:
+	 *  各文件 `local_dir` 全部同一目录 → 该目录;否则回退存储根 `save_path`。前端直读,
+	 *  不再自行兜底(已完成接收必为 `Some`)。
+	 */
+	contentRoot: string | null,
+	files: TransferProjectionFile[],
+} | null } | { kind: "text"; body: string };
 
 /**  收件箱详情 DTO。 */
 export type InboxItemDetail = {
@@ -1284,6 +1312,21 @@ export type TerminalReason = "completed" | "cancelled" | "rejected" | "fatal_err
  *  「我拒过这个人吗」时会去查的地方。
  */
 "expired";
+
+/**  已持久化或已进入待确认队列的文本投递注意力。 */
+export type TextDeliveryAttention = {
+	deliveryId: string,
+	peerId: string,
+	peerName: string,
+	kind: TextDeliveryAttentionKind,
+	createdAt: number,
+};
+
+/**  用户需要处理的文本投递状态。事件不含正文，避免系统通知或日志泄露敏感内容。 */
+export type TextDeliveryAttentionKind = "confirmation_required" | "received";
+
+/**  文本到达注意力事件；正文不在事件中，前端按 deliveryId 再走本地读取/确认路径。 */
+export type TextDeliveryAttentionReceived = TextDeliveryAttention;
 
 /**  文本投递账本的方向。 */
 export type TextDeliveryDirection = "send" | "receive";

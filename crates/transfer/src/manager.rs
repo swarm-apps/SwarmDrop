@@ -35,7 +35,7 @@ use crate::progress::TransferFailedEvent;
 use crate::protocol::{FileInfo, TransferResponse};
 use crate::runtime::TransferRuntime;
 use crate::store::TransferStore;
-use crate::text_service::TextDeliveryService;
+use crate::text_delivery::TextDeliveryService;
 
 /// 发送方准备好的传输信息
 #[derive(Debug, Clone)]

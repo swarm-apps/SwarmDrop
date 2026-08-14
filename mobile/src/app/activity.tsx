@@ -252,7 +252,7 @@ export default function ActivityScreen() {
                 icon={ArrowLeftRight}
                 title={<Trans>暂无传输记录</Trans>}
                 description={
-                  <Trans>从设备页发送文件，或接收其他设备发来的内容。</Trans>
+                  <Trans>从设备页发送内容，或接收其他设备发来的内容。</Trans>
                 }
                 testID="activity-empty-state"
               />

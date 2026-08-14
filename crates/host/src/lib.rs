@@ -21,9 +21,13 @@ pub mod device;
 #[cfg(not(target_family = "wasm"))]
 pub mod device_config_file;
 pub mod error;
+pub mod notification;
 pub mod ports;
 
 #[cfg(not(target_family = "wasm"))]
 pub use device_config_file::JsonFileDeviceConfig;
 pub use error::{AppError, AppResult};
+pub use notification::{
+    SystemNotification, SystemNotificationPublisher, publish_if_window_unfocused,
+};
 pub use ports::*;
