@@ -71,11 +71,11 @@ import {
 } from "@/core/inbox-file-availability";
 import { canOpenSaveFolder } from "@/core/saf-intent";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { clipboard } from "@/lib/clipboard";
 import { inboxItemTitle } from "@/lib/inbox-title";
 import { openFileWithSystem, shareFileWithSystem } from "@/lib/open-file";
 import { openSaveFolderOrToast } from "@/lib/save-folder";
 import { toast } from "@/lib/toast";
-import { clipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { type InboxFileEntry, useInboxStore } from "@/stores/inbox-store";
 import { useShareStore } from "@/stores/share-store";

@@ -17,19 +17,25 @@ import {
   isTextDeliveryWithinLimit,
   organizedDeviceName,
   TEXT_DELIVERY_MAX_BYTES,
-  utf8ByteLength,
   type TextDeliveryStatus,
+  utf8ByteLength,
 } from "@swarmdrop/shared-view";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
+  Clipboard as ClipboardIcon,
   FileText,
   Folder,
   Image as ImageIcon,
-  Clipboard as ClipboardIcon,
   type LucideIcon,
   Video,
 } from "lucide-react-native";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -39,9 +45,9 @@ import {
   View,
 } from "react-native";
 import {
-  MobileTextDeliveryStatus,
   type MobileDevice as DeviceInfo,
   type MobileTextDeliveryRecord,
+  MobileTextDeliveryStatus,
 } from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -49,8 +55,11 @@ import {
   type FileBrowserActions,
   fromSelectedFiles,
 } from "@/components/file-browser";
-import { AppScreen, BottomActionBar } from "@/components/mobile/screen";
-import { Surface } from "@/components/mobile/screen";
+import {
+  AppScreen,
+  BottomActionBar,
+  Surface,
+} from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
 import { PrepareProgressBar } from "@/components/transfer/prepare-progress-bar";
 import { formatBytes, formatRelativeTime } from "@/components/transfer/shared";
@@ -63,8 +72,8 @@ import {
 } from "@/core/file-access";
 import { getMobileCore } from "@/core/mobile-core";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { devicePlatformIcon } from "@/lib/device-platform";
 import { clipboard } from "@/lib/clipboard";
+import { devicePlatformIcon } from "@/lib/device-platform";
 import { getErrorMessage } from "@/lib/errors";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -250,7 +259,9 @@ export default function SendPreparePage() {
     if (selectedFiles.length > 0 || textBody.length > 0) {
       Alert.alert(
         t`放弃发送内容？`,
-        contentMode === "text" ? t`输入的文本将被清空。` : t`已选的文件将被清空。`,
+        contentMode === "text"
+          ? t`输入的文本将被清空。`
+          : t`已选的文件将被清空。`,
         [
           { text: t`继续选择`, style: "cancel" },
           {
@@ -266,7 +277,14 @@ export default function SendPreparePage() {
     } else {
       router.back();
     }
-  }, [selectedFiles.length, textBody.length, contentMode, clearSelectedFiles, router, t]);
+  }, [
+    selectedFiles.length,
+    textBody.length,
+    contentMode,
+    clearSelectedFiles,
+    router,
+    t,
+  ]);
 
   // ── 渲染 ───────────────────────────────────────────────────
   if (!device) {
@@ -342,14 +360,25 @@ export default function SendPreparePage() {
                 <Trans>文本内容</Trans>
               </Text>
               <View className="flex-row gap-2">
-                <Pressable accessibilityRole="button" accessibilityLabel={t`清空文本`} disabled={sending || textBody.length === 0} onPress={() => setTextBody("")} className="min-h-11 justify-center rounded-lg border border-border px-3 py-1.5 active:opacity-70 disabled:opacity-50"><Text className="text-[12px] font-semibold text-foreground"><Trans>清空</Trans></Text></Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t`清空文本`}
+                  disabled={sending || textBody.length === 0}
+                  onPress={() => setTextBody("")}
+                  className="min-h-11 justify-center rounded-lg border border-border px-3 py-1.5 active:opacity-70 disabled:opacity-50"
+                >
+                  <Text className="text-[12px] font-semibold text-foreground">
+                    <Trans>清空</Trans>
+                  </Text>
+                </Pressable>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={t`从剪贴板粘贴`}
                   disabled={sending}
                   testID="send-text-paste-button"
                   onPress={() => {
-                    void clipboard.readText()
+                    void clipboard
+                      .readText()
                       .then((value) => {
                         if (value.length === 0) {
                           toast.error(t`剪贴板中没有可用文本`);
@@ -390,16 +419,66 @@ export default function SendPreparePage() {
                   <Trans>最近发送</Trans>
                 </Text>
                 {outbox.slice(0, 5).map((record) => (
-                  <View key={record.deliveryId} className="gap-2 rounded-xl border border-border bg-muted/30 p-3">
+                  <View
+                    key={record.deliveryId}
+                    className="gap-2 rounded-xl border border-border bg-muted/30 p-3"
+                  >
                     <View className="flex-row items-center justify-between gap-2">
-                      <Text className="flex-1 text-[13px] text-foreground" numberOfLines={2}>{record.body}</Text>
-                      <Text className="text-[11px] text-muted-foreground">{mobileTextStatus(record.status)}</Text>
+                      <Text
+                        className="flex-1 text-[13px] text-foreground"
+                        numberOfLines={2}
+                      >
+                        {record.body}
+                      </Text>
+                      <Text className="text-[11px] text-muted-foreground">
+                        {mobileTextStatus(record.status)}
+                      </Text>
                     </View>
-                    <Text className="text-[11px] text-muted-foreground"><Trans>更新于</Trans> {formatRelativeTime(record.updatedAt)}</Text>
+                    <Text className="text-[11px] text-muted-foreground">
+                      <Trans>更新于</Trans>{" "}
+                      {formatRelativeTime(record.updatedAt)}
+                    </Text>
                     <View className="flex-row justify-end gap-2">
-                      <Pressable accessibilityRole="button" onPress={() => setTextBody(record.body)} className="rounded-lg border border-border px-3 py-1.5 active:opacity-70"><Text className="text-[12px] font-semibold text-foreground"><Trans>编辑后重发</Trans></Text></Pressable>
-                      {mobileTextRetryable(record.status) ? <Pressable accessibilityRole="button" testID={`send-text-retry-${record.deliveryId}`} onPress={() => void getMobileCore().retryTextDelivery(record.deliveryId).then(refreshTextOutbox).catch((error) => toast.error(t`重试失败`, error))} className="rounded-lg border border-border px-3 py-1.5 active:opacity-70"><Text className="text-[12px] font-semibold text-foreground"><Trans>重试</Trans></Text></Pressable> : null}
-                      <Pressable accessibilityRole="button" onPress={() => void getMobileCore().deleteTextOutboxRecord(record.deliveryId).then(refreshTextOutbox).catch((error) => toast.error(t`删除失败`, error))} className="rounded-lg border border-border px-3 py-1.5 active:opacity-70"><Text className="text-[12px] font-semibold text-foreground"><Trans>删除</Trans></Text></Pressable>
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => setTextBody(record.body)}
+                        className="rounded-lg border border-border px-3 py-1.5 active:opacity-70"
+                      >
+                        <Text className="text-[12px] font-semibold text-foreground">
+                          <Trans>编辑后重发</Trans>
+                        </Text>
+                      </Pressable>
+                      {mobileTextRetryable(record.status) ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          testID={`send-text-retry-${record.deliveryId}`}
+                          onPress={() =>
+                            void getMobileCore()
+                              .retryTextDelivery(record.deliveryId)
+                              .then(refreshTextOutbox)
+                              .catch((error) => toast.error(t`重试失败`, error))
+                          }
+                          className="rounded-lg border border-border px-3 py-1.5 active:opacity-70"
+                        >
+                          <Text className="text-[12px] font-semibold text-foreground">
+                            <Trans>重试</Trans>
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() =>
+                          void getMobileCore()
+                            .deleteTextOutboxRecord(record.deliveryId)
+                            .then(refreshTextOutbox)
+                            .catch((error) => toast.error(t`删除失败`, error))
+                        }
+                        className="rounded-lg border border-border px-3 py-1.5 active:opacity-70"
+                      >
+                        <Text className="text-[12px] font-semibold text-foreground">
+                          <Trans>删除</Trans>
+                        </Text>
+                      </Pressable>
                     </View>
                   </View>
                 ))}
@@ -424,7 +503,8 @@ export default function SendPreparePage() {
             >
               {contentMode === "text" ? (
                 <>
-                  {formatTextDeliveryKiB(utf8ByteLength(textBody))} / {formatTextDeliveryKiB(TEXT_DELIVERY_MAX_BYTES)}
+                  {formatTextDeliveryKiB(utf8ByteLength(textBody))} /{" "}
+                  {formatTextDeliveryKiB(TEXT_DELIVERY_MAX_BYTES)}
                 </>
               ) : selectedFiles.length > 0 ? (
                 <Trans>
@@ -451,7 +531,11 @@ export default function SendPreparePage() {
               <Pressable
                 onPress={onSend}
                 accessibilityRole="button"
-                testID={contentMode === "text" ? "send-text-action" : "send-files-action"}
+                testID={
+                  contentMode === "text"
+                    ? "send-text-action"
+                    : "send-files-action"
+                }
                 disabled={
                   sending ||
                   !sendable ||
@@ -486,27 +570,43 @@ function mobileTextRetryable(status: MobileTextDeliveryStatus) {
   return isTextDeliveryRetryable(mobileTextDeliveryStatus(status));
 }
 
-function mobileTextDeliveryStatus(status: MobileTextDeliveryStatus): TextDeliveryStatus {
+function mobileTextDeliveryStatus(
+  status: MobileTextDeliveryStatus,
+): TextDeliveryStatus {
   switch (status) {
-    case MobileTextDeliveryStatus.Sending: return "sending";
-    case MobileTextDeliveryStatus.WaitingConfirmation: return "waiting_confirmation";
-    case MobileTextDeliveryStatus.Delivered: return "delivered";
-    case MobileTextDeliveryStatus.Rejected: return "rejected";
-    case MobileTextDeliveryStatus.Retryable: return "retryable";
-    case MobileTextDeliveryStatus.Expired: return "expired";
-    case MobileTextDeliveryStatus.Cancelled: return "cancelled";
+    case MobileTextDeliveryStatus.Sending:
+      return "sending";
+    case MobileTextDeliveryStatus.WaitingConfirmation:
+      return "waiting_confirmation";
+    case MobileTextDeliveryStatus.Delivered:
+      return "delivered";
+    case MobileTextDeliveryStatus.Rejected:
+      return "rejected";
+    case MobileTextDeliveryStatus.Retryable:
+      return "retryable";
+    case MobileTextDeliveryStatus.Expired:
+      return "expired";
+    case MobileTextDeliveryStatus.Cancelled:
+      return "cancelled";
   }
 }
 
 function mobileTextStatus(status: MobileTextDeliveryStatus): ReactNode {
   switch (status) {
-    case MobileTextDeliveryStatus.Sending: return <Trans>发送中</Trans>;
-    case MobileTextDeliveryStatus.WaitingConfirmation: return <Trans>等待确认</Trans>;
-    case MobileTextDeliveryStatus.Delivered: return <Trans>已送达</Trans>;
-    case MobileTextDeliveryStatus.Rejected: return <Trans>已拒绝</Trans>;
-    case MobileTextDeliveryStatus.Retryable: return <Trans>可重试，送达状态未知</Trans>;
-    case MobileTextDeliveryStatus.Expired: return <Trans>已过期</Trans>;
-    case MobileTextDeliveryStatus.Cancelled: return <Trans>已取消</Trans>;
+    case MobileTextDeliveryStatus.Sending:
+      return <Trans>发送中</Trans>;
+    case MobileTextDeliveryStatus.WaitingConfirmation:
+      return <Trans>等待确认</Trans>;
+    case MobileTextDeliveryStatus.Delivered:
+      return <Trans>已送达</Trans>;
+    case MobileTextDeliveryStatus.Rejected:
+      return <Trans>已拒绝</Trans>;
+    case MobileTextDeliveryStatus.Retryable:
+      return <Trans>可重试，送达状态未知</Trans>;
+    case MobileTextDeliveryStatus.Expired:
+      return <Trans>已过期</Trans>;
+    case MobileTextDeliveryStatus.Cancelled:
+      return <Trans>已取消</Trans>;
   }
 }
 
@@ -542,8 +642,13 @@ function ContentModeSwitch({
               "disabled:opacity-50",
             )}
           >
-            <Icon color={active ? colors.foreground : colors.mutedForeground} size={15} />
-            <Text className="text-[13px] font-semibold text-foreground">{label}</Text>
+            <Icon
+              color={active ? colors.foreground : colors.mutedForeground}
+              size={15}
+            />
+            <Text className="text-[13px] font-semibold text-foreground">
+              {label}
+            </Text>
           </Pressable>
         );
       })}
