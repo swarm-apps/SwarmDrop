@@ -1267,7 +1267,7 @@ export class WebNode {
      * 挂起的入站配对请求（消费方扫/粘本机 invite 后到达）。**取出即清空**，调用方自行累积展示。
      */
     pending_pairing_requests(): PendingPairingJson[];
-    pending_text_deliveries(): any;
+    pending_text_deliveries(): Promise<any>;
     /**
      * 拒绝入站 offer。
      */
@@ -1512,7 +1512,7 @@ export interface InitOutput {
     readonly webnode_pause_send: (a: number, b: number, c: number) => any;
     readonly webnode_pending_offers: (a: number) => [number, number, number];
     readonly webnode_pending_pairing_requests: (a: number) => [number, number, number];
-    readonly webnode_pending_text_deliveries: (a: number) => [number, number, number];
+    readonly webnode_pending_text_deliveries: (a: number) => any;
     readonly webnode_reject_offer: (a: number, b: number, c: number) => any;
     readonly webnode_remove_paired_device: (a: number, b: number, c: number) => any;
     readonly webnode_rename_device: (a: number, b: number, c: number) => any;

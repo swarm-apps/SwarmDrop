@@ -188,6 +188,7 @@ impl MobileCore {
         Ok(manager
             .text_delivery_service()?
             .pending()
+            .await
             .into_iter()
             .map(Into::into)
             .collect())
@@ -203,7 +204,7 @@ impl MobileCore {
         if accepted {
             service.accept(parse_delivery_id(&delivery_id)?).await?;
         } else {
-            service.reject(parse_delivery_id(&delivery_id)?)?;
+            service.reject(parse_delivery_id(&delivery_id)?).await?;
         }
         Ok(())
     }

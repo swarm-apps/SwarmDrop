@@ -1,11 +1,11 @@
 //! 独立文本投递 RPC 的接收端服务。
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
-use dashmap::DashMap;
 use swarmdrop_net::{AcceptError, Endpoint, NodeId, PathKind, RpcService};
-use tokio::sync::oneshot;
+use tokio::sync::{Mutex, oneshot};
 use uuid::Uuid;
 
 use crate::manager::TransferManager;
@@ -19,6 +19,164 @@ const MAX_PENDING_TEXT_DELIVERIES: usize = 32;
 struct PendingTextDelivery {
     record: TextDeliveryRecord,
     responders: Vec<oneshot::Sender<TextDeliveryResponse>>,
+}
+
+/// 确认写入期间仍保留条目，使相同投递的重发可合并到同一组回执，而不会与失败恢复竞争。
+enum PendingTextDeliveryState {
+    Waiting(PendingTextDelivery),
+    Accepting(PendingTextDelivery),
+}
+
+/// 待确认文本的单一并发边界。
+///
+/// 使用一个短临界区而非 `DashMap::len() + entry()` 的组合：后者在并发入站时无法原子地
+/// 维护上限，也会在落库失败恢复时覆盖随后抵达的同 ID 重发请求。
+struct PendingTextDeliveries {
+    entries: Mutex<BTreeMap<Uuid, PendingTextDeliveryState>>,
+    max_entries: usize,
+}
+
+impl PendingTextDeliveries {
+    fn new(max_entries: usize) -> Self {
+        Self {
+            entries: Mutex::new(BTreeMap::new()),
+            max_entries,
+        }
+    }
+
+    async fn enqueue(
+        &self,
+        record: TextDeliveryRecord,
+    ) -> Result<oneshot::Receiver<TextDeliveryResponse>, TextDeliveryRejectReason> {
+        let (tx, rx) = oneshot::channel();
+        let mut entries = self.entries.lock().await;
+        match entries.get_mut(&record.delivery_id) {
+            Some(entry) => {
+                let pending = match entry {
+                    PendingTextDeliveryState::Waiting(pending)
+                    | PendingTextDeliveryState::Accepting(pending) => pending,
+                };
+                if pending.record.peer_id != record.peer_id || pending.record.body != record.body {
+                    return Err(TextDeliveryRejectReason::ProtocolConflict);
+                }
+                pending.responders.push(tx);
+            }
+            None => {
+                if entries.len() >= self.max_entries {
+                    return Err(TextDeliveryRejectReason::QueueFull);
+                }
+                entries.insert(
+                    record.delivery_id,
+                    PendingTextDeliveryState::Waiting(PendingTextDelivery {
+                        record,
+                        responders: vec![tx],
+                    }),
+                );
+            }
+        }
+        Ok(rx)
+    }
+
+    async fn begin_accept(&self, delivery_id: Uuid) -> crate::AppResult<TextDeliveryRecord> {
+        let mut entries = self.entries.lock().await;
+        let Some(entry) = entries.remove(&delivery_id) else {
+            return Err(crate::AppError::Transfer(
+                "待确认文本投递不存在或已过期".into(),
+            ));
+        };
+        let pending = match entry {
+            PendingTextDeliveryState::Waiting(pending) => pending,
+            PendingTextDeliveryState::Accepting(pending) => {
+                entries.insert(delivery_id, PendingTextDeliveryState::Accepting(pending));
+                return Err(crate::AppError::Transfer("文本投递正在确认中".into()));
+            }
+        };
+        let record = pending.record.clone();
+        entries.insert(delivery_id, PendingTextDeliveryState::Accepting(pending));
+        Ok(record)
+    }
+
+    async fn restore_waiting(&self, delivery_id: Uuid) {
+        let mut entries = self.entries.lock().await;
+        let Some(entry) = entries.remove(&delivery_id) else {
+            return;
+        };
+        let pending = match entry {
+            PendingTextDeliveryState::Waiting(pending)
+            | PendingTextDeliveryState::Accepting(pending) => pending,
+        };
+        entries.insert(delivery_id, PendingTextDeliveryState::Waiting(pending));
+    }
+
+    async fn complete_accept(
+        &self,
+        delivery_id: Uuid,
+    ) -> crate::AppResult<Vec<oneshot::Sender<TextDeliveryResponse>>> {
+        let mut entries = self.entries.lock().await;
+        let Some(entry) = entries.remove(&delivery_id) else {
+            return Err(crate::AppError::Transfer(
+                "待确认文本投递不存在或已过期".into(),
+            ));
+        };
+        match entry {
+            PendingTextDeliveryState::Accepting(pending) => Ok(pending.responders),
+            PendingTextDeliveryState::Waiting(pending) => {
+                entries.insert(delivery_id, PendingTextDeliveryState::Waiting(pending));
+                Err(crate::AppError::Transfer("文本投递尚未开始确认".into()))
+            }
+        }
+    }
+
+    async fn reject(
+        &self,
+        delivery_id: Uuid,
+    ) -> crate::AppResult<Vec<oneshot::Sender<TextDeliveryResponse>>> {
+        let mut entries = self.entries.lock().await;
+        let Some(entry) = entries.remove(&delivery_id) else {
+            return Err(crate::AppError::Transfer(
+                "待确认文本投递不存在或已过期".into(),
+            ));
+        };
+        match entry {
+            PendingTextDeliveryState::Waiting(pending) => Ok(pending.responders),
+            PendingTextDeliveryState::Accepting(pending) => {
+                entries.insert(delivery_id, PendingTextDeliveryState::Accepting(pending));
+                Err(crate::AppError::Transfer("文本投递正在确认中".into()))
+            }
+        }
+    }
+
+    async fn summaries(&self) -> Vec<PendingTextDeliverySummary> {
+        self.entries
+            .lock()
+            .await
+            .iter()
+            .map(|(delivery_id, entry)| {
+                let pending = match entry {
+                    PendingTextDeliveryState::Waiting(pending)
+                    | PendingTextDeliveryState::Accepting(pending) => pending,
+                };
+                PendingTextDeliverySummary {
+                    delivery_id: *delivery_id,
+                    peer_id: pending.record.peer_id.clone(),
+                    peer_name: pending.record.peer_name.clone(),
+                    body: pending.record.body.clone(),
+                    created_at: pending.record.created_at,
+                }
+            })
+            .collect()
+    }
+
+    /// 只回收尚未开始持久化的请求；确认动作一旦开始就不能被超时任务从脚下删掉。
+    async fn expire(&self, delivery_id: Uuid) {
+        let mut entries = self.entries.lock().await;
+        if matches!(
+            entries.get(&delivery_id),
+            Some(PendingTextDeliveryState::Waiting(_))
+        ) {
+            entries.remove(&delivery_id);
+        }
+    }
 }
 
 /// 等待用户确认的文本投递快照。正文在本地内存中仅保留到确认窗口结束，绝不预先写入剪贴板。
@@ -39,7 +197,7 @@ pub struct TextDeliveryService {
     manager: Weak<TransferManager>,
     pairing: Arc<dyn PeerDirectory>,
     endpoint: Endpoint,
-    pending: Arc<DashMap<Uuid, PendingTextDelivery>>,
+    pending: Arc<PendingTextDeliveries>,
 }
 
 impl TextDeliveryService {
@@ -52,46 +210,42 @@ impl TextDeliveryService {
             manager,
             pairing,
             endpoint,
-            pending: Arc::new(DashMap::new()),
+            pending: Arc::new(PendingTextDeliveries::new(MAX_PENDING_TEXT_DELIVERIES)),
         }
     }
 
     pub async fn accept(&self, delivery_id: Uuid) -> crate::AppResult<()> {
-        let (_, pending) = self
-            .pending
-            .remove(&delivery_id)
-            .ok_or_else(|| crate::AppError::Transfer("待确认文本投递不存在或已过期".into()))?;
+        let record = self.pending.begin_accept(delivery_id).await?;
         let manager = self
             .manager
             .upgrade()
-            .ok_or_else(|| crate::AppError::Transfer("节点已停止".into()))?;
-        let detail = match manager
-            .store
-            .persist_incoming_text_delivery(pending.record.clone())
-            .await
-        {
+            .ok_or_else(|| crate::AppError::Transfer("节点已停止".into()));
+        let manager = match manager {
+            Ok(manager) => manager,
+            Err(error) => {
+                self.pending.restore_waiting(delivery_id).await;
+                return Err(error);
+            }
+        };
+        let detail = match manager.store.persist_incoming_text_delivery(record).await {
             Ok(detail) => detail,
             Err(error) => {
-                // 先落库再回复是送达语义的边界；写入失败时保留原 responders，用户可修复存储后重试确认。
-                self.pending.insert(delivery_id, pending);
+                // 先落库再回复是送达语义的边界；写入失败后原 responders 与并发重发都保留。
+                self.pending.restore_waiting(delivery_id).await;
                 return Err(error);
             }
         };
         let response = TextDeliveryResponse::Delivered {
             inbox_item_id: detail.item.id,
         };
-        for responder in pending.responders {
+        for responder in self.pending.complete_accept(delivery_id).await? {
             let _ = responder.send(response.clone());
         }
         Ok(())
     }
 
-    pub fn reject(&self, delivery_id: Uuid) -> crate::AppResult<()> {
-        let (_, pending) = self
-            .pending
-            .remove(&delivery_id)
-            .ok_or_else(|| crate::AppError::Transfer("待确认文本投递不存在或已过期".into()))?;
-        for responder in pending.responders {
+    pub async fn reject(&self, delivery_id: Uuid) -> crate::AppResult<()> {
+        for responder in self.pending.reject(delivery_id).await? {
             let _ = responder.send(TextDeliveryResponse::Rejected {
                 reason: TextDeliveryRejectReason::PolicyRejected,
             });
@@ -99,17 +253,8 @@ impl TextDeliveryService {
         Ok(())
     }
 
-    pub fn pending(&self) -> Vec<PendingTextDeliverySummary> {
-        self.pending
-            .iter()
-            .map(|entry| PendingTextDeliverySummary {
-                delivery_id: *entry.key(),
-                peer_id: entry.record.peer_id.clone(),
-                peer_name: entry.record.peer_name.clone(),
-                body: entry.record.body.clone(),
-                created_at: entry.record.created_at,
-            })
-            .collect()
+    pub async fn pending(&self) -> Vec<PendingTextDeliverySummary> {
+        self.pending.summaries().await
     }
 
     fn ensure_paired_target(&self, peer: &NodeId) -> crate::AppResult<()> {
@@ -194,33 +339,14 @@ impl RpcService<TextDeliveryRequest, TextDeliveryResponse> for TextDeliveryServi
                 }),
             };
         }
-        let (tx, rx) = oneshot::channel();
-        match self.pending.entry(delivery_id) {
-            dashmap::mapref::entry::Entry::Occupied(mut entry) => {
-                let pending = entry.get_mut();
-                if pending.record.peer_id != record.peer_id || pending.record.body != record.body {
-                    return Ok(TextDeliveryResponse::Rejected {
-                        reason: TextDeliveryRejectReason::ProtocolConflict,
-                    });
-                }
-                pending.responders.push(tx);
-            }
-            dashmap::mapref::entry::Entry::Vacant(entry) => {
-                if self.pending.len() >= MAX_PENDING_TEXT_DELIVERIES {
-                    return Ok(TextDeliveryResponse::Rejected {
-                        reason: TextDeliveryRejectReason::QueueFull,
-                    });
-                }
-                entry.insert(PendingTextDelivery {
-                    record,
-                    responders: vec![tx],
-                });
-            }
-        }
+        let rx = match self.pending.enqueue(record).await {
+            Ok(rx) => rx,
+            Err(reason) => return Ok(TextDeliveryResponse::Rejected { reason }),
+        };
         match n0_future::time::timeout(std::time::Duration::from_secs(300), rx).await {
             Ok(Ok(response)) => Ok(response),
             _ => {
-                self.pending.remove(&delivery_id);
+                self.pending.expire(delivery_id).await;
                 Ok(TextDeliveryResponse::Expired)
             }
         }
@@ -348,5 +474,107 @@ impl TransferManager {
             .get_text_delivery(record.delivery_id)
             .await?
             .ok_or_else(|| crate::AppError::Transfer("文本投递记录在更新后丢失".into()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use entity::{TextDeliveryDirection, TextDeliveryStatus};
+    use uuid::Uuid;
+
+    use super::{
+        PendingTextDeliveries, TextDeliveryRecord, TextDeliveryRejectReason, TextDeliveryResponse,
+    };
+
+    fn incoming(delivery_id: Uuid, peer_id: &str, body: &str) -> TextDeliveryRecord {
+        TextDeliveryRecord {
+            delivery_id,
+            direction: TextDeliveryDirection::Receive,
+            peer_id: peer_id.into(),
+            peer_name: "Alice".into(),
+            body: body.into(),
+            status: TextDeliveryStatus::Delivered,
+            failure: None,
+            attempt_count: 1,
+            created_at: 1,
+            updated_at: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn pending_queue_is_bounded_and_binds_id_to_peer_and_body() {
+        let queue = PendingTextDeliveries::new(1);
+        let delivery_id = Uuid::new_v4();
+        let _first = queue
+            .enqueue(incoming(delivery_id, "peer-a", "first"))
+            .await
+            .expect("首次请求应进入队列");
+
+        assert_eq!(
+            queue
+                .enqueue(incoming(delivery_id, "peer-b", "first"))
+                .await
+                .expect_err("同一标识不同来源必须拒绝"),
+            TextDeliveryRejectReason::ProtocolConflict,
+        );
+        assert_eq!(
+            queue
+                .enqueue(incoming(Uuid::new_v4(), "peer-a", "second"))
+                .await
+                .expect_err("上限必须在单一临界区内生效"),
+            TextDeliveryRejectReason::QueueFull,
+        );
+    }
+
+    #[tokio::test]
+    async fn duplicate_during_confirmation_survives_storage_failure_and_gets_one_result() {
+        let queue = PendingTextDeliveries::new(2);
+        let delivery_id = Uuid::new_v4();
+        let first = queue
+            .enqueue(incoming(delivery_id, "peer-a", "body"))
+            .await
+            .expect("首次请求");
+        let record = queue.begin_accept(delivery_id).await.expect("开始确认");
+        assert_eq!(record.body, "body");
+
+        // 模拟落库期间的回执丢失重发：它必须合并而不是生成第二个待确认条目。
+        let retry = queue
+            .enqueue(incoming(delivery_id, "peer-a", "body"))
+            .await
+            .expect("同内容重试合并");
+        queue.restore_waiting(delivery_id).await;
+        assert_eq!(queue.summaries().await.len(), 1, "落库失败后仍可再次确认");
+
+        queue.begin_accept(delivery_id).await.expect("再次确认");
+        let responders = queue.complete_accept(delivery_id).await.expect("完成确认");
+        let response = TextDeliveryResponse::Delivered {
+            inbox_item_id: Uuid::new_v4(),
+        };
+        for responder in responders {
+            let _ = responder.send(response.clone());
+        }
+        assert_eq!(first.await.expect("首个回执"), response);
+        assert_eq!(retry.await.expect("重试回执"), response);
+    }
+
+    #[tokio::test]
+    async fn expiry_cannot_remove_a_request_after_confirmation_started() {
+        let queue = PendingTextDeliveries::new(1);
+        let delivery_id = Uuid::new_v4();
+        let _receiver = queue
+            .enqueue(incoming(delivery_id, "peer-a", "body"))
+            .await
+            .expect("首次请求");
+        queue.begin_accept(delivery_id).await.expect("开始确认");
+        queue.expire(delivery_id).await;
+
+        assert_eq!(
+            queue
+                .complete_accept(delivery_id)
+                .await
+                .expect("确认中的条目不能被 TTL 任务删除")
+                .len(),
+            1,
+        );
     }
 }

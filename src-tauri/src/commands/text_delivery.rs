@@ -44,7 +44,7 @@ pub async fn confirm_text_delivery(
     if accepted {
         service.accept(delivery_id).await?
     } else {
-        service.reject(delivery_id)?
+        service.reject(delivery_id).await?
     }
     Ok(())
 }
@@ -55,7 +55,7 @@ pub async fn pending_text_deliveries(
     net: State<'_, NetManagerState>,
 ) -> crate::AppResult<Vec<PendingTextDeliverySummary>> {
     let transfer = super::transfer::get_transfer(&net).await?;
-    Ok(transfer.text_delivery_service()?.pending())
+    Ok(transfer.text_delivery_service()?.pending().await)
 }
 
 #[tauri::command]

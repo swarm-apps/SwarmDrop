@@ -1007,12 +1007,13 @@ impl WebNode {
         Ok(())
     }
 
-    pub fn pending_text_deliveries(&self) -> Result<JsValue, JsValue> {
+    pub async fn pending_text_deliveries(&self) -> Result<JsValue, JsValue> {
         let pending = self
             .manager
             .text_delivery_service()
             .map_err(WebError::from)?
-            .pending();
+            .pending()
+            .await;
         crate::serialize::to_js(&pending)
             .map_err(|error| WebError::network(error.to_string()).into())
     }
@@ -1031,7 +1032,7 @@ impl WebNode {
         if accepted {
             service.accept(delivery_id).await.map_err(WebError::from)?;
         } else {
-            service.reject(delivery_id).map_err(WebError::from)?;
+            service.reject(delivery_id).await.map_err(WebError::from)?;
         }
         Ok(())
     }
