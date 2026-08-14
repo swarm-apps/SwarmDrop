@@ -25,6 +25,9 @@ impl TransferEventSink for CoreTransferEvents {
 impl From<TransferEvent> for CoreEvent {
     fn from(e: TransferEvent) -> Self {
         match e {
+            TransferEvent::TextDeliveryAttention { attention } => {
+                CoreEvent::TextDeliveryAttention { attention }
+            }
             TransferEvent::TransferOfferReceived { offer } => {
                 CoreEvent::TransferOfferReceived { offer }
             }

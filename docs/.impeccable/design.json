@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-14T00:00:00+08:00",
+  "title": "Design System: SwarmDrop Web",
+  "extensions": {
+    "colorMeta": {
+      "brand-solid": {
+        "role": "primary",
+        "displayName": "Harbor Teal",
+        "canonical": "oklch(0.583 0.105 177.1)",
+        "tonalRamp": ["oklch(0.18 0.04 177.1)", "oklch(0.30 0.06 177.1)", "oklch(0.42 0.08 177.1)", "oklch(0.52 0.10 177.1)", "oklch(0.583 0.105 177.1)", "oklch(0.70 0.09 177.1)", "oklch(0.84 0.05 177.1)", "oklch(0.95 0.02 177.1)"]
+      },
+      "app-surface": {
+        "role": "neutral-background",
+        "displayName": "Application Surface",
+        "canonical": "oklch(1 0 0)",
+        "tonalRamp": ["oklch(0.145 0 0)", "oklch(0.27 0 0)", "oklch(0.39 0 0)", "oklch(0.50 0 0)", "oklch(0.62 0 0)", "oklch(0.74 0 0)", "oklch(0.85 0 0)", "oklch(1 0 0)"]
+      }
+    },
+    "typographyMeta": {
+      "body": { "displayName": "Body", "purpose": "Application copy and received selectable text." },
+      "mono": { "displayName": "Machine Truth", "purpose": "Literal values users copy, verify, or compare." }
+    },
+    "motion": [
+      { "name": "ambient-webgl", "value": "lazy-loaded, throttled, and reduced-motion aware", "purpose": "Decorative browser ambience cannot compromise legibility." }
+    ],
+    "breakpoints": [
+      { "name": "rail", "value": "at least 1024px" },
+      { "name": "icon-rail", "value": "768px through 1023px" },
+      { "name": "bottom-nav", "value": "below 768px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Application Panel",
+      "kind": "card",
+      "refersTo": "web-panel",
+      "description": "Structural container for a focused application task.",
+      "html": "<section class=\"ds-web-panel\">Paired devices</section>",
+      "css": ".ds-web-panel { padding: 24px; border-radius: 24px; background: oklch(1 0 0); color: oklch(.145 0 0); font: 600 15px system-ui, sans-serif; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Encrypted Workbench",
+    "overview": "The browser application uses the same trusted-device workbench language as desktop. Fumadocs and app tokens remain isolated, while browser permission and performance constraints take priority over decoration.",
+    "keyCharacteristics": ["App and documentation token isolation.", "Browser rail and bottom navigation.", "Explicit clipboard permission.", "Lazy ambient layer."],
+    "rules": [{ "name": "App Isolation Rule", "body": "Unprefixed tokens serve the application area; Fumadocs tokens serve documentation UI only.", "section": "colors" }],
+    "dos": ["Use semantic tokens.", "Request clipboard access only in a user gesture."],
+    "donts": ["Do not overwrite Fumadocs tokens.", "Do not add Send or Outbox to top-level navigation."]
+  }
+}

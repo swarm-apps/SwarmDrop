@@ -78,6 +78,21 @@ function progressEvent(sessionId: string, eta = 45): WebTransferEvent {
   } as unknown as WebTransferEvent;
 }
 
+function textAttentionEvent(
+  kind: "confirmation_required" | "received",
+): WebTransferEvent {
+  return {
+    type: "textDeliveryAttention",
+    attention: {
+      deliveryId: "delivery-1",
+      peerId: "peer-1",
+      peerName: "Alice",
+      kind,
+      createdAt: 1,
+    },
+  } as unknown as WebTransferEvent;
+}
+
 beforeEach(() => {
   // 每条用例都在假时钟上跑：本 store 的两条时效判据（进度保鲜期、发布延迟揭示）都由
   // `setTimeout` 驱动，真时钟下要么等 6 秒要么根本测不到。
@@ -98,6 +113,24 @@ afterEach(() => {
   // 先把在途定时器收干净再还原时钟——否则上一条用例排的发布揭示会在下一条里醒来。
   webNodeActions.reset();
   vi.useRealTimers();
+});
+
+describe("文本注意力的恢复失效票据", () => {
+  it("每次注意力事件都会促使根级宿主重新读取，已接收事件还会失效收件箱", () => {
+    const before = webNodeStore.getState();
+
+    webNodeActions.applyEvent(textAttentionEvent("confirmation_required"));
+    expect(webNodeStore.getState().textDeliveryRevision).toBe(
+      before.textDeliveryRevision + 1,
+    );
+    expect(webNodeStore.getState().inboxRevision).toBe(before.inboxRevision);
+
+    webNodeActions.applyEvent(textAttentionEvent("received"));
+    expect(webNodeStore.getState().textDeliveryRevision).toBe(
+      before.textDeliveryRevision + 2,
+    );
+    expect(webNodeStore.getState().inboxRevision).toBe(before.inboxRevision + 1);
+  });
 });
 
 describe("待决 offer 的生命周期", () => {

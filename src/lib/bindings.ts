@@ -106,12 +106,10 @@ supported: string[] } |
 	 */
 	searchInbox: (query: string, limit: number | null, includeArchived: boolean | null) => __TAURI_INVOKE<InboxSearchHit[]>("search_inbox", { query, limit, includeArchived }),
 	getInboxItemDetail: (itemId: string) => __TAURI_INVOKE<({
-	files: InboxItemFileEntry[],
-	transfer: TransferProjection | null,
+	content: InboxItemContent,
 }) & (InboxItemSummary) | null>("get_inbox_item_detail", { itemId }),
 	getInboxItemByTransferSessionId: (sessionId: string) => __TAURI_INVOKE<({
-	files: InboxItemFileEntry[],
-	transfer: TransferProjection | null,
+	content: InboxItemContent,
 }) & (InboxItemSummary) | null>("get_inbox_item_by_transfer_session_id", { sessionId }),
 	repairMissingInboxItems: () => __TAURI_INVOKE<InboxItemDetail[]>("repair_missing_inbox_items"),
 	openInboxItem: (itemId: string, fileId: number | null) => __TAURI_INVOKE<null>("open_inbox_item", { itemId, fileId }),
@@ -323,6 +321,12 @@ supported: string[] } |
 	 *  首条事件自我认领。
 	 */
 	prepareSend: (files: EnumeratedFile[]) => __TAURI_INVOKE<PreparedTransferResult>("prepare_send", { files }),
+	sendTextDelivery: (peerId: string, peerName: string, body: string) => __TAURI_INVOKE<TextDeliveryRecord>("send_text_delivery", { peerId, peerName, body }),
+	retryTextDelivery: (deliveryId: string) => __TAURI_INVOKE<TextDeliveryRecord>("retry_text_delivery", { deliveryId }),
+	confirmTextDelivery: (deliveryId: string, accepted: boolean) => __TAURI_INVOKE<null>("confirm_text_delivery", { deliveryId, accepted }),
+	pendingTextDeliveries: () => __TAURI_INVOKE<PendingTextDeliverySummary[]>("pending_text_deliveries"),
+	listTextOutbox: (peerId: string) => __TAURI_INVOKE<TextDeliveryRecord[]>("list_text_outbox", { peerId }),
+	deleteTextOutboxRecord: (deliveryId: string) => __TAURI_INVOKE<null>("delete_text_outbox_record", { deliveryId }),
 	startSend: (preparedId: string, peerId: string, peerName: string, selectedFileIds: number[]) => __TAURI_INVOKE<StartSendResult>("start_send", { preparedId, peerId, peerName, selectedFileIds }),
 	acceptReceive: (sessionId: string, saveLocation: CoreSaveLocation) => __TAURI_INVOKE<null>("accept_receive", { sessionId, saveLocation }),
 	rejectReceive: (sessionId: string) => __TAURI_INVOKE<null>("reject_receive", { sessionId }),
@@ -396,6 +400,7 @@ export const events = {
 	pairingRequestReceived: makeEvent<PairingRequestReceived>("pairing-request-received"),
 	prepareProgress: makeEvent<PrepareProgress>("prepare-progress"),
 	receivingPausedChanged: makeEvent<ReceivingPausedChanged>("receiving-paused-changed"),
+	textDeliveryAttentionReceived: makeEvent<TextDeliveryAttentionReceived>("text-delivery-attention-received"),
 	transferAccepted: makeEvent<TransferAccepted>("transfer-accepted"),
 	transferComplete: makeEvent<TransferComplete>("transfer-complete"),
 	transferDbError: makeEvent<TransferDbError>("transfer-db-error"),
@@ -753,10 +758,43 @@ export type InboxHitFile = {
 	relativePath: string,
 };
 
+/**
+ *  收件箱详情的显式内容联合体。
+ * 
+ *  文件与文本不以空数组或空正文互相伪装；调用方必须穷尽处理，避免把文本展示成文件操作。
+ */
+export type InboxItemContent = { kind: "files"; entries: InboxItemFileEntry[]; transfer: {
+	sessionId: string,
+	direction: TransferDirection,
+	peerId: string,
+	peerName: string,
+	phase: TransferPhase,
+	suspendedReason: SuspendedReason | null,
+	terminalReason: TerminalReason | null,
+	recoverable: boolean,
+	epoch: number,
+	totalSize: number,
+	transferredBytes: number,
+	startedAt: number,
+	updatedAt: number,
+	finishedAt: number | null,
+	/**  失败判别码（见 [`crate::failure`]）。曾是直达三端 UI 的自由中文文本。 */
+	failure: FailureCode | null,
+	policyAction: string | null,
+	policyReason: string | null,
+	savePath: CoreSaveLocation | null,
+	/**
+	 *  「打开文件夹」应定位的真实容器目录 URI(收到内容实际所在的文件夹),已在 core 解析:
+	 *  各文件 `local_dir` 全部同一目录 → 该目录;否则回退存储根 `save_path`。前端直读,
+	 *  不再自行兜底(已完成接收必为 `Some`)。
+	 */
+	contentRoot: string | null,
+	files: TransferProjectionFile[],
+} | null } | { kind: "text"; body: string };
+
 /**  收件箱详情 DTO。 */
 export type InboxItemDetail = {
-	files: InboxItemFileEntry[],
-	transfer: TransferProjection | null,
+	content: InboxItemContent,
 } & InboxItemSummary;
 
 /**  收件箱文件 DTO。 */
@@ -783,6 +821,8 @@ export type InboxItemFileEntry = {
 export type InboxItemSummary = {
 	id: string,
 	transferSessionId: string | null,
+	/**  文本条目关联的账本记录；文件条目保持为空。 */
+	textDeliveryId: string | null,
 	sourcePeerId: string,
 	sourceName: string,
 	sourceKind: InboxSourceKind,
@@ -1157,6 +1197,15 @@ export type PendingExternalOpen = {
 	invite: string | null,
 };
 
+/**  等待用户确认的文本投递快照。正文在本地内存中仅保留到确认窗口结束，绝不预先写入剪贴板。 */
+export type PendingTextDeliverySummary = {
+	deliveryId: string,
+	peerId: string,
+	peerName: string,
+	body: string,
+	createdAt: number,
+};
+
 /**
  *  发送前置准备（一遍流式读产出 checksum + 验签树）的进度。事件名 `"prepare-progress"`。
  * 
@@ -1263,6 +1312,48 @@ export type TerminalReason = "completed" | "cancelled" | "rejected" | "fatal_err
  *  「我拒过这个人吗」时会去查的地方。
  */
 "expired";
+
+/**  已持久化或已进入待确认队列的文本投递注意力。 */
+export type TextDeliveryAttention = {
+	deliveryId: string,
+	peerId: string,
+	peerName: string,
+	kind: TextDeliveryAttentionKind,
+	createdAt: number,
+};
+
+/**  用户需要处理的文本投递状态。事件不含正文，避免系统通知或日志泄露敏感内容。 */
+export type TextDeliveryAttentionKind = "confirmation_required" | "received";
+
+/**  文本到达注意力事件；正文不在事件中，前端按 deliveryId 再走本地读取/确认路径。 */
+export type TextDeliveryAttentionReceived = TextDeliveryAttention;
+
+/**  文本投递账本的方向。 */
+export type TextDeliveryDirection = "send" | "receive";
+
+/**
+ *  可安全展示给发起方的文本投递失败分类。
+ * 
+ *  这里刻意不记录接收端的策略细节，避免把对方的信任与暂停状态泄露到网络边界之外。
+ */
+export type TextDeliveryFailure = "peer_unavailable" | "timed_out" | "unsupported_protocol" | "rejected" | "expired" | "storage_failed" | "protocol_conflict" | "invalid_payload";
+
+/**  一条收发两侧共用的文本投递账本记录。 */
+export type TextDeliveryRecord = {
+	deliveryId: string,
+	direction: TextDeliveryDirection,
+	peerId: string,
+	peerName: string,
+	body: string,
+	status: TextDeliveryStatus,
+	failure: TextDeliveryFailure | null,
+	attemptCount: number,
+	createdAt: number,
+	updatedAt: number,
+};
+
+/**  文本投递的用户可见状态。 */
+export type TextDeliveryStatus = "sending" | "waiting_confirmation" | "delivered" | "rejected" | "retryable" | "expired" | "cancelled";
 
 export type TransferAccepted = TransferAcceptedEvent;
 

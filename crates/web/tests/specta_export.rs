@@ -13,6 +13,8 @@ use std::borrow::Cow;
 use specta::datatype::{DataType, Primitive};
 use specta::{Format, FormatError, Type, Types};
 use specta_util::Remapper;
+use swarmdrop_transfer::text_delivery::PendingTextDeliverySummary;
+use swarmdrop_transfer::text_delivery::TextDeliveryRecord;
 use swarmdrop_web::{
     ConnectionJson, Device, InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary,
     InboxSearchHit, InfraAddrError, InfraLink, InviteListItemJson, OfferJson,
@@ -76,7 +78,9 @@ fn export_bindings() {
         .register::<InboxItemFileEntry>()
         .register::<InboxItemDetail>()
         .register::<InboxSearchHit>()
-        .register::<InboxHitFile>();
+        .register::<InboxHitFile>()
+        .register::<TextDeliveryRecord>()
+        .register::<PendingTextDeliverySummary>();
 
     specta_typescript::Typescript::default()
         .header(

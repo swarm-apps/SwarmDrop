@@ -269,8 +269,7 @@ mod tests {
                 .with(fmt::layer().with_writer(sink.clone()).with_ansi(false))
                 .with(EnvFilter::new(DEFAULT_FILTER));
             tracing::subscriber::with_default(subscriber, emit);
-            let out = String::from_utf8_lossy(&sink.0.lock().unwrap()).into_owned();
-            out
+            String::from_utf8_lossy(&sink.0.lock().unwrap()).into_owned()
         }
 
         macro_rules! assert_passes {

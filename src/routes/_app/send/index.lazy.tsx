@@ -1,19 +1,18 @@
 /**
  * Send Page (Lazy)
- * 发送文件页面 — 从设备页面点击发送跳转至此
+ * 发送内容页面 — 从设备页面点击发送跳转至此
  */
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createLazyFileRoute,
   useNavigate,
   useRouter,
 } from "@tanstack/react-router";
-import { Send, ShieldCheck } from "lucide-react";
+import { ClipboardPaste, FileText, Send, ShieldCheck, Type } from "lucide-react";
 import { toast } from "sonner";
 import { Trans } from "@lingui/react/macro";
-import type { Device } from "@/lib/bindings";
-import type { FileSource } from "@/lib/bindings";
+import type { Device, FileSource, TextDeliveryRecord } from "@/lib/bindings";
 import type { PrepareProgress } from "@/lib/types";
 import { commands } from "@/lib/bindings";
 import {
@@ -25,10 +24,16 @@ import { useSecretStore } from "@/stores/secret-store";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { useFileSelection } from "./-use-file-selection";
 import { getErrorMessage } from "@/lib/errors";
+import { readText } from "@/lib/clipboard";
 import {
   deviceGroupNames,
   deviceIdentityHint,
+  formatTextDeliveryKiB,
+  isTextDeliveryRetryable,
+  isTextDeliveryWithinLimit,
   organizedDeviceName,
+  TEXT_DELIVERY_MAX_BYTES,
+  utf8ByteLength,
 } from "@swarmdrop/shared-view";
 import { formatFileSize } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -223,7 +228,7 @@ interface SendViewProps {
 
 /* ─────────────────── 桌面端视图 ─────────────────── */
 
-function DesktopSendView({
+export function DesktopSendView({
   device,
   displayName,
   identityHint,
@@ -235,6 +240,11 @@ function DesktopSendView({
   onSend,
   onBack,
 }: SendViewProps) {
+  const [mode, setMode] = useState<"files" | "text">("files");
+  const [textBody, setTextBody] = useState("");
+  const [sendingText, setSendingText] = useState(false);
+  const [outbox, setOutbox] = useState<TextDeliveryRecord[]>([]);
+  const [outboxLoading, setOutboxLoading] = useState(false);
   const DeviceIcon = getDeviceIcon(device.os || device.platform || "");
   // `removeTarget` 本身已是稳定引用（useCallback），包一层 memo 让 actions 对象也稳。
   const removeActions = useMemo(
@@ -243,11 +253,56 @@ function DesktopSendView({
   );
   const view = usePreferencesStore((state) => state.fileBrowserViews.send);
   const setFileBrowserView = usePreferencesStore((state) => state.setFileBrowserView);
+  const textBytes = utf8ByteLength(textBody);
+  const textValid = isTextDeliveryWithinLimit(textBody);
+
+  const refreshOutbox = useCallback(async () => {
+    setOutboxLoading(true);
+    try {
+      setOutbox(await commands.listTextOutbox(device.peerId));
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setOutboxLoading(false);
+    }
+  }, [device.peerId]);
+
+  useEffect(() => {
+    if (mode === "text") void refreshOutbox();
+  }, [mode, refreshOutbox]);
+
+  const pasteText = async () => {
+    try {
+      const clipboardText = await readText();
+      if (clipboardText.length === 0) {
+        toast.error(<Trans>剪贴板中没有可用文本</Trans>);
+        return;
+      }
+      setTextBody(clipboardText);
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  const sendText = async () => {
+    if (!textValid || sendingText) return;
+    setSendingText(true);
+    try {
+      await commands.sendTextDelivery(device.peerId, displayName, textBody);
+      setTextBody("");
+      toast.success(<Trans>文本已投递</Trans>);
+      await refreshOutbox();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setSendingText(false);
+    }
+  };
 
   return (
     <TaskPageShell data-testid="send-page">
       <TaskToolbar
-        title={<Trans>发送文件到 {displayName}</Trans>}
+        title={<Trans>发送到 {displayName}</Trans>}
         onBack={onBack}
       />
 
@@ -258,7 +313,7 @@ function DesktopSendView({
           // 准备进度**叠在按钮之上**，不再整条把它们顶掉。此前替换式的写法让准备期间
           // 界面上一个可交互元素都不剩，而准备大目录可以是分钟级的。
           <div className="flex flex-col gap-2">
-            {prepareProgress && (
+            {mode === "files" && prepareProgress && (
               <div className="min-w-0 px-2">
                 <PrepareProgressBar progress={prepareProgress} />
               </div>
@@ -267,20 +322,24 @@ function DesktopSendView({
               <TaskButton
                 variant="outline"
                 onClick={onBack}
-                disabled={sending}
+                disabled={sending || sendingText}
                 data-testid="send-cancel-action"
               >
                 <Trans>取消</Trans>
               </TaskButton>
               <TaskButton
-                onClick={onSend}
+                onClick={mode === "files" ? onSend : sendText}
                 disabled={
-                  !fileSelection.hasFiles || sending || fileSelection.isScanning
+                  mode === "files"
+                    ? !fileSelection.hasFiles || sending || fileSelection.isScanning
+                    : !textValid || sendingText
                 }
                 data-testid="send-confirm-action"
               >
-                <Send className="size-4" />
-                {fileSelection.isScanning ? (
+                {mode === "files" && <Send className="size-4" />}
+                {mode === "text" ? (
+                  sendingText ? <Trans>投递中...</Trans> : <Trans>发送文本</Trans>
+                ) : fileSelection.isScanning ? (
                   <Trans>正在读取所选内容…</Trans>
                 ) : sending ? (
                   <Trans>发送中...</Trans>
@@ -329,8 +388,39 @@ function DesktopSendView({
           </div>
         </div>
 
+        <div
+          className="inline-flex w-fit rounded-xl border border-border/70 bg-muted/45 p-1"
+          role="tablist"
+          aria-label="发送内容类型"
+        >
+          <Button
+            type="button"
+            size="sm"
+            variant={mode === "files" ? "secondary" : "ghost"}
+            className="min-h-11 w-28"
+            onClick={() => setMode("files")}
+            role="tab"
+            aria-selected={mode === "files"}
+          >
+            <FileText className="size-4" />
+            <Trans>文件</Trans>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={mode === "text" ? "secondary" : "ghost"}
+            className="min-h-11 w-28"
+            onClick={() => setMode("text")}
+            role="tab"
+            aria-selected={mode === "text"}
+          >
+            <Type className="size-4" />
+            <Trans>文本</Trans>
+          </Button>
+        </div>
+
         {/* 文件选择：空态只保留一个明确的投放区；有内容后再展开补充入口与文件浏览器。 */}
-        <GlassPanel
+        {mode === "files" ? <GlassPanel
           data-testid="send-file-selection-panel"
           className="min-h-0 flex-1"
         >
@@ -366,9 +456,127 @@ function DesktopSendView({
               </div>
             ) : null}
           </div>
-        </GlassPanel>
+        </GlassPanel> : (
+          <GlassPanel className="min-h-0 flex-1" data-testid="send-text-panel">
+            <div className="flex h-full min-h-0 flex-col gap-3 p-4 lg:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold"><Trans>要发送的文本</Trans></p>
+                  <p className="mt-1 text-xs text-muted-foreground"><Trans>仅在你点击发送后传输，不会自动同步剪贴板。</Trans></p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setTextBody("")} disabled={sendingText || textBody.length === 0}>
+                    <Trans>清空</Trans>
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={pasteText} disabled={sendingText}>
+                    <ClipboardPaste className="size-4" />
+                    <Trans>从剪贴板粘贴</Trans>
+                  </Button>
+                </div>
+              </div>
+              <textarea
+                value={textBody}
+                onChange={(event) => setTextBody(event.target.value)}
+                placeholder="输入或粘贴文本"
+                aria-label="要发送的文本"
+                className="min-h-52 flex-1 resize-none rounded-2xl border border-border bg-background/70 p-4 text-sm leading-6 outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+              />
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span><Trans>支持 UTF-8 文本，最长 64 KiB</Trans></span>
+                <span className={textBytes > TEXT_DELIVERY_MAX_BYTES ? "text-destructive" : undefined}>
+                  {formatTextDeliveryKiB(textBytes)} / {formatTextDeliveryKiB(TEXT_DELIVERY_MAX_BYTES)}
+                </span>
+              </div>
+              {textBody.length > 0 && !textValid ? (
+                <p className="text-xs text-destructive">
+                  <Trans>文本超过 64 KiB，请缩短后发送。</Trans>
+                </p>
+              ) : null}
+              <TextOutbox
+                records={outbox}
+                loading={outboxLoading}
+                onRetry={async (deliveryId) => {
+                  try {
+                    await commands.retryTextDelivery(deliveryId);
+                    await refreshOutbox();
+                  } catch (error) {
+                    toast.error(getErrorMessage(error));
+                  }
+                }}
+                onEdit={(body) => setTextBody(body)}
+                onDelete={async (deliveryId) => {
+                  try {
+                    await commands.deleteTextOutboxRecord(deliveryId);
+                    await refreshOutbox();
+                  } catch (error) {
+                    toast.error(getErrorMessage(error));
+                  }
+                }}
+              />
+            </div>
+          </GlassPanel>
+        )}
 
       </TaskContent>
     </TaskPageShell>
   );
+}
+
+function TextOutbox({
+  records,
+  loading,
+  onRetry,
+  onEdit,
+  onDelete,
+}: {
+  records: TextDeliveryRecord[];
+  loading: boolean;
+  onRetry: (deliveryId: string) => void;
+  onEdit: (body: string) => void;
+  onDelete: (deliveryId: string) => void;
+}) {
+  if (!loading && records.length === 0) return null;
+  return (
+    <section className="mt-2 border-t border-border/70 pt-3" aria-label="最近发送的文本">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-xs font-semibold text-muted-foreground"><Trans>最近发送</Trans></p>
+        {loading ? <span className="text-xs text-muted-foreground"><Trans>加载中…</Trans></span> : null}
+      </div>
+      <div className="space-y-2">
+        {records.slice(0, 5).map((record) => (
+          <div key={record.deliveryId} className="rounded-xl border border-border/70 bg-muted/25 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="min-w-0 flex-1 truncate text-xs text-foreground">{record.body}</p>
+              <span className="shrink-0 text-[11px] text-muted-foreground">{textDeliveryStatusLabel(record.status)}</span>
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground"><Trans>更新于</Trans> {new Date(record.updatedAt).toLocaleString()}</p>
+            <div className="mt-2 flex justify-end gap-2">
+              <Button type="button" size="sm" variant="ghost" onClick={() => onEdit(record.body)}><Trans>编辑后重发</Trans></Button>
+              {isRetryableTextStatus(record.status) ? (
+                <Button type="button" size="sm" variant="outline" onClick={() => onRetry(record.deliveryId)}><Trans>重试</Trans></Button>
+              ) : null}
+              <Button type="button" size="sm" variant="ghost" onClick={() => onDelete(record.deliveryId)}><Trans>删除</Trans></Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function isRetryableTextStatus(status: TextDeliveryRecord["status"]) {
+  return isTextDeliveryRetryable(status);
+}
+
+function textDeliveryStatusLabel(status: TextDeliveryRecord["status"]) {
+  const labels: Record<TextDeliveryRecord["status"], React.ReactNode> = {
+    sending: <Trans>发送中</Trans>,
+    waiting_confirmation: <Trans>等待确认</Trans>,
+    delivered: <Trans>已送达</Trans>,
+    rejected: <Trans>已拒绝</Trans>,
+    retryable: <Trans>可重试，送达状态未知</Trans>,
+    expired: <Trans>已过期</Trans>,
+    cancelled: <Trans>已取消</Trans>,
+  };
+  return labels[status];
 }

@@ -14,6 +14,9 @@ pub struct Model {
     /// `unique` 保证一个会话至多派生一条收件箱条目（`ensure_*` 的幂等性靠它兜底）。
     #[sea_orm(unique)]
     pub transfer_session_id: Option<Uuid>,
+    /// 文本收件箱条目关联的投递账本。文件条目保持 `None`。
+    #[sea_orm(unique)]
+    pub text_delivery_id: Option<Uuid>,
     /// **`ON DELETE SET NULL` 是「清空传输历史不动收件箱」这条三端不变量的实现基础**
     /// —— 收件箱是结果账本、传输历史是过程账本，删过程不动结果
     /// （`clear_all_history_keeps_inbox_records` 钉着这条）。它此前只存在于
@@ -26,6 +29,13 @@ pub struct Model {
         on_delete = "SetNull"
     )]
     pub transfer_session: HasOne<super::transfer_session::Entity>,
+    #[sea_orm(
+        belongs_to,
+        from = "text_delivery_id",
+        to = "delivery_id",
+        on_delete = "Cascade"
+    )]
+    pub text_delivery: HasOne<super::text_delivery::Entity>,
     /// 来源 peer 快照。
     #[sea_orm(column_type = "Text")]
     pub source_peer_id: PeerId,

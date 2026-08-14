@@ -15,6 +15,7 @@ import {
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { isActiveSession } from "./format";
+import { inboxFiles } from "./view-types";
 import type { SecureContextInfo } from "./secure-context";
 import type {
   InfraLink,
@@ -217,6 +218,8 @@ export interface WebNodeState {
    * 拉取点因此始终只有一处，`include_archived` 这个视图状态也不必泄漏进 store。
    */
   inboxRevision: number;
+  /** 文本注意力事件的失效票据；待确认队列与已送达文本都由收件箱面板按它重读。 */
+  textDeliveryRevision: number;
   /**
    * 检索结果条数上限（内核 `inbox_search_limit()`，= 三端共享的 `INBOX_SEARCH_LIMIT`）。
    * `null` = 尚未从 wasm 模块读到。
@@ -276,6 +279,7 @@ const initialState: WebNodeState = {
   eventLog: [],
   inboxItems: [],
   inboxRevision: 0,
+  textDeliveryRevision: 0,
   inboxSearchLimit: null,
   pendingPairings: [],
   pairedDevices: [],
@@ -776,6 +780,14 @@ function reduceEvent(s: WebNodeState, ev: WebTransferEvent): Partial<WebNodeStat
       return ev.event.direction === "receive"
         ? { inboxRevision: s.inboxRevision + 1, eventLog }
         : { eventLog };
+    case "textDeliveryAttention":
+      // 事件来自“已持久化之后”的边界，故只发失效票据而不把正文塞进运行时 store。
+      return {
+        textDeliveryRevision: s.textDeliveryRevision + 1,
+        inboxRevision:
+          ev.attention.kind === "received" ? s.inboxRevision + 1 : s.inboxRevision,
+        eventLog,
+      };
     case "transferRejected":
       // TransferProjection 的 terminalReason 只到 "rejected" 粒度，不含 reason.type（区分
       // not_paired / user_declined / policy_rejected / receiving_paused）——发送侧要给出精确
@@ -819,7 +831,8 @@ function inboxItemsEqual(a: InboxItemDetail[], b: InboxItemDetail[]): boolean {
       item.id === other.id &&
       item.receivedAt === other.receivedAt &&
       item.missing === other.missing &&
-      item.files.length === other.files.length &&
+      item.content.kind === other.content.kind &&
+      inboxFiles(item).length === inboxFiles(other).length &&
       item.lastOpenedAt === other.lastOpenedAt &&
       item.archivedAt === other.archivedAt
     );

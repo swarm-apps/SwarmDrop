@@ -41,6 +41,15 @@ export class EventBus implements EventBusContract {
 
 function routeEventToStores(event: MobileCoreEvent): void {
   switch (event.tag) {
+    case MobileCoreEvent_Tags.TextDeliveryAttention: {
+      // 接收方向已送达时，收件箱真表已写完；只发刷新信号，不把正文复制进全局运行态。
+      if (event.inner.attention.kind === "received") {
+        void refreshInbox();
+        toast.info(t`收到来自 ${event.inner.attention.peerName} 的文本`);
+      }
+      break;
+    }
+
     case MobileCoreEvent_Tags.NetworkStatusChanged: {
       // status 已经是 ubrn 生成的 MobileNetworkStatus,直接透传
       useMobileCoreStore.getState().applyNetworkStatus(event.inner.status);

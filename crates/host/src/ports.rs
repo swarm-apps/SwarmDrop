@@ -305,6 +305,8 @@ pub enum Notification {
     PairingRequest { hostname: String },
     /// 收到文件传输请求（需用户确认）。`device_name` = 发送方设备名。
     IncomingTransfer { device_name: String },
+    /// 收到文本投递。正文不得进入该语义通知，防止锁屏或系统历史泄露。
+    IncomingText { device_name: String },
 }
 
 /// 宿主通知能力。

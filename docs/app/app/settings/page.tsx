@@ -3,6 +3,7 @@ import { AboutPanel } from "../_components/about-panel";
 import { AppearancePanel } from "../_components/appearance-panel";
 import { ConnectionPanel } from "../_components/connection-panel";
 import { NodePanel } from "../_components/node-panel";
+import { TextNotificationPanel } from "../_components/text-notification-panel";
 import { PageHeader } from "../_components/page-header";
 import { PageShell } from "../_components/page-shell";
 import { NAV, navTitle } from "../_lib/nav";
@@ -62,6 +63,9 @@ export default function SettingsPage() {
         </div>
         <div className="md:col-span-2 lg:col-span-6">
           <AboutPanel />
+        </div>
+        <div className="md:col-span-2 lg:col-span-6">
+          <TextNotificationPanel />
         </div>
         <div className="md:col-span-1 lg:col-span-3">
           <AppearancePanel />

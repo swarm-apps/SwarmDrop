@@ -23,3 +23,7 @@ body = "%{hostname} 请求与您配对"
 [notif.incoming_transfer]
 title = "收到文件传输请求"
 body = "%{name} 想要向您发送文件"
+
+[notif.incoming_text]
+title = "收到一条文本"
+body = "来自 %{name} 的文本已送达"

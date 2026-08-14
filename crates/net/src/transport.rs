@@ -469,8 +469,10 @@ mod tests {
     /// 两条断言方向相反，都得在——只查「有」会放过多报，只查「无」会放过少报。
     #[test]
     fn supported_transports_match_the_assembled_stack() {
-        let mut config = EndpointConfig::default();
-        config.webrtc_p2p = None;
+        let config = EndpointConfig {
+            webrtc_p2p: None,
+            ..Default::default()
+        };
         let kinds = supported_transports(&config);
 
         // direct 恒在（浏览器够到原生端的唯一入口，两个 target 都装）

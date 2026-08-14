@@ -502,7 +502,7 @@ export default function DeviceDetailScreen() {
                   : "text-[14px] font-semibold text-muted-foreground"
               }
             >
-              <Trans>发送文件</Trans>
+              <Trans>发送内容</Trans>
             </Text>
           </Pressable>
         </BottomActionBar>

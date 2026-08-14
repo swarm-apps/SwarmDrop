@@ -19,3 +19,7 @@ pub use swarmdrop_transfer::protocol::{
     ResumeReport, TRANSFER_CTRL, TRANSFER_CTRL_PROTOCOL, TRANSFER_DATA_PROTOCOL, TransferOrigin,
     TransferRequest, TransferResponse,
 };
+pub use swarmdrop_transfer::text_delivery::{
+    TEXT_DELIVERY, TEXT_DELIVERY_PROTOCOL, TextDeliveryRejectReason, TextDeliveryRequest,
+    TextDeliveryResponse,
+};

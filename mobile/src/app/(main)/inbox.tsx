@@ -53,6 +53,8 @@ export default function InboxScreen() {
   useFocusEffect(
     useCallback(() => {
       void refresh();
+      // 文本确认由根级 TextDeliveryAttentionHost 统一承载；收件箱只负责结果浏览。
+      return undefined;
     }, [refresh]),
   );
 

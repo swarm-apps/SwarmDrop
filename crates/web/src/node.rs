@@ -962,6 +962,82 @@ impl WebNode {
         Ok(result.session_id.to_string())
     }
 
+    /// 发送用户显式输入或粘贴的文本。正文会先持久化到发件箱，再等待接收端的持久化确认。
+    pub async fn send_text_delivery(&self, to: String, body: String) -> Result<JsValue, JsValue> {
+        parse_node_id(&to)?;
+        let record = self
+            .manager
+            .send_text_delivery(to.clone(), self.paired_device_name(&to), body)
+            .await
+            .map_err(WebError::from)?;
+        crate::serialize::to_js(&record)
+            .map_err(|error| WebError::network(error.to_string()).into())
+    }
+
+    /// 以相同 delivery id 重试，接收端可据此安全去重；编辑后的正文应调用 `send_text_delivery` 新建记录。
+    pub async fn retry_text_delivery(&self, delivery_id: String) -> Result<JsValue, JsValue> {
+        let delivery_id = Uuid::parse_str(&delivery_id)
+            .map_err(|_| WebError::invalid_input("非法文本投递标识"))?;
+        let record = self
+            .manager
+            .retry_text_delivery(delivery_id)
+            .await
+            .map_err(WebError::from)?;
+        crate::serialize::to_js(&record)
+            .map_err(|error| WebError::network(error.to_string()).into())
+    }
+
+    pub async fn list_text_outbox(&self, peer_id: String) -> Result<JsValue, JsValue> {
+        let records = self
+            .session_store
+            .list_outgoing_text_deliveries(&peer_id)
+            .await
+            .map_err(WebError::from)?;
+        crate::serialize::to_js(&records)
+            .map_err(|error| WebError::network(error.to_string()).into())
+    }
+
+    pub async fn delete_text_outbox_record(&self, delivery_id: String) -> Result<(), JsValue> {
+        let delivery_id = Uuid::parse_str(&delivery_id)
+            .map_err(|_| WebError::invalid_input("非法文本投递标识"))?;
+        self.session_store
+            .delete_outgoing_text_delivery(delivery_id)
+            .await
+            .map_err(WebError::from)?;
+        Ok(())
+    }
+
+    pub async fn pending_text_deliveries(&self) -> Result<JsValue, JsValue> {
+        let pending = self
+            .manager
+            .text_delivery_service()
+            .map_err(WebError::from)?
+            .pending()
+            .await
+            .map_err(WebError::from)?;
+        crate::serialize::to_js(&pending)
+            .map_err(|error| WebError::network(error.to_string()).into())
+    }
+
+    pub async fn confirm_text_delivery(
+        &self,
+        delivery_id: String,
+        accepted: bool,
+    ) -> Result<(), JsValue> {
+        let delivery_id = Uuid::parse_str(&delivery_id)
+            .map_err(|_| WebError::invalid_input("非法文本投递标识"))?;
+        let service = self
+            .manager
+            .text_delivery_service()
+            .map_err(WebError::from)?;
+        if accepted {
+            service.accept(delivery_id).await.map_err(WebError::from)?;
+        } else {
+            service.reject(delivery_id).await.map_err(WebError::from)?;
+        }
+        Ok(())
+    }
+
     /// 转发已接收的文件：把 OPFS 里的条目取回成 `File`，之后与用户选文件发送**完全同路**。
     ///
     /// `paths` 是收件箱条目的 OPFS 相对路径（落盘时写的那个）。`FileSystemFileHandle::get_file()`

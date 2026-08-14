@@ -37,6 +37,7 @@ mod lifecycle;
 mod logs;
 mod mcp;
 mod pairing;
+mod text_delivery;
 mod transfer;
 
 // glob re-export：Tauri 的 #[tauri::command] 宏会生成 __cmd__* 隐藏符号，
@@ -50,4 +51,5 @@ pub use lifecycle::*;
 pub use logs::*;
 pub use mcp::*;
 pub use pairing::*;
+pub use text_delivery::*;
 pub use transfer::*;

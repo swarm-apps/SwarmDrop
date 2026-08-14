@@ -13,6 +13,7 @@ import {
 import { AppTopBar } from "@/components/layout/app-topbar";
 import { ConnectionRequestDialog } from "@/components/pairing/connection-request-dialog";
 import { TransferOfferDialog } from "@/components/transfer/transfer-offer-dialog";
+import { TextDeliveryAttentionHost } from "@/components/inbox/text-delivery-attention-host";
 import { ExternalOpenHandler } from "@/components/external-open-handler";
 import { ClipboardInviteBanner } from "@/components/pairing/clipboard-invite-banner";
 import {
@@ -86,6 +87,7 @@ function AppLayout() {
       <AppAmbientLightOverlay />
       <ConnectionRequestDialog />
       <TransferOfferDialog />
+      <TextDeliveryAttentionHost />
       {/* 入站「用 SwarmDrop 打开」：映射文件 → 选设备屏。命令式，无常驻 UI。 */}
       <ExternalOpenHandler />
     </div>

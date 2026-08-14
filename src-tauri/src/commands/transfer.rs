@@ -324,7 +324,7 @@ pub async fn is_receiving_paused(app: AppHandle) -> crate::AppResult<bool> {
 
 // ============ 辅助函数 ============
 
-async fn get_transfer(net: &NetManagerState) -> crate::AppResult<Arc<TransferManager>> {
+pub(super) async fn get_transfer(net: &NetManagerState) -> crate::AppResult<Arc<TransferManager>> {
     let guard = net.lock().await;
     let manager = guard.as_ref().ok_or(crate::AppError::node_not_started())?;
     Ok(manager.transfer_arc())

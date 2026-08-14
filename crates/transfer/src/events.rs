@@ -14,11 +14,16 @@ use crate::progress::{
     TransferRejectedEvent, TransferResumedEvent,
 };
 use crate::store::TransferProjection;
+use crate::text_delivery::TextDeliveryAttention;
 
 /// transfer 域事件（变体名与 payload 与 `CoreEvent` 的 transfer 变体一一对应，
 /// core 的适配器做 1:1 映射）。
 #[derive(Debug, Clone)]
 pub enum TransferEvent {
+    /// 文本投递的用户注意力信号；不携带正文。
+    TextDeliveryAttention {
+        attention: TextDeliveryAttention,
+    },
     TransferOfferReceived {
         offer: TransferOfferEvent,
     },

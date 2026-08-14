@@ -17,7 +17,7 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use super::{inbox, ops};
+use super::{inbox, ops, text_delivery};
 use entity::{SessionStatus, TerminalReason, TransferDirection, TransferPhase};
 use swarmdrop_host::AppResult;
 use swarmdrop_host::{CoreSaveLocation, HostFileMetadata};
@@ -26,8 +26,10 @@ use swarmdrop_transfer::expired_receive_reason;
 use swarmdrop_transfer::inbox::{InboxItemDetail, InboxItemSummary, InboxSearchHit};
 use swarmdrop_transfer::protocol::TransferOrigin;
 use swarmdrop_transfer::store::{
-    CreateSessionInput, ExpiredReceiverActor, InboxStore, SessionStore, TransferProjection,
+    CreateSessionInput, ExpiredReceiverActor, InboxStore, SessionStore, TextDeliveryStore,
+    TransferProjection,
 };
+use swarmdrop_transfer::text_delivery::TextDeliveryRecord;
 
 /// SeaORM 持久化实现，注入 `TransferManager` 作为 `Arc<dyn TransferStore>`。
 #[derive(Clone)]
@@ -341,6 +343,78 @@ impl InboxStore for SqlSessionStore {
         missing: bool,
     ) -> AppResult<()> {
         inbox::mark_inbox_item_file_missing(&self.db, item_id, file_id, missing).await
+    }
+}
+
+#[async_trait]
+impl TextDeliveryStore for SqlSessionStore {
+    async fn create_outgoing_text_delivery(&self, record: TextDeliveryRecord) -> AppResult<()> {
+        text_delivery::create_outgoing(&self.db, record).await
+    }
+
+    async fn get_text_delivery(&self, delivery_id: Uuid) -> AppResult<Option<TextDeliveryRecord>> {
+        text_delivery::get(&self.db, delivery_id).await
+    }
+
+    async fn list_outgoing_text_deliveries(
+        &self,
+        peer_id: &str,
+    ) -> AppResult<Vec<TextDeliveryRecord>> {
+        text_delivery::list_outgoing(&self.db, peer_id).await
+    }
+
+    async fn update_outgoing_text_delivery(
+        &self,
+        delivery_id: Uuid,
+        status: entity::TextDeliveryStatus,
+        failure: Option<entity::TextDeliveryFailure>,
+        attempt_count: Option<i32>,
+        updated_at: i64,
+    ) -> AppResult<()> {
+        text_delivery::update_outgoing(
+            &self.db,
+            delivery_id,
+            status,
+            failure,
+            attempt_count,
+            updated_at,
+        )
+        .await
+    }
+
+    async fn create_pending_incoming_text_delivery(
+        &self,
+        record: TextDeliveryRecord,
+    ) -> AppResult<()> {
+        text_delivery::create_pending_incoming(&self.db, record).await
+    }
+
+    async fn list_pending_incoming_text_deliveries(&self) -> AppResult<Vec<TextDeliveryRecord>> {
+        text_delivery::list_pending_incoming(&self.db).await
+    }
+
+    async fn finalize_pending_incoming_text_delivery(
+        &self,
+        delivery_id: Uuid,
+        status: entity::TextDeliveryStatus,
+        updated_at: i64,
+    ) -> AppResult<()> {
+        text_delivery::finalize_pending_incoming(&self.db, delivery_id, status, updated_at).await
+    }
+
+    async fn persist_incoming_text_delivery(
+        &self,
+        record: TextDeliveryRecord,
+    ) -> AppResult<InboxItemDetail> {
+        text_delivery::persist_incoming(&self.db, record).await
+    }
+
+    async fn delete_outgoing_text_delivery(&self, delivery_id: Uuid) -> AppResult<()> {
+        text_delivery::delete_outgoing(&self.db, delivery_id).await
+    }
+
+    async fn recover_interrupted_text_deliveries(&self, now_ms: i64) -> AppResult<u64> {
+        text_delivery::recover_interrupted(&self.db, now_ms).await
     }
 }
 

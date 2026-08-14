@@ -23,14 +23,24 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import {
   ArrowLeftRight,
   Check,
+  Clipboard,
   MonitorSmartphone,
   Paperclip,
   Send,
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { canSendToDevice, organizedDeviceName } from "@swarmdrop/shared-view";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import {
+  canSendToDevice,
+  formatTextDeliveryKiB,
+  isTextDeliveryRetryable,
+  isTextDeliveryWithinLimit,
+  organizedDeviceName,
+  TEXT_DELIVERY_MAX_BYTES,
+  utf8ByteLength,
+} from "@swarmdrop/shared-view";
 import { FileBrowser, type FileBrowserTarget } from "@swarmdrop/file-browser";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,6 +51,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/cn";
+import { clipboard } from "../_lib/clipboard";
 import { PANEL_SURFACE } from "./section";
 import { CenteredEmptyState } from "./empty-state";
 import { EtaText } from "./eta-text";
@@ -65,6 +76,7 @@ import {
   type Device,
   type TransferProgressEvent,
   type TransferProjection,
+  type TextDeliveryRecord,
 } from "../_lib/view-types";
 import { PanelFallback } from "./panel-fallback";
 import { PrepareProgressRow } from "./prepare-progress";
@@ -113,6 +125,9 @@ function SendPanelInner() {
   }, [requestedPeerId]);
 
   const [files, setFiles] = useState<PendingFile[]>([]);
+  const [contentMode, setContentMode] = useState<"files" | "text">("files");
+  const [textBody, setTextBody] = useState("");
+  const [textOutbox, setTextOutbox] = useState<TextDeliveryRecord[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [sentSessionId, setSentSessionId] = useState<string | null>(null);
   const sendAction = useAsyncAction();
@@ -136,7 +151,21 @@ function SendPanelInner() {
   // 只判 `!!peerId` 会让按钮在必然失败的目标上亮着，用户点完只收到一条内核报错。
   // 同时兜住「选好设备后对方转离线」这个时间窗。
   const targetValid = target !== null && canSendToDevice(target);
-  const canSend = ready && targetValid && files.length > 0 && !sendAction.pending;
+  const canSend =
+    ready &&
+    targetValid &&
+    (contentMode === "files" ? files.length > 0 : isTextDeliveryWithinLimit(textBody)) &&
+    !sendAction.pending;
+
+  const refreshTextOutbox = useCallback(async () => {
+    const node = getNode();
+    if (!node || !peerId) return;
+    setTextOutbox((await node.list_text_outbox(peerId)) as TextDeliveryRecord[]);
+  }, [peerId]);
+
+  useEffect(() => {
+    if (contentMode === "text") void refreshTextOutbox();
+  }, [contentMode, refreshTextOutbox]);
   const fileItems = useMemo(() => itemsFromPendingFiles(files), [files]);
   // 待发文件的字节只在内存里的 `File` 句柄上，取图要按来源键回查（见 thumbnail-source.ts）。
   // resolver 建一次就不再换引用——它是 `useThumbnail` 的 effect 依赖，每加一个文件换一次
@@ -163,7 +192,19 @@ function SendPanelInner() {
 
   const doSend = () => {
     const node = getNode();
-    if (!node || !peerId || files.length === 0) return;
+    if (!node || !peerId) return;
+    if (contentMode === "text") {
+      if (!isTextDeliveryWithinLimit(textBody)) return;
+      sendAction.run(
+        () => node.send_text_delivery(peerId, textBody),
+        () => {
+          setTextBody("");
+          void refreshTextOutbox();
+        },
+      );
+      return;
+    }
+    if (files.length === 0) return;
     // 开工先清：上一批可能是中途失败停在半路的，而认领规则只让「已跑到 100%」的让位。
     webNodeActions.clearPrepare();
     sendAction.run(
@@ -261,6 +302,27 @@ function SendPanelInner() {
         onChangeRequest={() => setPickerOpen(true)}
       />
 
+      <div className="inline-flex w-fit rounded-lg bg-muted p-1" role="group" aria-label={t`发送内容类型`}>
+        {[
+          ["files", <Paperclip key="files" className="size-3.5" aria-hidden />, <Trans key="files-label">文件</Trans>],
+          ["text", <Clipboard key="text" className="size-3.5" aria-hidden />, <Trans key="text-label">文本</Trans>],
+        ].map(([mode, icon, label]) => (
+          <button
+            key={mode as string}
+            type="button"
+            disabled={sendAction.pending}
+            onClick={() => setContentMode(mode as "files" | "text")}
+            className={cn(
+              "flex min-h-11 w-28 items-center justify-center gap-1.5 rounded-md py-2 text-xs font-medium",
+              contentMode === mode ? "bg-card text-foreground shadow-xs" : "text-muted-foreground",
+            )}
+          >
+            {icon as React.ReactNode}{label as React.ReactNode}
+          </button>
+        ))}
+      </div>
+
+      {contentMode === "files" ? <>
       <div
         className={cn(
           "rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors",
@@ -347,6 +409,59 @@ function SendPanelInner() {
             className="flex-none"
             contentClassName="min-h-[280px]"
           />
+        </div>
+      )}
+      </> : (
+        <div className="flex flex-col gap-2 rounded-lg border p-4">
+          <div className="flex items-center justify-between gap-3">
+            <label htmlFor="text-delivery" className="text-sm font-semibold text-foreground"><Trans>文本内容</Trans></label>
+            <div className="flex gap-1">
+              <Button type="button" variant="ghost" size="sm" disabled={sendAction.pending || textBody.length === 0} onClick={() => setTextBody("")}><Trans>清空</Trans></Button>
+              <Button type="button" variant="ghost" size="sm" disabled={sendAction.pending} onClick={() => void clipboard.readText().then((value) => {
+                if (value.length === 0) {
+                  toast.error(t`剪贴板中没有可用文本`);
+                  return;
+                }
+                setTextBody(value);
+              }).catch(() => toast.error(t`无法读取剪贴板，请检查权限`))}>
+                <Trans>粘贴</Trans>
+              </Button>
+            </div>
+          </div>
+          <textarea
+            id="text-delivery"
+            value={textBody}
+            onChange={(event) => setTextBody(event.target.value)}
+            placeholder={t`输入或粘贴文本`}
+            className="min-h-52 w-full resize-y rounded-md border bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring"
+          />
+          <p className={cn(
+            "text-right text-xs text-muted-foreground",
+            utf8ByteLength(textBody) > TEXT_DELIVERY_MAX_BYTES && "text-destructive",
+          )}>
+            {formatTextDeliveryKiB(utf8ByteLength(textBody))} / {formatTextDeliveryKiB(TEXT_DELIVERY_MAX_BYTES)}
+          </p>
+          {textBody.length > 0 && !isTextDeliveryWithinLimit(textBody) ? (
+            <p className="text-xs text-destructive"><Trans>文本超过 64 KiB，请缩短后发送。</Trans></p>
+          ) : null}
+          {textOutbox.length > 0 ? (
+            <div className="border-t pt-3">
+              <p className="mb-2 text-xs font-semibold text-muted-foreground"><Trans>最近发送</Trans></p>
+              <div className="space-y-2">
+                {textOutbox.slice(0, 5).map((record) => (
+                    <div key={record.deliveryId} className="rounded-md border bg-muted/20 p-3">
+                    <div className="flex items-center justify-between gap-2"><p className="min-w-0 flex-1 truncate text-xs text-foreground">{record.body}</p><span className="text-[11px] text-muted-foreground">{webTextStatus(record.status)}</span></div>
+                    <p className="mt-1 text-[11px] text-muted-foreground"><Trans>更新于</Trans> {new Date(record.updatedAt).toLocaleString()}</p>
+                    <div className="mt-2 flex justify-end gap-2">
+                      <Button type="button" size="sm" variant="ghost" onClick={() => setTextBody(record.body)}><Trans>编辑后重发</Trans></Button>
+                      {webTextRetryable(record.status) ? <Button type="button" size="sm" variant="outline" onClick={() => void getNode()?.retry_text_delivery(record.deliveryId).then(refreshTextOutbox).catch(() => toast.error(t`操作失败，请重试`))}><Trans>重试</Trans></Button> : null}
+                      <Button type="button" size="sm" variant="ghost" onClick={() => void getNode()?.delete_text_outbox_record(record.deliveryId).then(refreshTextOutbox).catch(() => toast.error(t`操作失败，请重试`))}><Trans>删除</Trans></Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -496,6 +611,22 @@ function SentSessionCard({
       {failed && failureLabel && <p className="break-words">{t(failureLabel)}</p>}
     </div>
   );
+}
+
+function webTextRetryable(status: TextDeliveryRecord["status"]) {
+  return isTextDeliveryRetryable(status);
+}
+
+function webTextStatus(status: TextDeliveryRecord["status"]) {
+  switch (status) {
+    case "sending": return <Trans>发送中</Trans>;
+    case "waiting_confirmation": return <Trans>等待确认</Trans>;
+    case "delivered": return <Trans>已送达</Trans>;
+    case "rejected": return <Trans>已拒绝</Trans>;
+    case "retryable": return <Trans>可重试，送达状态未知</Trans>;
+    case "expired": return <Trans>已过期</Trans>;
+    case "cancelled": return <Trans>已取消</Trans>;
+  }
 }
 
 /**

@@ -12,9 +12,9 @@
 // 零可见性（符合「安全边界」设计，不是本面板的缺陷）。#79 验收标准里的「需先配对」提示因此
 // 落在发送侧：见 send-panel.tsx 消费 `rejections` 域。
 //
-// #96 拆成两块并挂到 /app/inbox：待处理请求是**决策**（有时效），收件箱是**结果**（可回看）。
-// 两者混在一个卡里时，一条永久列表会把一条限时动作压下去。多路由后请求的可见性由导航徽标
-// 兜底（见 app-nav.tsx），用户不在收件箱页也知道有东西等着。
+// #96 将入站内容拆为两类：待处理请求是**决策**（有时效），收件箱是**结果**（可回看）。
+// 文本确认与文件 offer 同样由 layout 的全局宿主承载；本页只保留已落定的结果，避免用户正在
+// 发送或浏览设备时看不见需要决定的文本。
 //
 // #108 收件箱从「只能滚的列表」补成可用：检索 / 已读 / 归档 / 删除四件事各自接上内核既有的
 // 导出。此前那五个方法是完整实现却零调用方——能力在内核里，UI 上不存在。
@@ -45,6 +45,7 @@ import {
   allDownloadKey,
   directoryDownloadKey,
   fileDownloadKey,
+  inboxFiles,
   toWebError,
   usableInboxFiles,
   type InboxItemDetail,
@@ -160,7 +161,6 @@ function InboxPanelInner() {
   const itemAction = useKeyedAsyncAction();
 
   const ready = status === "running";
-
   // 同路由内 query 变化**不重挂组件**，所以初值之外还要跟着 param 走（知识库「静态导出的三条
   // 硬限制」第 3 条记的正是这个坑）。今天 `?item=` 的唯一生产者在 `/app/transfer`，两次跳转
   // 之间本页会卸载重挂，看似不需要——但那是导航图的偶然，不是机制保证：谁在收件箱内部加一条
@@ -477,7 +477,7 @@ function InboxPanelInner() {
   const downloadTarget = useCallback(
     (item: InboxItemDetail, target: FileBrowserTarget) => {
       if (target.type === "file") {
-        const file = item.files.find(
+        const file = inboxFiles(item).find(
           (candidate) => String(candidate.id) === target.item.sourceId,
         );
         if (file) download(item, file);
@@ -497,9 +497,9 @@ function InboxPanelInner() {
     () => rows.find((row) => row.item.id === focusedId) ?? null,
     [rows, focusedId],
   );
-
   return (
-    <MasterDetail
+    <>
+      <MasterDetail
       testId="inbox-master-detail"
       drawerLabel={t`收件箱列表`}
       list={({ closeDrawer }) => (
@@ -654,6 +654,7 @@ function InboxPanelInner() {
           <InboxDetailEmpty openList={openList} hasRows={rows.length > 0} />
         )
       }
-    />
+      />
+    </>
   );
 }

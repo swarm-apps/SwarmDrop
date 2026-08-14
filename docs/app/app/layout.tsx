@@ -6,6 +6,7 @@ import { AppI18nProvider } from "./_components/i18n-provider";
 import { PairingRequestHost } from "./_components/pairing-request-host";
 import { ReloadGuard } from "./_components/reload-guard";
 import { TransferOfferHost } from "./_components/transfer-offer-host";
+import { TextDeliveryAttentionHost } from "./_components/text-delivery-attention-host";
 import { WebNodeBootstrap } from "./_components/web-node-bootstrap";
 import { Toaster } from "@/components/ui/sonner";
 import { WindowDropGuard } from "./_components/window-drop-guard";
@@ -66,6 +67,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <ReloadGuard />
         <PairingRequestHost />
         <TransferOfferHost />
+        <TextDeliveryAttentionHost />
         {/* toast 宿主。挂 layout 与两个请求宿主同理：任何路由下的动作都要能给出反馈。
             **只在应用区挂**，文档站不需要也不该被它影响。 */}
         <Toaster />

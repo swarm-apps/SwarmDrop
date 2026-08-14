@@ -17,9 +17,20 @@ import {
   writeText,
 } from "@tauri-apps/plugin-clipboard-manager";
 
+/** 宿主剪贴板能力只停留在 UI 边界，不得穿过 IPC、core 或 wire。 */
+export interface ClipboardPort {
+  readText(): Promise<string>;
+  writeText(text: string): Promise<void>;
+}
+
+export const clipboard: ClipboardPort = {
+  readText: readSystemClipboard,
+  writeText,
+};
+
 /** 复制文本到系统剪贴板。 */
 export async function copyText(text: string): Promise<void> {
-  await writeText(text);
+  await clipboard.writeText(text);
 }
 
 /**
@@ -30,5 +41,5 @@ export async function copyText(text: string): Promise<void> {
  * 「读不到」处理即可，不要据此推断原因。
  */
 export async function readText(): Promise<string> {
-  return readSystemClipboard();
+  return clipboard.readText();
 }

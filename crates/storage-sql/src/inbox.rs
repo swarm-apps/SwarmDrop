@@ -18,9 +18,9 @@ use uuid::Uuid;
 use crate::ops::{get_transfer_projection, now_ms};
 use swarmdrop_host::{AppResult, CoreSaveLocation};
 use swarmdrop_transfer::inbox::{
-    InboxFileFacts, InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary,
-    InboxSearchHit, inbox_content_hash, inbox_files_text, inbox_primary_file_name, inbox_snippet,
-    inbox_source_kind, is_completed_receive,
+    InboxFileFacts, InboxHitFile, InboxItemContent, InboxItemDetail, InboxItemFileEntry,
+    InboxItemSummary, InboxSearchHit, inbox_content_hash, inbox_files_text,
+    inbox_primary_file_name, inbox_snippet, inbox_source_kind, is_completed_receive,
 };
 
 /// `ModelEx` → 中立 DTO。写成自由函数而非 `From` impl：两端类型都不属于本 crate
@@ -43,6 +43,7 @@ fn item_summary(item: &entity::inbox_item::ModelEx) -> InboxItemSummary {
     InboxItemSummary {
         id: item.id,
         transfer_session_id: item.transfer_session_id,
+        text_delivery_id: item.text_delivery_id,
         source_peer_id: item.source_peer_id.0.clone(),
         source_name: item.source_name.clone(),
         source_kind: item.source_kind.clone(),
@@ -74,15 +75,36 @@ async fn detail_from_model(
     db: &DatabaseConnection,
     item: entity::inbox_item::ModelEx,
 ) -> AppResult<InboxItemDetail> {
-    let transfer = match item.transfer_session_id {
-        Some(session_id) => get_transfer_projection(db, session_id).await?,
-        None => None,
+    let content = if item.content_kind == InboxContentKind::Text {
+        let Some(delivery_id) = item.text_delivery_id else {
+            return Err(swarmdrop_host::AppError::Transfer(
+                "文本收件箱条目缺少投递引用".into(),
+            ));
+        };
+        let Some(delivery) = entity::TextDelivery::find_by_id(delivery_id)
+            .one(db)
+            .await?
+        else {
+            return Err(swarmdrop_host::AppError::Transfer(
+                "文本收件箱条目缺少正文".into(),
+            ));
+        };
+        InboxItemContent::Text {
+            body: delivery.body,
+        }
+    } else {
+        let transfer = match item.transfer_session_id {
+            Some(session_id) => get_transfer_projection(db, session_id).await?,
+            None => None,
+        };
+        InboxItemContent::Files {
+            entries: item.files.clone().into_iter().map(file_entry).collect(),
+            transfer: Box::new(transfer),
+        }
     };
-    let files = item.files.clone().into_iter().map(file_entry).collect();
     Ok(InboxItemDetail {
         item: item_summary(&item),
-        files,
-        transfer,
+        content,
     })
 }
 
@@ -425,6 +447,25 @@ pub(crate) async fn get_inbox_item_by_transfer_session_id(
     Ok(Some(detail_from_model(db, item).await?))
 }
 
+/// 加载与指定文本投递关联的可见收件箱详情。
+///
+/// 该查询只供文本账本的幂等提交读取；它仍遵守普通详情的软删除可见性规则。
+pub(crate) async fn get_inbox_item_by_text_delivery_id(
+    db: &DatabaseConnection,
+    delivery_id: Uuid,
+) -> AppResult<Option<InboxItemDetail>> {
+    let Some(item) = entity::InboxItem::load()
+        .filter(entity::inbox_item::Column::TextDeliveryId.eq(delivery_id))
+        .filter(entity::inbox_item::Column::DeletedAt.is_null())
+        .with(entity::InboxItemFile)
+        .one(db)
+        .await?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(detail_from_model(db, item).await?))
+}
+
 /// 标记收件箱条目最近打开时间。
 pub(crate) async fn mark_inbox_item_opened(
     db: &DatabaseConnection,
@@ -457,11 +498,24 @@ pub(crate) async fn delete_inbox_item_record(
     db: &DatabaseConnection,
     item_id: Uuid,
 ) -> AppResult<()> {
-    if let Some(item) = entity::InboxItem::find_by_id(item_id).one(db).await? {
+    let transaction = db.begin().await?;
+    if let Some(item) = entity::InboxItem::find_by_id(item_id)
+        .one(&transaction)
+        .await?
+    {
+        // 文本正文只随收件箱记录存在；删除时必须一并抹去，不能留在独立账本中。
+        if item.content_kind == InboxContentKind::Text
+            && let Some(delivery_id) = item.text_delivery_id
+        {
+            entity::TextDelivery::delete_by_id(delivery_id)
+                .exec(&transaction)
+                .await?;
+        }
         let mut model = item.into_active_model();
         model.deleted_at = Set(Some(now_ms()));
-        model.update(db).await?;
+        model.update(&transaction).await?;
     }
+    transaction.commit().await?;
     Ok(())
 }
 
@@ -625,6 +679,13 @@ mod tests {
         }
     }
 
+    fn files(detail: &InboxItemDetail) -> &[InboxItemFileEntry] {
+        match &detail.content {
+            InboxItemContent::Files { entries, .. } => entries,
+            InboxItemContent::Text { .. } => panic!("文件收件箱测试收到了文本条目"),
+        }
+    }
+
     async fn create_receive_session(
         store: &SqlSessionStore,
         session_id: Uuid,
@@ -676,8 +737,8 @@ mod tests {
         assert_eq!(first.item.transfer_session_id, Some(session_id));
         assert_eq!(first.item.content_kind, InboxContentKind::Files);
         assert_eq!(first.item.item_count, 2);
-        assert_eq!(first.files.len(), 2);
-        assert!(first.files.iter().all(|file| !file.missing));
+        assert_eq!(files(&first).len(), 2);
+        assert!(files(&first).iter().all(|file| !file.missing));
 
         let list = store.list_inbox_items(false).await.expect("list inbox");
         assert_eq!(list.len(), 1);
@@ -703,7 +764,7 @@ mod tests {
 
         assert_eq!(queried.item.id, item.item.id);
         assert_eq!(queried.item.transfer_session_id, Some(session_id));
-        assert_eq!(queried.files.len(), 2);
+        assert_eq!(files(&queried).len(), 2);
     }
 
     #[tokio::test]
@@ -818,13 +879,8 @@ mod tests {
         let mine = make_inbox_item(&store, "Zoe", &[file_info(0, "我的.pdf", 5)]).await;
         let other = make_inbox_item(&store, "Zoe", &[file_info(1, "别人的.pdf", 5)]).await;
 
-        let other_file_id = store
-            .get_inbox_item_detail(other)
-            .await
-            .unwrap()
-            .unwrap()
-            .files[0]
-            .id;
+        let other_detail = store.get_inbox_item_detail(other).await.unwrap().unwrap();
+        let other_file_id = files(&other_detail)[0].id;
 
         assert!(
             store
@@ -834,19 +890,14 @@ mod tests {
             "不属于该条目的 file_id 必须报错，不能悄悄改到别人的文件上"
         );
 
-        let my_file_id = store
-            .get_inbox_item_detail(mine)
-            .await
-            .unwrap()
-            .unwrap()
-            .files[0]
-            .id;
+        let my_detail = store.get_inbox_item_detail(mine).await.unwrap().unwrap();
+        let my_file_id = files(&my_detail)[0].id;
         store
             .mark_inbox_item_file_missing(mine, my_file_id, true)
             .await
             .expect("自己的文件应可标记");
         let detail = store.get_inbox_item_detail(mine).await.unwrap().unwrap();
-        assert!(detail.files[0].missing);
+        assert!(files(&detail)[0].missing);
         assert!(detail.item.missing, "条目级 missing 由文件行聚合");
     }
 

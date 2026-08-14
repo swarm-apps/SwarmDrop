@@ -24,6 +24,7 @@ use swarmdrop_transfer::progress::{
     TransferRejectedEvent, TransferResumedEvent,
 };
 use swarmdrop_transfer::store::TransferProjection;
+use swarmdrop_transfer::text_delivery::TextDeliveryAttention;
 
 use crate::network::NetworkStatus;
 use crate::protocol::PairingRequest;
@@ -36,6 +37,10 @@ use crate::protocol::PairingRequest;
 #[serde(rename_all = "camelCase", tag = "type")]
 #[non_exhaustive]
 pub enum CoreEvent {
+    /// 已持久化或待确认的文本投递到达；正文仍只经显式收件箱/确认读取。
+    TextDeliveryAttention {
+        attention: TextDeliveryAttention,
+    },
     NetworkStatusChanged {
         status: NetworkStatus,
     },

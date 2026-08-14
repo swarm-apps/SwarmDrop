@@ -271,10 +271,16 @@ export type InboxHitFile = {
 	relativePath: string,
 };
 
+/**
+ *  收件箱详情的显式内容联合体。
+ * 
+ *  文件与文本不以空数组或空正文互相伪装；调用方必须穷尽处理，避免把文本展示成文件操作。
+ */
+export type InboxItemContent = { kind: "files"; entries: InboxItemFileEntry[]; transfer: TransferProjection | null } | { kind: "text"; body: string };
+
 /**  收件箱详情 DTO。 */
 export type InboxItemDetail = {
-	files: InboxItemFileEntry[],
-	transfer: TransferProjection | null,
+	content: InboxItemContent,
 } & InboxItemSummary;
 
 /**  收件箱文件 DTO。 */
@@ -301,6 +307,8 @@ export type InboxItemFileEntry = {
 export type InboxItemSummary = {
 	id: string,
 	transferSessionId: string | null,
+	/**  文本条目关联的账本记录；文件条目保持为空。 */
+	textDeliveryId: string | null,
 	sourcePeerId: string,
 	sourceName: string,
 	sourceKind: InboxSourceKind,
@@ -576,6 +584,15 @@ export type PendingPairingJson = {
 	deviceName: string,
 };
 
+/**  等待用户确认的文本投递快照。正文在本地内存中仅保留到确认窗口结束，绝不预先写入剪贴板。 */
+export type PendingTextDeliverySummary = {
+	deliveryId: string,
+	peerId: string,
+	peerName: string,
+	body: string,
+	createdAt: number,
+};
+
 /**  `prepare_send` 的 hash 进度事件 */
 export type PrepareProgressEvent = {
 	/**  用于区分并发 prepare（多用户在不同会话同时调用） */
@@ -630,6 +647,45 @@ export type TerminalReason = "completed" | "cancelled" | "rejected" | "fatal_err
  *  「我拒过这个人吗」时会去查的地方。
  */
 "expired";
+
+/**  已持久化或已进入待确认队列的文本投递注意力。 */
+export type TextDeliveryAttention = {
+	deliveryId: string,
+	peerId: string,
+	peerName: string,
+	kind: TextDeliveryAttentionKind,
+	createdAt: number,
+};
+
+/**  用户需要处理的文本投递状态。事件不含正文，避免系统通知或日志泄露敏感内容。 */
+export type TextDeliveryAttentionKind = "confirmation_required" | "received";
+
+/**  文本投递账本的方向。 */
+export type TextDeliveryDirection = "send" | "receive";
+
+/**
+ *  可安全展示给发起方的文本投递失败分类。
+ * 
+ *  这里刻意不记录接收端的策略细节，避免把对方的信任与暂停状态泄露到网络边界之外。
+ */
+export type TextDeliveryFailure = "peer_unavailable" | "timed_out" | "unsupported_protocol" | "rejected" | "expired" | "storage_failed" | "protocol_conflict" | "invalid_payload";
+
+/**  一条收发两侧共用的文本投递账本记录。 */
+export type TextDeliveryRecord = {
+	deliveryId: string,
+	direction: TextDeliveryDirection,
+	peerId: string,
+	peerName: string,
+	body: string,
+	status: TextDeliveryStatus,
+	failure: TextDeliveryFailure | null,
+	attemptCount: number,
+	createdAt: number,
+	updatedAt: number,
+};
+
+/**  文本投递的用户可见状态。 */
+export type TextDeliveryStatus = "sending" | "waiting_confirmation" | "delivered" | "rejected" | "retryable" | "expired" | "cancelled";
 
 /**  对方接受 Offer 的事件 payload */
 export type TransferAcceptedEvent = {
@@ -831,4 +887,4 @@ export type WebError =
  *  `TransferEvent` 本身未 derive `Serialize`（transfer 不改）——与桌面把它映射进
  *  `CoreEvent` 的适配范式一致。`events()` 的 ReadableStream 逐条产出本类型的序列化对象。
  */
-export type WebTransferEvent = { type: "transferOfferReceived"; offer: TransferOfferEvent } | { type: "transferProgress"; event: TransferProgressEvent } | { type: "transferAccepted"; event: TransferAcceptedEvent } | { type: "transferRejected"; event: TransferRejectedEvent } | { type: "transferCompleted"; event: TransferCompleteEvent } | { type: "transferFailed"; event: TransferFailedEvent } | { type: "transferPaused"; event: TransferPausedEvent } | { type: "transferResumed"; event: TransferResumedEvent } | { type: "transferDbError"; event: TransferDbErrorEvent } | { type: "transferProjection"; projection: TransferProjection } | { type: "prepareProgress"; event: PrepareProgressEvent } | { type: "filePublish"; event: FilePublishEvent };
+export type WebTransferEvent = { type: "textDeliveryAttention"; attention: TextDeliveryAttention } | { type: "transferOfferReceived"; offer: TransferOfferEvent } | { type: "transferProgress"; event: TransferProgressEvent } | { type: "transferAccepted"; event: TransferAcceptedEvent } | { type: "transferRejected"; event: TransferRejectedEvent } | { type: "transferCompleted"; event: TransferCompleteEvent } | { type: "transferFailed"; event: TransferFailedEvent } | { type: "transferPaused"; event: TransferPausedEvent } | { type: "transferResumed"; event: TransferResumedEvent } | { type: "transferDbError"; event: TransferDbErrorEvent } | { type: "transferProjection"; projection: TransferProjection } | { type: "prepareProgress"; event: PrepareProgressEvent } | { type: "filePublish"; event: FilePublishEvent };

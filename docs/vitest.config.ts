@@ -24,9 +24,15 @@ export default defineConfig({
           new URL("./test/lingui-macro-stub.ts", import.meta.url),
         ),
       },
+      {
+        find: /^@lingui\/react\/macro$/,
+        replacement: fileURLToPath(
+          new URL("./test/lingui-react-macro-stub.tsx", import.meta.url),
+        ),
+      },
     ],
   },
   test: {
-    include: ["lib/**/*.test.ts", "app/**/*.test.ts"],
+    include: ["lib/**/*.test.ts", "app/**/*.test.{ts,tsx}"],
   },
 });

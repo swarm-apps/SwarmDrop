@@ -23,6 +23,7 @@ pub mod progress;
 pub mod protocol;
 pub mod runtime;
 pub mod store;
+pub mod text_delivery;
 pub mod wire;
 
 // ── 兼容层：迁出前这些模块内写的是 `crate::host::` / `crate::device::` /

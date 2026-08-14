@@ -31,6 +31,7 @@ use swarmdrop_transfer::progress::{
 };
 use swarmdrop_transfer::protocol::FileInfo;
 use swarmdrop_transfer::store::TransferProjection;
+use swarmdrop_transfer::text_delivery::TextDeliveryAttention;
 
 /// `TransferEvent` 的可序列化镜像（1:1 变体，字段与 payload 同名）。
 ///
@@ -40,6 +41,7 @@ use swarmdrop_transfer::store::TransferProjection;
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum WebTransferEvent {
+    TextDeliveryAttention { attention: TextDeliveryAttention },
     TransferOfferReceived { offer: TransferOfferEvent },
     TransferProgress { event: TransferProgressEvent },
     TransferAccepted { event: TransferAcceptedEvent },
@@ -58,6 +60,7 @@ impl WebTransferEvent {
     /// 变体静态名（诊断日志用，与 `#[serde(rename_all="camelCase")]` 的 tag 对齐）。
     pub fn type_name(&self) -> &'static str {
         match self {
+            Self::TextDeliveryAttention { .. } => "textDeliveryAttention",
             Self::TransferOfferReceived { .. } => "transferOfferReceived",
             Self::TransferProgress { .. } => "transferProgress",
             Self::TransferAccepted { .. } => "transferAccepted",
@@ -77,6 +80,9 @@ impl WebTransferEvent {
 impl From<TransferEvent> for WebTransferEvent {
     fn from(e: TransferEvent) -> Self {
         match e {
+            TransferEvent::TextDeliveryAttention { attention } => {
+                Self::TextDeliveryAttention { attention }
+            }
             TransferEvent::TransferOfferReceived { offer } => Self::TransferOfferReceived { offer },
             TransferEvent::TransferProgress { event } => Self::TransferProgress { event },
             TransferEvent::TransferAccepted { event } => Self::TransferAccepted { event },

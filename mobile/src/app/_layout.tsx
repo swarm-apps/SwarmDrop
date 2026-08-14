@@ -17,6 +17,7 @@ import { ReducedMotionConfig, ReduceMotion } from "react-native-reanimated";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AppErrorBoundary } from "@/components/app-error-boundary";
 import { PairingRequestHost } from "@/components/pairing-request-host";
+import { TextDeliveryAttentionHost } from "@/components/text-delivery-attention-host";
 import { TransferOfferHost } from "@/components/transfer-offer-host";
 import { UpdateHost } from "@/components/update-host";
 import { UpdateProvider } from "@/components/update-provider";
@@ -209,6 +210,7 @@ export default function RootLayout() {
                     </Stack>
                     <PairingRequestHost />
                     <TransferOfferHost />
+                    <TextDeliveryAttentionHost />
                     <UpdateHost />
                     <PortalHost />
                     {/* 入站分享(expo-share-intent):映射文件 → 选设备屏。命令式,无常驻 UI。 */}

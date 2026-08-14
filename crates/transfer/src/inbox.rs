@@ -26,6 +26,8 @@ use crate::{AppError, AppResult};
 pub struct InboxItemSummary {
     pub id: Uuid,
     pub transfer_session_id: Option<Uuid>,
+    /// 文本条目关联的账本记录；文件条目保持为空。
+    pub text_delivery_id: Option<Uuid>,
     pub source_peer_id: String,
     pub source_name: String,
     pub source_kind: entity::InboxSourceKind,
@@ -63,6 +65,22 @@ pub struct InboxItemFileEntry {
     pub missing: bool,
 }
 
+/// 收件箱详情的显式内容联合体。
+///
+/// 文件与文本不以空数组或空正文互相伪装；调用方必须穷尽处理，避免把文本展示成文件操作。
+#[derive(Debug, Clone, serde::Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum InboxItemContent {
+    Files {
+        entries: Vec<InboxItemFileEntry>,
+        transfer: Box<Option<TransferProjection>>,
+    },
+    Text {
+        body: String,
+    },
+}
+
 /// 收件箱详情 DTO。
 #[derive(Debug, Clone, serde::Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -70,8 +88,7 @@ pub struct InboxItemFileEntry {
 pub struct InboxItemDetail {
     #[serde(flatten)]
     pub item: InboxItemSummary,
-    pub files: Vec<InboxItemFileEntry>,
-    pub transfer: Option<TransferProjection>,
+    pub content: InboxItemContent,
 }
 
 /// 收件箱搜索命中（item 粒度）。
@@ -480,13 +497,15 @@ pub async fn delete_inbox_item(
             .get_inbox_item_detail(item_id)
             .await?
             .ok_or_else(|| AppError::SessionNotFound("收件箱记录不存在".into()))?;
-        for file in &detail.files {
-            if let Err(e) = files.delete_finalized_file(&file.local_path).await {
-                tracing::warn!(
-                    path = %file.local_path,
-                    error = %e,
-                    "删除收件箱文件失败，记录仍会删除（该文件将成为孤儿）"
-                );
+        if let InboxItemContent::Files { entries, .. } = detail.content {
+            for file in entries {
+                if let Err(e) = files.delete_finalized_file(&file.local_path).await {
+                    tracing::warn!(
+                        path = %file.local_path,
+                        error = %e,
+                        "删除收件箱文件失败，记录仍会删除（该文件将成为孤儿）"
+                    );
+                }
             }
         }
     }
@@ -548,8 +567,10 @@ mod tests {
             let spy = Self::default();
             *spy.detail.lock().unwrap() = Some(InboxItemDetail {
                 item: summary_stub(),
-                files,
-                transfer: None,
+                content: InboxItemContent::Files {
+                    entries: files,
+                    transfer: Box::new(None),
+                },
             });
             spy
         }
@@ -557,12 +578,24 @@ mod tests {
         fn calls(&self) -> Vec<String> {
             self.log.lock().unwrap().clone()
         }
+
+        fn with_text() -> Self {
+            let spy = Self::default();
+            *spy.detail.lock().unwrap() = Some(InboxItemDetail {
+                item: summary_stub(),
+                content: InboxItemContent::Text {
+                    body: "敏感文本".to_string(),
+                },
+            });
+            spy
+        }
     }
 
     fn summary_stub() -> InboxItemSummary {
         InboxItemSummary {
             id: Uuid::nil(),
             transfer_session_id: None,
+            text_delivery_id: None,
             source_peer_id: String::new(),
             source_name: String::new(),
             source_kind: entity::InboxSourceKind::PairedDevice,
@@ -713,6 +746,15 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(spy.calls(), vec!["record"], "不该读 detail，也不该删文件");
+    }
+
+    #[tokio::test]
+    async fn deleting_text_never_attempts_file_io() {
+        let spy = DeleteSpy::with_text();
+        delete_inbox_item(&spy, &spy, Uuid::nil(), true)
+            .await
+            .expect("文本记录不应要求虚构文件");
+        assert_eq!(spy.calls(), vec!["record"]);
     }
 
     /// 条目不存在 → 报错而不是静默成功。拿不到 detail 就等于不知道该删哪些文件，

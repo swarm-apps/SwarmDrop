@@ -14,7 +14,7 @@
 
 use n0_future::time::Instant;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use dashmap::{DashMap, DashSet};
 use serde::Serialize;
@@ -35,6 +35,7 @@ use crate::progress::TransferFailedEvent;
 use crate::protocol::{FileInfo, TransferResponse};
 use crate::runtime::TransferRuntime;
 use crate::store::TransferStore;
+use crate::text_delivery::TextDeliveryService;
 
 /// 发送方准备好的传输信息
 #[derive(Debug, Clone)]
@@ -183,6 +184,7 @@ pub struct TransferManager {
     /// `Documents`），这里只是一份随时可被刷新的镜像。宿主此前的做法是在**设置策略时**
     /// 把当时的落点抄进每台设备的 `default_save_location`，那份快照会随用户换目录而过期。
     host_default_save_location: RwLock<Option<String>>,
+    pub(crate) text_delivery: OnceLock<Arc<TextDeliveryService>>,
 }
 
 impl TransferManager {
@@ -209,6 +211,7 @@ impl TransferManager {
             actors: ActorRegistry::new(),
             receiving_paused: AtomicBool::new(false),
             host_default_save_location: RwLock::new(None),
+            text_delivery: OnceLock::new(),
         }
     }
 
@@ -223,6 +226,28 @@ impl TransferManager {
 
     pub fn set_receiving_paused(&self, paused: bool) {
         self.receiving_paused.store(paused, Ordering::Relaxed);
+    }
+
+    /// 文本接收与文件接收共享同一个暂停开关，避免短消息绕过用户的停止接收决定。
+    pub fn is_receiving_paused(&self) -> bool {
+        self.receiving_paused.load(Ordering::Relaxed)
+    }
+
+    pub fn set_text_delivery_service(&self, service: Arc<TextDeliveryService>) {
+        let _ = self.text_delivery.set(service);
+    }
+
+    pub fn text_delivery_service(&self) -> AppResult<&Arc<TextDeliveryService>> {
+        self.text_delivery
+            .get()
+            .ok_or_else(|| crate::AppError::Transfer("文本投递服务尚未初始化".into()))
+    }
+
+    /// 启动时只恢复账本状态，绝不触发网络重发。
+    pub async fn recover_interrupted_text_deliveries(&self) -> AppResult<u64> {
+        self.store
+            .recover_interrupted_text_deliveries(chrono::Utc::now().timestamp_millis())
+            .await
     }
 
     /// 启动后台定时清理任务
@@ -335,7 +360,7 @@ impl TransferRuntime for TransferManager {
 #[async_trait::async_trait]
 impl IncomingTransferRuntime for TransferManager {
     fn is_receiving_paused(&self) -> bool {
-        self.receiving_paused.load(Ordering::Relaxed)
+        self.is_receiving_paused()
     }
 
     fn host_default_save_location(&self) -> Option<String> {

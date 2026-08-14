@@ -36,6 +36,8 @@ export type {
   InboxItemSummary,
   InboxItemFileEntry,
   InboxSearchHit,
+  TextDeliveryRecord,
+  PendingTextDeliverySummary,
   InboxHitFile,
   FailureCode,
   ResumeRejectReason,
@@ -198,7 +200,21 @@ export const allDownloadKey = (itemId: string) =>
 export function usableInboxFiles(
   item: InboxItemDetail,
 ): InboxItemFileEntry[] {
-  return item.files.filter((file) => !file.missing);
+  return inboxFiles(item).filter((file) => !file.missing);
+}
+
+/** 收件箱详情是联合模型；文件操作只能读取 Files 分支。 */
+export function inboxFiles(item: InboxItemDetail): InboxItemFileEntry[] {
+  return item.content.kind === "files" ? item.content.entries : [];
+}
+
+/** 传输投影只属于文件收件箱，文本投递没有会话记录可跳转。 */
+export function inboxTransfer(item: InboxItemDetail): TransferProjection | null {
+  return item.content.kind === "files" ? item.content.transfer : null;
+}
+
+export function inboxTextBody(item: InboxItemDetail): string | null {
+  return item.content.kind === "text" ? item.content.body : null;
 }
 
 /** 一把下载键指向什么。`parseDownloadKey` 的产物。 */

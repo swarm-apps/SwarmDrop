@@ -68,7 +68,7 @@ function buildBreadcrumb(pathname: string): CrumbSegment[] {
     return [home, { icon: ArrowLeftRight, label: <Trans>传输活动</Trans> }];
   }
   if (pathname.startsWith("/send")) {
-    return [home, { icon: Send, label: <Trans>发送文件</Trans> }];
+    return [home, { icon: Send, label: <Trans>发送内容</Trans> }];
   }
   if (pathname.startsWith("/pairing")) {
     return [home, { icon: Link2, label: <Trans>添加设备</Trans> }];

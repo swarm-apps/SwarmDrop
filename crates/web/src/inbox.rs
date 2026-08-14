@@ -9,8 +9,8 @@
 //! [`WebInboxTable`] 是**自包含**的：自己的内存 map、自己的 IndexedDB 读写，不认识会话表。
 //! 唯一需要跨界的是 [`WebInboxTable::ensure_from_session`]——它要读会话行与文件行，
 //! 于是那两样**作为参数传进来**，依赖方向单向（会话表 → 收件箱表，反向没有边）。
-//! 同理，`InboxItemDetail.transfer` 这一格由 `WebTransferStore` 在委托返回后补，
-//! 本模块一律留 `None`。
+//! 同理，文件条目的 `InboxItemContent::Files.transfer` 由 `WebTransferStore` 在委托返回后补，
+//! 本模块一律留 `None`；文本条目没有会话投影。
 //!
 //! 条目的标题 / 内容指纹 / 聚合文本 / 来源分类 / 命中判据 / 片段全部调
 //! [`swarmdrop_transfer::inbox`] 的共享规则，**Web 侧一行都不重写**——分叉了同一批文件
@@ -36,11 +36,12 @@ use send_wrapper::SendWrapper;
 use serde::{Deserialize, Serialize};
 use swarmdrop_host::{AppError, AppResult, CoreSaveLocation};
 use swarmdrop_transfer::inbox::{
-    InboxFileFacts, InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary,
-    InboxSearchHit, inbox_content_hash, inbox_files_text, inbox_matches, inbox_primary_file_name,
-    inbox_snippet, inbox_source_kind, is_completed_receive,
+    InboxFileFacts, InboxHitFile, InboxItemContent, InboxItemDetail, InboxItemFileEntry,
+    InboxItemSummary, InboxSearchHit, inbox_content_hash, inbox_files_text, inbox_matches,
+    inbox_primary_file_name, inbox_snippet, inbox_source_kind, is_completed_receive,
 };
 use swarmdrop_transfer::store::content_root_of;
+use swarmdrop_transfer::text_delivery::{TextDeliveryRecord, text_preview, validate_text_body};
 use uuid::Uuid;
 
 use crate::idb;
@@ -49,6 +50,8 @@ use crate::idb;
 struct StoredInboxItem {
     item: entity::inbox_item::Model,
     files: Vec<entity::inbox_item_file::Model>,
+    /// 接收文本与 Inbox 投影同存一条 IndexedDB 记录，提交不可分割。
+    text_delivery: Option<TextDeliveryRecord>,
 }
 
 /// 内存主表 + 按传输会话反查的索引。
@@ -62,6 +65,7 @@ struct InboxTables {
     /// `transfer_session_id → item id`。**不随软删移除**——查重刻意不排除软删项
     /// （否则用户删过一次的条目会被反复补回来），索引的可见性判断留给读取方。
     by_session: HashMap<Uuid, Uuid>,
+    by_text_delivery: HashMap<Uuid, Uuid>,
 }
 
 impl InboxTables {
@@ -70,6 +74,9 @@ impl InboxTables {
         if let Some(session_id) = stored.item.transfer_session_id {
             self.by_session.insert(session_id, stored.item.id);
         }
+        if let Some(delivery_id) = stored.item.text_delivery_id {
+            self.by_text_delivery.insert(delivery_id, stored.item.id);
+        }
         self.items.insert(stored.item.id, stored);
     }
 
@@ -77,6 +84,16 @@ impl InboxTables {
     fn by_session(&self, session_id: Uuid, exclude_deleted: bool) -> Option<&StoredInboxItem> {
         self.items
             .get(self.by_session.get(&session_id)?)
+            .filter(|stored| !exclude_deleted || stored.item.deleted_at.is_none())
+    }
+
+    fn by_text_delivery(
+        &self,
+        delivery_id: Uuid,
+        exclude_deleted: bool,
+    ) -> Option<&StoredInboxItem> {
+        self.items
+            .get(self.by_text_delivery.get(&delivery_id)?)
             .filter(|stored| !exclude_deleted || stored.item.deleted_at.is_none())
     }
 }
@@ -185,6 +202,7 @@ impl WebInboxTable {
         let item = entity::inbox_item::Model {
             id: inbox_id,
             transfer_session_id: Some(session.session_id),
+            text_delivery_id: None,
             source_peer_id: session.peer_id.clone(),
             source_name: session.peer_name.clone(),
             source_kind,
@@ -229,6 +247,7 @@ impl WebInboxTable {
         self.tables.lock().unwrap().insert(StoredInboxItem {
             item,
             files: item_files,
+            text_delivery: None,
         });
         self.persist(inbox_id).await?;
         Ok(self.detail(inbox_id))
@@ -250,6 +269,85 @@ impl WebInboxTable {
             .collect();
         sort_by_received_at_desc(&mut items);
         items.into_iter().map(|(_, detail)| detail).collect()
+    }
+
+    /// 接收文本账本与 Inbox 投影使用同一 IndexedDB 行，因此写入只有全成或全败。
+    pub async fn persist_text_delivery(
+        &self,
+        record: TextDeliveryRecord,
+    ) -> AppResult<InboxItemDetail> {
+        validate_text_body(&record.body)?;
+        let delivery_id = record.delivery_id;
+        if let Some(existing) = self.text_delivery(delivery_id) {
+            if existing.peer_id != record.peer_id || existing.body != record.body {
+                return Err(AppError::Transfer("文本投递标识与既有内容冲突".into()));
+            }
+            return self
+                .detail_by_text_delivery_id(delivery_id, false)
+                .ok_or_else(|| AppError::Transfer("既有文本投递缺少收件箱投影".into()));
+        }
+
+        let body_size = i64::try_from(record.body.len())
+            .map_err(|_| AppError::Transfer("文本长度超出可表示范围".into()))?;
+        let item = entity::inbox_item::Model {
+            id: Uuid::new_v4(),
+            transfer_session_id: None,
+            text_delivery_id: Some(delivery_id),
+            source_peer_id: entity::PeerId(record.peer_id.clone()),
+            source_name: record.peer_name.clone(),
+            source_kind: entity::InboxSourceKind::PairedDevice,
+            content_kind: entity::InboxContentKind::Text,
+            // 与 SQL 端保持同一条不变量：列表读取摘要时即可展示正文预览。
+            title: text_preview(&record.body),
+            item_count: 1,
+            total_size: body_size,
+            root_path: None,
+            content_hash: None,
+            received_at: record.updated_at,
+            last_opened_at: None,
+            archived_at: None,
+            deleted_at: None,
+        };
+        let item_id = item.id;
+        self.tables.lock().unwrap().insert(StoredInboxItem {
+            item,
+            files: Vec::new(),
+            text_delivery: Some(record),
+        });
+        if let Err(error) = self.persist(item_id).await {
+            // IndexedDB 是这条投递的提交点。写穿失败时撤销内存变更，避免同一进程把未落库
+            // 的正文误报给发送端为已送达。
+            self.tables.lock().unwrap().items.remove(&item_id);
+            self.tables
+                .lock()
+                .unwrap()
+                .by_text_delivery
+                .remove(&delivery_id);
+            return Err(error);
+        }
+        self.detail(item_id)
+            .ok_or_else(|| AppError::Transfer("文本收件箱投影创建后不可读取".into()))
+    }
+
+    /// 从接收方向的嵌入式账本读取记录。
+    pub fn text_delivery(&self, delivery_id: Uuid) -> Option<TextDeliveryRecord> {
+        self.tables
+            .lock()
+            .unwrap()
+            .by_text_delivery(delivery_id, false)
+            .and_then(|stored| stored.text_delivery.clone())
+    }
+
+    fn detail_by_text_delivery_id(
+        &self,
+        delivery_id: Uuid,
+        exclude_deleted: bool,
+    ) -> Option<InboxItemDetail> {
+        self.tables
+            .lock()
+            .unwrap()
+            .by_text_delivery(delivery_id, exclude_deleted)
+            .map(detail_of)
     }
 
     /// 子串检索：浏览器没有 FTS，直接对内存里的每条条目跑
@@ -341,8 +439,12 @@ impl WebInboxTable {
     /// 条目不存在时静默成功。
     pub async fn delete_record(&self, item_id: Uuid) -> AppResult<()> {
         let now = now_ms();
-        self.mutate_and_persist(item_id, |stored| stored.item.deleted_at = Some(now))
-            .await
+        self.mutate_and_persist(item_id, |stored| {
+            stored.item.deleted_at = Some(now);
+            // 文本正文属于收件箱记录本身；软删仍需清掉其本地副本。
+            stored.text_delivery = None;
+        })
+        .await
     }
 
     /// 标记条目内某个文件的缺失状态。
@@ -474,6 +576,7 @@ fn summary_of(stored: &StoredInboxItem) -> InboxItemSummary {
     InboxItemSummary {
         id: item.id,
         transfer_session_id: item.transfer_session_id,
+        text_delivery_id: item.text_delivery_id,
         source_peer_id: item.source_peer_id.0.clone(),
         source_name: item.source_name.clone(),
         source_kind: item.source_kind.clone(),
@@ -496,37 +599,45 @@ fn summary_of(stored: &StoredInboxItem) -> InboxItemSummary {
 fn detail_of(stored: &StoredInboxItem) -> InboxItemDetail {
     InboxItemDetail {
         item: summary_of(stored),
-        files: stored
-            .files
-            .iter()
-            .map(|file| InboxItemFileEntry {
-                id: file.id,
-                transfer_file_id: file.transfer_file_id,
-                relative_path: file.relative_path.clone(),
-                name: file.name.clone(),
-                size: file.size,
-                checksum: file.checksum.clone(),
-                local_path: file.local_path.clone(),
-                missing: file.missing,
-            })
-            .collect(),
-        transfer: None,
+        content: match &stored.text_delivery {
+            Some(delivery) => InboxItemContent::Text {
+                body: delivery.body.clone(),
+            },
+            None => InboxItemContent::Files {
+                entries: stored
+                    .files
+                    .iter()
+                    .map(|file| InboxItemFileEntry {
+                        id: file.id,
+                        transfer_file_id: file.transfer_file_id,
+                        relative_path: file.relative_path.clone(),
+                        name: file.name.clone(),
+                        size: file.size,
+                        checksum: file.checksum.clone(),
+                        local_path: file.local_path.clone(),
+                        missing: file.missing,
+                    })
+                    .collect(),
+                transfer: Box::new(None),
+            },
+        },
     }
-}
 
-// ── 持久化 DTO ────────────────────────────────────────────────────────────────
-//
-// 与 `crate::store` 同一手法：entity 的 `Model` 没有 serde derive（`#[sea_orm::model]`
-// 不把用户 derive 转发给生成的 `Model`，只到 `ModelEx`），故落库形态用 serde 的
-// **remote derive** 在此显式声明。字段清单仍然逐个写出来（**这就是存储格式的声明点**），
-// 但省掉两个方向的手工搬运——那种写法漏一个字段编译照过、只在运行时静默丢数据，
-// 而 remote derive 在 entity 加列时直接编译不过。
+    // ── 持久化 DTO ────────────────────────────────────────────────────────────────
+    //
+    // 与 `crate::store` 同一手法：entity 的 `Model` 没有 serde derive（`#[sea_orm::model]`
+    // 不把用户 derive 转发给生成的 `Model`，只到 `ModelEx`），故落库形态用 serde 的
+    // **remote derive** 在此显式声明。字段清单仍然逐个写出来（**这就是存储格式的声明点**），
+    // 但省掉两个方向的手工搬运——那种写法漏一个字段编译照过、只在运行时静默丢数据，
+    // 而 remote derive 在 entity 加列时直接编译不过。
+}
 
 #[derive(Serialize, Deserialize)]
 struct PersistedInboxItem {
     #[serde(with = "InboxItemRowDef")]
     item: entity::inbox_item::Model,
     files: Vec<PersistedInboxFile>,
+    text_delivery: Option<TextDeliveryRecord>,
 }
 
 /// newtype 只为给 `Vec` 里的元素挂上 `with`（serde 的 `with` 作用于字段，不能作用于泛型参数）。
@@ -539,6 +650,7 @@ struct PersistedInboxFile(#[serde(with = "InboxItemFileRowDef")] entity::inbox_i
 struct InboxItemRowDef {
     id: Uuid,
     transfer_session_id: Option<Uuid>,
+    text_delivery_id: Option<Uuid>,
     source_peer_id: entity::PeerId,
     source_name: String,
     source_kind: entity::InboxSourceKind,
@@ -579,6 +691,7 @@ impl From<&StoredInboxItem> for PersistedInboxItem {
                 .cloned()
                 .map(PersistedInboxFile)
                 .collect(),
+            text_delivery: stored.text_delivery.clone(),
         }
     }
 }
@@ -588,6 +701,7 @@ impl From<PersistedInboxItem> for StoredInboxItem {
         Self {
             item: persisted.item,
             files: persisted.files.into_iter().map(|file| file.0).collect(),
+            text_delivery: persisted.text_delivery,
         }
     }
 }
@@ -696,8 +810,64 @@ mod tests {
         items.iter().map(|detail| detail.item.id).collect()
     }
 
+    fn file_entries(detail: &InboxItemDetail) -> &[InboxItemFileEntry] {
+        match &detail.content {
+            InboxItemContent::Files { entries, .. } => entries,
+            InboxItemContent::Text { .. } => panic!("文件收件箱条目不应变成文本条目"),
+        }
+    }
+
     fn hit_ids(hits: &[InboxSearchHit]) -> Vec<Uuid> {
         hits.iter().map(|hit| hit.id).collect()
+    }
+
+    #[wasm_bindgen_test]
+    async fn text_delivery_is_idempotent_conflict_safe_and_deleted_with_its_inbox_record() {
+        let table = WebInboxTable::default();
+        let delivery_id = Uuid::new_v4();
+        let incoming = |body: &str| TextDeliveryRecord {
+            delivery_id,
+            direction: entity::TextDeliveryDirection::Receive,
+            peer_id: "peer-a".into(),
+            peer_name: "Alice".into(),
+            body: body.into(),
+            status: entity::TextDeliveryStatus::Delivered,
+            failure: None,
+            attempt_count: 1,
+            created_at: 1,
+            updated_at: 1,
+        };
+
+        let first = table
+            .persist_text_delivery(incoming("first body"))
+            .await
+            .expect("首次写入文本收件箱");
+        let replay = table
+            .persist_text_delivery(incoming("first body"))
+            .await
+            .expect("同一投递重放必须收敛");
+        assert_eq!(
+            first.item.id, replay.item.id,
+            "重放不得创建第二个 Inbox 条目"
+        );
+        assert_eq!(table.list(true).len(), 1);
+        assert!(
+            table
+                .persist_text_delivery(incoming("tampered"))
+                .await
+                .is_err(),
+            "同一 id 不得承载不同正文"
+        );
+
+        table
+            .delete_record(first.item.id)
+            .await
+            .expect("删除文本收件箱记录");
+        assert!(
+            table.text_delivery(delivery_id).is_none(),
+            "删除必须移除正文"
+        );
+        assert!(table.detail(first.item.id).is_none());
     }
 
     /// 幂等：同一个会话反复 `ensure` 只能有一条条目。
@@ -736,12 +906,15 @@ mod tests {
         assert_eq!(table.list(true).len(), 1, "表里只应有一条条目");
         assert_eq!(first.item.transfer_session_id, Some(session_id));
         assert_eq!(first.item.item_count, 2);
-        assert_eq!(first.files.len(), 2);
+        assert_eq!(file_entries(&first).len(), 2);
         assert_eq!(first.item.received_at, 1_000, "received_at 取会话完成时刻");
         assert_eq!(first.item.root_path.as_deref(), Some(SAVE_ROOT));
-        assert!(first.files.iter().all(|file| !file.missing));
+        assert!(file_entries(&first).iter().all(|file| !file.missing));
         assert!(
-            first.transfer.is_none(),
+            matches!(
+                &first.content,
+                InboxItemContent::Files { transfer, .. } if transfer.is_none()
+            ),
             "收件箱表看不见会话表，投影这一格必须留给 WebTransferStore 补"
         );
     }
@@ -881,10 +1054,10 @@ mod tests {
         // 上面的等值断言只保证「往返没变」，这几条保证往返的**内容**本身不是空壳。
         assert!(after.item.last_opened_at.is_some());
         assert!(after.item.archived_at.is_some());
-        assert_eq!(after.files.len(), 2);
-        assert!(after.files[1].missing);
+        assert_eq!(file_entries(&after).len(), 2);
+        assert!(file_entries(&after)[1].missing);
         assert_eq!(
-            after.files[1].local_path,
+            file_entries(&after)[1].local_path,
             "/inbox-table-test/docs/readme.md"
         );
 
@@ -1047,10 +1220,7 @@ mod tests {
             "不属于该条目的 file_id 必须报错，不能改到别人的文件上"
         );
         assert!(
-            table
-                .detail(other)
-                .expect("另一条条目还在")
-                .files
+            file_entries(&table.detail(other).expect("另一条条目还在"))
                 .iter()
                 .all(|file| !file.missing),
             "另一条条目的文件不该被牵连"
@@ -1068,7 +1238,7 @@ mod tests {
             .await
             .expect("自己的文件应可标记");
         let detail = table.detail(single).expect("条目");
-        assert!(detail.files[0].missing);
+        assert!(file_entries(&detail)[0].missing);
         assert!(detail.item.missing, "条目级 missing 由文件行聚合");
     }
 

@@ -107,7 +107,8 @@ type RunAndRefresh = (
  * 用户仍需要拿到路径去排查，所以复制不走后端的 `ensure_path_exists`。
  */
 function inboxItemPath(detail: InboxItemDetail): string | null {
-  if (detail.files.length === 1) return detail.files[0].localPath;
+  if (detail.content.kind !== "files") return null;
+  if (detail.content.entries.length === 1) return detail.content.entries[0].localPath;
   return detail.rootPath;
 }
 
@@ -1023,11 +1024,14 @@ function ReaderContent({
   onFileOpen: (fileId: number) => void;
   onFileReveal: (fileId: number) => void;
 }) {
+  const files = detail.content.kind === "files" ? detail.content.entries : [];
+  const transfer = detail.content.kind === "files" ? detail.content.transfer : null;
+  const textBody = detail.content.kind === "text" ? detail.content.body : null;
   const view = usePreferencesStore((state) => state.fileBrowserViews.inbox);
   const setFileBrowserView = usePreferencesStore((state) => state.setFileBrowserView);
   const items = useMemo(
-    () => itemsFromInbox(detail.id, detail.files),
-    [detail.id, detail.files],
+    () => itemsFromInbox(detail.id, files),
+    [detail.id, files],
   );
   // 动作对象沿 FileBrowser → 视图 → 行/卡 一路下传，内联字面量会在每一层打穿 memo。
   const actions = useMemo(
@@ -1076,7 +1080,7 @@ function ReaderContent({
             </Badge>
             <p className="text-xs text-muted-foreground">
               {contentKindLabel(detail.contentKind)}
-              {detail.transfer ? ` · ${projectionStatusLabel(detail.transfer)}` : ""}
+              {transfer ? ` · ${projectionStatusLabel(transfer)}` : ""}
             </p>
             {detail.missing && (
               <span className="flex items-center gap-1 rounded-full bg-warning/15 px-2 py-1 text-xs font-medium text-warning-ink">
@@ -1088,7 +1092,7 @@ function ReaderContent({
         </div>
 
         <div className="mt-5 flex flex-wrap gap-2">
-          <div className="inline-flex">
+          {detail.content.kind === "files" ? <div className="inline-flex">
             <Button size="sm" className="gap-1.5 rounded-r-none" onClick={onReveal}>
               <FolderOpen className="size-4" />
               <Trans>在文件夹中显示</Trans>
@@ -1110,7 +1114,18 @@ function ReaderContent({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </div>
+          </div> : (
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => {
+              if (!textBody) return;
+              void copyText(textBody).then(
+                () => toast.success(t`已复制到剪贴板`),
+                () => toast.error(t`复制失败，请手动复制文本`),
+              );
+            }}>
+              <Copy className="size-4" />
+              <Trans>复制文本</Trans>
+            </Button>
+          )}
           {onOpenTransfer && (
             <Button
               size="sm"
@@ -1142,7 +1157,7 @@ function ReaderContent({
         </div>
       </header>
 
-      <FileBrowser
+      {detail.content.kind === "files" ? <FileBrowser
         items={items}
         view={view}
         onViewChange={(nextView) => setFileBrowserView("inbox", nextView)}
@@ -1152,7 +1167,13 @@ function ReaderContent({
           contained && "min-h-0 flex-1",
         )}
         contentClassName={contained ? undefined : "min-h-[360px]"}
-      />
+      /> : (
+        <div className={cn("min-h-0 overflow-auto px-7 py-6", contained && "flex-1")}>
+          <pre className="whitespace-pre-wrap break-words rounded-2xl border border-border/70 bg-muted/35 p-4 text-sm leading-6 text-foreground">
+            {textBody}
+          </pre>
+        </div>
+      )}
     </>
   );
 }

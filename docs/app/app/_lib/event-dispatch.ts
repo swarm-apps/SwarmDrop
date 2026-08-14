@@ -12,7 +12,10 @@
 // **新的** WebNode。若守卫只是个布尔，旧流的 `done` 还没落地时新实例就撞上「已经在消费了」
 // 而被静默跳过——节点看起来跑着，传输事件却一条都不到，进度永远停在 0。
 
+import { t } from "@lingui/core/macro";
+import { toast } from "sonner";
 import { webNodeActions } from "./store";
+import { notifyBackgroundTextDelivery } from "./text-delivery-notifications";
 import type { WebNode, WebTransferEvent } from "./view-types";
 
 type Consumption = {
@@ -68,6 +71,22 @@ async function consume(consumption: Consumption): Promise<void> {
     if (current !== consumption) break;
     try {
       webNodeActions.applyEvent(value);
+      if (value.type === "textDeliveryAttention") {
+        notifyBackgroundTextDelivery(
+          value.attention.peerName,
+          t`收到文本`,
+          value.attention.kind === "confirmation_required"
+            ? t`等待你的确认`
+            : t`已保存到收件箱`,
+        );
+        if (
+          value.attention.kind === "received" &&
+          document.visibilityState === "visible" &&
+          document.hasFocus()
+        ) {
+          toast.info(t`收到来自 ${value.attention.peerName} 的文本`);
+        }
+      }
     } catch (e) {
       console.error(`[web] 处理事件 ${value.type} 抛错（已跳过）`, e);
     }

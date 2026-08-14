@@ -27,6 +27,7 @@ use crate::protocol::{
 };
 use crate::transfer::incoming::TransferCtrlService;
 use crate::transfer::manager::TransferManager;
+use crate::transfer::text_delivery::{TEXT_DELIVERY, TEXT_DELIVERY_PROTOCOL, TextDeliveryService};
 use crate::transfer::wire::TransferDataHandler;
 use swarmdrop_invite::InviteStore;
 
@@ -198,6 +199,7 @@ where
         .map_err(|e| AppError::Network(e.to_string()))?;
 
     let transfer = create_transfer(endpoint.clone());
+    transfer.recover_interrupted_text_deliveries().await?;
     let candidate_manager = create_candidate_manager(&network_config);
     // 快照与端口一并交给 NetManager：构造是同步的，共享 DashMap 的初值只能由这里先
     // load 出来，端口本身则转交 PairingManager 供 unpair 写回。两者同源，不是两个事实源。
@@ -249,6 +251,13 @@ pub fn build_router(
     transfer: Arc<TransferManager>,
     notifier: Option<Arc<dyn Notifier>>,
 ) -> Router {
+    let text_delivery = Arc::new(TextDeliveryService::new(
+        Arc::downgrade(&transfer),
+        pairing.clone(),
+        endpoint.clone(),
+        notifier.clone(),
+    ));
+    transfer.set_text_delivery_service(text_delivery.clone());
     Router::builder(endpoint.clone())
         .accept(
             PAIRING_PROTOCOL,
@@ -262,6 +271,10 @@ pub fn build_router(
                 endpoint.clone(),
                 notifier,
             )),
+        )
+        .accept(
+            TEXT_DELIVERY_PROTOCOL,
+            TEXT_DELIVERY.handler(text_delivery.as_ref().clone()),
         )
         // 数据面**只挂一个协议名**。曾同时挂过 `/2` 与 `/3`（两版只差「发送端发不发窗口
         // 帧」，接收端的读循环对两者都成立），随 bao chunk group 变更一并摘除。
