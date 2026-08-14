@@ -28,8 +28,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
+import { clipboard } from "../_lib/clipboard";
 import { PANEL_SURFACE, fileSectionHeightClass, selectedRowClass } from "./section";
 import { ConfirmAction, INLINE_ACTION_CLASS } from "./confirm-action";
 import { CenteredEmptyState } from "./empty-state";
@@ -48,6 +50,9 @@ import {
   INBOX_CONTENT_KIND_LABEL,
   INBOX_SOURCE_KIND_LABEL,
   allDownloadKey,
+  inboxFiles,
+  inboxTextBody,
+  inboxTransfer,
   inboxItemTitleLabel,
   parseDownloadKey,
   usableInboxFiles,
@@ -289,7 +294,10 @@ export function InboxDetailPanel({
   const archived = item.archivedAt !== null;
   const ArchiveIcon = archived ? ArchiveRestore : Archive;
   const view = usePreferences((s) => s.fileBrowserViews.inbox);
-  const items = useMemo(() => itemsFromInbox(item.id, item.files), [item.id, item.files]);
+  const files = inboxFiles(item);
+  const textBody = inboxTextBody(item);
+  const transfer = inboxTransfer(item);
+  const items = useMemo(() => itemsFromInbox(item.id, files), [item.id, files]);
   const { pendingKeys } = downloadAction;
   /**
    * 正在下载的目标（`FileBrowserActions.pendingIds` 要的形态：文件是展示 id、目录是
@@ -346,12 +354,12 @@ export function InboxDetailPanel({
           const directory = target.relativePath;
           return [{ key, title: t`下载目录「${directory}」失败`, error }];
         }
-        const file = item.files.find(
+        const file = files.find(
           (candidate) => candidate.id === target.fileId,
         );
         return file ? [{ key, title: t`下载「${file.name}」失败`, error }] : [];
       }),
-    [downloadAction.errors, item.id, item.files, t],
+    [downloadAction.errors, files, item.id, t],
   );
 
   /** 待转发的文件；`null` = 对话框关着。整条与单个文件共用同一个出口。 */
@@ -372,7 +380,7 @@ export function InboxDetailPanel({
   const actions: FileBrowserActions = useMemo(() => {
     /** 展示模型的 `sourceId` 是收件箱文件行主键的字符串形态（见 `itemsFromInbox`）。 */
     const fileFor = (entry: { sourceId?: string }) =>
-      itemRef.current.files.find((f) => String(f.id) === entry.sourceId);
+      inboxFiles(itemRef.current).find((f) => String(f.id) === entry.sourceId);
     return {
       // 目录目标整棵子树打成 zip（见 `_lib/zip-download.ts`），文件目标直接下载。
       onDownload: (target) => onDownload(itemRef.current, target),
@@ -420,9 +428,9 @@ export function InboxDetailPanel({
         <MetaChip>{t(INBOX_SOURCE_KIND_LABEL[item.sourceKind])}</MetaChip>
         <MetaChip>{t(INBOX_CONTENT_KIND_LABEL[item.contentKind])}</MetaChip>
         {/* 传输页 → 收件箱的链路一直是通的，反向此前是断的（单向）。 */}
-        {item.transfer && (
+        {transfer && (
           <Link
-            href={transferSessionHref(item.transfer.sessionId)}
+            href={transferSessionHref(transfer.sessionId)}
             className="focus-ring inline-flex min-h-11 items-center gap-1 rounded-full border px-2.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:min-h-7"
           >
             <ArrowLeftRight className="size-3" aria-hidden />
@@ -434,6 +442,17 @@ export function InboxDetailPanel({
       {/* 文件清单走三端共用的 `FileBrowser`（树形 / 网格）。此前是一列扁平文件名——
           对方发一整个文件夹时，收件箱里读不出任何目录结构，而那正是「我收到了什么」
           最要紧的一半。key 绑条目：换一条时树的展开态不该漂过去。 */}
+      {textBody !== null ? (
+        <section className="rounded-lg border bg-muted/20 p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-foreground"><Trans>文本内容</Trans></h3>
+            <Button size="sm" variant="outline" onClick={() => void clipboard.writeText(textBody).then(() => toast.success(t`已复制文本`)).catch(() => toast.error(t`无法写入剪贴板，请检查权限`))}>
+              <Trans>复制</Trans>
+            </Button>
+          </div>
+          <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6 text-foreground">{textBody}</pre>
+        </section>
+      ) : (
       <FileBrowser
         key={item.id}
         items={items}
@@ -483,6 +502,7 @@ export function InboxDetailPanel({
         className="flex-none"
         contentClassName={fileSectionHeightClass(view)}
       />
+      )}
 
       <ForwardToDeviceDialog
         open={forwarding !== null}

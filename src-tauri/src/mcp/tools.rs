@@ -18,7 +18,9 @@ use rmcp::{ErrorData, schemars, tool, tool_router};
 use serde::{Deserialize, Serialize};
 use swarmdrop_core::infra::InfraLink;
 use swarmdrop_core::network::{NatStatus, NodeStatus};
-use swarmdrop_core::transfer::inbox::{InboxItemDetail, InboxItemSummary, InboxSearchHit};
+use swarmdrop_core::transfer::inbox::{
+    InboxItemContent, InboxItemDetail, InboxItemSummary, InboxSearchHit,
+};
 use swarmdrop_core::transfer::manager::TransferManager;
 use swarmdrop_core::transfer::store::TransferProjection;
 use tauri::Manager;
@@ -457,13 +459,17 @@ impl McpHandler {
             Ok(None) => return mcp_error(format!("未找到收件箱条目: {item_id}")),
             Err(e) => return mcp_error(format!("查询失败: {e}")),
         };
-        let file = detail.files.iter().find(|file| {
-            match (params.relative_path.as_deref(), params.file_id) {
-                (Some(rp), _) => file.relative_path == rp,
-                (None, Some(fid)) => file.id == fid,
-                (None, None) => false,
-            }
-        });
+        let InboxItemContent::Files { entries, .. } = detail.content else {
+            return mcp_error("文本收件箱不包含可定位的文件");
+        };
+        let file =
+            entries.iter().find(
+                |file| match (params.relative_path.as_deref(), params.file_id) {
+                    (Some(rp), _) => file.relative_path == rp,
+                    (None, Some(fid)) => file.id == fid,
+                    (None, None) => false,
+                },
+            );
         let Some(file) = file else {
             return mcp_error("未找到对应文件：请提供有效的 relative_path 或 file_id");
         };
@@ -1442,21 +1448,24 @@ struct McpInboxDetailFile {
 
 impl From<InboxItemDetail> for McpInboxItemDetail {
     fn from(detail: InboxItemDetail) -> Self {
-        let files = detail
-            .files
-            .into_iter()
-            .map(|f| {
-                let missing = f.missing || !std::path::Path::new(&f.local_path).exists();
-                McpInboxDetailFile {
-                    id: f.id,
-                    name: f.name,
-                    relative_path: f.relative_path,
-                    size: f.size,
-                    local_path: (!missing).then(|| f.local_path.clone()),
-                    missing,
-                }
-            })
-            .collect();
+        // 文本投递不属于 MCP v1 能力面；仍返回条目元数据，避免把它误报成文件或泄露正文。
+        let files = match detail.content {
+            InboxItemContent::Files { entries, .. } => entries
+                .into_iter()
+                .map(|f| {
+                    let missing = f.missing || !std::path::Path::new(&f.local_path).exists();
+                    McpInboxDetailFile {
+                        id: f.id,
+                        name: f.name,
+                        relative_path: f.relative_path,
+                        size: f.size,
+                        local_path: (!missing).then(|| f.local_path.clone()),
+                        missing,
+                    }
+                })
+                .collect(),
+            InboxItemContent::Text { .. } => Vec::new(),
+        };
         Self {
             item: McpInboxItem::from(detail.item),
             files,

@@ -41,6 +41,7 @@ import {
   type InboxItemDetail,
   type InboxItemSummary,
   type InboxSearchHit,
+  type PendingTextDeliverySummary,
 } from "@/lib/bindings";
 import { useInboxStore } from "@/stores/inbox-store";
 import { useTransferStore } from "@/stores/transfer-store";
@@ -107,7 +108,8 @@ type RunAndRefresh = (
  * 用户仍需要拿到路径去排查，所以复制不走后端的 `ensure_path_exists`。
  */
 function inboxItemPath(detail: InboxItemDetail): string | null {
-  if (detail.files.length === 1) return detail.files[0].localPath;
+  if (detail.content.kind !== "files") return null;
+  if (detail.content.entries.length === 1) return detail.content.entries[0].localPath;
   return detail.rootPath;
 }
 
@@ -128,6 +130,16 @@ function InboxPage() {
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteLocalFiles, setDeleteLocalFiles] = useState(false);
+  const [pendingTexts, setPendingTexts] = useState<PendingTextDeliverySummary[]>([]);
+
+  const refreshPendingTexts = useCallback(async () => {
+    try {
+      setPendingTexts(await commands.pendingTextDeliveries());
+    } catch (error) {
+      // 待确认请求不是收件箱主列表的前置条件；轮询失败时保留上一次可用结果，避免闪空。
+      console.error("[inbox] pending text deliveries refresh failed", error);
+    }
+  }, []);
 
   const navigate = useNavigate();
   const isSearching = query.trim() !== "";
@@ -226,6 +238,12 @@ function InboxPage() {
   useEffect(() => {
     void loadItems(showArchived);
   }, [loadItems, showArchived]);
+
+  useEffect(() => {
+    void refreshPendingTexts();
+    const timer = window.setInterval(() => void refreshPendingTexts(), 3_000);
+    return () => window.clearInterval(timer);
+  }, [refreshPendingTexts]);
 
   // 选中项变化时加载详情
   useEffect(() => {
@@ -335,6 +353,26 @@ function InboxPage() {
 
   return (
     <>
+      {pendingTexts.length > 0 ? (
+        <div className="mx-auto mb-3 w-full max-w-5xl space-y-2 px-4">
+          {pendingTexts.map((pending) => (
+            <DesktopPendingTextConfirmation
+              key={pending.deliveryId}
+              pending={pending}
+              onRespond={async (accepted) => {
+                try {
+                  await commands.confirmTextDelivery(pending.deliveryId, accepted);
+                  setPendingTexts((items) => items.filter((item) => item.deliveryId !== pending.deliveryId));
+                  if (accepted) await refreshCurrentView();
+                  await refreshPendingTexts();
+                } catch (error) {
+                  toast.error(getErrorMessage(error));
+                }
+              }}
+            />
+          ))}
+        </div>
+      ) : null}
       <MasterDetailShell
         testId="inbox-page"
         drawerLabel={t`收件箱`}
@@ -1023,11 +1061,14 @@ function ReaderContent({
   onFileOpen: (fileId: number) => void;
   onFileReveal: (fileId: number) => void;
 }) {
+  const files = detail.content.kind === "files" ? detail.content.entries : [];
+  const transfer = detail.content.kind === "files" ? detail.content.transfer : null;
+  const textBody = detail.content.kind === "text" ? detail.content.body : null;
   const view = usePreferencesStore((state) => state.fileBrowserViews.inbox);
   const setFileBrowserView = usePreferencesStore((state) => state.setFileBrowserView);
   const items = useMemo(
-    () => itemsFromInbox(detail.id, detail.files),
-    [detail.id, detail.files],
+    () => itemsFromInbox(detail.id, files),
+    [detail.id, files],
   );
   // 动作对象沿 FileBrowser → 视图 → 行/卡 一路下传，内联字面量会在每一层打穿 memo。
   const actions = useMemo(
@@ -1076,7 +1117,7 @@ function ReaderContent({
             </Badge>
             <p className="text-xs text-muted-foreground">
               {contentKindLabel(detail.contentKind)}
-              {detail.transfer ? ` · ${projectionStatusLabel(detail.transfer)}` : ""}
+              {transfer ? ` · ${projectionStatusLabel(transfer)}` : ""}
             </p>
             {detail.missing && (
               <span className="flex items-center gap-1 rounded-full bg-warning/15 px-2 py-1 text-xs font-medium text-warning-ink">
@@ -1088,7 +1129,7 @@ function ReaderContent({
         </div>
 
         <div className="mt-5 flex flex-wrap gap-2">
-          <div className="inline-flex">
+          {detail.content.kind === "files" ? <div className="inline-flex">
             <Button size="sm" className="gap-1.5 rounded-r-none" onClick={onReveal}>
               <FolderOpen className="size-4" />
               <Trans>在文件夹中显示</Trans>
@@ -1110,7 +1151,18 @@ function ReaderContent({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </div>
+          </div> : (
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => {
+              if (!textBody) return;
+              void copyText(textBody).then(
+                () => toast.success(t`已复制到剪贴板`),
+                () => toast.error(t`复制失败，请手动复制文本`),
+              );
+            }}>
+              <Copy className="size-4" />
+              <Trans>复制文本</Trans>
+            </Button>
+          )}
           {onOpenTransfer && (
             <Button
               size="sm"
@@ -1142,7 +1194,7 @@ function ReaderContent({
         </div>
       </header>
 
-      <FileBrowser
+      {detail.content.kind === "files" ? <FileBrowser
         items={items}
         view={view}
         onViewChange={(nextView) => setFileBrowserView("inbox", nextView)}
@@ -1152,7 +1204,13 @@ function ReaderContent({
           contained && "min-h-0 flex-1",
         )}
         contentClassName={contained ? undefined : "min-h-[360px]"}
-      />
+      /> : (
+        <div className={cn("min-h-0 overflow-auto px-7 py-6", contained && "flex-1")}>
+          <pre className="whitespace-pre-wrap break-words rounded-2xl border border-border/70 bg-muted/35 p-4 text-sm leading-6 text-foreground">
+            {textBody}
+          </pre>
+        </div>
+      )}
     </>
   );
 }
@@ -1262,6 +1320,29 @@ function InboxEmptyState() {
 
 function Dot() {
   return <span className="mx-1.5 text-foreground/25">·</span>;
+}
+
+function DesktopPendingTextConfirmation({
+  pending,
+  onRespond,
+}: {
+  pending: PendingTextDeliverySummary;
+  onRespond: (accepted: boolean) => void;
+}) {
+  return (
+    <section className="rounded-2xl border border-warning/30 bg-warning/5 p-4 shadow-sm" aria-label="待确认文本">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-foreground"><Trans>接收文本</Trans> · {pending.peerName}</p>
+          <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">{pending.body}</p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Button type="button" variant="outline" onClick={() => onRespond(false)}><Trans>拒绝</Trans></Button>
+          <Button type="button" onClick={() => onRespond(true)}><Trans>接收</Trans></Button>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function Pill({

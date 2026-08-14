@@ -15,6 +15,7 @@ import {
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { isActiveSession } from "./format";
+import { inboxFiles } from "./view-types";
 import type { SecureContextInfo } from "./secure-context";
 import type {
   InfraLink,
@@ -819,7 +820,8 @@ function inboxItemsEqual(a: InboxItemDetail[], b: InboxItemDetail[]): boolean {
       item.id === other.id &&
       item.receivedAt === other.receivedAt &&
       item.missing === other.missing &&
-      item.files.length === other.files.length &&
+      item.content.kind === other.content.kind &&
+      inboxFiles(item).length === inboxFiles(other).length &&
       item.lastOpenedAt === other.lastOpenedAt &&
       item.archivedAt === other.archivedAt
     );

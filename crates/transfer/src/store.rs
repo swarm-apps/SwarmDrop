@@ -27,6 +27,7 @@ use crate::coordinator::TransferState;
 use crate::host::{CoreSaveLocation, HostFileMetadata};
 use crate::inbox::{INBOX_SEARCH_LIMIT, InboxItemDetail, InboxItemSummary, InboxSearchHit};
 use crate::protocol::{FileInfo, TransferOrigin};
+use crate::text_delivery::TextDeliveryRecord;
 
 /// 会话/文件级持久化端口（断点续传的事实来源 + 传输历史的唯一出口）。
 #[async_trait]
@@ -286,12 +287,56 @@ pub trait InboxStore: Send + Sync {
     ) -> AppResult<()>;
 }
 
+/// 文本收发账本的唯一持久化出口。
+///
+/// 发送记录和接收记录共享同一个稳定 delivery_id，但只接收方向投影到 Inbox。实现必须让
+/// 接收记录与 Inbox 投影处于同一原子提交中；只有该方法成功后协议层才能确认已送达。
+#[async_trait]
+pub trait TextDeliveryStore: Send + Sync {
+    /// 在网络调用前创建发送记录；重复 ID 不得覆盖既有正文。
+    async fn create_outgoing_text_delivery(&self, record: TextDeliveryRecord) -> AppResult<()>;
+
+    /// 按稳定投递标识读取本地账本记录。
+    async fn get_text_delivery(&self, delivery_id: Uuid) -> AppResult<Option<TextDeliveryRecord>>;
+
+    /// 按目标设备列出本机发送记录，最新更新的排在前面。
+    async fn list_outgoing_text_deliveries(
+        &self,
+        peer_id: &str,
+    ) -> AppResult<Vec<TextDeliveryRecord>>;
+
+    /// 原子更新发送记录的状态及安全失败分类。
+    async fn update_outgoing_text_delivery(
+        &self,
+        delivery_id: Uuid,
+        status: entity::TextDeliveryStatus,
+        failure: Option<entity::TextDeliveryFailure>,
+        attempt_count: Option<i32>,
+        updated_at: i64,
+    ) -> AppResult<()>;
+
+    /// 幂等持久化接收文本，并在同一事务内创建对应的 Inbox 投影。
+    ///
+    /// 既有相同 ID 必须同时校验来源和正文：相同内容返回原详情；不同内容返回协议冲突，
+    /// 绝不覆盖正文或创建第二个收件箱条目。
+    async fn persist_incoming_text_delivery(
+        &self,
+        record: TextDeliveryRecord,
+    ) -> AppResult<InboxItemDetail>;
+
+    /// 删除发送方向的记录及正文。接收方向应经 Inbox 删除路径处理。
+    async fn delete_outgoing_text_delivery(&self, delivery_id: Uuid) -> AppResult<()>;
+
+    /// 将进程退出前遗留的在途发送状态恢复为显式可重试状态，绝不触发网络请求。
+    async fn recover_interrupted_text_deliveries(&self, now_ms: i64) -> AppResult<u64>;
+}
+
 /// 传输域持久化的合并端口——便于 TransferManager / actor 单 `Arc` 注入。
 ///
 /// blanket impl 覆盖任何同时实现两个子端口的类型，故实现方（`SqlSessionStore`）
 /// 只需分别 impl [`SessionStore`] 与 [`InboxStore`]。
-pub trait TransferStore: SessionStore + InboxStore {}
-impl<T: SessionStore + InboxStore + ?Sized> TransferStore for T {}
+pub trait TransferStore: SessionStore + InboxStore + TextDeliveryStore {}
+impl<T: SessionStore + InboxStore + TextDeliveryStore + ?Sized> TransferStore for T {}
 
 /// 新建传输会话所需的完整事实。
 pub struct CreateSessionInput<'a> {

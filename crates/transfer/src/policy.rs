@@ -131,6 +131,43 @@ pub fn evaluate_receive_policy(ctx: ReceivePolicyContext<'_>) -> ReceivePolicyDe
     ReceivePolicyDecision::auto_accept("可信设备策略自动接收", path)
 }
 
+/// 文本投递复用设备信任、大小和 relay 策略，但不要求文件保存目录。
+pub fn evaluate_text_receive_policy(
+    device: Option<&PairedDeviceInfo>,
+    body_bytes: u64,
+    via_relay: bool,
+    now_ms: i64,
+) -> ReceivePolicyDecision {
+    let Some(device) = device else {
+        return ReceivePolicyDecision::reject("设备未配对");
+    };
+    if device.trust_level == DeviceTrustLevel::Blocked {
+        return ReceivePolicyDecision::reject("设备已被阻止");
+    }
+    let policy = &device.receive_policy;
+    if policy
+        .expires_at
+        .is_some_and(|expires_at| expires_at <= now_ms)
+        || policy
+            .max_transfer_bytes
+            .is_some_and(|max| body_bytes > max)
+    {
+        return ReceivePolicyDecision::reject("设备接收策略拒绝");
+    }
+    if !device.trust_confirmed
+        || policy.require_confirmation
+        || !policy.auto_accept
+        || (via_relay && !policy.allow_relay_auto_accept)
+    {
+        return ReceivePolicyDecision::require_confirmation("设备接收策略要求手动确认");
+    }
+    ReceivePolicyDecision {
+        action: ReceivePolicyAction::AutoAccept,
+        reason: "可信设备策略自动接收".into(),
+        save_location: None,
+    }
+}
+
 fn is_nested_path(file: &FileInfo) -> bool {
     file.relative_path.contains('/') || file.relative_path.contains('\\')
 }
@@ -139,7 +176,10 @@ fn is_nested_path(file: &FileInfo) -> bool {
 mod tests {
     use swarmdrop_net::SecretKey;
 
-    use super::{ReceivePolicyAction, ReceivePolicyContext, evaluate_receive_policy};
+    use super::{
+        ReceivePolicyAction, ReceivePolicyContext, evaluate_receive_policy,
+        evaluate_text_receive_policy,
+    };
     use crate::device::{DeviceTrustLevel, OsInfo, PairedDeviceInfo};
     use crate::host::CoreSaveLocation;
     use crate::protocol::FileInfo;
@@ -292,5 +332,34 @@ mod tests {
         });
 
         assert_eq!(decision.action, ReceivePolicyAction::RequireConfirmation);
+    }
+
+    #[test]
+    fn text_auto_accept_does_not_require_a_file_save_location() {
+        let mut device = device(DeviceTrustLevel::Owned);
+        device.receive_policy.default_save_location = None;
+        let decision = evaluate_text_receive_policy(Some(&device), 64, false, 1);
+        assert_eq!(decision.action, ReceivePolicyAction::AutoAccept);
+        assert!(decision.save_location.is_none());
+    }
+
+    #[test]
+    fn text_respects_relay_confirmation_and_size_limit_boundaries() {
+        let mut device = device(DeviceTrustLevel::Owned);
+        device.receive_policy.max_transfer_bytes = Some(64);
+        device.receive_policy.allow_relay_auto_accept = false;
+        assert_eq!(
+            evaluate_text_receive_policy(Some(&device), 64, false, 1).action,
+            ReceivePolicyAction::AutoAccept,
+            "边界值本身允许，防止把 > 意外写成 >=",
+        );
+        assert_eq!(
+            evaluate_text_receive_policy(Some(&device), 65, false, 1).action,
+            ReceivePolicyAction::Reject,
+        );
+        assert_eq!(
+            evaluate_text_receive_policy(Some(&device), 64, true, 1).action,
+            ReceivePolicyAction::RequireConfirmation,
+        );
     }
 }

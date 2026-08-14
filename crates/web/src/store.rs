@@ -59,16 +59,17 @@ use serde::{Deserialize, Serialize};
 use swarmdrop_host::{AppError, AppResult, CoreSaveLocation, HostFileMetadata};
 use swarmdrop_transfer::coordinator::TransferState;
 use swarmdrop_transfer::inbox::{
-    InboxItemDetail, InboxItemSummary, InboxSearchHit, is_completed_receive,
+    InboxItemContent, InboxItemDetail, InboxItemSummary, InboxSearchHit, is_completed_receive,
 };
 use swarmdrop_transfer::protocol::TransferOrigin;
 use swarmdrop_transfer::store::{
-    CreateSessionInput, ExpiredReceiverActor, InboxStore, SessionStore, TransferProjection,
-    TransferStore,
+    CreateSessionInput, ExpiredReceiverActor, InboxStore, SessionStore, TextDeliveryStore,
+    TransferProjection, TransferStore,
 };
 use swarmdrop_transfer::store::{
     initial_completed_chunks, prefix_range, projection_of, ranges_json,
 };
+use swarmdrop_transfer::text_delivery::{TextDeliveryRecord, validate_text_body};
 use swarmdrop_transfer::{calc_total_chunks, expired_receive_reason};
 use uuid::Uuid;
 
@@ -92,6 +93,8 @@ struct StoredSession {
 #[derive(Default)]
 pub struct WebTransferStore {
     sessions: Mutex<HashMap<Uuid, StoredSession>>,
+    /// 发送方向的文本账本。接收方向与 Inbox 共存于 `WebInboxTable`，见其单记录原子写入。
+    text_outbox: Mutex<HashMap<Uuid, TextDeliveryRecord>>,
     /// 收件箱表（另一个 object store）。`InboxStore` 的 10 个方法全部委托给它，
     /// 只有 `repair_*` 留在本类型上——那条要同时看见会话与收件箱两边。
     inbox: WebInboxTable,
@@ -108,8 +111,12 @@ impl WebTransferStore {
         // IndexedDB 往返摞在启动时延里。并发跑它们；两个 future 都持 `JsValue`（`!Send`），
         // 故 join 必须发生在同一个 `SendWrapper` 边界**之内**（在外面 join 等于把 !Send
         // 的组合 future 暴露给 Send 约束）。
-        let (inbox, records) = SendWrapper::new(async {
-            futures::join!(WebInboxTable::load(), idb::get_all(idb::SESSION_STORE))
+        let (inbox, records, text_outbox) = SendWrapper::new(async {
+            futures::join!(
+                WebInboxTable::load(),
+                idb::get_all(idb::SESSION_STORE),
+                idb::get_all(idb::TEXT_OUTBOX_STORE),
+            )
         })
         .await;
 
@@ -117,6 +124,23 @@ impl WebTransferStore {
             inbox,
             ..Self::default()
         };
+        if let Ok(records) = text_outbox {
+            let mut outbox = store.text_outbox.lock().unwrap();
+            for record in records {
+                let Some(json) = record.as_string() else {
+                    tracing::warn!("跳过一条非字符串的文本发送记录");
+                    continue;
+                };
+                match serde_json::from_str::<TextDeliveryRecord>(&json) {
+                    Ok(record) => {
+                        outbox.insert(record.delivery_id, record);
+                    }
+                    Err(error) => tracing::warn!("跳过一条无法解析的文本发送记录: {error}"),
+                }
+            }
+        } else {
+            tracing::warn!("读取文本发送账本失败，本次以内存态运行");
+        }
         let records = match records {
             Ok(records) => records,
             Err(e) => {
@@ -285,11 +309,13 @@ impl WebTransferStore {
     fn attach_transfers(&self, details: &mut [InboxItemDetail]) {
         let map = self.sessions.lock().unwrap();
         for detail in details {
-            detail.transfer = detail
-                .item
-                .transfer_session_id
-                .and_then(|session_id| map.get(&session_id))
-                .map(|s| projection_of(&s.session, &s.files));
+            if let InboxItemContent::Files { transfer, .. } = &mut detail.content {
+                *transfer = detail
+                    .item
+                    .transfer_session_id
+                    .and_then(|session_id| map.get(&session_id))
+                    .map(|s| projection_of(&s.session, &s.files));
+            }
         }
     }
 
@@ -302,6 +328,21 @@ impl WebTransferStore {
             .filter(|s| peer.is_none_or(|p| s.session.peer_id.0 == p))
             .map(|s| s.session.session_id)
             .collect()
+    }
+
+    async fn persist_text_outbox(&self, delivery_id: Uuid) -> AppResult<()> {
+        let Some(record) = self.text_outbox.lock().unwrap().get(&delivery_id).cloned() else {
+            return Ok(());
+        };
+        let json = serde_json::to_string(&record)
+            .map_err(|error| AppError::Transfer(format!("序列化文本发送记录失败: {error}")))?;
+        SendWrapper::new(idb::put_string(
+            idb::TEXT_OUTBOX_STORE,
+            &delivery_id.to_string(),
+            &json,
+        ))
+        .await
+        .map_err(AppError::from)
     }
 }
 
@@ -822,6 +863,107 @@ impl InboxStore for WebTransferStore {
         self.inbox
             .mark_file_missing(item_id, file_id, missing)
             .await
+    }
+}
+
+#[async_trait]
+impl TextDeliveryStore for WebTransferStore {
+    async fn create_outgoing_text_delivery(&self, record: TextDeliveryRecord) -> AppResult<()> {
+        if record.direction != entity::TextDeliveryDirection::Send {
+            return Err(AppError::Transfer("只能创建发送方向的文本记录".into()));
+        }
+        validate_text_body(&record.body)?;
+        let delivery_id = record.delivery_id;
+        {
+            let mut outbox = self.text_outbox.lock().unwrap();
+            if outbox.contains_key(&delivery_id) {
+                return Err(AppError::Transfer("文本投递标识已存在".into()));
+            }
+            outbox.insert(delivery_id, record);
+        }
+        self.persist_text_outbox(delivery_id).await
+    }
+
+    async fn get_text_delivery(&self, delivery_id: Uuid) -> AppResult<Option<TextDeliveryRecord>> {
+        if let Some(record) = self.text_outbox.lock().unwrap().get(&delivery_id).cloned() {
+            return Ok(Some(record));
+        }
+        Ok(self.inbox.text_delivery(delivery_id))
+    }
+
+    async fn list_outgoing_text_deliveries(
+        &self,
+        peer_id: &str,
+    ) -> AppResult<Vec<TextDeliveryRecord>> {
+        let mut records: Vec<_> = self
+            .text_outbox
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|record| record.peer_id == peer_id)
+            .cloned()
+            .collect();
+        records.sort_by_key(|record| std::cmp::Reverse(record.updated_at));
+        Ok(records)
+    }
+
+    async fn update_outgoing_text_delivery(
+        &self,
+        delivery_id: Uuid,
+        status: entity::TextDeliveryStatus,
+        failure: Option<entity::TextDeliveryFailure>,
+        attempt_count: Option<i32>,
+        updated_at: i64,
+    ) -> AppResult<()> {
+        {
+            let mut outbox = self.text_outbox.lock().unwrap();
+            let record = outbox
+                .get_mut(&delivery_id)
+                .ok_or_else(|| AppError::Transfer("文本投递记录不存在".into()))?;
+            record.status = status;
+            record.failure = failure;
+            if let Some(attempt_count) = attempt_count {
+                record.attempt_count = attempt_count;
+            }
+            record.updated_at = updated_at;
+        }
+        self.persist_text_outbox(delivery_id).await
+    }
+
+    async fn persist_incoming_text_delivery(
+        &self,
+        record: TextDeliveryRecord,
+    ) -> AppResult<InboxItemDetail> {
+        if record.direction != entity::TextDeliveryDirection::Receive {
+            return Err(AppError::Transfer("只能持久化接收方向的文本记录".into()));
+        }
+        self.inbox.persist_text_delivery(record).await
+    }
+
+    async fn delete_outgoing_text_delivery(&self, delivery_id: Uuid) -> AppResult<()> {
+        self.text_outbox.lock().unwrap().remove(&delivery_id);
+        SendWrapper::new(idb::delete(
+            idb::TEXT_OUTBOX_STORE,
+            &delivery_id.to_string(),
+        ))
+        .await
+        .map_err(AppError::from)
+    }
+
+    async fn recover_interrupted_text_deliveries(&self, now_ms: i64) -> AppResult<u64> {
+        let changed: Vec<Uuid> = {
+            let mut outbox = self.text_outbox.lock().unwrap();
+            outbox
+                .iter_mut()
+                .filter_map(|(delivery_id, record)| {
+                    record.recover_after_restart(now_ms).then_some(*delivery_id)
+                })
+                .collect()
+        };
+        for delivery_id in &changed {
+            self.persist_text_outbox(*delivery_id).await?;
+        }
+        Ok(changed.len() as u64)
     }
 }
 

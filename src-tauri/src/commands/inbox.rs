@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use swarmdrop_core::host::FileAccess;
-use swarmdrop_core::transfer::inbox::{InboxItemDetail, InboxItemSummary, InboxSearchHit};
+use swarmdrop_core::transfer::inbox::{
+    InboxItemContent, InboxItemDetail, InboxItemSummary, InboxSearchHit,
+};
 use tauri::State;
 use uuid::Uuid;
 
@@ -117,7 +119,10 @@ pub async fn export_inbox_item(
     let destination_dir = PathBuf::from(destination_dir);
     tokio::fs::create_dir_all(&destination_dir).await?;
 
-    for file in &detail.files {
+    let InboxItemContent::Files { entries, .. } = &detail.content else {
+        return Err(crate::AppError::transfer("文本收件箱不能导出为文件"));
+    };
+    for file in entries {
         let source = PathBuf::from(&file.local_path);
         ensure_local_target_exists(&store, item_id, Some(file.id), &source).await?;
         let destination = destination_dir.join(&file.relative_path);
@@ -178,17 +183,19 @@ async fn load_inbox_detail(
 }
 
 fn item_target_path(detail: &InboxItemDetail, file_id: Option<i32>) -> crate::AppResult<PathBuf> {
+    let InboxItemContent::Files { entries, .. } = &detail.content else {
+        return Err(crate::AppError::transfer("文本收件箱没有本地文件位置"));
+    };
     if let Some(file_id) = file_id {
-        let file = detail
-            .files
+        let file = entries
             .iter()
             .find(|file| file.id == file_id)
             .ok_or_else(|| crate::AppError::transfer("收件箱文件不存在"))?;
         return Ok(PathBuf::from(&file.local_path));
     }
 
-    if detail.files.len() == 1 {
-        return Ok(PathBuf::from(&detail.files[0].local_path));
+    if entries.len() == 1 {
+        return Ok(PathBuf::from(&entries[0].local_path));
     }
 
     detail
@@ -233,5 +240,8 @@ async fn ensure_local_target_exists(
 /// 条目级缺失 == 该文件缺失」），本该上提到 `swarmdrop_transfer::inbox` 供三端共用，
 /// 而不是住在命令壳里。留在这里是因为本轮不动 `crates/`。
 fn missing_file_id(detail: &InboxItemDetail, file_id: Option<i32>) -> Option<i32> {
-    file_id.or_else(|| (detail.files.len() == 1).then(|| detail.files[0].id))
+    let InboxItemContent::Files { entries, .. } = &detail.content else {
+        return None;
+    };
+    file_id.or_else(|| (entries.len() == 1).then(|| entries[0].id))
 }

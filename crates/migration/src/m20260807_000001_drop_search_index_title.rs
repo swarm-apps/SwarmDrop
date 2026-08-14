@@ -96,7 +96,8 @@ mod tests {
             "up 之后 title 列应当已被删除"
         );
 
-        Migrator::down(&db, Some(1)).await.unwrap();
+        // 末尾新增文本账本迁移后，回滚到本迁移之前需要撤两步：先卸文本账本，再恢复 title。
+        Migrator::down(&db, Some(2)).await.unwrap();
         assert!(
             has_column(&db, "inbox_search_index", "title").await,
             "down 之后 title 列应当被加回"

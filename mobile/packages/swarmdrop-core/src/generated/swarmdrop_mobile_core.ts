@@ -1168,6 +1168,7 @@ const FfiConverterTypeMobileInboxContentKind = (() => {
 export type MobileInboxItemSummary = {
     id: string,
     transferSessionId?: string,
+    textDeliveryId?: string,
     sourcePeerId: string,
     sourceName: string,
     sourceKind: MobileInboxSourceKind,
@@ -1207,6 +1208,7 @@ const FfiConverterTypeMobileInboxItemSummary = (() => {
             return {
                 id: FfiConverterString.read(from), 
                 transferSessionId: FfiConverterOptionalString.read(from), 
+                textDeliveryId: FfiConverterOptionalString.read(from), 
                 sourcePeerId: FfiConverterString.read(from), 
                 sourceName: FfiConverterString.read(from), 
                 sourceKind: FfiConverterTypeMobileInboxSourceKind.read(from), 
@@ -1226,6 +1228,7 @@ const FfiConverterTypeMobileInboxItemSummary = (() => {
         write(value: TypeName, into: RustBuffer): void {
             FfiConverterString.write(value.id, into);
             FfiConverterOptionalString.write(value.transferSessionId, into);
+            FfiConverterOptionalString.write(value.textDeliveryId, into);
             FfiConverterString.write(value.sourcePeerId, into);
             FfiConverterString.write(value.sourceName, into);
             FfiConverterTypeMobileInboxSourceKind.write(value.sourceKind, into);
@@ -1244,6 +1247,7 @@ const FfiConverterTypeMobileInboxItemSummary = (() => {
         allocationSize(value: TypeName): number {
             return FfiConverterString.allocationSize(value.id) +
              FfiConverterOptionalString.allocationSize(value.transferSessionId) +
+             FfiConverterOptionalString.allocationSize(value.textDeliveryId) +
              FfiConverterString.allocationSize(value.sourcePeerId) +
              FfiConverterString.allocationSize(value.sourceName) +
              FfiConverterTypeMobileInboxSourceKind.allocationSize(value.sourceKind) +
@@ -1899,10 +1903,148 @@ const FfiConverterTypeMobileTransferProjection = (() => {
     return new FFIConverter();
 })();
 
+
+// Enum: MobileInboxItemContent
+export enum MobileInboxItemContent_Tags {
+    Files = "Files",
+    Text = "Text"
+}
+export const MobileInboxItemContent = (() => {
+
+    type Files__interface = {
+        tag: MobileInboxItemContent_Tags.Files;
+        inner: 
+Readonly<{entries: Array<MobileInboxFileEntry>; transfer?: MobileTransferProjection}>
+    };
+    class Files_ extends UniffiEnum implements Files__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileInboxItemContent";
+        readonly tag = MobileInboxItemContent_Tags.Files;
+        readonly inner: 
+Readonly<{entries: Array<MobileInboxFileEntry>; transfer?: MobileTransferProjection}>;
+        constructor(
+inner: {entries: Array<MobileInboxFileEntry>; transfer?: MobileTransferProjection }) {
+            super("MobileInboxItemContent", "Files");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {entries: Array<MobileInboxFileEntry>; transfer?: MobileTransferProjection }): Files_ {
+            return new Files_(inner);
+        }
+
+        static instanceOf(obj: any): obj is Files_ {
+            return obj.tag === MobileInboxItemContent_Tags.Files;
+        }
+
+    }
+
+    type Text__interface = {
+        tag: MobileInboxItemContent_Tags.Text;
+        inner: 
+Readonly<{body: string}>
+    };
+    class Text_ extends UniffiEnum implements Text__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileInboxItemContent";
+        readonly tag = MobileInboxItemContent_Tags.Text;
+        readonly inner: 
+Readonly<{body: string}>;
+        constructor(
+inner: {body: string }) {
+            super("MobileInboxItemContent", "Text");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {body: string }): Text_ {
+            return new Text_(inner);
+        }
+
+        static instanceOf(obj: any): obj is Text_ {
+            return obj.tag === MobileInboxItemContent_Tags.Text;
+        }
+
+    }
+
+    function instanceOf(obj: any): obj is MobileInboxItemContent {
+        return obj[uniffiTypeNameSymbol] === "MobileInboxItemContent";
+    }
+
+    return Object.freeze({
+        instanceOf,
+  Files: Files_, 
+  Text: Text_
+    });
+
+})();
+export type MobileInboxItemContent = InstanceType<
+    typeof MobileInboxItemContent['Files' | 'Text']
+>;
+
+// FfiConverter for enum MobileInboxItemContent
+const FfiConverterTypeMobileInboxItemContent = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileInboxItemContent;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return new MobileInboxItemContent.Files({entries: FfiConverterSequenceTypeMobileInboxFileEntry.read(from), transfer: FfiConverterOptionalTypeMobileTransferProjection.read(from) });
+                case 2: return new MobileInboxItemContent.Text({body: FfiConverterString.read(from) });
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value.tag) {
+                case MobileInboxItemContent_Tags.Files: {
+                    ordinalConverter.write(1, into);
+                    const inner = value.inner;
+                    FfiConverterSequenceTypeMobileInboxFileEntry.write(inner.entries, into);
+                    FfiConverterOptionalTypeMobileTransferProjection.write(inner.transfer, into);
+                    return;
+                }
+                case MobileInboxItemContent_Tags.Text: {
+                    ordinalConverter.write(2, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner.body, into);
+                    return;
+                }
+                default:
+                    // Throwing from here means that MobileInboxItemContent_Tags hasn't matched an ordinal.
+                    throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        allocationSize(value: TypeName): number {
+            switch (value.tag) {
+                case MobileInboxItemContent_Tags.Files: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(1);
+                    size += FfiConverterSequenceTypeMobileInboxFileEntry.allocationSize(inner.entries);
+                    size += FfiConverterOptionalTypeMobileTransferProjection.allocationSize(inner.transfer);
+                    return size;
+                }
+                case MobileInboxItemContent_Tags.Text: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(2);
+                    size += FfiConverterString.allocationSize(inner.body);
+                    return size;
+                }
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+    }
+    return new FFIConverter();
+})();
+
 export type MobileInboxItemDetail = {
     item: MobileInboxItemSummary,
-    files: Array<MobileInboxFileEntry>,
-    transfer?: MobileTransferProjection
+    content: MobileInboxItemContent
 }
 
 /**
@@ -1927,19 +2069,16 @@ const FfiConverterTypeMobileInboxItemDetail = (() => {
         read(from: RustBuffer): TypeName {
             return {
                 item: FfiConverterTypeMobileInboxItemSummary.read(from), 
-                files: FfiConverterSequenceTypeMobileInboxFileEntry.read(from), 
-                transfer: FfiConverterOptionalTypeMobileTransferProjection.read(from)
+                content: FfiConverterTypeMobileInboxItemContent.read(from)
             };
         }
         write(value: TypeName, into: RustBuffer): void {
             FfiConverterTypeMobileInboxItemSummary.write(value.item, into);
-            FfiConverterSequenceTypeMobileInboxFileEntry.write(value.files, into);
-            FfiConverterOptionalTypeMobileTransferProjection.write(value.transfer, into);
+            FfiConverterTypeMobileInboxItemContent.write(value.content, into);
         }
         allocationSize(value: TypeName): number {
             return FfiConverterTypeMobileInboxItemSummary.allocationSize(value.item) +
-             FfiConverterSequenceTypeMobileInboxFileEntry.allocationSize(value.files) +
-             FfiConverterOptionalTypeMobileTransferProjection.allocationSize(value.transfer);
+             FfiConverterTypeMobileInboxItemContent.allocationSize(value.content);
             
         }
     };
@@ -2809,6 +2948,61 @@ const FfiConverterTypeMobilePairingResult = (() => {
     return new FFIConverter();
 })();
 
+export type MobilePendingTextDelivery = {
+    deliveryId: string,
+    peerId: string,
+    peerName: string,
+    body: string,
+    createdAt: bigint
+}
+
+/**
+ * Generated factory for {@link MobilePendingTextDelivery} record objects.
+ */
+export const MobilePendingTextDelivery = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobilePendingTextDelivery, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobilePendingTextDelivery>,
+    });
+})();
+
+const FfiConverterTypeMobilePendingTextDelivery = (() => {
+    type TypeName = MobilePendingTextDelivery;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                deliveryId: FfiConverterString.read(from), 
+                peerId: FfiConverterString.read(from), 
+                peerName: FfiConverterString.read(from), 
+                body: FfiConverterString.read(from), 
+                createdAt: FfiConverterInt64.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.deliveryId, into);
+            FfiConverterString.write(value.peerId, into);
+            FfiConverterString.write(value.peerName, into);
+            FfiConverterString.write(value.body, into);
+            FfiConverterInt64.write(value.createdAt, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.deliveryId) +
+             FfiConverterString.allocationSize(value.peerId) +
+             FfiConverterString.allocationSize(value.peerName) +
+             FfiConverterString.allocationSize(value.body) +
+             FfiConverterInt64.allocationSize(value.createdAt);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
 export type MobilePrepareProgress = {
     preparedId: string,
     currentFile: string,
@@ -3054,6 +3248,201 @@ const FfiConverterTypeMobileSendResult = (() => {
         }
         allocationSize(value: TypeName): number {
             return FfiConverterString.allocationSize(value.sessionId);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+export enum MobileTextDeliveryDirection {
+    Send,
+    Receive
+}
+
+const FfiConverterTypeMobileTextDeliveryDirection = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileTextDeliveryDirection;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileTextDeliveryDirection.Send;
+                case 2: return MobileTextDeliveryDirection.Receive;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileTextDeliveryDirection.Send: return ordinalConverter.write(1, into);
+                case MobileTextDeliveryDirection.Receive: return ordinalConverter.write(2, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+export enum MobileTextDeliveryStatus {
+    Sending,
+    WaitingConfirmation,
+    Delivered,
+    Rejected,
+    Retryable,
+    Expired,
+    Cancelled
+}
+
+const FfiConverterTypeMobileTextDeliveryStatus = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileTextDeliveryStatus;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileTextDeliveryStatus.Sending;
+                case 2: return MobileTextDeliveryStatus.WaitingConfirmation;
+                case 3: return MobileTextDeliveryStatus.Delivered;
+                case 4: return MobileTextDeliveryStatus.Rejected;
+                case 5: return MobileTextDeliveryStatus.Retryable;
+                case 6: return MobileTextDeliveryStatus.Expired;
+                case 7: return MobileTextDeliveryStatus.Cancelled;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileTextDeliveryStatus.Sending: return ordinalConverter.write(1, into);
+                case MobileTextDeliveryStatus.WaitingConfirmation: return ordinalConverter.write(2, into);
+                case MobileTextDeliveryStatus.Delivered: return ordinalConverter.write(3, into);
+                case MobileTextDeliveryStatus.Rejected: return ordinalConverter.write(4, into);
+                case MobileTextDeliveryStatus.Retryable: return ordinalConverter.write(5, into);
+                case MobileTextDeliveryStatus.Expired: return ordinalConverter.write(6, into);
+                case MobileTextDeliveryStatus.Cancelled: return ordinalConverter.write(7, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+export enum MobileTextDeliveryFailure {
+    PeerUnavailable,
+    TimedOut,
+    UnsupportedProtocol,
+    Rejected,
+    Expired,
+    StorageFailed,
+    ProtocolConflict,
+    InvalidPayload
+}
+
+const FfiConverterTypeMobileTextDeliveryFailure = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileTextDeliveryFailure;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileTextDeliveryFailure.PeerUnavailable;
+                case 2: return MobileTextDeliveryFailure.TimedOut;
+                case 3: return MobileTextDeliveryFailure.UnsupportedProtocol;
+                case 4: return MobileTextDeliveryFailure.Rejected;
+                case 5: return MobileTextDeliveryFailure.Expired;
+                case 6: return MobileTextDeliveryFailure.StorageFailed;
+                case 7: return MobileTextDeliveryFailure.ProtocolConflict;
+                case 8: return MobileTextDeliveryFailure.InvalidPayload;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileTextDeliveryFailure.PeerUnavailable: return ordinalConverter.write(1, into);
+                case MobileTextDeliveryFailure.TimedOut: return ordinalConverter.write(2, into);
+                case MobileTextDeliveryFailure.UnsupportedProtocol: return ordinalConverter.write(3, into);
+                case MobileTextDeliveryFailure.Rejected: return ordinalConverter.write(4, into);
+                case MobileTextDeliveryFailure.Expired: return ordinalConverter.write(5, into);
+                case MobileTextDeliveryFailure.StorageFailed: return ordinalConverter.write(6, into);
+                case MobileTextDeliveryFailure.ProtocolConflict: return ordinalConverter.write(7, into);
+                case MobileTextDeliveryFailure.InvalidPayload: return ordinalConverter.write(8, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
+export type MobileTextDeliveryRecord = {
+    deliveryId: string,
+    direction: MobileTextDeliveryDirection,
+    peerId: string,
+    peerName: string,
+    body: string,
+    status: MobileTextDeliveryStatus,
+    failure?: MobileTextDeliveryFailure,
+    attemptCount: number,
+    createdAt: bigint,
+    updatedAt: bigint
+}
+
+/**
+ * Generated factory for {@link MobileTextDeliveryRecord} record objects.
+ */
+export const MobileTextDeliveryRecord = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileTextDeliveryRecord, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileTextDeliveryRecord>,
+    });
+})();
+
+const FfiConverterTypeMobileTextDeliveryRecord = (() => {
+    type TypeName = MobileTextDeliveryRecord;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                deliveryId: FfiConverterString.read(from), 
+                direction: FfiConverterTypeMobileTextDeliveryDirection.read(from), 
+                peerId: FfiConverterString.read(from), 
+                peerName: FfiConverterString.read(from), 
+                body: FfiConverterString.read(from), 
+                status: FfiConverterTypeMobileTextDeliveryStatus.read(from), 
+                failure: FfiConverterOptionalTypeMobileTextDeliveryFailure.read(from), 
+                attemptCount: FfiConverterUInt32.read(from), 
+                createdAt: FfiConverterInt64.read(from), 
+                updatedAt: FfiConverterInt64.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.deliveryId, into);
+            FfiConverterTypeMobileTextDeliveryDirection.write(value.direction, into);
+            FfiConverterString.write(value.peerId, into);
+            FfiConverterString.write(value.peerName, into);
+            FfiConverterString.write(value.body, into);
+            FfiConverterTypeMobileTextDeliveryStatus.write(value.status, into);
+            FfiConverterOptionalTypeMobileTextDeliveryFailure.write(value.failure, into);
+            FfiConverterUInt32.write(value.attemptCount, into);
+            FfiConverterInt64.write(value.createdAt, into);
+            FfiConverterInt64.write(value.updatedAt, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.deliveryId) +
+             FfiConverterTypeMobileTextDeliveryDirection.allocationSize(value.direction) +
+             FfiConverterString.allocationSize(value.peerId) +
+             FfiConverterString.allocationSize(value.peerName) +
+             FfiConverterString.allocationSize(value.body) +
+             FfiConverterTypeMobileTextDeliveryStatus.allocationSize(value.status) +
+             FfiConverterOptionalTypeMobileTextDeliveryFailure.allocationSize(value.failure) +
+             FfiConverterUInt32.allocationSize(value.attemptCount) +
+             FfiConverterInt64.allocationSize(value.createdAt) +
+             FfiConverterInt64.allocationSize(value.updatedAt);
             
         }
     };
@@ -7103,6 +7492,7 @@ export interface MobileCoreLike {
  */
     cancelSend(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
     clearTransferActivity(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+    confirmTextDelivery(deliveryId: string, accepted: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
 /**
  * 受邀方：用邀请串发起配对（解码验签 → 连接发起方 → 出示凭证握手）。
  */
@@ -7127,6 +7517,7 @@ export interface MobileCoreLike {
  * **只删账本**，不碰文件。要连文件一起删走 [`Self::delete_inbox_item`]。
  */
     deleteInboxItemRecord(itemId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+    deleteTextOutboxRecord(deliveryId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
     deleteTransferRecord(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
 /**
  * 发起方：生成一次性签名邀请串（供二维码/链接分享）。
@@ -7184,6 +7575,7 @@ export interface MobileCoreLike {
  * 意义（那才是三端会各写一遍并漂开的部分）。
  */
     listPairedDevices(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<MobileDevice>>;
+    listTextOutbox(peerId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<MobileTextDeliveryRecord>>;
     markInboxFileMissing(itemId: string, fileId: number, missing: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
     markInboxItemOpened(itemId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
     networkStatus(asyncOpts_?: { signal: AbortSignal }): Promise<MobileNetworkStatus>;
@@ -7199,6 +7591,7 @@ export interface MobileCoreLike {
  * 暂停发送会话。
  */
     pauseSend(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<void>;
+    pendingTextDeliveries(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<Array<MobilePendingTextDelivery>>;
 /**
  * 准备发送：流式 BLAKE3 hash + 通过 EventBus 推 PrepareProgress 事件
  */
@@ -7251,6 +7644,7 @@ export interface MobileCoreLike {
  */
     respondPairingRequest(pendingId: bigint, accept: boolean, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<boolean>;
     resumeTransfer(sessionId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileTransferProjection>;
+    retryTextDelivery(deliveryId: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileTextDeliveryRecord>;
 /**
  * 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
  *
@@ -7275,6 +7669,7 @@ export interface MobileCoreLike {
  * 发送：构造 Offer 给对端（异步，结果通过 TransferAccepted/Rejected/Failed 事件回报）
  */
     sendPrepared(preparedId: string, peerId: string, peerName: string, fileIds: Array<number>, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileSendResult>;
+    sendTextDelivery(peerId: string, peerName: string, body: string, asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<MobileTextDeliveryRecord>;
 /**
  * 告知内核宿主**此刻**的默认接收落点。
  *
@@ -7552,6 +7947,33 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     }
     
+    async confirmTextDelivery(deliveryId: string, accepted: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_confirm_text_delivery(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(deliveryId, nativeModule().rustbuffer_alloc),FfiConverterBool.lower(accepted, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
 /**
  * 受邀方：用邀请串发起配对（解码验签 → 连接发起方 → 出示凭证握手）。
  */
@@ -7658,6 +8080,33 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
             /*rustFutureFunc:*/ () => {
                 return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_inbox_item_record(
                     uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(itemId, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_void,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
+            /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    async deleteTextOutboxRecord(deliveryId: string, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_text_outbox_record(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(deliveryId, nativeModule().rustbuffer_alloc)
                 );
             },
             /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_void,
@@ -8182,6 +8631,38 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     }
     
+    async listTextOutbox(peerId: string, asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobileTextDeliveryRecord>> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_text_outbox(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(peerId, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            // Async returns always go through the JS-side converter: the
+            // FFI symbol returns the future handle (u64), and the user-level
+            // RustBuffer comes back via the shared `rust_future_complete_*`
+            // export. The bytes the runtime hands back must be deserialized
+            // here using the per-callable return-type converter.
+            /*liftFunc:*/ FfiConverterSequenceTypeMobileTextDeliveryRecord.lift.bind(FfiConverterSequenceTypeMobileTextDeliveryRecord),
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
     async markInboxFileMissing(itemId: string, fileId: number, missing: boolean, asyncOpts_?: { signal: AbortSignal }): Promise<void> /*throws*/ {
     const __stack = uniffiIsDebug ? new Error().stack : undefined;
     try {
@@ -8351,6 +8832,38 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
             /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_void,
             /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_void,
             /*liftFunc:*/ (_v) => {},
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    async pendingTextDeliveries(asyncOpts_?: { signal: AbortSignal }): Promise<Array<MobilePendingTextDelivery>> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pending_text_deliveries(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            // Async returns always go through the JS-side converter: the
+            // FFI symbol returns the future handle (u64), and the user-level
+            // RustBuffer comes back via the shared `rust_future_complete_*`
+            // export. The bytes the runtime hands back must be deserialized
+            // here using the per-callable return-type converter.
+            /*liftFunc:*/ FfiConverterSequenceTypeMobilePendingTextDelivery.lift.bind(FfiConverterSequenceTypeMobilePendingTextDelivery),
             /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -8653,6 +9166,38 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
     }
     }
     
+    async retryTextDelivery(deliveryId: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobileTextDeliveryRecord> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_retry_text_delivery(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(deliveryId, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            // Async returns always go through the JS-side converter: the
+            // FFI symbol returns the future handle (u64), and the user-level
+            // RustBuffer comes back via the shared `rust_future_complete_*`
+            // export. The bytes the runtime hands back must be deserialized
+            // here using the per-callable return-type converter.
+            /*liftFunc:*/ FfiConverterTypeMobileTextDeliveryRecord.lift.bind(FfiConverterTypeMobileTextDeliveryRecord),
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
 /**
  * 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
  *
@@ -8789,6 +9334,38 @@ export class MobileCore extends UniffiAbstractObject implements MobileCoreLike {
             // export. The bytes the runtime hands back must be deserialized
             // here using the per-callable return-type converter.
             /*liftFunc:*/ FfiConverterTypeMobileSendResult.lift.bind(FfiConverterTypeMobileSendResult),
+            /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+            /*asyncOpts:*/ asyncOpts_,
+            /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
+        );
+    } catch (__error: any) {
+        if (uniffiIsDebug && __error instanceof Error) {
+            __error.stack = __stack;
+        }
+        throw __error;
+    }
+    }
+    
+    async sendTextDelivery(peerId: string, peerName: string, body: string, asyncOpts_?: { signal: AbortSignal }): Promise<MobileTextDeliveryRecord> /*throws*/ {
+    const __stack = uniffiIsDebug ? new Error().stack : undefined;
+    try {
+        return await uniffiRustCallAsync(
+            /*rustCaller:*/ uniffiCaller,
+            /*rustFutureFunc:*/ () => {
+                return nativeModule().ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_text_delivery(
+                    uniffiTypeMobileCoreObjectFactory.clonePointer(this),FfiConverterString.lower(peerId, nativeModule().rustbuffer_alloc),FfiConverterString.lower(peerName, nativeModule().rustbuffer_alloc),FfiConverterString.lower(body, nativeModule().rustbuffer_alloc)
+                );
+            },
+            /*pollFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_poll_rust_buffer,
+            /*cancelFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_cancel_rust_buffer,
+            /*completeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_complete_rust_buffer,
+            /*freeFunc:*/ nativeModule().ubrn_ffi_swarmdrop_mobile_core_rust_future_free_rust_buffer,
+            // Async returns always go through the JS-side converter: the
+            // FFI symbol returns the future handle (u64), and the user-level
+            // RustBuffer comes back via the shared `rust_future_complete_*`
+            // export. The bytes the runtime hands back must be deserialized
+            // here using the per-callable return-type converter.
+            /*liftFunc:*/ FfiConverterTypeMobileTextDeliveryRecord.lift.bind(FfiConverterTypeMobileTextDeliveryRecord),
             /*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
             /*asyncOpts:*/ asyncOpts_,
             /*errorHandler:*/ FfiConverterTypeFfiError.lift.bind(FfiConverterTypeFfiError)
@@ -9205,6 +9782,9 @@ const FfiConverterSequenceTypeMobilePreparedFile = new FfiConverterArray(FfiConv
 // FfiConverter for Array<boolean>
 const FfiConverterSequenceBoolean = new FfiConverterArray(FfiConverterBool);
 
+// FfiConverter for MobileTextDeliveryFailure | undefined
+const FfiConverterOptionalTypeMobileTextDeliveryFailure = new FfiConverterOptional(FfiConverterTypeMobileTextDeliveryFailure);
+
 // FfiConverter for Array<MobileTransferOfferFile>
 const FfiConverterSequenceTypeMobileTransferOfferFile = new FfiConverterArray(FfiConverterTypeMobileTransferOfferFile);
 
@@ -9234,6 +9814,12 @@ const FfiConverterSequenceTypeMobileInboxItemSummary = new FfiConverterArray(Ffi
 
 // FfiConverter for Array<MobileInviteListItem>
 const FfiConverterSequenceTypeMobileInviteListItem = new FfiConverterArray(FfiConverterTypeMobileInviteListItem);
+
+// FfiConverter for Array<MobileTextDeliveryRecord>
+const FfiConverterSequenceTypeMobileTextDeliveryRecord = new FfiConverterArray(FfiConverterTypeMobileTextDeliveryRecord);
+
+// FfiConverter for Array<MobilePendingTextDelivery>
+const FfiConverterSequenceTypeMobilePendingTextDelivery = new FfiConverterArray(FfiConverterTypeMobilePendingTextDelivery);
 
 // FfiConverter for Array<MobileTransferFile>
 const FfiConverterSequenceTypeMobileTransferFile = new FfiConverterArray(FfiConverterTypeMobileTransferFile);
@@ -9335,6 +9921,9 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_clear_transfer_activity() !== 63110) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_clear_transfer_activity");
     }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_confirm_text_delivery() !== 29473) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_confirm_text_delivery");
+    }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_consume_pair_invite() !== 64980) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_consume_pair_invite");
     }
@@ -9346,6 +9935,9 @@ function uniffiEnsureInitialized() {
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record() !== 27748) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_inbox_item_record");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_text_outbox_record() !== 9980) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_text_outbox_record");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_transfer_record() !== 8237) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_transfer_record");
@@ -9392,6 +9984,9 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices() !== 10793) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_paired_devices");
     }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_text_outbox() !== 57625) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_text_outbox");
+    }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_file_missing() !== 29289) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_mark_inbox_file_missing");
     }
@@ -9409,6 +10004,9 @@ function uniffiEnsureInitialized() {
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_send() !== 49949) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pause_send");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pending_text_deliveries() !== 63725) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pending_text_deliveries");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send() !== 57064) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_prepare_send");
@@ -9434,6 +10032,9 @@ function uniffiEnsureInitialized() {
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_resume_transfer() !== 29332) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_resume_transfer");
     }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_retry_text_delivery() !== 2355) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_retry_text_delivery");
+    }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite() !== 4092) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite");
     }
@@ -9445,6 +10046,9 @@ function uniffiEnsureInitialized() {
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared() !== 28705) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_prepared");
+    }
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_text_delivery() !== 47148) {
+        throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_text_delivery");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_default_save_location() !== 11522) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_set_default_save_location");
@@ -9503,6 +10107,7 @@ export default Object.freeze({
     FfiConverterTypeMobileInboxContentKind,
     FfiConverterTypeMobileInboxFileEntry,
     FfiConverterTypeMobileInboxHitFile,
+    FfiConverterTypeMobileInboxItemContent,
     FfiConverterTypeMobileInboxItemDetail,
     FfiConverterTypeMobileInboxItemSummary,
     FfiConverterTypeMobileInboxSearchHit,
@@ -9517,6 +10122,7 @@ export default Object.freeze({
     FfiConverterTypeMobileNetworkStatus,
     FfiConverterTypeMobilePairedDevice,
     FfiConverterTypeMobilePairingResult,
+    FfiConverterTypeMobilePendingTextDelivery,
     FfiConverterTypeMobilePrepareProgress,
     FfiConverterTypeMobilePreparedFile,
     FfiConverterTypeMobilePreparedTransfer,
@@ -9528,6 +10134,10 @@ export default Object.freeze({
     FfiConverterTypeMobileSendResult,
     FfiConverterTypeMobileSuspendedReason,
     FfiConverterTypeMobileTerminalReason,
+    FfiConverterTypeMobileTextDeliveryDirection,
+    FfiConverterTypeMobileTextDeliveryFailure,
+    FfiConverterTypeMobileTextDeliveryRecord,
+    FfiConverterTypeMobileTextDeliveryStatus,
     FfiConverterTypeMobileTransferDirection,
     FfiConverterTypeMobileTransferFile,
     FfiConverterTypeMobileTransferOffer,

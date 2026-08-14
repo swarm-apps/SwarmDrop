@@ -36,6 +36,7 @@ import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import ImageViewing from "react-native-image-viewing";
 import {
   MobileInboxContentKind,
+  MobileInboxItemContent,
   type MobileInboxItemDetail,
   MobileInboxSourceKind,
 } from "react-native-swarmdrop-core";
@@ -74,6 +75,7 @@ import { inboxItemTitle } from "@/lib/inbox-title";
 import { openFileWithSystem, shareFileWithSystem } from "@/lib/open-file";
 import { openSaveFolderOrToast } from "@/lib/save-folder";
 import { toast } from "@/lib/toast";
+import { clipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { type InboxFileEntry, useInboxStore } from "@/stores/inbox-store";
 import { useShareStore } from "@/stores/share-store";
@@ -156,8 +158,16 @@ export default function InboxDetailScreen() {
   const title = detail
     ? inboxItemTitle(detail.item.title, detail.item.itemCount)
     : t`收件箱详情`;
-  const fileCount = detail?.files.length ?? 0;
-  const primaryFile = detail?.files.length === 1 ? detail.files[0] : null;
+  const files =
+    detail && MobileInboxItemContent.Files.instanceOf(detail.content)
+      ? detail.content.inner.entries
+      : [];
+  const textBody =
+    detail && MobileInboxItemContent.Text.instanceOf(detail.content)
+      ? detail.content.inner.body
+      : null;
+  const fileCount = files.length;
+  const primaryFile = files.length === 1 ? files[0] : null;
   const itemMissing =
     detail?.item.missing === true || primaryFile?.missing === true;
   const contentKind = detail?.item.contentKind;
@@ -325,7 +335,7 @@ export default function InboxDetailScreen() {
   const canShare = primaryFile != null && !primaryFile.missing;
   // 整条记录级的转发：只要还有一个文件没被标记缺失就给入口，具体哪些能发由
   // `selectForwardable` 在发起时逐个探活决定。
-  const canSend = (detail?.files ?? []).some((file) => !file.missing);
+  const canSend = files.some((file) => !file.missing);
   const sharePrimaryFile = useCallback(() => {
     if (!primaryFile) return;
     void shareFile(primaryFile);
@@ -348,34 +358,34 @@ export default function InboxDetailScreen() {
   );
 
   const fileItems = useMemo(
-    () => (detail && itemId ? fromInboxFiles(itemId, detail.files) : []),
-    [detail, itemId],
+    () => (detail && itemId ? fromInboxFiles(itemId, files) : []),
+    [detail, files, itemId],
   );
   const fileBrowserActions = useMemo<FileBrowserActions>(
     () => ({
       openItem: (item) => {
-        const file = detail?.files.find(
+        const file = files.find(
           (candidate) =>
             itemId && inboxFileId(itemId, candidate.id) === item.id,
         );
         if (file) void openFile(file);
       },
       shareItem: (item) => {
-        const file = detail?.files.find(
+        const file = files.find(
           (candidate) =>
             itemId && inboxFileId(itemId, candidate.id) === item.id,
         );
         if (file) void shareFile(file);
       },
       sendItem: (item) => {
-        const file = detail?.files.find(
+        const file = files.find(
           (candidate) =>
             itemId && inboxFileId(itemId, candidate.id) === item.id,
         );
         if (file) void forwardFiles([file]);
       },
     }),
-    [detail, itemId, openFile, shareFile, forwardFiles],
+    [files, itemId, openFile, shareFile, forwardFiles],
   );
 
   return (
@@ -466,7 +476,7 @@ export default function InboxDetailScreen() {
         </View>
       ) : (
         <>
-          {detail.files.length > 1 ? (
+          {files.length > 1 ? (
             <FileBrowser
               items={fileItems}
               scope="inbox"
@@ -486,6 +496,7 @@ export default function InboxDetailScreen() {
                   previewImageFile={previewImageFile}
                   previewVideoFile={previewVideoFile}
                   excerptFile={excerptFile}
+                  textBody={textBody}
                   detailsExpanded={detailsExpanded}
                   onToggleDetails={() => setDetailsExpanded((value) => !value)}
                   transferSessionId={transferSessionId}
@@ -510,6 +521,7 @@ export default function InboxDetailScreen() {
                 previewImageFile={previewImageFile}
                 previewVideoFile={previewVideoFile}
                 excerptFile={excerptFile}
+                textBody={textBody}
                 detailsExpanded={detailsExpanded}
                 onToggleDetails={() => setDetailsExpanded((value) => !value)}
                 transferSessionId={transferSessionId}
@@ -565,7 +577,7 @@ export default function InboxDetailScreen() {
           canSend={canSend}
           onSend={() =>
             runAfterSheetDismiss(() => {
-              void forwardFiles(detail.files);
+              void forwardFiles(files);
             })
           }
           onArchive={() =>
@@ -602,6 +614,7 @@ interface InboxDetailContentProps {
   previewImageFile: InboxFileEntry | null;
   previewVideoFile: InboxFileEntry | null;
   excerptFile: InboxFileEntry | null;
+  textBody: string | null;
   detailsExpanded: boolean;
   onToggleDetails: () => void;
   transferSessionId?: string;
@@ -619,6 +632,7 @@ function InboxDetailContent({
   previewImageFile,
   previewVideoFile,
   excerptFile,
+  textBody,
   detailsExpanded,
   onToggleDetails,
   transferSessionId,
@@ -632,6 +646,8 @@ function InboxDetailContent({
         <ImagePreview file={previewImageFile} />
       ) : previewVideoFile ? (
         <VideoPreview file={previewVideoFile} />
+      ) : textBody != null ? (
+        <TextDeliveryCard body={textBody} />
       ) : excerptFile ? (
         <TextExcerptCard kind={detail.item.contentKind} file={excerptFile} />
       ) : null}
@@ -1050,6 +1066,46 @@ function TextExcerptCard({
         ) : (
           <Trans>正在加载内容…</Trans>
         )}
+      </Text>
+    </Surface>
+  );
+}
+
+/** 文本投递正文已随收件箱详情返回，复制只能由用户显式触发。 */
+function TextDeliveryCard({ body }: { body: string }) {
+  const { t } = useLingui();
+  const colors = useThemeColors();
+  const copy = useCallback(async () => {
+    try {
+      await clipboard.writeText(body);
+      toast.success(t`已复制到剪贴板`);
+    } catch (error) {
+      toast.error(t`复制失败`, error);
+    }
+  }, [body, t]);
+
+  return (
+    <Surface className="gap-3 px-4 py-4" testID="inbox-detail-text-delivery">
+      <View className="flex-row items-center justify-between gap-3">
+        <View className="flex-row items-center gap-2">
+          <ClipboardList color={colors.mutedForeground} size={15} />
+          <Text className="text-[13px] font-medium text-muted-foreground">
+            <Trans>文本内容</Trans>
+          </Text>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t`复制文本`}
+          onPress={() => void copy()}
+          className="rounded-lg border border-border px-3 py-1.5 active:opacity-70"
+        >
+          <Text className="text-[12px] font-semibold text-foreground">
+            <Trans>复制</Trans>
+          </Text>
+        </Pressable>
+      </View>
+      <Text selectable className="text-[14px] leading-6 text-foreground">
+        {body}
       </Text>
     </Surface>
   );

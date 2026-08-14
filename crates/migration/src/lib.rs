@@ -23,6 +23,7 @@ pub use sea_orm_migration::prelude::*;
 mod m20260805_000001_init;
 mod m20260806_000001_inbox_title_to_file_name;
 mod m20260807_000001_drop_search_index_title;
+mod m20260814_000001_text_deliveries;
 
 pub struct Migrator;
 
@@ -33,6 +34,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260805_000001_init::Migration),
             Box::new(m20260806_000001_inbox_title_to_file_name::Migration),
             Box::new(m20260807_000001_drop_search_index_title::Migration),
+            Box::new(m20260814_000001_text_deliveries::Migration),
         ]
     }
 }

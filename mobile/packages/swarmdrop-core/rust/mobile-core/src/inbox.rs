@@ -10,7 +10,8 @@
 
 use entity::{InboxContentKind, InboxSourceKind};
 use swarmdrop_core::transfer::inbox::{
-    InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary, InboxSearchHit,
+    InboxHitFile, InboxItemContent, InboxItemDetail, InboxItemFileEntry, InboxItemSummary,
+    InboxSearchHit,
 };
 use uuid::Uuid;
 
@@ -60,6 +61,7 @@ impl From<InboxContentKind> for MobileInboxContentKind {
 pub struct MobileInboxItemSummary {
     pub id: String,
     pub transfer_session_id: Option<String>,
+    pub text_delivery_id: Option<String>,
     pub source_peer_id: String,
     pub source_name: String,
     pub source_kind: MobileInboxSourceKind,
@@ -82,6 +84,7 @@ impl From<InboxItemSummary> for MobileInboxItemSummary {
         let InboxItemSummary {
             id,
             transfer_session_id,
+            text_delivery_id,
             source_peer_id,
             source_name,
             source_kind,
@@ -100,6 +103,7 @@ impl From<InboxItemSummary> for MobileInboxItemSummary {
         Self {
             id: id.to_string(),
             transfer_session_id: transfer_session_id.map(|id| id.to_string()),
+            text_delivery_id: text_delivery_id.map(|id| id.to_string()),
             source_peer_id,
             source_name,
             source_kind: source_kind.into(),
@@ -156,25 +160,36 @@ impl From<InboxItemFileEntry> for MobileInboxFileEntry {
     }
 }
 
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum MobileInboxItemContent {
+    Files {
+        entries: Vec<MobileInboxFileEntry>,
+        transfer: Option<MobileTransferProjection>,
+    },
+    Text {
+        body: String,
+    },
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct MobileInboxItemDetail {
     pub item: MobileInboxItemSummary,
-    pub files: Vec<MobileInboxFileEntry>,
-    pub transfer: Option<MobileTransferProjection>,
+    pub content: MobileInboxItemContent,
 }
 
 impl From<InboxItemDetail> for MobileInboxItemDetail {
     fn from(detail: InboxItemDetail) -> Self {
         // 穷尽解构：上游 InboxItemDetail 新增字段时此处会编译失败（drift guard）。
-        let InboxItemDetail {
-            item,
-            files,
-            transfer,
-        } = detail;
+        let InboxItemDetail { item, content } = detail;
         Self {
             item: item.into(),
-            files: files.into_iter().map(Into::into).collect(),
-            transfer: transfer.map(Into::into),
+            content: match content {
+                InboxItemContent::Files { entries, transfer } => MobileInboxItemContent::Files {
+                    entries: entries.into_iter().map(Into::into).collect(),
+                    transfer: transfer.map(Into::into),
+                },
+                InboxItemContent::Text { body } => MobileInboxItemContent::Text { body },
+            },
         }
     }
 }

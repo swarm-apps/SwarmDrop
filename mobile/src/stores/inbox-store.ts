@@ -4,6 +4,7 @@ import type {
   MobileInboxItemSummary,
   MobileInboxSearchHit,
 } from "react-native-swarmdrop-core";
+import { MobileInboxItemContent } from "react-native-swarmdrop-core";
 import { create } from "zustand";
 import { getMobileCore } from "@/core/mobile-core";
 import { getErrorMessage } from "@/lib/errors";
@@ -298,13 +299,7 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
         ),
         selectedDetail:
           state.selectedDetail?.item.id === itemId
-            ? {
-                ...state.selectedDetail,
-                item: { ...state.selectedDetail.item, missing },
-                files: state.selectedDetail.files.map((file) =>
-                  file.id === fileId ? { ...file, missing } : file,
-                ),
-              }
+            ? updateSelectedFiles(state.selectedDetail, fileId, missing)
             : state.selectedDetail,
       }));
     } catch (err) {
@@ -330,3 +325,22 @@ export const useInboxStore = create<InboxStore>()((set, get) => ({
     });
   },
 }));
+
+/** 文本投递没有文件行；标记文件缺失只能作用于 Files 分支。 */
+function updateSelectedFiles(
+  detail: MobileInboxItemDetail,
+  fileId: number,
+  missing: boolean,
+): MobileInboxItemDetail {
+  if (!MobileInboxItemContent.Files.instanceOf(detail.content)) return detail;
+  return {
+    ...detail,
+    item: { ...detail.item, missing },
+    content: new MobileInboxItemContent.Files({
+      entries: detail.content.inner.entries.map((file) =>
+        file.id === fileId ? { ...file, missing } : file,
+      ),
+      transfer: detail.content.inner.transfer,
+    }),
+  };
+}

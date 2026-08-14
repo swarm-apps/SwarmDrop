@@ -88,6 +88,12 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             // transfer
             commands::scan_sources,
             commands::prepare_send,
+            commands::send_text_delivery,
+            commands::retry_text_delivery,
+            commands::confirm_text_delivery,
+            commands::pending_text_deliveries,
+            commands::list_text_outbox,
+            commands::delete_text_outbox_record,
             commands::start_send,
             commands::accept_receive,
             commands::reject_receive,

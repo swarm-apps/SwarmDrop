@@ -43,6 +43,7 @@ mod logging;
 mod network;
 mod pairing;
 mod panic_hook;
+mod text_delivery;
 mod transfer;
 mod utils;
 mod webtransport_cert;

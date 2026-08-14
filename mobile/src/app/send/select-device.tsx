@@ -17,12 +17,24 @@ import {
   FileText,
   Folder,
   Image as ImageIcon,
+  Clipboard as ClipboardIcon,
   type LucideIcon,
   Video,
 } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, View } from "react-native";
-import type { MobileDevice as DeviceInfo } from "react-native-swarmdrop-core";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  TextInput,
+  View,
+} from "react-native";
+import {
+  MobileTextDeliveryStatus,
+  type MobileDevice as DeviceInfo,
+  type MobileTextDeliveryRecord,
+} from "react-native-swarmdrop-core";
 import { useShallow } from "zustand/react/shallow";
 import {
   FileBrowser,
@@ -30,9 +42,10 @@ import {
   fromSelectedFiles,
 } from "@/components/file-browser";
 import { AppScreen, BottomActionBar } from "@/components/mobile/screen";
+import { Surface } from "@/components/mobile/screen";
 import { SettingsHeader } from "@/components/settings-header";
 import { PrepareProgressBar } from "@/components/transfer/prepare-progress-bar";
-import { formatBytes } from "@/components/transfer/shared";
+import { formatBytes, formatRelativeTime } from "@/components/transfer/shared";
 import { Text } from "@/components/ui/text";
 import { canSendToDevice, resolveTrustLevel } from "@/core/device-trust";
 import {
@@ -43,6 +56,7 @@ import {
 import { getMobileCore } from "@/core/mobile-core";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { devicePlatformIcon } from "@/lib/device-platform";
+import { clipboard } from "@/lib/clipboard";
 import { getErrorMessage } from "@/lib/errors";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -111,6 +125,9 @@ export default function SendPreparePage() {
   // ── 准备阶段进度 ───────────────────────────────────────────
   // 住在 store 而不是本页 useState：准备大目录可以是分钟级，用户切走再回来得看得到它。
   const [sending, setSending] = useState(false);
+  const [contentMode, setContentMode] = useState<"files" | "text">("files");
+  const [textBody, setTextBody] = useState("");
+  const [outbox, setOutbox] = useState<MobileTextDeliveryRecord[]>([]);
   const prepareProgress = useActivePrepareProgress();
 
   const browserItems = useMemo(
@@ -130,6 +147,19 @@ export default function SendPreparePage() {
   );
 
   const totalSize = selectedFiles.reduce((s, f) => s + f.size, 0n);
+
+  const refreshTextOutbox = useCallback(async () => {
+    if (!device) return;
+    try {
+      setOutbox(await getMobileCore().listTextOutbox(device.peerId));
+    } catch (error) {
+      toast.error(t`读取发送记录失败`, error);
+    }
+  }, [device, t]);
+
+  useEffect(() => {
+    if (contentMode === "text") void refreshTextOutbox();
+  }, [contentMode, refreshTextOutbox]);
 
   // ── 添加来源 handlers ──────────────────────────────────────
   const handlePick = useCallback(
@@ -151,9 +181,28 @@ export default function SendPreparePage() {
 
   // ── 发送 ───────────────────────────────────────────────────
   const onSend = useCallback(async () => {
-    if (!device || sending || selectedFiles.length === 0) return;
+    if (
+      !device ||
+      sending ||
+      (contentMode === "files" && selectedFiles.length === 0) ||
+      (contentMode === "text" && textBody.trim().length === 0)
+    ) {
+      return;
+    }
     setSending(true);
     try {
+      if (contentMode === "text") {
+        await getMobileCore().sendTextDelivery(
+          device.peerId,
+          displayName,
+          textBody,
+        );
+        setTextBody("");
+        toast.success(t`文本已发送`);
+        await refreshTextOutbox();
+        router.back();
+        return;
+      }
       const sessionId = await startSend({
         files: selectedFiles,
         peerId: device.peerId,
@@ -178,6 +227,8 @@ export default function SendPreparePage() {
   }, [
     device,
     sending,
+    contentMode,
+    textBody,
     selectedFiles,
     displayName,
     startSend,
@@ -233,23 +284,110 @@ export default function SendPreparePage() {
       header={<SettingsHeader title={t`发送到 ${displayName}`} />}
       bare
     >
-      <FileBrowser
-        items={browserItems}
-        scope="send"
-        actions={browserActions}
-        title={<Trans>已选文件</Trans>}
-        contentHeader={
-          <View className="gap-3 pt-2">
-            <DeviceHeader
-              device={device}
-              displayName={displayName}
-              runtimeState={runtimeState}
+      {contentMode === "files" ? (
+        <FileBrowser
+          items={browserItems}
+          scope="send"
+          actions={browserActions}
+          title={<Trans>已选文件</Trans>}
+          contentHeader={
+            <View className="gap-3 pt-2">
+              <DeviceHeader
+                device={device}
+                displayName={displayName}
+                runtimeState={runtimeState}
+              />
+              <ContentModeSwitch
+                value={contentMode}
+                onChange={setContentMode}
+                disabled={sending}
+              />
+              <AddSourceButtons disabled={sending} onPick={handlePick} />
+            </View>
+          }
+          testID="send-file-browser"
+        />
+      ) : (
+        <ScrollView
+          className="flex-1"
+          contentContainerClassName="gap-3 px-5 pt-3"
+          keyboardShouldPersistTaps="handled"
+        >
+          <DeviceHeader
+            device={device}
+            displayName={displayName}
+            runtimeState={runtimeState}
+          />
+          <ContentModeSwitch
+            value={contentMode}
+            onChange={setContentMode}
+            disabled={sending}
+          />
+          <Surface className="gap-3 p-4">
+            <View className="flex-row items-center justify-between gap-3">
+              <Text className="text-[14px] font-semibold text-foreground">
+                <Trans>文本内容</Trans>
+              </Text>
+              <View className="flex-row gap-2">
+                <Pressable accessibilityRole="button" accessibilityLabel={t`清空文本`} disabled={sending || textBody.length === 0} onPress={() => setTextBody("")} className="min-h-11 justify-center rounded-lg border border-border px-3 py-1.5 active:opacity-70 disabled:opacity-50"><Text className="text-[12px] font-semibold text-foreground"><Trans>清空</Trans></Text></Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t`从剪贴板粘贴`}
+                  disabled={sending}
+                  onPress={() => {
+                    void clipboard.readText()
+                      .then((value) => {
+                        if (value.length === 0) {
+                          toast.error(t`剪贴板中没有可用文本`);
+                          return;
+                        }
+                        setTextBody(value.slice(0, 64 * 1024));
+                      })
+                      .catch((error) => toast.error(t`读取剪贴板失败`, error));
+                  }}
+                  className="min-h-11 justify-center rounded-lg border border-border px-3 py-1.5 active:opacity-70 disabled:opacity-50"
+                >
+                  <Text className="text-[12px] font-semibold text-foreground">
+                    <Trans>粘贴</Trans>
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+            <TextInput
+              multiline
+              value={textBody}
+              onChangeText={(value) => setTextBody(value.slice(0, 64 * 1024))}
+              editable={!sending}
+              accessibilityLabel={t`要发送的文本`}
+              placeholder={t`输入或粘贴文本`}
+              placeholderTextColor={colors.mutedForeground}
+              textAlignVertical="top"
+              className="min-h-48 rounded-xl border border-border bg-muted/30 p-3 text-[15px] leading-6 text-foreground"
             />
-            <AddSourceButtons disabled={sending} onPick={handlePick} />
-          </View>
-        }
-        testID="send-file-browser"
-      />
+            {outbox.length > 0 ? (
+              <View className="gap-2 border-t border-border pt-3">
+                <Text className="text-[13px] font-semibold text-muted-foreground">
+                  <Trans>最近发送</Trans>
+                </Text>
+                {outbox.slice(0, 5).map((record) => (
+                  <View key={record.deliveryId} className="gap-2 rounded-xl border border-border bg-muted/30 p-3">
+                    <View className="flex-row items-center justify-between gap-2">
+                      <Text className="flex-1 text-[13px] text-foreground" numberOfLines={2}>{record.body}</Text>
+                      <Text className="text-[11px] text-muted-foreground">{mobileTextStatus(record.status)}</Text>
+                    </View>
+                    <Text className="text-[11px] text-muted-foreground"><Trans>更新于</Trans> {formatRelativeTime(record.updatedAt)}</Text>
+                    <View className="flex-row justify-end gap-2">
+                      <Pressable accessibilityRole="button" onPress={() => setTextBody(record.body)} className="rounded-lg border border-border px-3 py-1.5 active:opacity-70"><Text className="text-[12px] font-semibold text-foreground"><Trans>编辑后重发</Trans></Text></Pressable>
+                      {mobileTextRetryable(record.status) ? <Pressable accessibilityRole="button" onPress={() => void getMobileCore().retryTextDelivery(record.deliveryId).then(refreshTextOutbox).catch((error) => toast.error(t`重试失败`, error))} className="rounded-lg border border-border px-3 py-1.5 active:opacity-70"><Text className="text-[12px] font-semibold text-foreground"><Trans>重试</Trans></Text></Pressable> : null}
+                      <Pressable accessibilityRole="button" onPress={() => void getMobileCore().deleteTextOutboxRecord(record.deliveryId).then(refreshTextOutbox).catch((error) => toast.error(t`删除失败`, error))} className="rounded-lg border border-border px-3 py-1.5 active:opacity-70"><Text className="text-[12px] font-semibold text-foreground"><Trans>删除</Trans></Text></Pressable>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+          </Surface>
+        </ScrollView>
+      )}
 
       {/* 进度条**叠在按钮行之上**，不替换它（与桌面同形）。替换式的写法让准备期间这一屏
           一个可交互元素都不剩：连取消都没了，而 `activePrepare` 万一没被收干净（迟到的
@@ -264,7 +402,9 @@ export default function SendPreparePage() {
               className="flex-1 text-[13px] text-muted-foreground"
               numberOfLines={1}
             >
-              {selectedFiles.length > 0 ? (
+              {contentMode === "text" ? (
+                <Trans>{new TextEncoder().encode(textBody).byteLength} / 64 KB</Trans>
+              ) : selectedFiles.length > 0 ? (
                 <Trans>
                   {selectedFiles.length} 个文件 · {formatBytes(totalSize)}
                 </Trans>
@@ -289,7 +429,13 @@ export default function SendPreparePage() {
               <Pressable
                 onPress={onSend}
                 accessibilityRole="button"
-                disabled={sending || selectedFiles.length === 0 || !sendable}
+                disabled={
+                  sending ||
+                  !sendable ||
+                  (contentMode === "files"
+                    ? selectedFiles.length === 0
+                    : textBody.trim().length === 0)
+                }
                 className={cn(
                   "h-10 min-w-25 flex-row items-center justify-center gap-1.5 rounded-xl bg-primary px-4",
                   "active:opacity-70 disabled:opacity-50",
@@ -310,6 +456,62 @@ export default function SendPreparePage() {
         </View>
       </BottomActionBar>
     </AppScreen>
+  );
+}
+
+function mobileTextRetryable(status: MobileTextDeliveryStatus) {
+  return status === MobileTextDeliveryStatus.Retryable || status === MobileTextDeliveryStatus.Expired || status === MobileTextDeliveryStatus.WaitingConfirmation;
+}
+
+function mobileTextStatus(status: MobileTextDeliveryStatus): ReactNode {
+  switch (status) {
+    case MobileTextDeliveryStatus.Sending: return <Trans>发送中</Trans>;
+    case MobileTextDeliveryStatus.WaitingConfirmation: return <Trans>等待确认</Trans>;
+    case MobileTextDeliveryStatus.Delivered: return <Trans>已送达</Trans>;
+    case MobileTextDeliveryStatus.Rejected: return <Trans>已拒绝</Trans>;
+    case MobileTextDeliveryStatus.Retryable: return <Trans>可重试，送达状态未知</Trans>;
+    case MobileTextDeliveryStatus.Expired: return <Trans>已过期</Trans>;
+    case MobileTextDeliveryStatus.Cancelled: return <Trans>已取消</Trans>;
+  }
+}
+
+function ContentModeSwitch({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: "files" | "text";
+  onChange: (value: "files" | "text") => void;
+  disabled: boolean;
+}) {
+  const options = [
+    { value: "files" as const, label: <Trans>文件</Trans>, icon: FileText },
+    { value: "text" as const, label: <Trans>文本</Trans>, icon: ClipboardIcon },
+  ];
+  const colors = useThemeColors();
+  return (
+    <View className="flex-row rounded-xl bg-muted p-1">
+      {options.map(({ value: option, label, icon: Icon }) => {
+        const active = option === value;
+        return (
+          <Pressable
+            key={option}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+            disabled={disabled}
+            onPress={() => onChange(option)}
+            className={cn(
+              "flex-1 flex-row items-center justify-center gap-1.5 rounded-lg py-2",
+              active ? "bg-card" : "",
+              "disabled:opacity-50",
+            )}
+          >
+            <Icon color={active ? colors.foreground : colors.mutedForeground} size={15} />
+            <Text className="text-[13px] font-semibold text-foreground">{label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 

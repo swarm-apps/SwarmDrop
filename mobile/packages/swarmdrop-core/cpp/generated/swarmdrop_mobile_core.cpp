@@ -428,6 +428,32 @@ extern "C" {
         /*handle*/ uint64_t ptr, 
         RustBuffer id
     );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_confirm_text_delivery(
+        /*handle*/ uint64_t ptr, 
+        RustBuffer delivery_id, 
+        int8_t accepted
+    );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_text_outbox_record(
+        /*handle*/ uint64_t ptr, 
+        RustBuffer delivery_id
+    );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_text_outbox(
+        /*handle*/ uint64_t ptr, 
+        RustBuffer peer_id
+    );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pending_text_deliveries(
+        /*handle*/ uint64_t ptr
+    );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_retry_text_delivery(
+        /*handle*/ uint64_t ptr, 
+        RustBuffer delivery_id
+    );
+    /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_text_delivery(
+        /*handle*/ uint64_t ptr, 
+        RustBuffer peer_id, 
+        RustBuffer peer_name, 
+        RustBuffer body
+    );
     /*handle*/ uint64_t uniffi_swarmdrop_mobile_core_fn_method_mobilecore_accept_receive(
         /*handle*/ uint64_t ptr, 
         RustBuffer session_id, 
@@ -852,6 +878,18 @@ extern "C" {
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite_by_id(
+    );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_confirm_text_delivery(
+    );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_text_outbox_record(
+    );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_text_outbox(
+    );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pending_text_deliveries(
+    );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_retry_text_delivery(
+    );
+    uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_text_delivery(
     );
     uint16_t uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive(
     );
@@ -5405,6 +5443,54 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_revoke_pair_invite_by_id(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_confirm_text_delivery"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_confirm_text_delivery"),
+        3,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_confirm_text_delivery(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_text_outbox_record"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_text_outbox_record"),
+        2,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_text_outbox_record(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_text_outbox"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_text_outbox"),
+        2,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_text_outbox(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pending_text_deliveries"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pending_text_deliveries"),
+        1,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pending_text_deliveries(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_retry_text_delivery"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_retry_text_delivery"),
+        2,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_retry_text_delivery(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_text_delivery"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_text_delivery"),
+        4,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_text_delivery(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_accept_receive"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_accept_receive"),
@@ -6421,6 +6507,54 @@ NativeSwarmdropMobileCore::NativeSwarmdropMobileCore(
             return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite_by_id(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_confirm_text_delivery"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_confirm_text_delivery"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_confirm_text_delivery(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_text_outbox_record"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_text_outbox_record"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_text_outbox_record(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_text_outbox"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_text_outbox"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_text_outbox(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pending_text_deliveries"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pending_text_deliveries"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pending_text_deliveries(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_retry_text_delivery"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_retry_text_delivery"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_retry_text_delivery(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_text_delivery"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_text_delivery"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_text_delivery(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_accept_receive"),
@@ -7167,6 +7301,48 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_revoke_pair_invite_by_id(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_revoke_pair_invite_by_id(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_confirm_text_delivery(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_confirm_text_delivery(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi_jsi::Bridging<int8_t>::fromJs(rt, callInvoker, args[2])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_text_outbox_record(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_delete_text_outbox_record(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_text_outbox(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_list_text_outbox(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pending_text_deliveries(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_pending_text_deliveries(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_retry_text_delivery(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_retry_text_delivery(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_text_delivery(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_fn_method_mobilecore_send_text_delivery(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[2]), uniffi::swarmdrop_mobile_core::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[3])
         );
 
         
@@ -8151,6 +8327,48 @@ jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_
 }
 jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite_by_id(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_revoke_pair_invite_by_id(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_confirm_text_delivery(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_confirm_text_delivery(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_text_outbox_record(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_delete_text_outbox_record(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_text_outbox(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_list_text_outbox(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pending_text_deliveries(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_pending_text_deliveries(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_retry_text_delivery(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_retry_text_delivery(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeSwarmdropMobileCore::cpp_uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_text_delivery(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_swarmdrop_mobile_core_checksum_method_mobilecore_send_text_delivery(
         );
 
         

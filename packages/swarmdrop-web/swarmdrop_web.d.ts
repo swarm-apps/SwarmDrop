@@ -280,10 +280,16 @@ export type InboxHitFile = {
     relativePath: string,
 };
 
+/**
+ *  收件箱详情的显式内容联合体。
+ *
+ *  文件与文本不以空数组或空正文互相伪装；调用方必须穷尽处理，避免把文本展示成文件操作。
+ */
+export type InboxItemContent = { kind: "files"; entries: InboxItemFileEntry[]; transfer: TransferProjection | null } | { kind: "text"; body: string };
+
 /**  收件箱详情 DTO。 */
 export type InboxItemDetail = {
-    files: InboxItemFileEntry[],
-    transfer: TransferProjection | null,
+    content: InboxItemContent,
 } & InboxItemSummary;
 
 /**  收件箱文件 DTO。 */
@@ -310,6 +316,8 @@ export type InboxItemFileEntry = {
 export type InboxItemSummary = {
     id: string,
     transferSessionId: string | null,
+    /**  文本条目关联的账本记录；文件条目保持为空。 */
+    textDeliveryId: string | null,
     sourcePeerId: string,
     sourceName: string,
     sourceKind: InboxSourceKind,
@@ -585,6 +593,15 @@ export type PendingPairingJson = {
     deviceName: string,
 };
 
+/**  等待用户确认的文本投递快照。正文在本地内存中仅保留到确认窗口结束，绝不预先写入剪贴板。 */
+export type PendingTextDeliverySummary = {
+    deliveryId: string,
+    peerId: string,
+    peerName: string,
+    body: string,
+    createdAt: number,
+};
+
 /**  `prepare_send` 的 hash 进度事件 */
 export type PrepareProgressEvent = {
     /**  用于区分并发 prepare（多用户在不同会话同时调用） */
@@ -639,6 +656,33 @@ export type TerminalReason = "completed" | "cancelled" | "rejected" | "fatal_err
  *  「我拒过这个人吗」时会去查的地方。
  */
 "expired";
+
+/**  文本投递账本的方向。 */
+export type TextDeliveryDirection = "send" | "receive";
+
+/**
+ *  可安全展示给发起方的文本投递失败分类。
+ *
+ *  这里刻意不记录接收端的策略细节，避免把对方的信任与暂停状态泄露到网络边界之外。
+ */
+export type TextDeliveryFailure = "peer_unavailable" | "timed_out" | "unsupported_protocol" | "rejected" | "expired" | "storage_failed" | "protocol_conflict" | "invalid_payload";
+
+/**  一条收发两侧共用的文本投递账本记录。 */
+export type TextDeliveryRecord = {
+    deliveryId: string,
+    direction: TextDeliveryDirection,
+    peerId: string,
+    peerName: string,
+    body: string,
+    status: TextDeliveryStatus,
+    failure: TextDeliveryFailure | null,
+    attemptCount: number,
+    createdAt: number,
+    updatedAt: number,
+};
+
+/**  文本投递的用户可见状态。 */
+export type TextDeliveryStatus = "sending" | "waiting_confirmation" | "delivered" | "rejected" | "retryable" | "expired" | "cancelled";
 
 /**  对方接受 Offer 的事件 payload */
 export type TransferAcceptedEvent = {
@@ -925,6 +969,7 @@ export class WebNode {
      * 与 `WebNode.endpoint` 是同一 handle，无需再显式关一次。
      */
     close(): Promise<void>;
+    confirm_text_delivery(delivery_id: string, accepted: boolean): Promise<void>;
     /**
      * 拨任意 multiaddr（`.../ws` 或 `.../webrtc-direct/certhash/...`，须带 `/p2p/<id>`）。
      * 返回结构化的连接信息（`{ path: "local"|"direct"|"holePunched"|"relayed", addr }`）。
@@ -1014,6 +1059,7 @@ export class WebNode {
      * 编排不需要知道哪一端用哪个字段。
      */
     delete_inbox_item(item_id: string, delete_local_files: boolean): Promise<void>;
+    delete_text_outbox_record(delivery_id: string): Promise<void>;
     /**
      * 删除一条传输记录。
      *
@@ -1154,6 +1200,7 @@ export class WebNode {
      * 这个列表与 [`revoke_invite_by_id`](Self::revoke_invite_by_id) 是那段窗口的控制手段。
      */
     list_invites(): InviteListItemJson[];
+    list_text_outbox(peer_id: string): Promise<any>;
     /**
      * 标记条目最近打开时间（用户点开详情/下载时调）。条目不存在时静默成功。
      */
@@ -1220,6 +1267,7 @@ export class WebNode {
      * 挂起的入站配对请求（消费方扫/粘本机 invite 后到达）。**取出即清空**，调用方自行累积展示。
      */
     pending_pairing_requests(): PendingPairingJson[];
+    pending_text_deliveries(): any;
     /**
      * 拒绝入站 offer。
      */
@@ -1269,6 +1317,10 @@ export class WebNode {
      */
     resume(session_id: string): Promise<void>;
     /**
+     * 以相同 delivery id 重试，接收端可据此安全去重；编辑后的正文应调用 `send_text_delivery` 新建记录。
+     */
+    retry_text_delivery(delivery_id: string): Promise<any>;
+    /**
      * 撤销本机发出的邀请（重新生成覆盖旧串、用户放弃、关闭邀请界面）。
      *
      * 幂等且不报错——不认识的串直接 no-op（详见 `PairingManager::revoke_invite`），
@@ -1313,6 +1365,10 @@ export class WebNode {
      * 才算失败——那时确实没有任何东西可发。
      */
     send_inbox_files(to: string, paths: string[]): Promise<string>;
+    /**
+     * 发送用户显式输入或粘贴的文本。正文会先持久化到发件箱，再等待接收端的持久化确认。
+     */
+    send_text_delivery(to: string, body: string): Promise<any>;
     /**
      * 建节点：持久化身份（Window=localStorage / Worker=OPFS）+ IndexedDB 恢复已配对设备 → 包 core 组合根 [`start_node`]
      * （Browser [`EndpointProfile`] + Web 端口）→ 完整 [`NetManager`] + 3 协议 Router（含
@@ -1414,7 +1470,6 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly start: () => void;
     readonly default_device_name: () => [number, number];
     readonly get_device_name: () => any;
     readonly set_device_name: (a: number, b: number) => any;
@@ -1427,11 +1482,13 @@ export interface InitOutput {
     readonly webnode_cancel_send: (a: number, b: number, c: number) => any;
     readonly webnode_clear_transfer_history: (a: number) => any;
     readonly webnode_close: (a: number) => any;
+    readonly webnode_confirm_text_delivery: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_connect: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_connect_invite: (a: number, b: number, c: number) => any;
     readonly webnode_connected_peers: (a: number) => number;
     readonly webnode_decode_invite_preview: (a: number, b: number, c: number) => [number, number, number];
     readonly webnode_delete_inbox_item: (a: number, b: number, c: number, d: number) => any;
+    readonly webnode_delete_text_outbox_record: (a: number, b: number, c: number) => any;
     readonly webnode_delete_transfer_session: (a: number, b: number, c: number) => any;
     readonly webnode_download_url: (a: number, b: number, c: number) => any;
     readonly webnode_events: (a: number) => [number, number, number];
@@ -1446,6 +1503,7 @@ export interface InitOutput {
     readonly webnode_infra_until_active: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_invite_qr_svg: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly webnode_list_invites: (a: number) => [number, number, number];
+    readonly webnode_list_text_outbox: (a: number, b: number, c: number) => any;
     readonly webnode_mark_inbox_item_opened: (a: number, b: number, c: number) => any;
     readonly webnode_node_id: (a: number) => [number, number];
     readonly webnode_open_file: (a: number, b: number, c: number) => any;
@@ -1454,45 +1512,48 @@ export interface InitOutput {
     readonly webnode_pause_send: (a: number, b: number, c: number) => any;
     readonly webnode_pending_offers: (a: number) => [number, number, number];
     readonly webnode_pending_pairing_requests: (a: number) => [number, number, number];
+    readonly webnode_pending_text_deliveries: (a: number) => [number, number, number];
     readonly webnode_reject_offer: (a: number, b: number, c: number) => any;
     readonly webnode_remove_paired_device: (a: number, b: number, c: number) => any;
     readonly webnode_rename_device: (a: number, b: number, c: number) => any;
     readonly webnode_respond_pairing_request: (a: number, b: number, c: number, d: number) => any;
     readonly webnode_resume: (a: number, b: number, c: number) => any;
+    readonly webnode_retry_text_delivery: (a: number, b: number, c: number) => any;
     readonly webnode_revoke_invite: (a: number, b: number, c: number) => any;
     readonly webnode_revoke_invite_by_id: (a: number, b: number, c: number) => any;
     readonly webnode_search_inbox: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly webnode_send_files: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly webnode_send_inbox_files: (a: number, b: number, c: number, d: number, e: number) => any;
+    readonly webnode_send_text_delivery: (a: number, b: number, c: number, d: number, e: number) => any;
     readonly webnode_spawn: () => any;
     readonly webnode_take_skipped_forward_paths: (a: number) => [number, number];
     readonly webnode_transfer_history: (a: number) => any;
     readonly webnode_update_paired_device_policy: (a: number, b: number, c: number, d: any, e: number) => any;
+    readonly start: () => void;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
-    readonly __wbg_intounderlyingsink_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
     readonly intounderlyingbytesource_cancel: (a: number) => void;
     readonly intounderlyingbytesource_pull: (a: number, b: any) => any;
     readonly intounderlyingbytesource_start: (a: number, b: any) => void;
     readonly intounderlyingbytesource_type: (a: number) => number;
-    readonly intounderlyingsink_abort: (a: number, b: any) => any;
-    readonly intounderlyingsink_close: (a: number) => any;
-    readonly intounderlyingsink_write: (a: number, b: any) => any;
     readonly __wbg_intounderlyingsource_free: (a: number, b: number) => void;
     readonly intounderlyingsource_cancel: (a: number) => void;
     readonly intounderlyingsource_pull: (a: number, b: any) => any;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_93005bece23d88e1___features__gen_MessageEvent__MessageEvent____Output_______: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output_______: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue____Output_______: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output________1_: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_93005bece23d88e1___features__gen_CloseEvent__CloseEvent____Output_______: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_93005bece23d88e1___features__gen_MessageEvent__MessageEvent_____: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_93005bece23d88e1___features__gen_CloseEvent__CloseEvent_____: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______1_: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______2_: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______: (a: number, b: number) => void;
+    readonly __wbg_intounderlyingsink_free: (a: number, b: number) => void;
+    readonly intounderlyingsink_abort: (a: number, b: any) => any;
+    readonly intounderlyingsink_close: (a: number) => any;
+    readonly intounderlyingsink_write: (a: number, b: any) => any;
+    readonly wasm_bindgen_50225492efb0bf66___closure__destroy___dyn_core_9b3796e30d99ddb7___ops__function__FnMut__web_sys_7f7bc57bf85e2611___features__gen_MessageEvent__MessageEvent____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_50225492efb0bf66___closure__destroy___dyn_core_9b3796e30d99ddb7___ops__function__FnMut_____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_50225492efb0bf66___closure__destroy___dyn_core_9b3796e30d99ddb7___ops__function__FnMut__wasm_bindgen_50225492efb0bf66___JsValue____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_50225492efb0bf66___closure__destroy___dyn_core_9b3796e30d99ddb7___ops__function__FnMut_____Output________1_: (a: number, b: number) => void;
+    readonly wasm_bindgen_50225492efb0bf66___closure__destroy___dyn_core_9b3796e30d99ddb7___ops__function__FnMut__web_sys_7f7bc57bf85e2611___features__gen_CloseEvent__CloseEvent____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_50225492efb0bf66___convert__closures_____invoke___wasm_bindgen_50225492efb0bf66___JsValue__wasm_bindgen_50225492efb0bf66___JsValue_____: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen_50225492efb0bf66___convert__closures_____invoke___web_sys_7f7bc57bf85e2611___features__gen_MessageEvent__MessageEvent_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_50225492efb0bf66___convert__closures_____invoke___wasm_bindgen_50225492efb0bf66___JsValue_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_50225492efb0bf66___convert__closures_____invoke___web_sys_7f7bc57bf85e2611___features__gen_CloseEvent__CloseEvent_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_50225492efb0bf66___convert__closures_____invoke______: (a: number, b: number) => void;
+    readonly wasm_bindgen_50225492efb0bf66___convert__closures_____invoke_______1_: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

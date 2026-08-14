@@ -10,6 +10,7 @@ mod inbox;
 pub mod invite;
 pub mod ops;
 pub mod store;
+mod text_delivery;
 
 pub use invite::SqlInviteStore;
 pub use store::SqlSessionStore;
