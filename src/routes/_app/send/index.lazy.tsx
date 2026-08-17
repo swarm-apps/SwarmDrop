@@ -9,7 +9,7 @@ import {
   useNavigate,
   useRouter,
 } from "@tanstack/react-router";
-import { ClipboardPaste, FileText, Send, ShieldCheck, Type } from "lucide-react";
+import { ClipboardPaste, Send, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Trans } from "@lingui/react/macro";
 import type { Device, FileSource, TextDeliveryRecord } from "@/lib/bindings";
@@ -37,6 +37,12 @@ import {
 } from "@swarmdrop/shared-view";
 import { formatFileSize } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
+import {
+  ContentModeTabs,
+  type SendContentMode,
+} from "./-components/content-mode-tabs";
 import { FileDropZone } from "./-components/file-drop-zone";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { pathsToSources } from "@/lib/file-source";
@@ -242,7 +248,7 @@ export function DesktopSendView({
   onSend,
   onBack,
 }: SendViewProps) {
-  const [mode, setMode] = useState<"files" | "text">("files");
+  const [mode, setMode] = useState<SendContentMode>("files");
   const [textBody, setTextBody] = useState("");
   const [sendingText, setSendingText] = useState(false);
   const [outbox, setOutbox] = useState<TextDeliveryRecord[]>([]);
@@ -313,15 +319,24 @@ export function DesktopSendView({
   };
 
   return (
+    // `asChild` + `gap-0`：Radix 的 `Tabs` 根只贡献 context 与键盘行为，DOM 层级与
+    // 间距都保持原样（它默认带 `gap-2`，会在页头与内容之间凭空插一条 8px 缝）。
+    <Tabs
+      value={mode}
+      onValueChange={(next) => setMode(next as SendContentMode)}
+      className="gap-0"
+      asChild
+    >
     <TaskPageShell data-testid="send-page">
       <TaskToolbar
         title={<Trans>发送到 {displayName}</Trans>}
         onBack={onBack}
+        trailing={<ContentModeTabs disabled={sending || sendingText} />}
       />
 
       <TaskContent
         data-testid="send-content"
-        className="flex min-h-0 flex-col gap-4"
+        className="flex flex-col gap-4"
         footer={
           // 准备进度**叠在按钮之上**，不再整条把它们顶掉。此前替换式的写法让准备期间
           // 界面上一个可交互元素都不剩，而准备大目录可以是分钟级的。
@@ -385,59 +400,48 @@ export function DesktopSendView({
               <span className="shrink-0"><Trans>端到端加密直连</Trans></span>
             </p>
           </div>
-          <div className="shrink-0 text-right">
-            <p className="text-[11px] text-muted-foreground">
-              <Trans>已选内容</Trans>
-            </p>
-            <p className="mt-0.5 text-sm font-semibold text-foreground">
+          {/* 这一格随模式换内容，不是常量。它此前恒为「已选内容」——切到文本模式后
+              用户正在打字，它还在催「等待选择（文件）」。移动端的同一格早就是
+              mode-aware 的（底部操作栏），桌面这边是漏的。 */}
+          {mode === "files" ? (
+            <TargetMetric label={<Trans>已选内容</Trans>}>
               {fileSelection.hasFiles ? (
-                <span className="font-mono tabular-nums">
+                <span className="font-mono tabular-nums text-foreground">
                   {fileSelection.totalCount} 项 · {formatFileSize(fileSelection.totalSize)}
                 </span>
               ) : (
                 <span className="text-muted-foreground"><Trans>等待选择</Trans></span>
               )}
-            </p>
-          </div>
+            </TargetMetric>
+          ) : (
+            <TargetMetric label={<Trans>文本长度</Trans>}>
+              <span
+                className={cn(
+                  "font-mono tabular-nums",
+                  textBytes > TEXT_DELIVERY_MAX_BYTES
+                    ? "text-destructive"
+                    : "text-foreground",
+                )}
+              >
+                {formatTextDeliveryKiB(textBytes)} / {formatTextDeliveryKiB(TEXT_DELIVERY_MAX_BYTES)}
+              </span>
+            </TargetMetric>
+          )}
         </div>
 
-        <div
-          className="inline-flex w-fit rounded-xl border border-border/70 bg-muted/45 p-1"
-          role="tablist"
-          aria-label="发送内容类型"
-        >
-          <Button
-            type="button"
-            size="sm"
-            variant={mode === "files" ? "secondary" : "ghost"}
-            className="min-h-11 w-28"
-            onClick={() => setMode("files")}
-            role="tab"
-            aria-selected={mode === "files"}
-          >
-            <FileText className="size-4" />
-            <Trans>文件</Trans>
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={mode === "text" ? "secondary" : "ghost"}
-            className="min-h-11 w-28"
-            onClick={() => setMode("text")}
-            role="tab"
-            aria-selected={mode === "text"}
-          >
-            <Type className="size-4" />
-            <Trans>文本</Trans>
-          </Button>
-        </div>
-
-        {/* 文件选择：空态只保留一个明确的投放区；有内容后再展开补充入口与文件浏览器。 */}
-        {mode === "files" ? <GlassPanel
+        {/* 文件选择：空态只保留一个明确的投放区；有内容后再展开补充入口与文件浏览器。
+            `TabsContent` 负责「哪一块在显示」以及 tabpanel 的全部 aria 关联，
+            `asChild` 让它把这些落在既有的 `GlassPanel` 上，不多插一层 DOM。 */}
+        <TabsContent value="files" asChild>
+        {/* 面板自己是 flex 列、内层用 `flex-1` 顶上去，**不用 `h-full`**：
+            `<section>` 的 `height` 是 `auto`（高度由外层 flex 拉伸得来，不是确定值），
+            子元素的 `height: 100%` 会回落成内容高度。此前 `min-h-full` 失效、面板本来就
+            只有内容那么高，两者恰好一致所以看不出来；面板一旦真的撑满，内容就缩在上半部分了。 */}
+        <GlassPanel
           data-testid="send-file-selection-panel"
-          className="min-h-0 flex-1"
+          className="flex min-h-0 flex-1 flex-col"
         >
-          <div className="flex h-full min-h-0 flex-col gap-4 p-4 lg:p-5">
+          <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 lg:p-5">
             {fileSelection.hasFiles ? (
               <FileDropZone
                 onSourcesSelected={onSourcesSelected}
@@ -471,9 +475,15 @@ export function DesktopSendView({
               </div>
             ) : null}
           </div>
-        </GlassPanel> : (
-          <GlassPanel className="min-h-0 flex-1" data-testid="send-text-panel">
-            <div className="flex h-full min-h-0 flex-col gap-3 p-4 lg:p-5">
+        </GlassPanel>
+        </TabsContent>
+
+        <TabsContent value="text" asChild>
+          <GlassPanel
+            className="flex min-h-0 flex-1 flex-col"
+            data-testid="send-text-panel"
+          >
+            <div className="flex min-h-0 flex-1 flex-col gap-3 p-4 lg:p-5">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold"><Trans>要发送的文本</Trans></p>
@@ -496,12 +506,11 @@ export function DesktopSendView({
                 aria-label="要发送的文本"
                 className="min-h-52 flex-1 resize-none rounded-2xl border border-border bg-background/70 p-4 text-sm leading-6 outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
               />
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span><Trans>支持 UTF-8 文本，最长 64 KiB</Trans></span>
-                <span className={textBytes > TEXT_DELIVERY_MAX_BYTES ? "text-destructive" : undefined}>
-                  {formatTextDeliveryKiB(textBytes)} / {formatTextDeliveryKiB(TEXT_DELIVERY_MAX_BYTES)}
-                </span>
-              </div>
+              {/* 实时字节数升到了摘要条那一格（与文件模式的「已选内容」对称，且摘要条
+                  不随面板滚动）。这里只留静态说明，不再把同一个数字在一屏里印两遍。 */}
+              <p className="text-xs text-muted-foreground">
+                <Trans>支持 UTF-8 文本，最长 64 KiB</Trans>
+              </p>
               {textBody.length > 0 && !textValid ? (
                 <p className="text-xs text-destructive">
                   <Trans>文本超过 64 KiB，请缩短后发送。</Trans>
@@ -530,10 +539,32 @@ export function DesktopSendView({
               />
             </div>
           </GlassPanel>
-        )}
+        </TabsContent>
 
       </TaskContent>
     </TaskPageShell>
+    </Tabs>
+  );
+}
+
+/**
+ * 摘要条右端那一格：小标签在上、机器事实在下。
+ *
+ * 它是**一整格**而不是两段并排的文本——契约（DESIGN.md 的 Content Mode Selector）说
+ * 「与它同排的计量随模式变」，指的就是这一格整体换掉，而不是只换里面的数字。
+ */
+function TargetMetric({
+  label,
+  children,
+}: {
+  label: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="shrink-0 text-right">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="mt-0.5 text-sm font-semibold">{children}</p>
+    </div>
   );
 }
 

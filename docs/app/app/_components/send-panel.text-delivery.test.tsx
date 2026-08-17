@@ -87,7 +87,9 @@ afterEach(() => {
 async function openTextEditor() {
   const user = userEvent.setup();
   render(<SendPanel />);
-  await user.click(screen.getByRole("button", { name: "文本" }));
+  // `tab` 而不是 `button`：内容模式切换器是 tablist/tab（三端统一的语义），
+  // 且它现在住在目标设备那一行里，不再独占一行。
+  await user.click(screen.getByRole("tab", { name: "文本" }));
   return user;
 }
 

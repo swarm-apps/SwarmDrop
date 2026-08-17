@@ -24,7 +24,7 @@ msgstr "{0} 个文件"
 
 #. placeholder {0}: selectedFiles.length
 #. placeholder {1}: formatBytes(totalSize)
-#: src/app/send/select-device.tsx:427
+#: src/app/send/select-device.tsx:505
 msgid "{0} 个文件 · {1}"
 msgstr "{0} 个文件 · {1}"
 
@@ -42,6 +42,11 @@ msgstr "{0} 后失效"
 #: src/components/pairing/invite-exchange.tsx:191
 msgid "{0} 后过期"
 msgstr "{0} 后过期"
+
+#. placeholder {0}: pending.peerName
+#: src/components/text-delivery-attention-host.tsx:90
+msgid "{0} 想向你发送一段文本。"
+msgstr "{0} 想向你发送一段文本。"
 
 #. placeholder {0}: item.name
 #. placeholder {1}: formatBytes(item.size)
@@ -246,7 +251,7 @@ msgstr "仅在自动接收开启时生效"
 msgid "仅局域网"
 msgstr "仅局域网"
 
-#: src/app/send/select-device.tsx:347
+#: src/app/send/select-device.tsx:371
 msgid "从剪贴板粘贴"
 msgstr "从剪贴板粘贴"
 
@@ -346,7 +351,7 @@ msgstr "信任与接收策略"
 msgid "信任级别"
 msgstr "信任级别"
 
-#: src/app/(main)/inbox.tsx:146
+#: src/app/(main)/inbox.tsx:86
 msgid "修复收件箱失败"
 msgstr "修复收件箱失败"
 
@@ -458,11 +463,11 @@ msgstr "再试一次"
 msgid "最大大小"
 msgstr "最大大小"
 
-#: src/app/(main)/inbox.tsx:396
+#: src/app/(main)/inbox.tsx:336
 msgid "最近"
 msgstr "最近"
 
-#: src/app/send/select-device.tsx:387
+#: src/app/send/select-device.tsx:414
 msgid "最近发送"
 msgstr "最近发送"
 
@@ -470,7 +475,7 @@ msgstr "最近发送"
 msgid "最近接收"
 msgstr "最近接收"
 
-#: src/app/send/select-device.tsx:470
+#: src/app/send/select-device.tsx:553
 #: src/app/send/share-target.tsx:266
 msgid "准备中"
 msgstr "准备中"
@@ -516,7 +521,7 @@ msgstr "分组内设备将保留为已配对状态,并显示在未分组列表�
 msgid "分组名称"
 msgstr "分组名称"
 
-#: src/app/(main)/inbox.tsx:242
+#: src/app/(main)/inbox.tsx:182
 msgid "切换上方筛选范围，或进入搜索页查找历史内容。"
 msgstr "切换上方筛选范围，或进入搜索页查找历史内容。"
 
@@ -543,7 +548,7 @@ msgstr "初始化失败"
 
 #: src/app/device/groups.tsx:248
 #: src/app/inbox/[itemId].tsx:555
-#: src/app/send/select-device.tsx:399
+#: src/app/send/select-device.tsx:474
 #: src/app/settings/bootstrap-nodes.tsx:355
 #: src/app/settings/bootstrap-nodes.tsx:398
 #: src/app/transfer/[sessionId].tsx:333
@@ -560,7 +565,7 @@ msgid "删除分组"
 msgstr "删除分组"
 
 #: src/app/inbox/[itemId].tsx:223
-#: src/app/send/select-device.tsx:399
+#: src/app/send/select-device.tsx:469
 #: src/app/transfer/[sessionId].tsx:192
 msgid "删除失败"
 msgstr "删除失败"
@@ -595,8 +600,8 @@ msgstr "删除这条记录"
 msgid "别名与分组"
 msgstr "别名与分组"
 
-#: src/app/(main)/inbox.tsx:192
-#: src/app/(main)/inbox.tsx:233
+#: src/app/(main)/inbox.tsx:132
+#: src/app/(main)/inbox.tsx:173
 #: src/components/pairing/invite-exchange.tsx:212
 msgid "刷新"
 msgstr "刷新"
@@ -605,7 +610,7 @@ msgstr "刷新"
 msgid "剪贴板"
 msgstr "剪贴板"
 
-#: src/app/send/select-device.tsx:353
+#: src/app/send/select-device.tsx:379
 msgid "剪贴板中没有可用文本"
 msgstr "剪贴板中没有可用文本"
 
@@ -635,7 +640,7 @@ msgstr "剩余 {0}"
 msgid "加密"
 msgstr "加密"
 
-#: src/app/(main)/inbox.tsx:284
+#: src/app/(main)/inbox.tsx:224
 #: src/app/inbox/[itemId].tsx:406
 #: src/app/inbox/search.tsx:260
 #: src/app/transfer/[sessionId].tsx:283
@@ -687,7 +692,7 @@ msgstr "反馈"
 msgid "发出"
 msgstr "发出"
 
-#: src/app/(main)/inbox.tsx:413
+#: src/app/(main)/inbox.tsx:353
 msgid "发现 {attentionCount} 条异常内容"
 msgstr "发现 {attentionCount} 条异常内容"
 
@@ -701,8 +706,8 @@ msgid "发给 {0}"
 msgstr "发给 {0}"
 
 #: src/app/(main)/index.tsx:867
-#: src/app/send/select-device.tsx:273
-#: src/app/send/select-device.tsx:470
+#: src/app/send/select-device.tsx:291
+#: src/app/send/select-device.tsx:553
 #: src/app/transfer/[sessionId].tsx:426
 msgid "发送"
 msgstr "发送"
@@ -713,7 +718,7 @@ msgstr "发送"
 msgid "发送 {0} 到设备"
 msgstr "发送 {0} 到设备"
 
-#: src/app/send/select-device.tsx:499
+#: src/app/send/select-device.tsx:592
 #: src/components/recent-transfer-row.tsx:70
 #: src/core/foreground-service.ts:257
 msgid "发送中"
@@ -727,7 +732,7 @@ msgstr "发送内容"
 msgid "发送到"
 msgstr "发送到"
 
-#: src/app/send/select-device.tsx:296
+#: src/app/send/select-device.tsx:314
 msgid "发送到 {displayName}"
 msgstr "发送到 {displayName}"
 
@@ -735,7 +740,7 @@ msgstr "发送到 {displayName}"
 msgid "发送到设备"
 msgstr "发送到设备"
 
-#: src/app/send/select-device.tsx:231
+#: src/app/send/select-device.tsx:239
 #: src/app/send/share-target.tsx:138
 msgid "发送失败"
 msgstr "发送失败"
@@ -753,7 +758,7 @@ msgstr "发送请求没能送达对方，请确认对方在线后重试"
 #: src/app/(main)/index.tsx:860
 #: src/app/pairing/found-device.tsx:119
 #: src/app/pairing/found-device.tsx:123
-#: src/app/send/select-device.tsx:445
+#: src/app/send/select-device.tsx:523
 #: src/app/settings/bootstrap-nodes.tsx:281
 #: src/app/transfer/[sessionId].tsx:746
 #: src/components/device-organization-sheets.tsx:239
@@ -833,7 +838,7 @@ msgstr "可达性"
 msgid "可配对"
 msgstr "可配对"
 
-#: src/app/send/select-device.tsx:503
+#: src/app/send/select-device.tsx:600
 msgid "可重试，送达状态未知"
 msgstr "可重试，送达状态未知"
 
@@ -866,7 +871,7 @@ msgstr "启动后，你的其他设备才能找到这台手机。"
 msgid "启动后显示可发送的设备"
 msgstr "启动后显示可发送的设备"
 
-#: src/app/_layout.tsx:53
+#: src/app/_layout.tsx:54
 msgid "启动失败"
 msgstr "启动失败"
 
@@ -920,7 +925,7 @@ msgstr "在系统文件管理器里直接找到收到的文件"
 msgid "在线"
 msgstr "在线"
 
-#: src/app/send/select-device.tsx:581
+#: src/app/send/select-device.tsx:713
 msgid "在线 · 可接收"
 msgstr "在线 · 可接收"
 
@@ -939,6 +944,10 @@ msgstr "地址里没有可拨号的传输段"
 #: src/app/settings/general.tsx:50
 msgid "型号"
 msgstr "型号"
+
+#: src/components/text-delivery-attention-host.tsx:116
+msgid "处理中…"
+msgstr "处理中…"
 
 #: src/app/inbox/[itemId].tsx:1103
 msgid "复制"
@@ -1028,7 +1037,7 @@ msgstr "完成接收后，可以在这里搜索标题或来源。"
 msgid "完成文件检查"
 msgstr "完成文件检查"
 
-#: src/app/(main)/inbox.tsx:391
+#: src/app/(main)/inbox.tsx:331
 msgid "容量"
 msgstr "容量"
 
@@ -1139,7 +1148,7 @@ msgstr "展示我的邀请"
 msgid "已与 {displayName} 建立安全连接"
 msgstr "已与 {displayName} 建立安全连接"
 
-#: src/app/(main)/inbox.tsx:143
+#: src/app/(main)/inbox.tsx:83
 msgid "已修复 {count} 条收件箱记录"
 msgstr "已修复 {count} 条收件箱记录"
 
@@ -1160,7 +1169,7 @@ msgstr "已发出的邀请"
 msgid "已发现设备"
 msgstr "已发现设备"
 
-#: src/app/send/select-device.tsx:505
+#: src/app/send/select-device.tsx:604
 #: src/components/file-browser/file-row.tsx:231
 #: src/components/transfer/shared.tsx:177
 msgid "已取消"
@@ -1228,7 +1237,7 @@ msgstr "已开始恢复传输"
 msgid "已归档"
 msgstr "已归档"
 
-#: src/app/send/select-device.tsx:502
+#: src/app/send/select-device.tsx:598
 #: src/components/transfer/shared.tsx:179
 msgid "已拒绝"
 msgstr "已拒绝"
@@ -1271,7 +1280,7 @@ msgstr "已解除阻止"
 msgid "已跳过 {0} 个不在原位置的文件"
 msgstr "已跳过 {0} 个不在原位置的文件"
 
-#: src/app/send/select-device.tsx:504
+#: src/app/send/select-device.tsx:602
 #: src/components/pairing-request-host.tsx:102
 #: src/components/pairing/sent-invites.tsx:186
 msgid "已过期"
@@ -1285,7 +1294,7 @@ msgstr "已连接"
 msgid "已连接设备"
 msgstr "已连接设备"
 
-#: src/app/send/select-device.tsx:501
+#: src/app/send/select-device.tsx:596
 msgid "已送达"
 msgstr "已送达"
 
@@ -1293,11 +1302,11 @@ msgstr "已送达"
 msgid "已选择"
 msgstr "已选择"
 
-#: src/app/send/select-device.tsx:304
+#: src/app/send/select-device.tsx:322
 msgid "已选文件"
 msgstr "已选文件"
 
-#: src/app/send/select-device.tsx:252
+#: src/app/send/select-device.tsx:263
 msgid "已选的文件将被清空。"
 msgstr "已选的文件将被清空。"
 
@@ -1323,7 +1332,7 @@ msgstr "已配对设备"
 msgid "已阻止"
 msgstr "已阻止"
 
-#: src/app/send/select-device.tsx:579
+#: src/app/send/select-device.tsx:711
 msgid "已阻止 · 不可发送"
 msgstr "已阻止 · 不可发送"
 
@@ -1398,7 +1407,7 @@ msgstr "归档"
 msgid "当前状态"
 msgstr "当前状态"
 
-#: src/app/(main)/inbox.tsx:240
+#: src/app/(main)/inbox.tsx:180
 msgid "当前筛选下没有内容"
 msgstr "当前筛选下没有内容"
 
@@ -1499,9 +1508,9 @@ msgstr "把收到的文件再发给别的设备"
 msgid "把收到的文件存到哪？"
 msgstr "把收到的文件存到哪？"
 
-#: src/app/(main)/inbox.tsx:72
 #: src/components/pairing-request-host.tsx:130
 #: src/components/pairing-request-host.tsx:135
+#: src/components/text-delivery-attention-host.tsx:106
 #: src/components/transfer-offer-host.tsx:588
 #: src/components/transfer-offer-host.tsx:593
 msgid "拒绝"
@@ -1511,7 +1520,7 @@ msgstr "拒绝"
 msgid "拒绝接收失败"
 msgstr "拒绝接收失败"
 
-#: src/app/(main)/inbox.tsx:78
+#: src/components/text-delivery-attention-host.tsx:72
 msgid "拒绝文本失败"
 msgstr "拒绝文本失败"
 
@@ -1552,8 +1561,8 @@ msgstr "接受"
 msgid "接受配对失败"
 msgstr "接受配对失败"
 
-#: src/app/(main)/inbox.tsx:86
 #: src/app/transfer/[sessionId].tsx:426
+#: src/components/text-delivery-attention-host.tsx:116
 #: src/components/transfer-offer-host.tsx:600
 #: src/components/transfer-offer-host.tsx:613
 msgid "接收"
@@ -1577,15 +1586,15 @@ msgstr "接收位置"
 msgid "接收位置已更新"
 msgstr "接收位置已更新"
 
-#: src/app/(main)/inbox.tsx:368
+#: src/app/(main)/inbox.tsx:308
 msgid "接收内容库"
 msgstr "接收内容库"
 
-#: src/app/(main)/inbox.tsx:68
+#: src/components/text-delivery-attention-host.tsx:87
 msgid "接收文本"
 msgstr "接收文本"
 
-#: src/app/(main)/inbox.tsx:92
+#: src/components/text-delivery-attention-host.tsx:72
 msgid "接收文本失败"
 msgstr "接收文本失败"
 
@@ -1602,7 +1611,7 @@ msgstr "接收时间"
 msgid "接收配对与文件传输请求的系统通知"
 msgstr "接收配对与文件传输请求的系统通知"
 
-#: src/app/(main)/inbox.tsx:244
+#: src/app/(main)/inbox.tsx:184
 msgid "搜索"
 msgstr "搜索"
 
@@ -1616,7 +1625,7 @@ msgstr "搜索传输记录"
 msgid "搜索失败"
 msgstr "搜索失败"
 
-#: src/app/(main)/inbox.tsx:186
+#: src/app/(main)/inbox.tsx:126
 #: src/app/inbox/search.tsx:161
 msgid "搜索收件箱"
 msgstr "搜索收件箱"
@@ -1655,11 +1664,11 @@ msgid "操作失败"
 msgstr "操作失败"
 
 #: src/app/(main)/_layout.tsx:57
-#: src/app/(main)/inbox.tsx:179
+#: src/app/(main)/inbox.tsx:119
 msgid "收件箱"
 msgstr "收件箱"
 
-#: src/app/(main)/inbox.tsx:143
+#: src/app/(main)/inbox.tsx:83
 msgid "收件箱已是最新"
 msgstr "收件箱已是最新"
 
@@ -1672,7 +1681,7 @@ msgstr "收件箱记录不存在"
 msgid "收件箱详情"
 msgstr "收件箱详情"
 
-#: src/app/(main)/inbox.tsx:227
+#: src/app/(main)/inbox.tsx:167
 #: src/app/inbox/search.tsx:249
 msgid "收件箱还是空的"
 msgstr "收件箱还是空的"
@@ -1706,11 +1715,11 @@ msgstr "收到文件时先弹出确认,不直接接收"
 msgid "收到来自 {0} 的文本"
 msgstr "收到来自 {0} 的文本"
 
-#: src/app/(main)/inbox.tsx:229
+#: src/app/(main)/inbox.tsx:169
 msgid "收到的东西会出现在这里；传输过程和续传入口在传输记录里。"
 msgstr "收到的东西会出现在这里；传输过程和续传入口在传输记录里。"
 
-#: src/app/(main)/inbox.tsx:180
+#: src/app/(main)/inbox.tsx:120
 msgid "收到的内容都替你放在这儿"
 msgstr "收到的内容都替你放在这儿"
 
@@ -1731,16 +1740,16 @@ msgstr "收起诊断详情"
 msgid "改用粘贴邀请"
 msgstr "改用粘贴邀请"
 
-#: src/app/send/select-device.tsx:256
+#: src/app/send/select-device.tsx:267
 msgid "放弃"
 msgstr "放弃"
 
-#: src/app/send/select-device.tsx:251
+#: src/app/send/select-device.tsx:260
 msgid "放弃发送内容？"
 msgstr "放弃发送内容？"
 
-#: src/app/send/select-device.tsx:519
-#: src/app/send/select-device.tsx:609
+#: src/app/send/select-device.tsx:634
+#: src/app/send/select-device.tsx:746
 #: src/app/transfer/[sessionId].tsx:292
 #: src/components/activity-projection-card.tsx:106
 #: src/components/file-browser/file-browser-toolbar.tsx:37
@@ -1756,7 +1765,7 @@ msgid "文件传输失败，请重试"
 msgstr "文件传输失败，请重试"
 
 #: src/app/device/[peerId].tsx:450
-#: src/app/send/select-device.tsx:610
+#: src/app/send/select-device.tsx:747
 msgid "文件夹"
 msgstr "文件夹"
 
@@ -1775,7 +1784,7 @@ msgstr "文件直接进入收件箱和默认保存位置"
 msgid "文件缺失"
 msgstr "文件缺失"
 
-#: src/app/send/select-device.tsx:520
+#: src/app/send/select-device.tsx:635
 #: src/components/inbox/inbox-list.tsx:108
 #: src/components/inbox/inbox-list.tsx:437
 msgid "文本"
@@ -1783,15 +1792,15 @@ msgstr "文本"
 
 #: src/app/inbox/[itemId].tsx:1058
 #: src/app/inbox/[itemId].tsx:1093
-#: src/app/send/select-device.tsx:341
+#: src/app/send/select-device.tsx:355
 msgid "文本内容"
 msgstr "文本内容"
 
-#: src/app/send/select-device.tsx:209
+#: src/app/send/select-device.tsx:217
 msgid "文本已发送"
 msgstr "文本已发送"
 
-#: src/app/send/select-device.tsx:381
+#: src/app/send/select-device.tsx:408
 msgid "文本超过 64 KiB，请缩短后发送。"
 msgstr "文本超过 64 KiB，请缩短后发送。"
 
@@ -1856,11 +1865,11 @@ msgstr "暂停接收"
 msgid "暂停期间节点仍在线可发现、可配对，但会自动婉拒新的接收请求。"
 msgstr "暂停期间节点仍在线可发现、可配对，但会自动婉拒新的接收请求。"
 
-#: src/app/_layout.tsx:248
+#: src/app/_layout.tsx:250
 msgid "暂只支持发送文件、图片和视频"
 msgstr "暂只支持发送文件、图片和视频"
 
-#: src/app/(main)/inbox.tsx:398
+#: src/app/(main)/inbox.tsx:338
 msgid "暂无"
 msgstr "暂无"
 
@@ -1912,7 +1921,7 @@ msgstr "更改"
 msgid "更改保存位置"
 msgstr "更改保存位置"
 
-#: src/app/send/select-device.tsx:395
+#: src/app/send/select-device.tsx:433
 msgid "更新于"
 msgstr "更新于"
 
@@ -2018,7 +2027,7 @@ msgstr "本机配对邀请"
 msgid "条"
 msgstr "条"
 
-#: src/app/(main)/inbox.tsx:383
+#: src/app/(main)/inbox.tsx:323
 msgid "条内容"
 msgstr "条内容"
 
@@ -2085,7 +2094,7 @@ msgstr "检查失败"
 msgid "检查更新"
 msgstr "检查更新"
 
-#: src/app/(main)/inbox.tsx:416
+#: src/app/(main)/inbox.tsx:356
 msgid "检查本地文件并更新收件箱状态"
 msgstr "检查本地文件并更新收件箱状态"
 
@@ -2201,7 +2210,7 @@ msgstr "活跃传输"
 msgid "浅色"
 msgstr "浅色"
 
-#: src/app/(main)/inbox.tsx:372
+#: src/app/(main)/inbox.tsx:312
 msgid "浏览最近接收的文件、文本和合集。"
 msgstr "浏览最近接收的文件、文本和合集。"
 
@@ -2227,7 +2236,7 @@ msgid "添加设备"
 msgstr "添加设备"
 
 #: src/app/activity.tsx:281
-#: src/app/send/select-device.tsx:344
+#: src/app/send/select-device.tsx:366
 msgid "清空"
 msgstr "清空"
 
@@ -2236,7 +2245,7 @@ msgstr "清空"
 msgid "清空传输记录"
 msgstr "清空传输记录"
 
-#: src/app/send/select-device.tsx:344
+#: src/app/send/select-device.tsx:360
 msgid "清空文本"
 msgstr "清空文本"
 
@@ -2264,7 +2273,7 @@ msgstr "点击安装 {version}"
 msgid "点对点直连"
 msgstr "点对点直连"
 
-#: src/app/send/select-device.tsx:611
+#: src/app/send/select-device.tsx:748
 msgid "照片"
 msgstr "照片"
 
@@ -2342,7 +2351,7 @@ msgstr "确认这是你要配对的设备?"
 msgid "确认配对"
 msgstr "确认配对"
 
-#: src/app/send/select-device.tsx:612
+#: src/app/send/select-device.tsx:749
 #: src/components/inbox/inbox-list.tsx:107
 #: src/components/inbox/inbox-list.tsx:434
 msgid "视频"
@@ -2354,7 +2363,7 @@ msgstr "视频"
 msgid "离线"
 msgstr "离线"
 
-#: src/app/send/select-device.tsx:585
+#: src/app/send/select-device.tsx:717
 msgid "离线 · 等待对端上线"
 msgstr "离线 · 等待对端上线"
 
@@ -2405,7 +2414,7 @@ msgstr "等待响应"
 msgid "等待对方使用"
 msgstr "等待对方使用"
 
-#: src/app/send/select-device.tsx:500
+#: src/app/send/select-device.tsx:594
 msgid "等待确认"
 msgstr "等待确认"
 
@@ -2421,7 +2430,7 @@ msgstr "策略设置"
 msgid "管理分组"
 msgstr "管理分组"
 
-#: src/app/send/select-device.tsx:363
+#: src/app/send/select-device.tsx:389
 #: src/components/pairing/invite-exchange.tsx:363
 msgid "粘贴"
 msgstr "粘贴"
@@ -2464,7 +2473,7 @@ msgstr "给设备取个名字"
 msgid "继续"
 msgstr "继续"
 
-#: src/app/send/select-device.tsx:254
+#: src/app/send/select-device.tsx:265
 msgid "继续选择"
 msgstr "继续选择"
 
@@ -2472,7 +2481,7 @@ msgstr "继续选择"
 msgid "续传进度已失效，请重新发送"
 msgstr "续传进度已失效，请重新发送"
 
-#: src/app/send/select-device.tsx:397
+#: src/app/send/select-device.tsx:443
 msgid "编辑后重发"
 msgstr "编辑后重发"
 
@@ -2553,7 +2562,7 @@ msgstr "节点启动失败，重试或查看日志"
 msgid "节点已按新的网络设置重启"
 msgstr "节点已按新的网络设置重启"
 
-#: src/app/send/select-device.tsx:583
+#: src/app/send/select-device.tsx:715
 #: src/lib/errors.ts:51
 msgid "节点未启动"
 msgstr "节点未启动"
@@ -2578,7 +2587,7 @@ msgstr "节点状态"
 msgid "节点错误"
 msgstr "节点错误"
 
-#: src/app/send/select-device.tsx:373
+#: src/app/send/select-device.tsx:399
 msgid "要发送的文本"
 msgstr "要发送的文本"
 
@@ -2644,7 +2653,7 @@ msgid "设备当前不可发送"
 msgstr "设备当前不可发送"
 
 #: src/app/device/[peerId].tsx:305
-#: src/app/send/select-device.tsx:276
+#: src/app/send/select-device.tsx:294
 msgid "设备未找到"
 msgstr "设备未找到"
 
@@ -2726,8 +2735,8 @@ msgstr "语言"
 msgid "语言已更新"
 msgstr "语言已更新"
 
-#: src/app/_layout.tsx:253
-#: src/app/_layout.tsx:298
+#: src/app/_layout.tsx:255
+#: src/app/_layout.tsx:300
 msgid "请先完成 SwarmDrop 设置"
 msgstr "请先完成 SwarmDrop 设置"
 
@@ -2751,17 +2760,13 @@ msgstr "请输入大于 0 的数字，留空表示不限制"
 msgid "请重新选择要发送的文件"
 msgstr "请重新选择要发送的文件"
 
-#: src/app/send/select-device.tsx:358
+#: src/app/send/select-device.tsx:384
 msgid "读取剪贴板失败"
 msgstr "读取剪贴板失败"
 
-#: src/app/send/select-device.tsx:164
+#: src/app/send/select-device.tsx:172
 msgid "读取发送记录失败"
 msgstr "读取发送记录失败"
-
-#: src/app/(main)/inbox.tsx:102
-msgid "读取待确认文本失败"
-msgstr "读取待确认文本失败"
 
 #: src/app/settings/about.tsx:167
 msgid "资源"
@@ -2794,11 +2799,11 @@ msgstr "身份存放位置"
 msgid "软件更新"
 msgstr "软件更新"
 
-#: src/app/send/select-device.tsx:374
+#: src/app/send/select-device.tsx:401
 msgid "输入或粘贴文本"
 msgstr "输入或粘贴文本"
 
-#: src/app/send/select-device.tsx:252
+#: src/app/send/select-device.tsx:262
 msgid "输入的文本将被清空。"
 msgstr "输入的文本将被清空。"
 
@@ -2816,7 +2821,7 @@ msgstr "运行时长"
 
 #: src/app/device/[peerId].tsx:313
 #: src/app/pairing/scan.tsx:273
-#: src/app/send/select-device.tsx:284
+#: src/app/send/select-device.tsx:302
 #: src/components/header-back-button.tsx:41
 msgid "返回"
 msgstr "返回"
@@ -2945,7 +2950,7 @@ msgstr "选择一个设备"
 msgid "选择外观"
 msgstr "选择外观"
 
-#: src/app/send/select-device.tsx:184
+#: src/app/send/select-device.tsx:192
 msgid "选择失败"
 msgstr "选择失败"
 
@@ -2954,7 +2959,7 @@ msgstr "选择失败"
 msgid "选择文件夹"
 msgstr "选择文件夹"
 
-#: src/app/send/select-device.tsx:431
+#: src/app/send/select-device.tsx:509
 msgid "选择要发送的内容"
 msgstr "选择要发送的内容"
 
@@ -3111,11 +3116,11 @@ msgstr "重新发送"
 msgid "重新生成邀请"
 msgstr "重新生成邀请"
 
-#: src/app/(main)/inbox.tsx:333
+#: src/app/(main)/inbox.tsx:273
 #: src/app/inbox/[itemId].tsx:456
 #: src/app/inbox/search.tsx:288
 #: src/app/onboarding/setup.tsx:49
-#: src/app/send/select-device.tsx:398
+#: src/app/send/select-device.tsx:459
 #: src/components/app-error-boundary.tsx:29
 msgid "重试"
 msgstr "重试"
@@ -3126,7 +3131,7 @@ msgstr "重试"
 msgid "重试 {0}"
 msgstr "重试 {0}"
 
-#: src/app/send/select-device.tsx:398
+#: src/app/send/select-device.tsx:454
 msgid "重试失败"
 msgstr "重试失败"
 

@@ -393,6 +393,9 @@ loading 用骨架镜像真实布局）。
 右上角挂 `PairingModeTabs` 互切，不必退回设备页再选另一个入口。两屏右栏都用
 `PairingSteps`（编号步骤）承载「对方要做什么」——编号在这里是真实顺序，不是装饰性分节标记。
 
+> **这不是配对页的特例，是本仓的通用形态**（2026-08-17 起发送页的「文件 / 文本」也是它）。
+> 判据、三端落点与那几个 Radix 坑收在下面的「页面级模式切换」一节。
+
 **相关文件**：`src/components/pairing/pairing-mode-tabs.tsx`、`src/components/pairing/pairing-steps.tsx`
 
 ## 暗色主题背景
@@ -505,6 +508,119 @@ loading 用骨架镜像真实布局）。
 
 **相关文件**：`src/components/layout/section-primitives.tsx`、
 `src/routes/_app/devices/-components/add-device-section.tsx`（`flex-1` 的调用点）
+
+### 同一个 `min-h-full` 的第二种失效：被调用方传进来的 `min-h-0` 静默吃掉（2026-08-17 实测）
+
+上面那条讲的是「烤进原语 → 溢出」。**同一个属性还有个反方向的失效**：写在原语里，
+但调用方一传 `min-h-0` 就没了，谁都不报错。
+
+`TaskContent` 的内层 wrapper 是
+`cn("mx-auto min-h-full w-full max-w-[1180px] p-5 lg:p-7", className)`，
+用意是「短内容也撑满整屏，让 `flex-1` 的面板有剩余空间可分」。而发送页传的 `className`
+是 `"flex min-h-0 flex-col gap-4"`——`min-h-full` 与 `min-h-0` 是同一个 CSS 属性，
+`twMerge` 保留后写的那个，于是 **computed `min-height` 是 `0px`**，那句注释描述的行为
+从来没发生过。
+
+实测（960×720 桌面窗口，发送页文件模式空态）：滚动容器 556px 高，而它里面这个
+`min-h-full` 的 wrapper 只有 416px，面板因此停在半空、下面空掉 140px。
+
+另一个被同一个洞盖住的 bug：发送进度页的加载态传的是
+`"flex min-h-0 flex-col items-center justify-center"`——`justify-center` 要居中，
+**正需要那个被顶掉的高度**，所以 spinner 一直贴在顶部而不是屏幕中央。同一个文件里
+还有一条注释明写着「不写 `min-h-full`——`TaskContent` 的内容 wrapper 本来就带」，
+作者依赖它，却不知道自己在上面几行把它关掉了。
+
+**判据**：容器原语里写的每一个 `min-h-*` / `h-*`，都要假设调用方会传一个同族的类进来。
+排查手法同上一条：量 `getComputedStyle(el).minHeight`，别只读 className
+——**类名在，值可能已经没了**。
+
+**已修（2026-08-17）**：四个调用点的 `min-h-0` 全部删除（那个 wrapper 根本不是 flex
+item，它的父级是 `overflow-auto` 的块级容器，`min-h-0` 纯属 flex 布局的肌肉记忆），
+`TaskContent` 里补了一段「调用方不要传 `min-h-*`」的说明。**没有**改成让原语强制覆盖
+（`cn(base, className, "min-h-full")` 那种写法）——那会把一个显式冲突换成一个静默忽略，
+是同一类问题换个方向再犯一次。
+
+**内容超长的页面不受影响**：`min-height` 只是下限，内容比它高时照常撑高、照常滚动
+（配对生成页实测无变化）。受益的是短内容页：发送页面板从 292 撑到 432、加载态 spinner
+回到屏幕正中。
+
+**相关文件**：`src/components/layout/task-surface.tsx`（`TaskContent`）、
+`src/routes/_app/send/index.lazy.tsx`、`src/routes/_app/send/-components/send-progress-view.tsx`、
+`src/routes/_app/pairing/{generate,input}.lazy.tsx`
+
+### 撑满一个 `flex-1` 的面板：内层用 `flex-1`，**不能用 `h-full`**（2026-08-17 实测）
+
+修好上面那条之后立刻撞上的第二层：面板（`GlassPanel`，一个 `<section>`）被外层
+`flex-1` 拉到 432px，而它内部那个 `h-full` 的 wrapper 只有 292px——**`height: 100%`
+回落成了内容高度**。
+
+原因是 CSS 的百分比高度规则：它相对于 containing block 的 **`height` 属性**解析，而这个
+`<section>` 的 `height` 是 `auto`（432 是 flex 算法拉伸出来的 used height，不是 specified
+value），于是百分比解析不了、回落成 auto。
+
+**这个 bug 平时看不出来**：面板本来就只有内容那么高时，`h-full`（= 内容高）与期望值恰好
+相等。只有当面板真的被撑大，两者才分叉——所以它是跟着上一条修复一起浮出来的，不是新引入的。
+
+**正确形态**是一条不断的 flex 链，每层都 `flex-1`，没有任何一层用百分比：
+
+```tsx
+<GlassPanel className="flex min-h-0 flex-1 flex-col">   {/* 面板自己是 flex 列 */}
+  <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">  {/* 内层顶上去 */}
+```
+
+`min-h-0` 在**这里**是必需的（这几层确实是 flex item），与上一条里那个「传给
+`TaskContent` 的 `min-h-0` 是多余的」不矛盾——区别在于那个 wrapper 的父级是块级滚动容器，
+而这里每一层的父级都是 flex 容器。
+
+**相关文件**：`src/routes/_app/send/index.lazy.tsx`（两块 `GlassPanel`）
+
+## 页面级模式切换：走 shadcn `Tabs`，挂在页头 trailing
+
+「同一个任务的两个方向」（配对的展示/粘贴、发送的文件/文本）在桌面端一律是
+**页头右上角的紧凑分段控件**，不是内容区上方独占一行的大按钮组——后者会横跨整个
+`max-w-[1180px]` 内容带却只用掉 19% 的宽度，且尺寸与 `CommandDock` 的主操作同级。
+三端落点与尺寸判据写在 `DESIGN.md` 的 **Content Mode Selector**。
+
+`TaskToolbar` 的 `trailing` 插槽就是为这个存在的。
+
+### 用 `@/components/ui/tabs`，别自己拼一组按钮
+
+roving tabindex、方向键、Home/End、`aria-controls` / `aria-labelledby` 的自动配对，
+Radix 全都做好了；手写一遍只会得到一个少几种键盘行为的复制品（product register 明确把
+「为口味重新发明标准 affordance」列为禁项）。**桌面与 docs 各有一份 `ui/tabs.tsx`**，
+移动端那份 `@rn-primitives/tabs` 刻意不用——RN 上没有键盘，`Tabs` 在那儿只剩「换一套要
+处处覆盖的尺寸」，手写 + `accessibilityRole="tablist"` / `"tab"` 表达同一套语义即可。
+
+### ⚠️ `TabsList` 的高度**覆盖不掉**，除非改组件（2026-08-17 实测）
+
+上游 shadcn 把水平高度写成 `group-data-[orientation=horizontal]/tabs:h-9`。调用方传
+`h-11` / `h-auto` **没有任何效果，也没有任何报错**，因为：
+
+1. `twMerge` 认为带变体前缀的类与裸类**不冲突**，两个都会留在 class 里（实测确认）；
+2. CSS 特异性上 `.group\/tabs[data-orientation=horizontal] .…` 高于裸 `.h-11`，前者赢。
+
+docs 那份因此把它改成裸 `h-9`（垂直方向的 `group-data-[orientation=vertical]/tabs:h-fit`
+特异性更高、照旧赢，既有行为不变）。**理由是命中区**：应用区移动优先，手机浏览器上这是
+触控目标，要 44 而不是 36。桌面那份保持上游原样——它只待在 48px 的页头里，且只有鼠标。
+
+同一个坑对 `TabsTrigger` 不成立：它的 `h-[calc(100%-1px)]` 是裸类，`h-auto min-h-11`
+正常覆盖得掉。
+
+### `asChild` 会把 Root 的 className 一起带过去
+
+`<Tabs asChild>` 包住既有布局组件（`TaskPageShell` / 卡片 div）是对的——DOM 层级不变，
+Radix 只贡献 context 与键盘行为。但它的 className `"group/tabs flex gap-2 …"` 会合并进去，
+**那个 `gap-2` 会在页头与内容之间凭空插一条 8px 缝**。一律显式传 `className="gap-0"`
+（或该处本来的间距）抵消。`group/tabs` 必须留着——`TabsList` 的变体依赖它。
+
+### Radix 的 trigger 不响应程序化 `element.click()`
+
+它走 `onMouseDown` + focus（automatic 激活），不是 `onClick`。用 `el.click()` 验证会看到
+**界面纹丝不动**，很容易误判成「切换坏了」。自动化验证要发真实指针事件
+（`webview_interact` 的 click）或直接 `focus()`。
+
+**相关文件**：`src/routes/_app/send/-components/content-mode-tabs.tsx`、
+`docs/components/ui/tabs.tsx`（带改动说明）、`src/components/pairing/pairing-mode-tabs.tsx`
 
 ## 设置页（settings）布局与基元
 

@@ -23,10 +23,11 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import {
   ArrowLeftRight,
   Check,
-  Clipboard,
+  FileText,
   MonitorSmartphone,
   Paperclip,
   Send,
+  Type,
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -50,6 +51,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/cn";
 import { clipboard } from "../_lib/clipboard";
 import { PANEL_SURFACE } from "./section";
@@ -94,6 +96,58 @@ type PendingFile = PendingFileInput;
 
 let nextFileId = 0;
 
+type ContentMode = "files" | "text";
+
+/**
+ * 文件 / 文本切换器。**它贴在目标设备那一行的右侧、「更换」按钮左边，不再独占一行。**
+ *
+ * 此前是一条 224×44 的分段控件单占一行。挪进设备行后省掉 48px，而这一行装得下：
+ * 卡片 860 宽减去图标 40 + 切换器 ~126 + 「更换」~72 + 间距，仍有 ~500px 留给设备名。
+ * 桌面端因为摘要条右侧被「已选内容」计量占着，落点是页头；三端落点不同、语义相同，
+ * 判据见 `DESIGN.md` 的 Content Mode Selector。
+ *
+ * 顺带一条白送的收益：`TargetSection` 在没选设备时渲染的是设备选择器，所以切换器
+ * 自然只在目标已选定后出现——契约里「在目标设备选定后切换」那半句不用另写条件。
+ *
+ * 走 shadcn 的 `Tabs`（Radix）而不是自拼一组按钮：roving tabindex、方向键、Home/End、
+ * `aria-controls` / `aria-labelledby` 的自动关联都是它已经做对的事。与桌面同一份组件
+ * 源（两端各一份 `components/ui/tabs.tsx`，只差 `cn` 的 import 路径）。
+ *
+ * 图标与另两端同一套（`FileText` + `Type`）。此前 Web 是 `Paperclip` + `Clipboard`，
+ * 三端凑出三套，违反知识库「三端同一概念必须同一个图标」。
+ */
+function ContentModeTabs({ disabled }: { disabled: boolean }) {
+  const { t } = useLingui();
+  const modes: readonly {
+    value: ContentMode;
+    icon: typeof FileText;
+    label: React.ReactNode;
+  }[] = [
+    { value: "files", icon: FileText, label: <Trans>文件</Trans> },
+    { value: "text", icon: Type, label: <Trans>文本</Trans> },
+  ];
+
+  return (
+    // 高度不用 shadcn 默认的 36：**应用区是移动优先的**，手机浏览器上这仍是触控目标，
+    // 命中区要 44（DESIGN.md Shapes，改动前这里写的就是 `min-h-11`）。桌面那份留 36 是
+    // 因为它待在 48px 的页头里、且只有鼠标。`h-auto` 能生效依赖 `ui/tabs.tsx` 里那处
+    // 「把写死的 h-9 变回可覆盖」的改动。
+    <TabsList aria-label={t`发送内容类型`} className="h-auto shrink-0 p-0.5">
+      {modes.map(({ value, icon: Icon, label }) => (
+        <TabsTrigger
+          key={value}
+          value={value}
+          disabled={disabled}
+          className="h-auto min-h-11 px-3"
+        >
+          <Icon aria-hidden />
+          {label}
+        </TabsTrigger>
+      ))}
+    </TabsList>
+  );
+}
+
 export function SendPanel() {
   return (
     <Suspense fallback={<PanelFallback>
@@ -125,7 +179,7 @@ function SendPanelInner() {
   }, [requestedPeerId]);
 
   const [files, setFiles] = useState<PendingFile[]>([]);
-  const [contentMode, setContentMode] = useState<"files" | "text">("files");
+  const [contentMode, setContentMode] = useState<ContentMode>("files");
   const [textBody, setTextBody] = useState("");
   const [textOutbox, setTextOutbox] = useState<TextDeliveryRecord[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -264,6 +318,16 @@ function SendPanelInner() {
     // 自己负责。但**不能居中**——居中会让页头仍是满宽、面板缩在中间，两者左边缘对不齐，
     // 那正是这一页此前的毛病（当时是页面级 `column="form"` 造成的，见 `page-shell.tsx`）。
     // 左对齐限宽同时满足两条：表单不铺满，左缘与页头、与其它路由一致。
+    //
+    // `Tabs` 经 `asChild` 落在这张卡片上：它只贡献 context 与键盘行为，DOM 层级、投放
+    // handler 与间距都保持原样（`gap-0` 抵消它默认的 `gap-2`，卡片自己的
+    // `gap-[var(--space-in-panel)]` 才是这里的节奏）。
+    <Tabs
+      value={contentMode}
+      onValueChange={(next) => setContentMode(next as ContentMode)}
+      className="gap-0"
+      asChild
+    >
     <div
       className="flex max-w-[860px] flex-col gap-[var(--space-in-panel)] rounded-xl border bg-card p-4 shadow-xs sm:p-6"
       onDragOver={(event) => {
@@ -302,27 +366,16 @@ function SendPanelInner() {
         onChangeRequest={() => setPickerOpen(true)}
       />
 
-      <div className="inline-flex w-fit rounded-lg bg-muted p-1" role="group" aria-label={t`发送内容类型`}>
-        {[
-          ["files", <Paperclip key="files" className="size-3.5" aria-hidden />, <Trans key="files-label">文件</Trans>],
-          ["text", <Clipboard key="text" className="size-3.5" aria-hidden />, <Trans key="text-label">文本</Trans>],
-        ].map(([mode, icon, label]) => (
-          <button
-            key={mode as string}
-            type="button"
-            disabled={sendAction.pending}
-            onClick={() => setContentMode(mode as "files" | "text")}
-            className={cn(
-              "flex min-h-11 w-28 items-center justify-center gap-1.5 rounded-md py-2 text-xs font-medium",
-              contentMode === mode ? "bg-card text-foreground shadow-xs" : "text-muted-foreground",
-            )}
-          >
-            {icon as React.ReactNode}{label as React.ReactNode}
-          </button>
-        ))}
-      </div>
-
-      {contentMode === "files" ? <>
+      {/* ⚠️ 已知的小缺口：切换器住在 `TargetSection` 的「已选定设备」分支里（契约要求
+          「目标设备选定后」才出现），而下面两块面板在选设备那个中间态里照常渲染。于是
+          picker 开着时，Radix 给面板生成的 `aria-labelledby` 指向一个此刻不在 DOM 里的
+          trigger——屏幕阅读器读到的是「面板没有标签」，不是报错。选设备是个短暂中间态，
+          且改动前这里连 aria 关联都没有，所以不是回归；真要修得先决定 picker 开着时
+          内容区该不该整块隐藏，那是另一件事。 */}
+      <TabsContent
+        value="files"
+        className="flex flex-col gap-[var(--space-in-panel)]"
+      >
       <div
         className={cn(
           "rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors",
@@ -411,8 +464,12 @@ function SendPanelInner() {
           />
         </div>
       )}
-      </> : (
-        <div className="flex flex-col gap-2 rounded-lg border p-4">
+      </TabsContent>
+
+      <TabsContent
+        value="text"
+        className="flex flex-col gap-2 rounded-lg border p-4"
+      >
           <div className="flex items-center justify-between gap-3">
             <label htmlFor="text-delivery" className="text-sm font-semibold text-foreground"><Trans>文本内容</Trans></label>
             <div className="flex gap-1">
@@ -462,8 +519,7 @@ function SendPanelInner() {
               </div>
             </div>
           ) : null}
-        </div>
-      )}
+      </TabsContent>
 
       {/*
         表单页脚，不是横幅。此前这颗按钮直接躺在 `flex-col` 里——flex 默认 `align-items:
@@ -507,6 +563,7 @@ function SendPanelInner() {
         </p>
       )}
     </div>
+    </Tabs>
   );
 }
 
@@ -687,6 +744,7 @@ function TargetSection({
             </span>
           </span>
         </div>
+        <ContentModeTabs disabled={disabled} />
         <Button
           type="button"
           variant="ghost"

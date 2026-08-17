@@ -51,13 +51,18 @@ vi.mock("./-use-file-selection", () => ({ useFileSelection: vi.fn() }));
 vi.mock("./-components/file-drop-zone", () => ({ FileDropZone: () => <div /> }));
 vi.mock("./-components/prepare-progress-bar", () => ({ PrepareProgressBar: () => <div /> }));
 vi.mock("./-components/send-progress-view", () => ({ SendProgressView: () => <div /> }));
+// 这几个替身都要**透传 props**：`Tabs` / `TabsContent` 经 `asChild` 把 tabpanel 的
+// aria 关联与显隐状态落在 `TaskPageShell` / `GlassPanel` 上，吞掉 props 的替身会让这层
+// 关系在测试里凭空消失，测出来的东西和真实渲染不是一回事。
 vi.mock("@/components/layout/task-surface", () => ({
   CommandDock: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  GlassPanel: ({ children }: { children: React.ReactNode }) => <section>{children}</section>,
+  GlassPanel: ({ children, ...props }: React.ComponentProps<"section">) => <section {...props}>{children}</section>,
   TaskButton: ({ children, ...props }: React.ComponentProps<"button">) => <button {...props}>{children}</button>,
   TaskContent: ({ children, footer }: { children: React.ReactNode; footer: React.ReactNode }) => <div>{children}{footer}</div>,
-  TaskPageShell: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
-  TaskToolbar: () => <div />,
+  TaskPageShell: ({ children, ...props }: React.ComponentProps<"main">) => <main {...props}>{children}</main>,
+  // `trailing` 同理——内容模式切换器就住在这个插槽里（见 -components/content-mode-tabs）。
+  // 之前这个 mock 是 `() => <div />`，等于把被测组件传进来的东西整块丢掉。
+  TaskToolbar: ({ trailing }: { trailing?: React.ReactNode }) => <div>{trailing}</div>,
 }));
 
 import { DesktopSendView } from "./index.lazy";

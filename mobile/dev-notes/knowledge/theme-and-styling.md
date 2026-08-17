@@ -335,6 +335,26 @@ TextInput,永远设不上。
 
 **相关文件**:[src/app/(main)/index.tsx](../../src/app/(main)/index.tsx)(PairingCodeInput)
 
+### 页内模式切换：手写分段控件，**不用** `@/components/ui/tabs`（2026-08-17 定）
+
+`src/components/ui/tabs.tsx`（`@rn-primitives/tabs`）在本仓零使用者，这是刻意的。另两端
+（桌面 / docs）换用 shadcn 的 Radix `Tabs` 图的是 roving tabindex、方向键与 Home/End
+——**这些在 RN 上都不存在**，`Tabs` 到了这里只剩两笔成本：它是 `h-9`(36) 而触控命中区
+要 44（要处处覆盖），以及把 `AppScreen` / `FileBrowser` 的组合改造成 `TabsContent` 的
+`asChild`。手写一个 `Pressable` 组 + `accessibilityRole="tablist"` / `"tab"` +
+`accessibilityState={{ selected }}` 就够——三端真正要一致的是**语义**，不是实现。
+
+紧凑化只能靠**缩宽**（去掉固定 `w-*` 改按内容自适应），高度 `h-11` 是命中区硬下限。
+把它塞进已有的一行（如 `DeviceHeader`）时，**同排的弹性列必须补 `min-w-0`**：切换器是
+`shrink-0`，没有 `min-w-0` 那一列不肯收缩，长设备名会把切换器挤出卡片右边缘而不是自己
+截断；同排的多行文字也要补 `numberOfLines={1}`，否则换行会把整行撑高，「不增加高度」
+这个前提就没了。
+
+跨端判据（哪一端把切换器放哪、为什么）在根 `DESIGN.md` 的 **Content Mode Selector**。
+
+**相关文件**:[src/app/send/select-device.tsx](../../src/app/send/select-device.tsx)
+(`ContentModeSwitch` / `DeviceHeader`)
+
 ## 安全区域 / 导航
 
 ### 主底部导航使用 NativeTabs，不再用 JS Tabs 自绘高度
