@@ -8,6 +8,7 @@
 import { toast } from "sonner";
 import { t } from "@lingui/core/macro";
 import { getErrorMessage } from "@/lib/errors";
+import { pathsToSources } from "@/lib/file-source";
 import { commands, type FileSource, type TransferProjection } from "@/lib/bindings";
 
 /** 暂停传输 */
@@ -70,8 +71,5 @@ export async function doResendTransfer(
   if (paths.length === 0) {
     throw new Error(t`找不到原始文件路径，请重新选择文件发送`);
   }
-  setSources(
-    paths.map((path) => ({ type: "path", path })),
-    projection.peerId,
-  );
+  setSources(pathsToSources(paths), projection.peerId);
 }

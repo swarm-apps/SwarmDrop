@@ -38,6 +38,8 @@ import {
 import { formatFileSize } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { FileDropZone } from "./-components/file-drop-zone";
+import { useFileDrop } from "@/hooks/use-file-drop";
+import { pathsToSources } from "@/lib/file-source";
 import { PrepareProgressBar } from "./-components/prepare-progress-bar";
 import { SendProgressView } from "./-components/send-progress-view";
 import { FileBrowser } from "@swarmdrop/file-browser";
@@ -256,6 +258,17 @@ export function DesktopSendView({
   const textBytes = utf8ByteLength(textBody);
   const textValid = isTextDeliveryWithinLimit(textBody);
 
+  // 拖放订阅挂在**页面**上，不在 FileDropZone 里——`hasFiles` 一翻转，那两个分支的
+  // JSX 结构不同（一个裸挂、一个包在 div 里），React 会把它 unmount + mount，于是
+  // 退订重订一次。而触发这次翻转的正是投放本身，`unlisten` 又是 fire-and-forget 的
+  // 异步 IPC：紧接着的第二次投放会落进「旧的还没退、新的已经进」的缝里，被两代
+  // handler 各处理一次，同一批文件进两遍发送列表（`addSources` 不去重）。
+  // 挂在页面上顺带让两个 FileDropZone 实例共用一条订阅。
+  const isDragging = useFileDrop({
+    disabled: sending || mode !== "files",
+    onDrop: (paths) => onSourcesSelected(pathsToSources(paths)),
+  });
+
   const refreshOutbox = useCallback(async () => {
     setOutboxLoading(true);
     try {
@@ -429,6 +442,7 @@ export function DesktopSendView({
               <FileDropZone
                 onSourcesSelected={onSourcesSelected}
                 disabled={sending}
+                isDragging={isDragging}
                 compact
                 className="shrink-0"
               />
@@ -440,6 +454,7 @@ export function DesktopSendView({
                 <FileDropZone
                   onSourcesSelected={onSourcesSelected}
                   disabled={sending}
+                  isDragging={isDragging}
                   className="flex-1"
                 />
               </div>
