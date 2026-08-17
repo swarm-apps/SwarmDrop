@@ -260,8 +260,9 @@ supported: string[] } |
 	 *  「切级别时保留哪些字段」规则，而内核那一份一个都不保留——同一个产品动作三种行为。
 	 *  现在规则只在 [`DeviceReceivePolicy::for_trust_level`] 一处。
 	 * 
-	 *  `previous` 传该设备**当前**的策略；用户显式设过的保存位置与代收授权会被带过去
-	 *  （`blocked` 除外）。
+	 *  `previous` 传该设备**当前**的策略；用户显式设过的保存位置、代收授权与 AI 发件授权会被
+	 *  带过去（`blocked` 清前两项、`temporary` 收走发件授权，判据见
+	 *  [`DeviceReceivePolicy::for_trust_level`]）。
 	 */
 	defaultReceivePolicy: (trustLevel: DeviceTrustLevel, previous: {
 	autoAccept: boolean,
@@ -271,12 +272,41 @@ supported: string[] } |
 	allowRelayAutoAccept: boolean,
 	saveBehavior?: ReceiveSaveBehavior,
 	defaultSaveLocation?: string | null,
-	allowMcpSendToDevice: boolean,
+	/**
+	 *  允许本机 MCP/AI 向该设备**发送**文件。
+	 * 
+	 *  **新配对时 `Owned` / `Collaborator` 默认 true，`Temporary` / `Blocked` 恒 false**，
+	 *  且用户可在信任策略里逐设备关闭。它此前是按信任级别硬派生的（仅 `Owned` 为 true）
+	 *  且 UI 无入口，于是「让 AI 发给协作者设备」唯一的办法是把该设备升成本人设备——那会
+	 *  连带打开自动接收、关掉确认要求，为一个发送权限付出一整套接收侧放宽。
+	 *  2026-08-17 改为用户可调。
+	 * 
+	 *  默认放开的判据是**授权已在上游发生过两次**：配对本身是用户主动动作，而 MCP server
+	 *  默认关闭、仅监听 `127.0.0.1`（开它也是用户动作）。再逐设备要一次授权是第三道摩擦，
+	 *  拦不住任何新的攻击者。**这条论证对 `Temporary` 不成立**——那一档的存在理由就是
+	 *  「这台设备只该在有限窗口内有有限权限」，所以它不吃这个默认值，且[`evaluate_mcp_send`]
+	 *  还会独立看 `expires_at`。
+	 * 
+	 *  ⚠️ **它不再是信任级别的可靠代理**（改动前是）。`update_policy` 对传入策略不做钳制，
+	 *  于是「`Blocked` 但这一位是 true」的记录是可构造的——发送侧因此**不许**只看这一位，
+	 *  判据统一走 [`evaluate_mcp_send`]，与接收侧 `evaluate_receive_policy` 同构。
+	 * 
+	 *  缺字段（旧记录）按 true 回落：它是 2026-08-17 之前唯一没有 `serde(default)` 的 bool，
+	 *  而 `PairedDeviceStore` 一条解析失败会让**整份**设备列表读不出来（「读取失败不降级」），
+	 *  表现是用户打开 app 发现设备全没了。
+	 * 
+	 *  ⚠️ **「默认」只对新配对与切级别成立，存量记录不回填**：持久化的策略是照原样读出来的，
+	 *  没有任何路径会为已配对设备重新派生。改动前配对的非 `Owned` 设备因此仍带着旧规则写下的
+	 *  显式 `false`——那不是用户的选择（当时三端都没有这个开关），但也不会自动变成 true，
+	 *  用户要在信任策略里手动开一次。之所以不做一次性回填：区分不了「旧默认」与「用户关过」
+	 *  需要额外的版本位，而为一个一次性动作留一段永久迁移代码不划算。
+	 */
+	allowMcpSendToDevice?: boolean,
 	/**
 	 *  允许 MCP/AI 代该来源设备处置入站 offer（接受或拒绝）。
 	 * 
-	 *  默认 false。与发送侧 `allow_mcp_send_to_device` **刻意不对称**：代收会往磁盘写入、
-	 *  风险更高，故即便对 Owned 设备也需用户逐设备显式开启（发送侧则随信任级别自动派生）。
+	 *  默认 false —— 与发送侧同为用户可调、同样跨级别保留，**只有默认值刻意不同**：
+	 *  代收会往磁盘写入、风险更高，故即便对 Owned 设备也需用户逐设备显式开启。
 	 *  只能由用户在 app 的设备信任策略中开启，agent 无任何写权限——防止自我提权、静默代收。
 	 */
 	allowMcpAcceptFromDevice?: boolean,
@@ -298,12 +328,41 @@ supported: string[] } |
 	allowRelayAutoAccept: boolean,
 	saveBehavior?: ReceiveSaveBehavior,
 	defaultSaveLocation?: string | null,
-	allowMcpSendToDevice: boolean,
+	/**
+	 *  允许本机 MCP/AI 向该设备**发送**文件。
+	 * 
+	 *  **新配对时 `Owned` / `Collaborator` 默认 true，`Temporary` / `Blocked` 恒 false**，
+	 *  且用户可在信任策略里逐设备关闭。它此前是按信任级别硬派生的（仅 `Owned` 为 true）
+	 *  且 UI 无入口，于是「让 AI 发给协作者设备」唯一的办法是把该设备升成本人设备——那会
+	 *  连带打开自动接收、关掉确认要求，为一个发送权限付出一整套接收侧放宽。
+	 *  2026-08-17 改为用户可调。
+	 * 
+	 *  默认放开的判据是**授权已在上游发生过两次**：配对本身是用户主动动作，而 MCP server
+	 *  默认关闭、仅监听 `127.0.0.1`（开它也是用户动作）。再逐设备要一次授权是第三道摩擦，
+	 *  拦不住任何新的攻击者。**这条论证对 `Temporary` 不成立**——那一档的存在理由就是
+	 *  「这台设备只该在有限窗口内有有限权限」，所以它不吃这个默认值，且[`evaluate_mcp_send`]
+	 *  还会独立看 `expires_at`。
+	 * 
+	 *  ⚠️ **它不再是信任级别的可靠代理**（改动前是）。`update_policy` 对传入策略不做钳制，
+	 *  于是「`Blocked` 但这一位是 true」的记录是可构造的——发送侧因此**不许**只看这一位，
+	 *  判据统一走 [`evaluate_mcp_send`]，与接收侧 `evaluate_receive_policy` 同构。
+	 * 
+	 *  缺字段（旧记录）按 true 回落：它是 2026-08-17 之前唯一没有 `serde(default)` 的 bool，
+	 *  而 `PairedDeviceStore` 一条解析失败会让**整份**设备列表读不出来（「读取失败不降级」），
+	 *  表现是用户打开 app 发现设备全没了。
+	 * 
+	 *  ⚠️ **「默认」只对新配对与切级别成立，存量记录不回填**：持久化的策略是照原样读出来的，
+	 *  没有任何路径会为已配对设备重新派生。改动前配对的非 `Owned` 设备因此仍带着旧规则写下的
+	 *  显式 `false`——那不是用户的选择（当时三端都没有这个开关），但也不会自动变成 true，
+	 *  用户要在信任策略里手动开一次。之所以不做一次性回填：区分不了「旧默认」与「用户关过」
+	 *  需要额外的版本位，而为一个一次性动作留一段永久迁移代码不划算。
+	 */
+	allowMcpSendToDevice?: boolean,
 	/**
 	 *  允许 MCP/AI 代该来源设备处置入站 offer（接受或拒绝）。
 	 * 
-	 *  默认 false。与发送侧 `allow_mcp_send_to_device` **刻意不对称**：代收会往磁盘写入、
-	 *  风险更高，故即便对 Owned 设备也需用户逐设备显式开启（发送侧则随信任级别自动派生）。
+	 *  默认 false —— 与发送侧同为用户可调、同样跨级别保留，**只有默认值刻意不同**：
+	 *  代收会往磁盘写入、风险更高，故即便对 Owned 设备也需用户逐设备显式开启。
 	 *  只能由用户在 app 的设备信任策略中开启，agent 无任何写权限——防止自我提权、静默代收。
 	 */
 	allowMcpAcceptFromDevice?: boolean,
@@ -567,12 +626,41 @@ export type DeviceReceivePolicy = {
 	allowRelayAutoAccept: boolean,
 	saveBehavior?: ReceiveSaveBehavior,
 	defaultSaveLocation?: string | null,
-	allowMcpSendToDevice: boolean,
+	/**
+	 *  允许本机 MCP/AI 向该设备**发送**文件。
+	 * 
+	 *  **新配对时 `Owned` / `Collaborator` 默认 true，`Temporary` / `Blocked` 恒 false**，
+	 *  且用户可在信任策略里逐设备关闭。它此前是按信任级别硬派生的（仅 `Owned` 为 true）
+	 *  且 UI 无入口，于是「让 AI 发给协作者设备」唯一的办法是把该设备升成本人设备——那会
+	 *  连带打开自动接收、关掉确认要求，为一个发送权限付出一整套接收侧放宽。
+	 *  2026-08-17 改为用户可调。
+	 * 
+	 *  默认放开的判据是**授权已在上游发生过两次**：配对本身是用户主动动作，而 MCP server
+	 *  默认关闭、仅监听 `127.0.0.1`（开它也是用户动作）。再逐设备要一次授权是第三道摩擦，
+	 *  拦不住任何新的攻击者。**这条论证对 `Temporary` 不成立**——那一档的存在理由就是
+	 *  「这台设备只该在有限窗口内有有限权限」，所以它不吃这个默认值，且[`evaluate_mcp_send`]
+	 *  还会独立看 `expires_at`。
+	 * 
+	 *  ⚠️ **它不再是信任级别的可靠代理**（改动前是）。`update_policy` 对传入策略不做钳制，
+	 *  于是「`Blocked` 但这一位是 true」的记录是可构造的——发送侧因此**不许**只看这一位，
+	 *  判据统一走 [`evaluate_mcp_send`]，与接收侧 `evaluate_receive_policy` 同构。
+	 * 
+	 *  缺字段（旧记录）按 true 回落：它是 2026-08-17 之前唯一没有 `serde(default)` 的 bool，
+	 *  而 `PairedDeviceStore` 一条解析失败会让**整份**设备列表读不出来（「读取失败不降级」），
+	 *  表现是用户打开 app 发现设备全没了。
+	 * 
+	 *  ⚠️ **「默认」只对新配对与切级别成立，存量记录不回填**：持久化的策略是照原样读出来的，
+	 *  没有任何路径会为已配对设备重新派生。改动前配对的非 `Owned` 设备因此仍带着旧规则写下的
+	 *  显式 `false`——那不是用户的选择（当时三端都没有这个开关），但也不会自动变成 true，
+	 *  用户要在信任策略里手动开一次。之所以不做一次性回填：区分不了「旧默认」与「用户关过」
+	 *  需要额外的版本位，而为一个一次性动作留一段永久迁移代码不划算。
+	 */
+	allowMcpSendToDevice?: boolean,
 	/**
 	 *  允许 MCP/AI 代该来源设备处置入站 offer（接受或拒绝）。
 	 * 
-	 *  默认 false。与发送侧 `allow_mcp_send_to_device` **刻意不对称**：代收会往磁盘写入、
-	 *  风险更高，故即便对 Owned 设备也需用户逐设备显式开启（发送侧则随信任级别自动派生）。
+	 *  默认 false —— 与发送侧同为用户可调、同样跨级别保留，**只有默认值刻意不同**：
+	 *  代收会往磁盘写入、风险更高，故即便对 Owned 设备也需用户逐设备显式开启。
 	 *  只能由用户在 app 的设备信任策略中开启，agent 无任何写权限——防止自我提权、静默代收。
 	 */
 	allowMcpAcceptFromDevice?: boolean,

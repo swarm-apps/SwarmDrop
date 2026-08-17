@@ -119,7 +119,9 @@ impl From<DeviceReceivePolicy> for MobileDeviceReceivePolicy {
 /// 「切级别时保留哪些字段」规则，而内核那一份一个都不保留——同一个产品动作三种行为。
 /// 现在规则只在 [`DeviceReceivePolicy::for_trust_level`] 一处。
 ///
-/// `previous` 传该设备**当前**的策略，用户显式设过的保存位置会被带过去（`blocked` 除外）。
+/// `previous` 传该设备**当前**的策略，用户显式设过的保存位置与 AI 发件授权会被带过去
+/// （`temporary` 会收走发件授权；`blocked` 只清保存位置，发件授权照常带走——判据全在
+/// [`DeviceReceivePolicy::for_trust_level`]，别在 TS 侧另立一套）。
 ///
 /// ⚠️ 代收授权（`allow_mcp_accept_from_device`）**不在** [`MobileDeviceReceivePolicy`] 里
 /// （见下面 `From` 的注释：移动端不管理该策略，回写恒 fail-closed 为 false）。所以内核为它

@@ -29,6 +29,10 @@ import { useInboxStore } from "@/stores/inbox-store";
 
 export function TextDeliveryAttentionHost() {
   const { t } = useLingui();
+  // action 走 selector 取(项目规则,check:zustand-access 看守):它是 store 内的稳定引用,
+  // 订阅它不会带来额外重渲染,因此没有理由为它开一条读快照的例外。
+  // 注:那个检查按源码文本匹配,连注释里都不能把那个调用形态原样写出来。
+  const refreshInbox = useInboxStore((state) => state.refresh);
   const [pendingTexts, setPendingTexts] = useState<MobilePendingTextDelivery[]>(
     [],
   );
@@ -66,7 +70,7 @@ export function TextDeliveryAttentionHost() {
         setPendingTexts((items) =>
           items.filter((item) => item.deliveryId !== pending.deliveryId),
         );
-        if (accepted) await useInboxStore.getState().refresh();
+        if (accepted) await refreshInbox();
         await refresh();
       } catch (error) {
         toast.error(accepted ? t`接收文本失败` : t`拒绝文本失败`, error);
@@ -74,7 +78,7 @@ export function TextDeliveryAttentionHost() {
         setResponding(false);
       }
     },
-    [pending, refresh, responding, t],
+    [pending, refresh, refreshInbox, responding, t],
   );
 
   if (!pending) return null;

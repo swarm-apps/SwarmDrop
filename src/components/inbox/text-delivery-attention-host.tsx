@@ -25,6 +25,10 @@ import { useInboxStore } from "@/stores/inbox-store";
 
 export function TextDeliveryAttentionHost() {
   const navigate = useNavigate();
+  // action 走 selector 取（项目规则，`check:zustand-access` 规则 A 看守）：它是 store 内的
+  // 稳定引用，订阅它不会带来额外重渲染，因此没有理由为它开一条读快照的例外。
+  // 注：那个检查按源码文本匹配，连注释里都不能把那个调用形态原样写出来。
+  const loadItems = useInboxStore((state) => state.loadItems);
   const [pendingTexts, setPendingTexts] = useState<
     PendingTextDeliverySummary[]
   >([]);
@@ -88,7 +92,7 @@ export function TextDeliveryAttentionHost() {
         setPendingTexts((items) =>
           items.filter((item) => item.deliveryId !== pending.deliveryId),
         );
-        if (accepted) await useInboxStore.getState().loadItems(false);
+        if (accepted) await loadItems(false);
         await refresh();
       }}
     />

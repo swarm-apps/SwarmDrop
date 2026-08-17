@@ -144,12 +144,18 @@ export function TrustPolicyDialog({
     }
   };
 
-  const autoAcceptDisabled = trustLevel === "blocked";
+  // 「已阻止」把整组策略控件一起禁掉。此前这个判断只有自动接收那一项用命名常量、其余四处
+  // 各自内联同一个字面量，加一项就多一处要记得跟着改。
+  const policyDisabled = trustLevel === "blocked";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
+      {/* 内容会随开关数量增长，而 DialogContent 自身既无 max-height 也不滚动：窗口
+          minHeight 是 480、默认 720，堆到第五个开关时页脚（取消 / 保存策略）会被推出视口，
+          又因为面板是 fixed 居中，溢出的部分根本够不到——用户只能按 Esc 放弃。
+          三行网格 + 中间可滚，保证两个按钮任何窗口高度下都在。 */}
       <DialogContent
-        className="sm:max-w-[520px]"
+        className="grid-rows-[auto_minmax(0,1fr)_auto] max-h-[85vh] sm:max-w-[520px]"
         onClick={(event) => event.stopPropagation()}
       >
         <DialogHeader>
@@ -161,7 +167,7 @@ export function TrustPolicyDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 py-1">
+        <div className="grid gap-4 overflow-y-auto py-1">
           <div className="grid gap-2">
             <Label>
               <Trans>信任级别</Trans>
@@ -193,7 +199,7 @@ export function TrustPolicyDialog({
               label={t`自动接收`}
               description={t`启用后，符合策略的入站文件会直接进入收件箱`}
               checked={policy.autoAccept}
-              disabled={autoAcceptDisabled}
+              disabled={policyDisabled}
               onCheckedChange={(checked) =>
                 patchPolicy({
                   autoAccept: checked,
@@ -206,7 +212,7 @@ export function TrustPolicyDialog({
               label={t`允许文件夹`}
               description={t`关闭后，包含子路径的传输会被策略拒绝`}
               checked={policy.allowDirectories}
-              disabled={trustLevel === "blocked"}
+              disabled={policyDisabled}
               onCheckedChange={(checked) =>
                 patchPolicy({ allowDirectories: checked })
               }
@@ -216,9 +222,23 @@ export function TrustPolicyDialog({
               label={t`允许中继自动接收`}
               description={t`关闭后，通过中继连接的传输仍需手动确认`}
               checked={policy.allowRelayAutoAccept}
-              disabled={!policy.autoAccept || trustLevel === "blocked"}
+              disabled={!policy.autoAccept || policyDisabled}
               onCheckedChange={(checked) =>
                 patchPolicy({ allowRelayAutoAccept: checked })
+              }
+            />
+
+            {/* 发件在前、代收在后：两者默认值相反（发件默认开、代收默认关，见内核
+                `DeviceReceivePolicy` 字段注释），按「先松后紧」排能让这组默认态自解释。
+                `?? true` 的方向跟着那个默认走——字段带 `serde(default)`，在 TS 侧是可选的，
+                缺失意味着「按默认」。别照抄下面代收那行的 `?? false`。 */}
+            <PolicySwitch
+              label={t`允许 MCP/AI 发送`}
+              description={t`允许本机 AI 助手把文件发给该设备；关闭后仍可在 SwarmDrop 里手动发送`}
+              checked={policy.allowMcpSendToDevice ?? true}
+              disabled={policyDisabled}
+              onCheckedChange={(checked) =>
+                patchPolicy({ allowMcpSendToDevice: checked })
               }
             />
 
@@ -226,7 +246,7 @@ export function TrustPolicyDialog({
               label={t`允许 MCP/AI 代收`}
               description={t`允许本机 AI 助手代为处置该设备需你确认的入站文件（接受或拒绝）；关闭则仍需你手动确认。已自动接收的入站不受此影响`}
               checked={policy.allowMcpAcceptFromDevice ?? false}
-              disabled={trustLevel === "blocked"}
+              disabled={policyDisabled}
               onCheckedChange={(checked) =>
                 patchPolicy({ allowMcpAcceptFromDevice: checked })
               }
@@ -243,7 +263,7 @@ export function TrustPolicyDialog({
                   value={limitMb}
                   placeholder={t`不限制`}
                   aria-invalid={limitInvalid}
-                  disabled={trustLevel === "blocked"}
+                  disabled={policyDisabled}
                   onChange={(event) => setLimitMb(event.target.value)}
                 />
                 <span className="shrink-0 text-xs text-muted-foreground">MB</span>
@@ -269,7 +289,7 @@ export function TrustPolicyDialog({
                   size="sm"
                   className="h-7 px-2 text-xs"
                   onClick={chooseDefaultSaveLocation}
-                  disabled={trustLevel === "blocked"}
+                  disabled={policyDisabled}
                 >
                   <Trans>选择</Trans>
                 </Button>

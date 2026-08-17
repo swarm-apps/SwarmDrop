@@ -1025,6 +1025,25 @@ serde_wasm_bindgen 把 `None` 序列化成 `undefined`，JS 侧 `obj.field ?? fa
 
 **相关文件**：`crates/web/src/types.rs`（`RelayInfoJson` 是样例）、`crates/web/tests/specta_export.rs`
 
+### 给已有字段补 `#[serde(default)]` 会把它变成 TS 上的**可选**字段
+
+specta 按 serde 的视角导出，所以在一个已存在的 `bool` 上加 `#[serde(default)]`，
+`bindings.ts` 里就从 `field: boolean` 变成 `field?: boolean`。后果不是「多个问号」而已：
+
+- 所有读它的地方类型立刻变 `boolean | undefined`，`tsc` 会报到你脸上（好事）；
+- **但受控组件是静默坏的**——`<Switch checked={policy.foo}>` 传进 `undefined` 会让 React 把
+  它当非受控组件，开关看起来能点、状态却不跟着走，而且只在字段真缺失时才复现。
+
+**正确做法**：补 `??` 回落，且**回落值跟着该字段的业务默认走**，不要照抄邻居。
+`allow_mcp_send_to_device` 缺失的含义是「按默认」而它默认开，所以是 `?? true`；
+紧挨着的 `allow_mcp_accept_from_device` 默认关，是 `?? false`。两行相邻、方向相反。
+
+顺带：`Option<T>` 字段导出的是 `T | null`（可为 null 但**必填**），与 `#[serde(default)]`
+导出的「可省略」是两种不同的 TS 形状，别混着推理。
+
+**相关文件**：`crates/host/src/device.rs`（`DeviceReceivePolicy`）、
+`src/routes/_app/devices/-components/trust-policy-dialog.tsx`
+
 ## Clippy / dead_code
 
 ### 用 #[expect(...)] 替代 #[allow(...)]

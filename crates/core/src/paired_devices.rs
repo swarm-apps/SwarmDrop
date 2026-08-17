@@ -94,8 +94,9 @@ where
     };
 
     device.trust_level = trust_level;
-    // `None` = 「按新级别取默认」。**带上这台设备当前的策略**——用户显式设过的保存位置与
-    // 代收授权要留住，判据见 [`DeviceReceivePolicy::for_trust_level`]。
+    // `None` = 「按新级别取默认」。**带上这台设备当前的策略**——用户显式设过的保存位置、
+    // 代收授权与 AI 发件授权要留住，判据（含 `blocked` / `temporary` 两处例外）见
+    // [`DeviceReceivePolicy::for_trust_level`]。
     //
     // 此前这里传的是「没有上一份」，于是同一个产品动作有两种行为：桌面 UI 走自己那份 JS
     // 副本会保留保存位置，而任何直接传 `None` 的路径（MCP 工具、将来的批量操作）会把它清掉，

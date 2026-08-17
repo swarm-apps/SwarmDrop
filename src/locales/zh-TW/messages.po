@@ -368,6 +368,10 @@ msgid "允许 MCP/AI 代收"
 msgstr "允許 MCP/AI 代收"
 
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
+msgid "允许 MCP/AI 发送"
+msgstr "允許 MCP/AI 傳送"
+
+#: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "允许中继自动接收"
 msgstr "允許中繼自動接收"
 
@@ -378,6 +382,10 @@ msgstr "允許資料夾"
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "允许本机 AI 助手代为处置该设备需你确认的入站文件（接受或拒绝）；关闭则仍需你手动确认。已自动接收的入站不受此影响"
 msgstr "允許本機 AI 助手代為處置該裝置需你確認的入站檔案（接受或拒絕）；關閉則仍需你手動確認。已自動接收的入站不受此影響"
+
+#: src/routes/_app/devices/-components/trust-policy-dialog.tsx
+msgid "允许本机 AI 助手把文件发给该设备；关闭后仍可在 SwarmDrop 里手动发送"
+msgstr "允許本機 AI 助手把檔案傳給該裝置；關閉後仍可在 SwarmDrop 裡手動傳送"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
 #~ msgid "允许通过公网中继被跨网设备访问；关闭后为严格局域网，跨网访问可能不可用"

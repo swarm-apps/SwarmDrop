@@ -295,8 +295,9 @@ pub async fn remove_paired_device(
 /// 「切级别时保留哪些字段」规则，而内核那一份一个都不保留——同一个产品动作三种行为。
 /// 现在规则只在 [`DeviceReceivePolicy::for_trust_level`] 一处。
 ///
-/// `previous` 传该设备**当前**的策略；用户显式设过的保存位置与代收授权会被带过去
-/// （`blocked` 除外）。
+/// `previous` 传该设备**当前**的策略；用户显式设过的保存位置、代收授权与 AI 发件授权会被
+/// 带过去（`blocked` 清前两项、`temporary` 收走发件授权，判据见
+/// [`DeviceReceivePolicy::for_trust_level`]）。
 #[tauri::command]
 #[specta::specta]
 pub fn default_receive_policy(

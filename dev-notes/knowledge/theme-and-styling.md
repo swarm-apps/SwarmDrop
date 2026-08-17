@@ -256,6 +256,19 @@ babel 宏认的是**词法作用域**里的 `const { t } = useLingui()`，`t` �
 
 ## Zustand selector 与派生数组
 
+### `check:zustand-access` 是**文本匹配**，注释里也不能写出那个调用形态
+
+两端的检查脚本（根 `scripts/check-zustand-store-access.mjs` 与 `mobile/` 下同名那份）拿
+`/use[A-Za-z0-9_]*Store\s*\.\s*(getState|setState)\s*\(/` 扫源码，**不解析 AST、不排除注释**。
+所以在解释「为什么这里走 selector」的注释里把反例原样写出来，脚本照样报错，且行号指着注释行
+——看起来像误报，其实是规则如实生效。连 `useXStore.getState(` 这种占位写法也会命中（`X` 落在
+`[A-Za-z0-9_]*` 里）。
+
+**正确做法**：注释用文字描述（「直接读 store 快照」），不要贴调用形态。
+
+**相关文件**：`src/components/inbox/text-delivery-attention-host.tsx`、
+`mobile/src/components/text-delivery-attention-host.tsx`（同一功能的两端实现，同时踩过）
+
 ### filter / map 派生值必须套 useShallow
 
 Zustand 默认用 `Object.is` 比较 selector 返回值。`s.devices.filter(...)` 每次返回新数组引用 → 组件无限 re-render（"Maximum update depth exceeded"）。

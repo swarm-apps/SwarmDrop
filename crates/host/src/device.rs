@@ -47,16 +47,48 @@ pub struct DeviceReceivePolicy {
     pub save_behavior: ReceiveSaveBehavior,
     #[serde(default)]
     pub default_save_location: Option<String>,
+    /// 允许本机 MCP/AI 向该设备**发送**文件。
+    ///
+    /// **新配对时 `Owned` / `Collaborator` 默认 true，`Temporary` / `Blocked` 恒 false**，
+    /// 且用户可在信任策略里逐设备关闭。它此前是按信任级别硬派生的（仅 `Owned` 为 true）
+    /// 且 UI 无入口，于是「让 AI 发给协作者设备」唯一的办法是把该设备升成本人设备——那会
+    /// 连带打开自动接收、关掉确认要求，为一个发送权限付出一整套接收侧放宽。
+    /// 2026-08-17 改为用户可调。
+    ///
+    /// 默认放开的判据是**授权已在上游发生过两次**：配对本身是用户主动动作，而 MCP server
+    /// 默认关闭、仅监听 `127.0.0.1`（开它也是用户动作）。再逐设备要一次授权是第三道摩擦，
+    /// 拦不住任何新的攻击者。**这条论证对 `Temporary` 不成立**——那一档的存在理由就是
+    /// 「这台设备只该在有限窗口内有有限权限」，所以它不吃这个默认值，且[`evaluate_mcp_send`]
+    /// 还会独立看 `expires_at`。
+    ///
+    /// ⚠️ **它不再是信任级别的可靠代理**（改动前是）。`update_policy` 对传入策略不做钳制，
+    /// 于是「`Blocked` 但这一位是 true」的记录是可构造的——发送侧因此**不许**只看这一位，
+    /// 判据统一走 [`evaluate_mcp_send`]，与接收侧 `evaluate_receive_policy` 同构。
+    ///
+    /// 缺字段（旧记录）按 true 回落：它是 2026-08-17 之前唯一没有 `serde(default)` 的 bool，
+    /// 而 `PairedDeviceStore` 一条解析失败会让**整份**设备列表读不出来（「读取失败不降级」），
+    /// 表现是用户打开 app 发现设备全没了。
+    ///
+    /// ⚠️ **「默认」只对新配对与切级别成立，存量记录不回填**：持久化的策略是照原样读出来的，
+    /// 没有任何路径会为已配对设备重新派生。改动前配对的非 `Owned` 设备因此仍带着旧规则写下的
+    /// 显式 `false`——那不是用户的选择（当时三端都没有这个开关），但也不会自动变成 true，
+    /// 用户要在信任策略里手动开一次。之所以不做一次性回填：区分不了「旧默认」与「用户关过」
+    /// 需要额外的版本位，而为一个一次性动作留一段永久迁移代码不划算。
+    #[serde(default = "default_allow_mcp_send")]
     pub allow_mcp_send_to_device: bool,
     /// 允许 MCP/AI 代该来源设备处置入站 offer（接受或拒绝）。
     ///
-    /// 默认 false。与发送侧 `allow_mcp_send_to_device` **刻意不对称**：代收会往磁盘写入、
-    /// 风险更高，故即便对 Owned 设备也需用户逐设备显式开启（发送侧则随信任级别自动派生）。
+    /// 默认 false —— 与发送侧同为用户可调、同样跨级别保留，**只有默认值刻意不同**：
+    /// 代收会往磁盘写入、风险更高，故即便对 Owned 设备也需用户逐设备显式开启。
     /// 只能由用户在 app 的设备信任策略中开启，agent 无任何写权限——防止自我提权、静默代收。
     #[serde(default)]
     pub allow_mcp_accept_from_device: bool,
     #[serde(default)]
     pub expires_at: Option<i64>,
+}
+
+fn default_allow_mcp_send() -> bool {
+    true
 }
 
 impl Default for DeviceReceivePolicy {
@@ -65,12 +97,47 @@ impl Default for DeviceReceivePolicy {
     }
 }
 
+/// [`evaluate_mcp_send`] 的拒绝原因。**判据与话术分离**——文案属于各宿主（桌面 MCP 壳按
+/// 这三档给不同的下一步指引），判据属于这里，于是它可以被单测覆盖。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum McpSendDenial {
+    /// 设备已被阻止。
+    Blocked,
+    /// 临时设备的授权窗口已过。
+    Expired,
+    /// 用户在信任策略里关掉了「允许 MCP/AI 发送」。
+    PolicyDisabled,
+}
+
+/// 本机 MCP/AI 能否向该设备发送文件。
+///
+/// 判据顺序与接收侧 `evaluate_receive_policy` 一致（阻止 → 过期 → 策略位），因为它们回答的
+/// 是同一个问题的两个方向，顺序不同会让「为什么这台设备能收不能发」变得无法解释。
+///
+/// **不许在调用点只判 `allow_mcp_send_to_device`**：那一位自 2026-08-17 起是用户可编辑的
+/// 自由字段，不再随信任级别派生（见字段注释），单看它会让一台被阻止的设备仍然收得到
+/// AI 发出的文件。
+pub fn evaluate_mcp_send(device: &PairedDeviceInfo, now_ms: i64) -> Result<(), McpSendDenial> {
+    if device.trust_level == DeviceTrustLevel::Blocked {
+        return Err(McpSendDenial::Blocked);
+    }
+    if let Some(expires_at) = device.receive_policy.expires_at
+        && expires_at <= now_ms
+    {
+        return Err(McpSendDenial::Expired);
+    }
+    if !device.receive_policy.allow_mcp_send_to_device {
+        return Err(McpSendDenial::PolicyDisabled);
+    }
+    Ok(())
+}
+
 impl DeviceReceivePolicy {
     /// 某信任级别的接收策略。**三端唯一的事实源**——桌面、移动、Web 都经各自的 binding
     /// 调这里，不许再抄一份到 JS（那正是本函数收 `previous` 之前的状态：两份 JS 副本各自
     /// 长出了不同的「保留哪些字段」规则，而内核这一份一个都不保留）。
     ///
-    /// `previous` 是该设备**当前**的策略；新配对传 `None`。切换信任级别时，两项
+    /// `previous` 是该设备**当前**的策略；新配对传 `None`。切换信任级别时，三项
     /// **用户显式设过的东西**要带过去，不能被默认值抹掉：
     ///
     /// - `default_save_location` —— 用户选的自动接收落点。丢了它 `auto_accept` 就是一张
@@ -79,13 +146,24 @@ impl DeviceReceivePolicy {
     ///   悄悄关掉自动接收——用户看到的开关还开着。
     /// - `allow_mcp_accept_from_device` —— 代 AI 收件的授权。它只能由用户显式开启
     ///   （见字段注释），那么级别变化既不该替他重新授权，也不该替他撤销。
+    /// - `allow_mcp_send_to_device` —— 代 AI 发件的授权，**默认开**（见字段注释）。同理：
+    ///   用户关掉它之后切一次级别就被重新打开，等于这个开关只在下次切级别之前有效。
     ///
-    /// **`Blocked` 是唯一例外**：两项都清零。「已阻止」必须是一个不留后门的终态，
-    /// 而不是「阻止了但保存位置和代收授权还留着」。
+    /// **两处例外**：
+    ///
+    /// - `Blocked` 清掉保存位置与代收授权——「已阻止」必须是一个不留后门的终态。但
+    ///   **发件位照常 carry-forward**：它在被阻止期间不承担任何安全职责（[`evaluate_mcp_send`]
+    ///   先判 `trust_level` 再看它），把它一起按成 false 只会造成一个死循环——阻止 →
+    ///   提示「请先解除阻止」→ 用户解除 → 发件位仍是被阻止时按下的 false → 换一条错误再拦
+    ///   一次。它在这里的唯一职责是**记住用户的偏好**，而「被阻止」不是用户对这个开关的意见。
+    /// - `Temporary` 把发件授权按到 false 且不吃 carry-forward（见字段注释），因为「降级到
+    ///   临时设备」这个动作与「继续持有 AI 发件权」是矛盾的。
     pub fn for_trust_level(level: DeviceTrustLevel, previous: Option<&Self>) -> Self {
         // 非 blocked 分支统一从这里取；blocked 分支不看它们。
         let default_save_location = previous.and_then(|p| p.default_save_location.clone());
         let allow_mcp_accept_from_device = previous.is_some_and(|p| p.allow_mcp_accept_from_device);
+        // 没有前值 = 新配对 → 默认允许；有前值就是用户的意思，级别变化不替他改。
+        let allow_mcp_send_to_device = previous.is_none_or(|p| p.allow_mcp_send_to_device);
 
         match level {
             DeviceTrustLevel::Owned => Self {
@@ -96,7 +174,7 @@ impl DeviceReceivePolicy {
                 allow_relay_auto_accept: true,
                 save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
                 default_save_location,
-                allow_mcp_send_to_device: true,
+                allow_mcp_send_to_device,
                 allow_mcp_accept_from_device,
                 expires_at: None,
             },
@@ -108,7 +186,7 @@ impl DeviceReceivePolicy {
                 allow_relay_auto_accept: false,
                 save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
                 default_save_location,
-                allow_mcp_send_to_device: false,
+                allow_mcp_send_to_device,
                 allow_mcp_accept_from_device,
                 expires_at: None,
             },
@@ -120,6 +198,7 @@ impl DeviceReceivePolicy {
                 allow_relay_auto_accept: false,
                 save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
                 default_save_location,
+                // 临时设备恒不给 AI 发件权，连 carry-forward 都不吃：降到这一档是收紧动作。
                 allow_mcp_send_to_device: false,
                 allow_mcp_accept_from_device,
                 expires_at: Some(chrono::Utc::now().timestamp_millis() + 24 * 60 * 60 * 1000),
@@ -132,7 +211,8 @@ impl DeviceReceivePolicy {
                 allow_relay_auto_accept: false,
                 save_behavior: ReceiveSaveBehavior::InboxAndDefaultSaveLocation,
                 default_save_location: None,
-                allow_mcp_send_to_device: false,
+                // 唯一不跟着清零的一项：见上方文档，它在这一档不管安全、只记偏好。
+                allow_mcp_send_to_device,
                 allow_mcp_accept_from_device: false,
                 expires_at: None,
             },
@@ -876,9 +956,185 @@ mod tests {
         }
     }
 
-    /// `Blocked` 是唯一例外：两项都清零。
+    /// 发件授权与代收相反：新配对默认**开**，`Blocked` 除外。
     ///
-    /// 「已阻止」必须是不留后门的终态——保留一个自动落点或一份代收授权，都会让「阻止」
+    /// 判据见字段注释——配对与开启 MCP server 都已经是用户动作，逐设备再要一次授权拦不住
+    /// 任何新的攻击者，只会让「让 AI 发个文件」被一个 UI 上找不到的开关挡住（它此前正是
+    /// 按级别硬派生、且没有入口）。
+    #[test]
+    fn allow_mcp_send_defaults_true_only_for_lasting_trust() {
+        for level in [DeviceTrustLevel::Owned, DeviceTrustLevel::Collaborator] {
+            let policy = super::DeviceReceivePolicy::for_trust_level(level, None);
+            assert!(policy.allow_mcp_send_to_device, "发件默认应开启: {level:?}");
+        }
+
+        // 临时设备不吃这个默认值（有限窗口，见 `for_trust_level` 文档）。
+        let temporary =
+            super::DeviceReceivePolicy::for_trust_level(DeviceTrustLevel::Temporary, None);
+        assert!(
+            !temporary.allow_mcp_send_to_device,
+            "临时设备不得默认允许 AI 发件"
+        );
+    }
+
+    /// 阻止 → 解除阻止不得把用户的发件偏好吃掉。
+    ///
+    /// 这是审查指出的、原先没有任何测试覆盖的方向，也是唯一能把新提示语变成谎话的路径：
+    /// 提示说「解除阻止，再开一次开关」，若解除后偏好丢了，用户就得多走一轮。
+    #[test]
+    fn unblocking_restores_the_user_preference_for_mcp_send() {
+        // 阻止期间字段值不承担安全职责——安全由 `evaluate_mcp_send` 看 trust_level 保证。
+        let enabled =
+            super::DeviceReceivePolicy::for_trust_level(DeviceTrustLevel::Collaborator, None);
+        let blocked =
+            super::DeviceReceivePolicy::for_trust_level(DeviceTrustLevel::Blocked, Some(&enabled));
+        let unblocked = super::DeviceReceivePolicy::for_trust_level(
+            DeviceTrustLevel::Collaborator,
+            Some(&blocked),
+        );
+        assert!(
+            unblocked.allow_mcp_send_to_device,
+            "解除阻止后应回到用户阻止前的『开』"
+        );
+
+        // 反向：用户自己关过，阻止再解除仍然是关的。
+        let disabled = super::DeviceReceivePolicy {
+            allow_mcp_send_to_device: false,
+            ..super::DeviceReceivePolicy::for_trust_level(DeviceTrustLevel::Collaborator, None)
+        };
+        let blocked =
+            super::DeviceReceivePolicy::for_trust_level(DeviceTrustLevel::Blocked, Some(&disabled));
+        let unblocked = super::DeviceReceivePolicy::for_trust_level(
+            DeviceTrustLevel::Collaborator,
+            Some(&blocked),
+        );
+        assert!(
+            !unblocked.allow_mcp_send_to_device,
+            "解除阻止不该替用户把他关掉的开关打开"
+        );
+    }
+
+    /// 降级到临时设备要**收走**发件授权，哪怕前一档开着。
+    ///
+    /// 与 [`switching_trust_level_preserves_disabled_mcp_send`] 是一对：那条守「关掉的别被
+    /// 打开」，这条守「该关的别被 carry-forward 顶住」。只写前者的话，`Temporary` 分支从
+    /// 硬编码 false 退回共享变量时不会有任何测试变红。
+    #[test]
+    fn downgrading_to_temporary_revokes_mcp_send() {
+        let previous = super::DeviceReceivePolicy::for_trust_level(DeviceTrustLevel::Owned, None);
+        assert!(previous.allow_mcp_send_to_device, "前置：本人设备默认开着");
+
+        let policy = super::DeviceReceivePolicy::for_trust_level(
+            DeviceTrustLevel::Temporary,
+            Some(&previous),
+        );
+        assert!(
+            !policy.allow_mcp_send_to_device,
+            "降级到临时设备应收走发件授权"
+        );
+    }
+
+    /// 旧记录缺 `allowMcpSendToDevice` 时按 true 回落，而不是让**整份**设备列表解析失败。
+    ///
+    /// 它是这个 struct 里最后一个没有 `serde(default)` 的 bool；`PairedDeviceStore` 一条坏
+    /// 记录就会让 `load_paired_devices` 整体 `Err`（「读取失败不降级」），用户看到的是设备
+    /// 列表空了，而不是某一行有问题。
+    #[test]
+    fn legacy_policy_without_allow_mcp_send_defaults_true() {
+        let json = serde_json::json!({
+            "autoAccept": false,
+            "requireConfirmation": true,
+            "allowDirectories": true,
+            "allowRelayAutoAccept": false,
+        });
+        let policy: super::DeviceReceivePolicy = serde_json::from_value(json).expect("应能解析");
+        assert!(policy.allow_mcp_send_to_device, "缺字段应回落 true");
+    }
+
+    #[test]
+    fn mcp_send_is_denied_for_blocked_expired_and_disabled() {
+        use super::{McpSendDenial, evaluate_mcp_send};
+
+        let now = 1_700_000_000_000;
+        let device = |level, mutate: &dyn Fn(&mut super::DeviceReceivePolicy)| {
+            let mut policy = super::DeviceReceivePolicy::for_trust_level(level, None);
+            mutate(&mut policy);
+            let mut info = super::PairedDeviceInfo::new(
+                SecretKey::generate().node_id(),
+                sample(None, "peer"),
+                now - 1000,
+            );
+            info.trust_level = level;
+            info.receive_policy = policy;
+            info
+        };
+
+        assert_eq!(
+            evaluate_mcp_send(&device(DeviceTrustLevel::Collaborator, &|_| {}), now),
+            Ok(())
+        );
+
+        // 「已阻止 + 策略位是 true」是可构造的（`update_policy` 不钳制传入策略），所以这条
+        // 必须由 trust_level 独立拦下——只看策略位的话这里会放行。
+        assert_eq!(
+            evaluate_mcp_send(
+                &device(DeviceTrustLevel::Blocked, &|p| p.allow_mcp_send_to_device =
+                    true),
+                now
+            ),
+            Err(McpSendDenial::Blocked)
+        );
+
+        assert_eq!(
+            evaluate_mcp_send(
+                &device(DeviceTrustLevel::Collaborator, &|p| {
+                    p.allow_mcp_send_to_device = true;
+                    p.expires_at = Some(now - 1);
+                }),
+                now
+            ),
+            Err(McpSendDenial::Expired)
+        );
+
+        assert_eq!(
+            evaluate_mcp_send(
+                &device(DeviceTrustLevel::Collaborator, &|p| p
+                    .allow_mcp_send_to_device =
+                    false),
+                now
+            ),
+            Err(McpSendDenial::PolicyDisabled)
+        );
+    }
+
+    /// 用户关掉发件授权后，切一次信任级别不得把它重新打开。
+    ///
+    /// 单独立一条而不并进 [`switching_trust_level_preserves_user_set_fields`]：那条测的是
+    /// 「true 要带过去」，而这一项的默认值是 true，用它的默认值当断言等于什么都没测——
+    /// 会漏掉的恰好是这里唯一可能坏的方向。
+    #[test]
+    fn switching_trust_level_preserves_disabled_mcp_send() {
+        let previous = super::DeviceReceivePolicy {
+            allow_mcp_send_to_device: false,
+            ..super::DeviceReceivePolicy::for_trust_level(DeviceTrustLevel::Collaborator, None)
+        };
+
+        for level in [
+            DeviceTrustLevel::Owned,
+            DeviceTrustLevel::Collaborator,
+            DeviceTrustLevel::Temporary,
+        ] {
+            let policy = super::DeviceReceivePolicy::for_trust_level(level, Some(&previous));
+            assert!(
+                !policy.allow_mcp_send_to_device,
+                "用户关掉的发件授权不该被级别切换重新打开: {level:?}"
+            );
+        }
+    }
+
+    /// `Blocked` 是唯一例外：三项都清零/关闭。
+    ///
+    /// 「已阻止」必须是不留后门的终态——保留一个自动落点或任一份 MCP 授权，都会让「阻止」
     /// 这个词名不副实。
     #[test]
     fn blocking_clears_preserved_fields() {
@@ -887,6 +1143,7 @@ mod tests {
             allow_mcp_accept_from_device: true,
             ..super::DeviceReceivePolicy::for_trust_level(DeviceTrustLevel::Owned, None)
         };
+        assert!(previous.allow_mcp_send_to_device, "前置：发件授权本是开的");
 
         let policy =
             super::DeviceReceivePolicy::for_trust_level(DeviceTrustLevel::Blocked, Some(&previous));
@@ -896,6 +1153,19 @@ mod tests {
             "阻止后不该留下代收授权"
         );
         assert_eq!(policy.max_transfer_bytes, Some(0), "阻止即拒收一切");
+
+        // 发件位**不**跟着清零（它在这一档只记偏好，见 `for_trust_level` 文档），拦截整条
+        // 交给 `evaluate_mcp_send`。这条断言守的正是那个分工：把安全判据退回「只看策略位」
+        // 的那一刻它会红。
+        let mut device =
+            super::PairedDeviceInfo::new(SecretKey::generate().node_id(), sample(None, "peer"), 0);
+        device.trust_level = DeviceTrustLevel::Blocked;
+        device.receive_policy = policy;
+        assert_eq!(
+            super::evaluate_mcp_send(&device, 1),
+            Err(super::McpSendDenial::Blocked),
+            "被阻止的设备必须由 trust_level 拦下，与策略位无关"
+        );
     }
 
     #[test]

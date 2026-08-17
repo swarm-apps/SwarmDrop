@@ -16,6 +16,7 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::{ErrorData, schemars, tool, tool_router};
 use serde::{Deserialize, Serialize};
+use swarmdrop_core::device::{McpSendDenial, evaluate_mcp_send};
 use swarmdrop_core::infra::InfraLink;
 use swarmdrop_core::network::{NatStatus, NodeStatus};
 use swarmdrop_core::transfer::inbox::{
@@ -161,6 +162,16 @@ struct PersistedDeviceGroup {
     sort_order: usize,
 }
 
+/// 单个设备的本机别名。`from_device` 那两条是批量路径（读一次组织数据配整份列表），这里是
+/// 单点路径——只在发送被拒的分支上走一次，不值得为它把整份组织数据摊到调用者身上。
+fn organization_alias(app: &tauri::AppHandle, peer_id: &str) -> Option<String> {
+    read_persisted_device_organization(app)
+        .aliases
+        .get(peer_id)
+        .filter(|value| !value.trim().is_empty())
+        .cloned()
+}
+
 /// 读取仅属于本机的设备别名与分组。旧偏好或读取失败时按空组织数据处理。
 fn read_persisted_device_organization(app: &tauri::AppHandle) -> PersistedDeviceOrganization {
     use tauri_plugin_store::StoreExt;
@@ -291,16 +302,55 @@ impl McpHandler {
         get_net_manager!(self, _state2, guard);
         let manager = guard.as_ref().unwrap();
 
-        // 发送端门控：MCP 来源需目标设备策略放行（allow_mcp_send_to_device）。
-        // 这是真正的发送侧安全控制——防止 agent 静默把文件外传到未授权设备。
-        if let Ok(target_peer) = params.peer_id.parse::<swarmdrop_net::NodeId>()
-            && let Some(device) = manager.pairing().get_paired_device(&target_peer)
-            && !device.receive_policy.allow_mcp_send_to_device
+        // 目标设备取一次，门控与后面的 peer_name 共用——此前那两处各查一遍，后者还要把整份
+        // 已配对列表克隆出来按字符串化 peer id 线性找。
+        let target_device = params
+            .peer_id
+            .parse::<swarmdrop_net::NodeId>()
+            .ok()
+            .and_then(|peer| manager.pairing().get_paired_device(&peer));
+
+        // 发送端门控：防止 agent 静默把文件外传到未授权设备。
+        //
+        // **判据整条交给 `evaluate_mcp_send`，这里不许自己判 `allow_mcp_send_to_device`。**
+        // 那一位自 2026-08-17 起是用户可编辑的自由字段，不再是信任级别的可靠代理——而
+        // `update_policy` 对传入策略不做钳制，「已阻止但这一位是 true」的记录是可构造的。
+        // 接收侧（`evaluate_receive_policy`）一直独立判 Blocked 与 expires_at，发送侧此前
+        // 没有，等于把两个方向的判据留在了不同深度。
+        if let Some(device) = &target_device
+            && let Err(denial) = evaluate_mcp_send(device, chrono::Utc::now().timestamp_millis())
         {
-            return mcp_error(format!(
-                "目标设备「{}」的策略不允许 MCP/AI 发送；请在 SwarmDrop 的设备策略中开启「允许 MCP 发送」",
-                device.os_info.hostname
-            ));
+            // 报设备的**显示名**（别名 > 用户设备名 > hostname），与 list_available_devices
+            // 和设备页看到的是同一个字符串。报 hostname 会让用户拿着「MacBook-Pro.local」
+            // 去找一张写着「小李的 MacBook」的卡片。
+            let peer_id = device.peer_id.to_string();
+            let alias = organization_alias(&self.app, &peer_id);
+            let name = mcp_display_name(
+                alias.as_deref(),
+                device.os_info.name.as_deref(),
+                &device.os_info.hostname,
+                &peer_id,
+            );
+            // 这些串刻意保持中文、不走 rust-i18n：本文件所有 mcp_error 都是中文，单独翻这
+            // 一条只会让错误面更不一致。真要做是整面一起做。也**刻意不引用开关的字面标签**
+            // ——那个标签在界面上是 Lingui 翻译过的（en/zh-TW 各一份），把简中字面量塞给
+            // 英文用户去界面上找，正是这次要修掉的那个毛病。
+            return mcp_error(match denial {
+                // 解除阻止**不会**把发件授权还回来（`for_trust_level` 对被阻止的前值三项
+                // 一起清零），所以第二步必须在这里就说清，否则用户照做一遍还是同一堵墙。
+                McpSendDenial::Blocked => format!(
+                    "设备「{name}」已被阻止。请在 SwarmDrop 的设备页解除阻止，\
+                     再到该设备的信任策略里重新开启 AI 发送开关"
+                ),
+                McpSendDenial::Expired => format!(
+                    "设备「{name}」是临时设备且授权窗口已过期。\
+                     请在 SwarmDrop 的设备页把它的信任级别改为协作者或本人设备"
+                ),
+                McpSendDenial::PolicyDisabled => format!(
+                    "设备「{name}」的信任策略关闭了 AI 发送。\
+                     请在 SwarmDrop 的设备页打开该设备的信任策略，开启其中的 AI 发送开关"
+                ),
+            });
         }
 
         // 验证文件路径存在并构造 EnumeratedFile 列表
@@ -368,13 +418,10 @@ impl McpHandler {
         let file_count = all_file_ids.len();
         let total_size = prepared.total_size;
 
-        // 查询对端设备名
-        let peer_name = manager
-            .devices()
-            .get_devices(DeviceFilter::Paired)
-            .into_iter()
-            .find(|d| d.peer_id.to_string() == params.peer_id)
-            .map(|d| d.os_info.hostname)
+        // 对端设备名复用门控那次查询的结果。
+        let peer_name = target_device
+            .as_ref()
+            .map(|device| device.os_info.hostname.clone())
             .unwrap_or_else(|| params.peer_id.clone());
 
         // send_offer：MCP 来源，尽力带上 initialize 握手报告的客户端名（如 claude-desktop）。
