@@ -122,7 +122,7 @@ supported: string[] } |
 	 *  编排（先文件后记录、删文件失败不阻断、条目不存在报错）是**三端共用的领域规则**，
 	 *  住在 [`swarmdrop_transfer::inbox::delete_inbox_item`]。此前这里裸写
 	 *  `tokio::fs::remove_file` —— 那是绕过 `FileAccess` 端口的第三份删除实现，
-	 *  现已收编到 `TauriFileAccess::delete_finalized_file`。
+	 *  现已收编到 `LocalFileAccess::delete_finalized_file`。
 	 * 
 	 *  `FileAccess` 从 state 取而不是现建一个：与 `start()` 注入给 `TransferManager` 的
 	 *  **是同一个 `Arc`**（组装点在 `setup.rs`）。收件箱命令刻意不经 `TransferManager`
@@ -688,19 +688,19 @@ export type DeviceTrustLevel = "owned" | "collaborator" | "temporary" | "blocked
 export type DevicesChanged = Device[];
 
 /**
- *  目录遍历后的扁平化文件条目
+ *  目录遍历后的扁平化文件条目。
  * 
- *  同时用于 `scan_sources` 命令返回和 `prepare_send` 命令输入，
+ *  同时用于 `scan_sources` 命令的返回与 `prepare_send` 命令的输入，
  *  因此同时派生 Serialize + Deserialize。
  */
 export type EnumeratedFile = {
-	/**  文件名 */
+	/**  文件名。 */
 	name: string,
-	/**  相对路径（Unix 风格 `/` 分隔符） */
+	/**  相对路径（Unix 风格 `/` 分隔符）。 */
 	relativePath: string,
-	/**  文件来源 */
+	/**  文件来源。 */
 	source: FileSource,
-	/**  文件大小 */
+	/**  文件大小。 */
 	size: number,
 };
 
@@ -823,10 +823,8 @@ export type FilePublishEvent = {
  */
 export type FilePublishPhase = "started" | "finished";
 
-/**  文件来源：标准文件系统路径 */
-export type FileSource = 
-/**  标准文件系统路径 */
-{ type: "path"; path: string };
+/**  文件来源：标准文件系统路径。 */
+export type FileSource = { type: "path"; path: string };
 
 export type FileTransferStatus = "pending" | "transferring" | "completed";
 

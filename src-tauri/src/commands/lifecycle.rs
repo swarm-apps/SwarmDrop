@@ -54,7 +54,7 @@ pub async fn start(
         .ok_or_else(|| AppError::transfer("传输存储未初始化"))?;
 
     // 与收件箱命令自持的**是同一个 `Arc`**（组装点在 `setup.rs`），不是两个包装同一个
-    // AppHandle 的实例——`TauriFileAccess` 持有 `active_sinks`，两份实例意味着两张 sink 表。
+    // AppHandle 的实例——`LocalFileAccess` 持有 `active_sinks`，两份实例意味着两张 sink 表。
     let file_access: Arc<dyn FileAccess> = app
         .try_state::<Arc<dyn FileAccess>>()
         .map(|s| s.inner().clone())

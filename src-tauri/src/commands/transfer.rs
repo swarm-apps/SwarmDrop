@@ -28,15 +28,12 @@ pub struct ScannedSourceResult {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn scan_sources(
-    app: tauri::AppHandle,
-    sources: Vec<FileSource>,
-) -> crate::AppResult<Vec<ScannedSourceResult>> {
+pub async fn scan_sources(sources: Vec<FileSource>) -> crate::AppResult<Vec<ScannedSourceResult>> {
     let mut results = Vec::new();
     for source in sources {
-        let meta = source.metadata(&app).await?;
+        let meta = source.stat().await?;
         if meta.is_dir {
-            let entries = source.enumerate_dir(&meta.name, &app).await?;
+            let entries = source.enumerate(&meta.name).await?;
             let total_size: u64 = entries.iter().map(|e| e.size).sum();
             results.push(ScannedSourceResult {
                 is_directory: true,

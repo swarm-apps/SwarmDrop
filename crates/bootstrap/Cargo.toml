@@ -2,10 +2,19 @@
 name = "swarm-bootstrap"
 version = "0.8.0"
 edition.workspace = true
+description = "SwarmDrop 公网引导 / 中继节点"
+repository = "https://github.com/swarm-apps/SwarmDrop"
+homepage = "https://github.com/swarm-apps/SwarmDrop"
 
 [[bin]]
 name = "swarm-bootstrap"
 path = "src/main.rs"
+
+# **不由 dist 管**。dist-workspace.toml 的 members 只列 CLI，但 dist 仍会扫描 workspace 里
+# 每个有 bin 的包；补了 repository 之后它就把这个包也当成可发布对象了（`dist plan` 会
+# 多 announce 一个版本）。这里显式排除——桌面端走 Tauri + SwarmHive 那条流水线。
+[package.metadata.dist]
+dist = false
 
 [dependencies]
 swarmdrop-net = { workspace = true }

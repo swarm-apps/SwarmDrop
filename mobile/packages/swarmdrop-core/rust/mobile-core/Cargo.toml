@@ -12,6 +12,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # 与桌面共享的业务核心。单仓后是普通 workspace path 依赖，改 crates/core 立刻对
 # 移动端生效，`cargo check --workspace` 也会一并覆盖本 crate。
 swarmdrop-core = { workspace = true }
+# 端口的 native 实现。移动端只用得上其中的设备配置那份——文件落点走系统文档提供方，
+# FileAccess 自有实现（SAF / iOS 的落点语义与本地路径不同）。
+swarmdrop-host-fs = { workspace = true }
 swarmdrop-storage-sql = { workspace = true }
 swarmdrop-invite = { workspace = true }
 entity = { workspace = true }
@@ -30,7 +33,7 @@ percent-encoding = "2.3"
 sea-orm = { workspace = true, features = ["runtime-tokio-rustls", "sqlx-sqlite"] }
 sea-orm-migration = { workspace = true }
 # 只用得到 serde_json（已配对设备清单的 JSON 编解码）；本 crate 自己没有类型再 derive
-# Serialize —— 设备名那份落盘结构随 `JsonFileDeviceConfig` 一起搬进 crates/host 了。
+# Serialize —— 设备名那份落盘结构随 `JsonFileDeviceConfig` 一起搬进 crates/host-fs 了。
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 # "fs" 供发布路径用（建目录 / canonicalize / rename / copy）。这些都会阻塞，而

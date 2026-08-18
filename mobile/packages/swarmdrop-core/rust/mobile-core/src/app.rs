@@ -10,12 +10,13 @@ use std::sync::Arc;
 
 use sea_orm::DatabaseConnection;
 use swarmdrop_core::host::{
-    DeviceConfig, EventBus, FileAccess, JsonFileDeviceConfig, KeychainProvider, PairedDeviceStore,
+    DeviceConfig, EventBus, FileAccess, KeychainProvider, PairedDeviceStore,
 };
 use swarmdrop_core::network::NetManager;
 use swarmdrop_core::pairing::manager::PairingManager;
 use swarmdrop_core::transfer::manager::TransferManager;
 use swarmdrop_core::transfer::store::TransferStore;
+use swarmdrop_host_fs::JsonFileDeviceConfig;
 use swarmdrop_net::{SecretKey, WebTransportConfig, WebTransportFileCertificateStore};
 use tokio::sync::{Mutex, MutexGuard};
 

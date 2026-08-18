@@ -4,6 +4,8 @@ version = "0.23.0"
 description = "A Tauri App"
 authors = ["you"]
 edition.workspace = true
+repository = "https://github.com/swarm-apps/SwarmDrop"
+homepage = "https://github.com/swarm-apps/SwarmDrop"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -17,6 +19,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+# **不由 dist 管**。dist-workspace.toml 的 members 只列 CLI，但 dist 仍会扫描 workspace 里
+# 每个有 bin 的包；补了 repository 之后它就把这个包也当成可发布对象了（`dist plan` 会
+# 多 announce 一个版本）。这里显式排除——桌面端走 Tauri + SwarmHive 那条流水线。
+[package.metadata.dist]
+dist = false
+
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }
 tauri-plugin-opener = "2"
@@ -28,6 +36,8 @@ tokio = "1.49.0"
 async-trait = { workspace = true }
 swarmdrop-net = { workspace = true }
 swarmdrop-core = { workspace = true, features = ["specta"] }
+# 端口的 native 实现。core 只给端口，实现由宿主自己选——谁用实现谁声明它。
+swarmdrop-host-fs = { workspace = true }
 swarmdrop-storage-sql = { workspace = true, features = ["specta"] }
 swarmdrop-invite = { workspace = true }
 tracing = "0.1.44"

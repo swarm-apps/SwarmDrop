@@ -2,6 +2,7 @@
 members = [
     "crates/core",
     "crates/host",
+    "crates/host-fs",
     "crates/transfer",
     "crates/storage-sql",
     "crates/invite",
@@ -37,6 +38,7 @@ sea-orm-migration = { version = "2.0.1", features = [
 ] }
 swarmdrop-core = { path = "crates/core" }
 swarmdrop-host = { path = "crates/host" }
+swarmdrop-host-fs = { path = "crates/host-fs" }
 swarmdrop-transfer = { path = "crates/transfer" }
 entity = { path = "crates/entity" }
 migration = { path = "crates/migration" }
@@ -190,3 +192,4 @@ lto = "thin"
 codegen-units = 1
 opt-level = 3
 strip = "symbols"
+

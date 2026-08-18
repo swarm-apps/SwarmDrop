@@ -372,7 +372,7 @@ impl McpHandler {
                     .unwrap_or_default();
                 let source = FileSource::Path { path: path.clone() };
                 let dir_files = source
-                    .enumerate_dir(&dir_name, &self.app)
+                    .enumerate(&dir_name)
                     .await
                     .map_err(|e| ErrorData::internal_error(format!("遍历目录失败: {e}"), None))?;
                 entries.extend(dir_files);
