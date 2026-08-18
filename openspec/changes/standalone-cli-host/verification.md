@@ -59,11 +59,28 @@
   - ⚠️ 过程中发现并修掉了一个**CI 里同样会炸**的问题：缺 `[profile.dist]`，
     `dist build` 会以「profile `dist` is not defined」失败
 
-  剩下的**留待你执行**：
+### 发版：已决定推迟（2026-08-19）
 
-  ```sh
-  git tag cli/v0.1.0 && git push origin cli/v0.1.0
-  ```
+代码与配置已提交并推送到 `develop`（`c7acff46` / `fe2c00e7` / `b5c5f082`）。
+**发版本身明确推迟**，不是遗漏。
+
+npm 包名已定为**无 scope 的 `swarmdrop`**：scoped 包要求那个 npm 组织已存在且发布者有
+权限，而组织是否存在无法从外部查证——押错会卡在 CI 的 publish 步骤，且 npm 已发布的
+版本号不可重用。无 scope 名不依赖任何组织，`npx swarmdrop` 也更短。
+
+**发版前要确认的三件事**（都在本仓之外，我查不到）：
+
+1. **`NPM_TOKEN`** 仓库 secret 已配置且有发布权限
+2. **`HOMEBREW_TAP_TOKEN`** 已配置且对 `swarm-apps/homebrew-tap` 有写权限（该仓库已存在）
+3. `swarmdrop` 这个 npm 名字在发布那一刻仍未被他人占用（现在是空的）
+
+确认后：
+
+```sh
+git tag cli/v0.1.0 && git push origin cli/v0.1.0
+```
+
+想先小成本验证整条流水线的话，用 `cli/v0.1.0-rc.1`——dist 会标成 prerelease。
 
 - 标记为 🔵 的 6 条都需要**第二台已配对设备**（配对握手、发送、被动接收）。
   代码路径完整、单测覆盖各自的纯逻辑部分，但「两台设备真的传成了」这件事本机验证不了。
