@@ -83,7 +83,14 @@ async fn wait_for_pairing(node: &crate::runtime::boot::RunningNode) -> CliResult
 }
 
 /// 以一个邀请完成配对。
+///
+/// **先在本地解码一次**再交给节点：解码失败是用户把串抄错了（用法错误），与「对端连不上」
+/// 是两回事，而退出码要区分它们——脚本对这两种的处置不同（一个是改参数重来，一个是等对方
+/// 上线再试）。不先解码的话，两种失败会一起落进「对端不可达」。
 async fn accept(session: &Session, json: bool, invite: String) -> CliResult<()> {
+    swarmdrop_invite::PairInvite::decode(&invite)
+        .map_err(|err| CliError::Usage(format!("邀请串无效: {err}；请确认完整复制了整条链接")))?;
+
     let outcome = match session
         .ask(&Request::PairAccept {
             invite: invite.clone(),
