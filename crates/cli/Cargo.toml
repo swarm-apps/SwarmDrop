@@ -1,0 +1,57 @@
+[package]
+name = "swarmdrop-cli"
+version = "0.1.0"
+edition.workspace = true
+description = "SwarmDrop 命令行宿主：无账号、无公网 IP 的设备间端到端加密传输"
+license = "MIT"
+repository = "https://github.com/swarm-apps/SwarmDrop"
+homepage = "https://github.com/swarm-apps/SwarmDrop"
+
+# 命令行宿主：第四个宿主（桌面 / 移动 / Web 之外），复用 core 的 start_node 组合根。
+#
+# **package 名与 bin 名刻意不同**：bin 必须是干净的 `swarmdrop`（用户敲的就是它），
+# 而 package 名带 `-cli` 后缀，与将来可能出现的其他分发单元区分。
+# ⚠️ 两者不同意味着 `dist` 的发布标签必须用**斜杠**形式 `cli/v0.1.0`：
+# tag-namespace（`cli`）≠ package 名（`swarmdrop-cli`）时，连字符形式 `cli-v0.1.0`
+# 会被 dist 整串当作版本号解析并报错。判据见 design.md 的 D9。
+
+[[bin]]
+name = "swarmdrop"
+path = "src/main.rs"
+
+[dependencies]
+# 依赖体例对齐 crates/bootstrap（同为 workspace 内的独立 bin）：
+# 只有本 crate 用的依赖直接写版本，多个 crate 共用的才提到 workspace.dependencies。
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+tokio = { workspace = true, features = [
+    "macros",
+    "rt-multi-thread",
+    "signal",
+    "time",
+    "sync",
+] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+# CliError 与退出码一一对应（见 src/exit.rs）。
+thiserror = { workspace = true }
+# 数据目录的平台约定位置。用它的 data_local_dir（非 data_dir）——Windows 上后者是
+# Roaming，会把私钥同步到域服务器。
+directories = "6"
+# 核心与端口
+swarmdrop-core = { workspace = true }
+swarmdrop-host = { workspace = true }
+swarmdrop-host-fs = { workspace = true }
+swarmdrop-net = { workspace = true }
+swarmdrop-storage-sql = { workspace = true }
+migration = { workspace = true }
+async-trait = { workspace = true }
+# 结构化输出（--json）。
+serde_json = { workspace = true }
+interprocess = { version = "2.4.3", features = ["tokio"] }
+serde = { workspace = true, features = ["derive"] }
+swarmdrop-invite = { version = "0.1.0", path = "../invite" }
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

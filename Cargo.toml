@@ -14,6 +14,7 @@ members = [
     "crates/webrtc-p2p",
     "crates/webtransport-p2p",
     "crates/bootstrap",
+    "crates/cli",
     "src-tauri",
     "mobile/packages/swarmdrop-core/rust/mobile-core",
 ]
@@ -193,3 +194,18 @@ codegen-units = 1
 opt-level = 3
 strip = "symbols"
 
+# `dist` 用的发布 profile（`dist build` 硬要求它存在，缺了会以
+# 「profile `dist` is not defined」失败——这在 CI 里同样会发生）。
+#
+# 在 release 之上加三件事，都只换体积不换速度：
+# - `lto = "thin"`：跨 crate 内联，二进制明显变小
+# - `codegen-units = 1`：牺牲编译并行度换更好的优化与更小的产物
+# - `strip = "symbols"`：去掉调试符号
+#
+# 体积对本 crate 是**真实成本**：CLI 要经 npm 分发给 agent harness 消费，
+# 每个受支持平台一个包。
+[profile.dist]
+inherits = "release"
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
