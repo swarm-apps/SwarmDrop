@@ -82,12 +82,12 @@
 - [x] 8.4 生成发布 workflow，**核对既有 `.github/workflows/release.yml` 内容逐字未变**
 - [x] 8.5 核对标签触发模式：CLI 标签不触发桌面与移动流水线，反之亦然
 - [x] 8.6 同步 `CLAUDE.md`：Version management 增补第三条版本线，Workspace 布局表增补新 crate
-- [ ] 8.7 试发一个预发布版本，验证每个受支持平台都有产物
+- [ ] 8.7 试发一个预发布版本，验证每个受支持平台都有产物 —— **已决定推迟**（2026-08-19），本地已验证 `dist plan` + 本机目标构建；见 `verification.md`
 
 ## 9. 验收
 
-- [ ] 9.1 干净机器验收：一台从未安装过 SwarmDrop 的机器，经任一渠道安装后完成 `pair` 与 `send`
-- [ ] 9.2 npm 渠道验收：另一个包把 CLI 声明为依赖并按平台解析后可执行到二进制
+- [ ] 9.1 干净机器验收：一台从未安装过 SwarmDrop 的机器，经任一渠道安装后完成 `pair` 与 `send` —— **依赖 8.7，一并推迟**
+- [ ] 9.2 npm 渠道验收：另一个包把 CLI 声明为依赖并按平台解析后可执行到二进制 —— **依赖 8.7，一并推迟**
 - [x] 9.3 并存验收：同机桌面端与 CLI 同时运行，两者以不同设备标识出现且互不干扰
 - [x] 9.4 逐条走查 `specs/cli-host` 与 `specs/cli-distribution` 的全部 scenario
 - [x] 9.5 跑全套机器门禁：`cargo fmt --all` / `cargo check --workspace --all-targets` / `cargo test --workspace` / `cargo clippy --workspace` / `./scripts/check-wasm.sh --clippy`
