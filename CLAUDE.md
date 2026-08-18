@@ -20,6 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [`dev-notes/knowledge/web-app-frontend.md`](dev-notes/knowledge/web-app-frontend.md) — Web 应用区**表现层**（`docs/app/app`）：运行时单例只挂 layout、静态导出三限制（无 redirect / 无动态段 / useSearchParams 要 Suspense）、basePath 与 next/link、zustand store 的 selector 与 `setState` 约束。**碰 Web 端 React 代码时必读**
 - [`dev-notes/knowledge/storage-abstraction.md`](dev-notes/knowledge/storage-abstraction.md) — 把 sea-orm 从 core 摘出去。**已落地**：core 零 sea-orm，SQL 实现在 `crates/storage-sql`，Web 端是 IndexedDB 写穿的 `WebTransferStore`（`crates/web/src/store.rs` + `inbox.rs`）。另含端口体例：`SessionStore` / `InboxStore` 均已补全、收件箱领域规则住 `crates/transfer/src/inbox.rs` 由各存储实现调用、组装点建一次端口 `Arc` 注入与自持同一份
 - [`dev-notes/knowledge/iroh-migration.md`](dev-notes/knowledge/iroh-migration.md) — libp2p → iroh 迁移评估（2026-07 调研）。**已决策：不迁移**，但 iroh 的 API 形态被 `crates/net` 借鉴。碰 P2P 选型或有人提「迁 iroh」时先读
+- [`dev-notes/knowledge/cli-host.md`](dev-notes/knowledge/cli-host.md) — **命令行宿主**（`crates/cli`）与端口的 native 实现（`crates/host-fs`）：单实例仲裁为什么是「通道发现 + 文件锁」两段而不是 pidfile、节点生命周期与三端同语义、本地通道的并发与排水、`dist` 分发的三个坑。**碰 crates/cli、crates/host-fs、dist-workspace.toml 时必读**
 - [`dev-notes/knowledge/app-update.md`](dev-notes/knowledge/app-update.md) — 应用内更新（SwarmHive）：`ready` 是持久静止态而非「正在等系统」、Android 10+ 后台安装框弹不出且**静默**失败、自动安装必须单点触发、状态判据要穷尽 8 态、续传与产物恢复。**碰更新 UI、`@swarm-hive/sdk`、两个 registry 分发的文件时必读**
 
 ## Design Context
@@ -244,7 +245,7 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 | `crates/net` | 网络内核 `swarmdrop-net`。iroh 风格 `Endpoint` 门面 + 后台 actor，隐藏事件循环、连接管理、协议路由、地址选择 |
 | `crates/webtransport-p2p` | libp2p **WebTransport** 传输的 native 一半（listener + dialer）——上游只有浏览器侧的 `webtransport-websys`。底层 `wtransport` 0.7.1。同样不带 swarmdrop 前缀、零 swarmdrop 依赖，将来 subtree split。**重心在证书生命周期不在传输层**（14 天两张证书轮换 + 通告地址随之变化） |
 | `crates/webrtc-p2p` | libp2p WebRTC 传输，**两种模式**：打洞（`/webrtc`，spec `/webrtc-signaling/0.0.1`，三端默认开启——打洞要两端都支持，只开一边等于没开）+ direct（`/webrtc-direct`，**已完全取代官方 `libp2p-webrtc` 与 `libp2p-webrtc-websys`**，native 监听 + 拨号、浏览器拨号均已实测跑通）。刻意不带 swarmdrop 前缀、不依赖任何 swarmdrop crate，将来要 subtree split 出去独立发布 |
-| `crates/host` | 宿主端口层（platform-neutral ports + DTO + error + device 类型），供 core 与 transfer 共同依赖。现有 6 个端口：`KeychainProvider` / `PairedDeviceStore` / `DeviceConfig` / `FileAccess` / `Notifier` / `UpdateInstaller`（`AppPaths` 已删，零实现零消费）。设备名归一化的唯一入口 `DeviceName::parse` 也在这里 |
+| `crates/host` | 宿主端口层（platform-neutral ports + DTO + error + device 类型），供 core 与 transfer 共同依赖。**纯端口：零文件 IO、零平台实现**（native 实现在 `crates/host-fs`）。现有 6 个端口：`KeychainProvider` / `PairedDeviceStore` / `DeviceConfig` / `FileAccess` / `Notifier` / `UpdateInstaller`（`AppPaths` 已删，零实现零消费）。设备名归一化的唯一入口 `DeviceName::parse` 也在这里 |
 | `crates/invite` | PairInvite 编解码 + 一次性状态表 + 二维码 + `compose`（邀请带哪些地址、密度不够时先丢哪条）。**wasm-clean，不依赖 core** |
 | `crates/transfer` | 文件传输域 + 收件箱领域模型（`inbox.rs` 的 DTO 与共享规则，各存储实现调它）。经端口 trait 依赖倒置，**不依赖 sea-orm / pairing / network** |
 | `crates/core` | 平台无关业务核心：identity / network / pairing / presence / device_manager / protocol / infra |
@@ -252,6 +253,8 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 | `crates/entity` | SeaORM entity。sea-orm 已 feature 解绑（Web 端可只吃类型宏） |
 | `crates/migration` | SeaORM migration |
 | `crates/web` | 浏览器 Web 壳。除 `types` 外全部 `cfg(wasm_browser)` 门控 |
+| `crates/host-fs` | 端口的 **native 本地文件系统实现**：`JsonFileIdentityStore`（身份+已配对设备）/ `JsonFileDeviceConfig`（设备名）/ `LocalFileAccess`（读源、暂存、发布）。桌面与 CLI 共用同一份；**core 不依赖它**（core 要过 wasm 门禁，宿主自己选实现） |
+| `crates/cli` | **命令行宿主**（bin `swarmdrop`）。第四个宿主，复用 `start_node` 组合根。`start`/`stop`/`status` 与三端同一套节点语义；本地通道让常驻节点被其余命令复用 |
 | `crates/bootstrap` | 公网引导 + relay 节点（复用同一个 `Endpoint`，不与客户端内核分叉） |
 | `src-tauri` | 桌面壳 |
 | `mobile/packages/swarmdrop-core/rust/mobile-core` | uniffi 移动桥接 |
@@ -600,6 +603,7 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 |---|---|
 | `rust.yml` | `cargo fmt --check` + `cargo check --workspace --all-targets` + `cargo test --workspace`；**wasm 双 target 门禁**（check + clippy）；native 的 clippy job 暂 `continue-on-error`（存量 warning 基线未清）。⚠️ **但 `wasm` job 里的 clippy 是硬失败的**——它跑 `check-wasm.sh --clippy`（`-D warnings`），不受那条豁免保护。v0.16.0 就是这么红的（4 处 `needless_borrow`），而红着也照样发了版，因为 release.yml 由 tag 触发、不看 rust.yml 的脸色。**动了 wasm 七 crate 就本地跑一遍 `./scripts/check-wasm.sh --clippy`**，别指望 native 那条豁免 |
 | `release.yml` | `v*` tag 触发。generate-changelog → build-tauri（四目标 + 上传 SwarmHive draft）→ finalize-swarmhive → update-latest-json（仅手动 dispatch）→ publish-release |
+| `cli-release.yml` | **`cli/v*` tag**（由 `dist generate` 产出，勿手改）。六平台构建 + shell / powershell / npm / homebrew 四种 installer；npm 发到 `swarmdrop`（无 scope），formula 进 `swarm-apps/homebrew-tap`。三条版本线的 tag 模式互不重叠 |
 | `mobile-release.yml` | `mobile-v*` tag，仅 Android |
 | `mobile-checks.yml` | `mobile/**` 的 push / PR。typecheck + biome + zustand + expo-patches 四条，**全部硬失败**（前三条 2026-08-13 才接进来，此前零覆盖且三条同时红着） |
 | `mobile-build-android.yml` / `bootstrap-release.yml` / `docs.yml` | 移动构建 / 引导节点发布 / 文档站（含 develop → GitHub Pages）。⚠️ docs 那条**不再重新生成 wasm**，吃的是入库的 `packages/swarmdrop-web/`（2026-08-13 起）—— 此前两版分别栽在「wasm-pack 裸下 binaryen 无重试」与「apt 的 binaryen 停在 108，产出的 `__wbindgen_externrefs` 指向不可 grow 的 funcref 表，线上一加载就 `RangeError`」。产物新鲜度改由 rust.yml 的 `check-wasm-artifact.sh` 拦，详见 toolchain.md |
@@ -684,6 +688,12 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
   - 移动（tag `mobile-v*`）：真源 `mobile/app.json` 的 `expo.version`，跟随 `mobile/package.json`
     （**别漏这个**——CI 的 `verify-versions` 会拦，但那是打完 tag 才发现）；发版还要递增
     `expo.android.versionCode`
+  - **CLI（tag `cli/v*`，注意是斜杠）**：真源 `crates/cli/Cargo.toml`，无跟随项。
+    由 `dist`（原 cargo-dist）驱动，配置在 `dist-workspace.toml`。
+    ⚠️ **必须用斜杠形式** `cli/v0.1.0`：`tag-namespace = "cli"` ≠ 包名 `swarmdrop-cli`，
+    连字符形式会被 dist 整串当版本号解析并报错。
+    ⚠️ workspace 里其余 bin crate（`src-tauri` / `crates/bootstrap`）都带
+    `[package.metadata.dist] dist = false` —— 少了它，`dist plan` 会把桌面端也纳入发布计划
 
   完整表格与「为什么不统一版本线」见 [`toolchain.md`](dev-notes/knowledge/toolchain.md) 的
   「版本号同步」。
@@ -698,7 +708,9 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | 网络内核 | `crates/net/`、`crates/net-base/` |
 | WebTransport 传输（native） | `crates/webtransport-p2p/`（`certificate/rotation.rs` 是重心；`addr.rs` 零依赖纯函数） |
 | 传输域 | `crates/transfer/` |
-| 宿主端口层 | `crates/host/` |
+| 宿主端口层（纯端口） | `crates/host/` |
+| 端口的 native 实现 | `crates/host-fs/`（身份存储 / 设备配置 / 本地文件读写） |
+| 命令行宿主 | `crates/cli/`（bin `swarmdrop`；`runtime/single.rs` 是单实例仲裁，`runtime/ipc.rs` 是本地通道） |
 | 配对邀请（PairInvite） | `crates/invite/` |
 | SQL 存储实现（native-only） | `crates/storage-sql/` |
 | Web 壳（wasm） | `crates/web/`（`store.rs` 是 IndexedDB 写穿的 `WebTransferStore`，`inbox.rs` 是它的收件箱表，`idb.rs` 是两者的底层），入口 `docs/app/app` |

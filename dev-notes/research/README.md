@@ -27,5 +27,7 @@
 | [`docs/` 依赖升级评估](2026-08-docs-deps-upgrade.md) | 🟡 部分落地 | Next 16.3 已升（它是 dev 吃光内存把机器搞重启的正解）；fumadocs 换搜索引擎 + lucide v1 删品牌图标要一起改，TS 7 等 7.1 |
 | [三端网络/引导节点状态统一](2026-08-tri-platform-network-status.md) | 🟢 已决策并落地 | **本篇留作决策档案，现行架构见 `DESIGN.md` 的 Node Status Contract 与 `knowledge/net-kernel.md`。** 症状是「三端展示不一致」，根因是**建模对象选错**——「引导节点」不是实体而是一段关系，同一概念在**五个写入点用了四种角色组合**。最高性价比的一刀：`run_event_loop` 至今没订 `watch_relays`，所以原生端**根本推不出** `Connecting`/`Failed{last_error}`（三行补丁）。另发现 `discovery_mode` 三个版本零生效、托盘与 MCP 是第四、第五个状态面 |
 | [三端日志：给用户一份能交出来的现场](2026-08-logging.md) | 🟡 待决策 | **移动端连 subscriber 都没有、日志根本不产生**，且 Android 上 stdout 进 /dev/null（`log.redirect-stdio` 只在 Dalvik 有效）；桌面只到 stdout。官方 `tauri-plugin-log` 只吃 `log` crate 而本仓全是 `tracing` → 文件层用 `tracing-appender` 三端共用，平台层各挂各的。建议先做移动端 |
+| [接入 DeepSeek Harness（dsh）生态](2026-08-18-deepseek-harness-integration.md) | 🟡 待决策 | dsh 5 天 15.6 万星、7131 个插件仓库，但**头部全是老项目蹭 tag，新生插件天花板 ~120★**。官方自己封死远程访问（「until remote access has an authentication layer」），特权面锁死 loopback；26 家竞品全依赖公网可达或第三方账号。dsh 是标准 C/S 且 **carrier 可换**（已有 browser/in-process/Electron 三种），所以走「第四种 carrier」而非 HTTP 隧道 |
+| [功能企划：Agent 端点 + `swarmdrop` CLI](2026-08-18-agent-endpoint-proposal.md) | 🟡 M0 已决定做，M1+ 看信号 | 让 AI agent 成为 SwarmDrop 网络里一个可配对的对端：它主动找你、你回它一句、产出文件直接落到手上。**26 家做的都是「人→机器」，「机器→人」无人做**。**重心是 CLI**——croc 39.8k★ / wormhole 22.8k★ 而本仓三个 GUI 端齐全独缺 CLI；它同时解掉安装漏斗、是接 Claude Code/Codex 的唯一底座、并兑现 `future-openspec-candidates` §5。分发用 `dist`（活跃维护，支持 npm installer）。带**可证伪的停止条件** |
 
 状态图例：🟢 已决策采纳 · 🟡 验证中 / 待决策 · 🔴 已否决（保留论证）
