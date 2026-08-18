@@ -89,6 +89,71 @@ impl RequestHandler for NodeHandler {
                 serde_json::to_value(self.node.manager.devices().get_devices(Default::default())),
                 "设备列表",
             ),
+            Request::PairGenerate => {
+                match self
+                    .node
+                    .manager
+                    .pairing()
+                    .encode_invite(
+                        &self.node.secret_key,
+                        swarmdrop_invite::TransportPolicy::Auto,
+                    )
+                    .await
+                {
+                    Ok(invite) => Response::Data {
+                        payload: serde_json::json!({ "invite": invite }),
+                    },
+                    Err(err) => Response::Error {
+                        message: format!("生成邀请失败: {err}"),
+                    },
+                }
+            }
+            Request::PairAccept { invite } => {
+                match self.node.manager.pairing().pair_with_invite(&invite).await {
+                    Ok(_) => Response::Ok,
+                    Err(err) => Response::Error {
+                        message: format!("配对失败: {err}"),
+                    },
+                }
+            }
+            Request::InboxList => {
+                match self
+                    .node
+                    .manager
+                    .transfer_arc()
+                    .store()
+                    .list_inbox_items(false)
+                    .await
+                {
+                    Ok(items) => json_or_error(serde_json::to_value(items), "收件箱"),
+                    Err(err) => Response::Error {
+                        message: format!("读取收件箱失败: {err}"),
+                    },
+                }
+            }
+            Request::InboxGet { id } => {
+                let Ok(uuid) = uuid::Uuid::parse_str(&id) else {
+                    return Response::Error {
+                        message: format!("不是合法的条目标识: {id}"),
+                    };
+                };
+                match self
+                    .node
+                    .manager
+                    .transfer_arc()
+                    .store()
+                    .get_inbox_item_detail(uuid)
+                    .await
+                {
+                    Ok(Some(detail)) => json_or_error(serde_json::to_value(detail), "条目详情"),
+                    Ok(None) => Response::Error {
+                        message: format!("收件箱里没有条目 {id}"),
+                    },
+                    Err(err) => Response::Error {
+                        message: format!("读取条目失败: {err}"),
+                    },
+                }
+            }
             Request::Send { paths, to } => {
                 let paths: Vec<std::path::PathBuf> =
                     paths.into_iter().map(std::path::PathBuf::from).collect();

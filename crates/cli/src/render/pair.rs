@@ -22,12 +22,33 @@ pub fn render_invite(invite: &str, json: bool, no_qr: bool) {
     println!("{invite}");
 }
 
+/// 等待对方扫码。**写 stderr**：它是过程信息，不是命令结果。
+pub fn render_waiting(json: bool) {
+    if !json {
+        eprintln!("等待对方扫码配对…（Ctrl-C 取消）");
+        eprintln!("注意：这张码在本命令退出后即失效——邀请的可拨地址就是当前这个进程的节点。");
+    }
+}
+
+/// 配对完成，且知道对方是谁。
+pub fn render_paired_with(os_info: &swarmdrop_core::device::OsInfo, json: bool) {
+    let name = os_info
+        .name
+        .clone()
+        .unwrap_or_else(|| os_info.hostname.clone());
+    if json {
+        let payload = serde_json::json!({ "event": "paired", "device": name });
+        println!("{payload}");
+    } else {
+        println!("配对成功：{name}");
+    }
+}
+
 /// 配对完成。
-pub fn render_paired(response: &impl std::fmt::Debug, json: bool) {
+pub fn render_paired(json: bool) {
     if json {
         println!(r#"{{"event":"paired"}}"#);
     } else {
         println!("配对成功");
-        tracing::debug!(?response, "配对响应");
     }
 }

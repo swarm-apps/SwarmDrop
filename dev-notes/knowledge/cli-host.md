@@ -85,6 +85,31 @@ DHT 可达性记录互相覆盖、relay 预留互相顶替、已配对设备表�
    未写完的应答会随运行时一起消失。现在关停前等 200ms；**不能改成「等那个任务结束」**——
    同一批在途请求里可能有个正在传几分钟的 `send`。
 
+## 邀请的有效期 = 签发者的在线时长
+
+`pair` 生成的邀请里带的是**签发者当时的可拨地址**。所以：
+
+- 常驻节点在跑 ⇒ **必须由它签发**（经通道），否则另起的临时节点一退出，那张码就指向一个
+  不存在的节点
+- 没有常驻节点 ⇒ 临时节点签发后**必须保持在线**直到配对完成或用户中断
+
+⚠️ 最初的实现是「签完就关节点」，产出的是一张**扫了也拨不通的码，且没有任何报错**——
+用户只会看到对方说「连不上」。这类缺陷编译器和单测都发现不了，只有把「邀请里到底带了
+什么」想清楚才会意识到。
+
+## `inbox` 不能无条件直连数据库
+
+`migration` 的连接**不设 `journal_mode`**（sqlx 默认，走 SQLite 的 `delete` 模式），
+那模式下**写事务会阻塞所有读**。常驻节点接收文件时一直在写，此时直连库的 `inbox list`
+会以 `database is locked` 失败。
+
+判据因此是「有没有常驻节点」而不是「要不要节点」：
+
+- 有常驻节点 → 走通道（它自己读，没有并发问题）
+- 没有 → 直连库（此时没有并发写者，且不必为看一眼收件箱去起一个 P2P 节点、连引导节点）
+
+通道刚断开的竞态也要兜住：回落直连而不是报错——那一刻恰恰是直连最安全的时候。
+
 ## 分发（`dist`）的三个坑
 
 1. **tag 必须用斜杠**：`cli/v0.1.0`。`tag-namespace = "cli"` ≠ 包名 `swarmdrop-cli` 时，
@@ -99,6 +124,19 @@ DHT 可达性记录互相覆盖、relay 预留互相顶替、已配对设备表�
    建议先记一份 `release.yml` 的 sha256 用于核对。
 
 参照实现：`../SwarmHive/dist-workspace.toml`（同家族项目，配置与踩坑注释可直接对照）。
+
+### 本地能验证到哪一步
+
+装上 zig + cargo-zigbuild + cargo-xwin 之后，`dist build --artifacts=all` 能在 macOS 上
+产出**全部六个平台**的归档、installer、npm 包与 homebrew formula——不需要发布。
+
+⚠️ 过程中会打印 `× unable to run linkage report for <linux-target> on macos`，
+**那是非致命警告**：退出码仍是 0、产物齐全。CI 用 `matrix.runner` 按 target 分配原生
+runner，不会走到那条路径。第一次见到它很容易误判成「本地验证不了」而直接去发版。
+
+带 tag 构建才能验证下载地址：`dist build --tag cli/v0.1.0`。不带 tag 时 npm 包里的
+`artifactDownloadUrls` 是 `releases/download/v0.1.0`，**少了 namespace 段**，
+带上才是正确的 `releases/download/cli/v0.1.0`。
 
 ## 接收落点
 

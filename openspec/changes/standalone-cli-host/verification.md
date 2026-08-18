@@ -46,32 +46,89 @@
 | 7 | 每个受支持平台都有产物 | ✅（计划层面） | `dist plan` 列出全部六个目标的归档与校验和 |
 | 8 | 通过安装渠道更新 | ✅ | `install-updater = false`，程序自身不提供更新命令 |
 
-## 未完成项与原因
+## 复查中发现并修掉的三个缺陷
 
-- **8.7 试发预发布版本**、**9.1 干净机器验收**、**9.2 npm 渠道验收**
-  这三项都需要**推送 git tag 触发真实发布**——一次对外操作，且会往 npm 与 homebrew tap 写入。
+走查 scenario 时对照 spec 逐条核，查出三处实现与规格不符——都不是编译能发现的：
 
-  **本地已验证到能验证的极限**：
-  - `dist plan` 退出码 0，六个目标的归档与校验和齐备
-  - `dist build --target aarch64-apple-darwin` 构建成功（本机唯一能构建的目标；
-    其余五个需要 `cargo-xwin` / `cargo-zigbuild`，那是 CI 里才有的交叉编译工具链）
-  - 解出的产物 `swarmdrop --version` 正常、能启动节点。21 MB 二进制 / 5.9 MB 归档
-  - ⚠️ 过程中发现并修掉了一个**CI 里同样会炸**的问题：缺 `[profile.dist]`，
-    `dist build` 会以「profile `dist` is not defined」失败
+### 1. `pair` 生成的邀请当场失效（最严重）
 
-### 发版：已决定推迟（2026-08-19）
+无常驻节点时 `pair` 起临时节点签发邀请，**签完就关节点**。而邀请里带的可拨地址就是那个
+临时节点的——命令一退出它就没了，用户拿到的是一张**扫了也拨不通的码**，且没有任何报错。
 
-代码与配置已提交并推送到 `develop`（`c7acff46` / `fe2c00e7` / `b5c5f082`）。
-**发版本身明确推迟**，不是遗漏。
+改为：临时节点签发后**保持在线直到配对完成或用户中断**，并在 stderr 上说明「这张码在本
+命令退出后即失效」。邀请的有效期本质上等于签发者的在线时长，这条不该让用户自己去推。
 
-npm 包名已定为**无 scope 的 `swarmdrop`**：scoped 包要求那个 npm 组织已存在且发布者有
-权限，而组织是否存在无法从外部查证——押错会卡在 CI 的 publish 步骤，且 npm 已发布的
-版本号不可重用。无 scope 名不依赖任何组织，`npx swarmdrop` 也更短。
+### 2. `pair` 在常驻节点存在时直接报错
 
-**发版前要确认的三件事**（都在本仓之外，我查不到）：
+违反 spec 的「常驻节点存在时，以上命令全部经通道复用该节点」。原实现让用户先 `stop`
+再生成——而那恰恰会让新签的邀请落到临时节点上，撞回缺陷 1。
+改为经通道让常驻节点签发（`PairGenerate` / `PairAccept` 两个动词）。
 
-1. **`NPM_TOKEN`** 仓库 secret 已配置且有发布权限
-2. **`HOMEBREW_TAP_TOKEN`** 已配置且对 `swarm-apps/homebrew-tap` 有写权限（该仓库已存在）
+### 3. `inbox` 直连数据库会撞锁
+
+`migration` 的连接**不设 `journal_mode`**，走 SQLite 的 `delete` 模式——写事务会阻塞所有读，
+而常驻节点接收文件时一直在写。原实现的 `inbox` 一律直连库，在那种时刻会以
+`database is locked` 失败。
+
+改为：**有常驻节点走通道，没有才直连**（那时没有并发写者，直连既安全又不必为看一眼收件箱
+起一个 P2P 节点）。通道刚断开的竞态也兜住了——回落直连而不是报错。
+
+## 8.7 / 9.1 / 9.2：核心验收已本地达成，只差「真的发出去」
+
+原以为这三项非发布不可。实际把 dist 跑起来之后，**除了「发到公共 registry」这一步，
+其余都能在本地验证**——而那一步验证的是 npm/homebrew 的接收方，不是本仓的正确性。
+
+### 8.7 每个受支持平台都有产物 —— ✅ 本地已验证
+
+`dist build --artifacts=all` 退出码 0，六个平台的归档与校验和齐全：
+
+| target | 归档 | 校验和 |
+|---|---|---|
+| aarch64-apple-darwin | ✓ | ✓ |
+| x86_64-apple-darwin | ✓ | ✓ |
+| aarch64-unknown-linux-gnu | ✓ | ✓ |
+| x86_64-unknown-linux-gnu | ✓ | ✓ |
+| x86_64-unknown-linux-musl | ✓ | ✓ |
+| x86_64-pc-windows-msvc | ✓ | ✓ |
+
+外加一轮独立的逐平台交叉编译（绕开 dist，直接 `cargo zigbuild` / `cargo xwin`）：
+**6 成功 0 失败**，`file` 确认每个二进制的架构正确（Mach-O arm64 / x86_64、ELF aarch64 /
+x86-64、PE）。
+
+⚠️ 本地跑 `dist build` 会打印
+`× unable to run linkage report for aarch64-unknown-linux-gnu on macos`
+——**那是非致命警告**（退出码仍是 0，产物齐全）。CI 用 `matrix.runner` 按 target 分配
+原生 runner，根本不会走到这条路径。为此在 macOS 上装了 zig + cargo-zigbuild + cargo-xwin。
+
+### 9.2 npm 包 —— ✅ 结构与下载地址已验证
+
+`swarmdrop-cli-npm-package/` 的 `package.json`：
+
+- `name: "swarmdrop"`（无 scope，如决定）
+- `bin: { "swarmdrop": "run.js" }`
+- `supportedPlatforms` 覆盖全部目标，各自映射到对应归档名与二进制名
+- `postinstall` 走 `install.js` 按平台下载
+
+**下载地址与 tag namespace 对得上**——这是最容易错的一处：不带 tag 构建时是
+`releases/download/v0.1.0`，而带上真实 tag 后为
+`releases/download/cli/v0.1.0`（含 namespace 段）。installer 脚本同样。
+
+### 9.1 干净环境 —— ✅ 已验证（未走 installer 下载）
+
+解出 aarch64 归档，在**全新 HOME、清空所有环境变量、PATH 只含产物目录**下：
+`--version` 正常 · 起节点成功（20 个监听地址）· 生成邀请成功 ·
+数据落在 `~/Library/Application Support/com.yexiyue.swarmdrop-cli/`（与桌面端区分开）。
+
+### 真正剩下的
+
+只有**推 tag 触发发布**本身，以及它之后才能做的两件事：经 installer / npm 真实安装一次、
+以及需要第二台设备的 `send`。发布是对外且不可逆的操作（npm 版本号发出去不能重用），
+按 2026-08-19 的决定推迟。
+
+发版前要确认的三件本仓之外的事：
+
+1. `NPM_TOKEN` 仓库 secret 已配置且有发布权限
+2. `HOMEBREW_TAP_TOKEN` 已配置且对 `swarm-apps/homebrew-tap` 有写权限（该仓库已存在）
 3. `swarmdrop` 这个 npm 名字在发布那一刻仍未被他人占用（现在是空的）
 
 确认后：
@@ -81,6 +138,3 @@ git tag cli/v0.1.0 && git push origin cli/v0.1.0
 ```
 
 想先小成本验证整条流水线的话，用 `cli/v0.1.0-rc.1`——dist 会标成 prerelease。
-
-- 标记为 🔵 的 6 条都需要**第二台已配对设备**（配对握手、发送、被动接收）。
-  代码路径完整、单测覆盖各自的纯逻辑部分，但「两台设备真的传成了」这件事本机验证不了。

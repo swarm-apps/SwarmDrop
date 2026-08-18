@@ -26,6 +26,21 @@ use crate::exit::{CliError, CliResult};
 pub enum Request {
     Status,
     Devices,
+    /// 生成一张配对邀请。
+    ///
+    /// **必须由持有节点的那个进程签发**：邀请里带的是签发者的可拨地址，别的进程另起一个
+    /// 节点签出来的码指向一个即将消失的临时节点。
+    PairGenerate,
+    /// 以一个邀请完成配对握手。
+    PairAccept {
+        invite: String,
+    },
+    /// 列出收件箱条目。
+    InboxList,
+    /// 取一个收件箱条目的详情。
+    InboxGet {
+        id: String,
+    },
     /// 发送文件。**阻塞到传输终态**——客户端期望 `swarmdrop send` 返回时事情已经做完。
     Send {
         /// 源文件/目录的绝对路径。
