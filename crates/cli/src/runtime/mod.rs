@@ -10,6 +10,7 @@
 pub mod boot;
 pub mod bootstrap_nodes;
 pub mod ipc;
+pub mod pairing;
 pub mod receive;
 pub mod session;
 pub mod single;

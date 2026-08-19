@@ -15,10 +15,8 @@ pub async fn run(data_dir: &DataDir, json: bool) -> CliResult<()> {
             return Err(CliError::NodeUnavailable(message));
         }
         Some(Response::Ok) | None => {
-            let node = session
-                .local()
-                .ok_or_else(|| CliError::NodeUnavailable("节点不可用".into()))?;
-            serde_json::to_value(node.manager.devices().get_devices(Default::default()))
+            let node = session.require_local()?;
+            serde_json::to_value(crate::runtime::pairing::paired_devices(node))
                 .map_err(|err| CliError::NodeUnavailable(format!("序列化设备列表失败: {err}")))?
         }
     };

@@ -7,6 +7,20 @@
 //! 传输走本地套接字（类 Unix 是域套接字、Windows 是命名管道），载荷是**行分隔的 JSON**：
 //! 一行一条消息。选它不是因为高效，是因为出问题时可以直接用 `nc` 看——一个内部调试通道
 //! 的可读性比它的字节数重要。
+//!
+//! ## 信任边界
+//!
+//! **这条通道上没有认证，能连上就等于能指挥这个节点**（启停、列设备、发文件、应答配对
+//! 请求）。拦住其他用户的是数据目录的 0700 权限（见 [`crate::adapter::paths`]），不是
+//! 通道自己——套接字文件本身按默认权限创建。
+//!
+//! 因此**同用户下的其他进程可以绕过一切界面上的确认**：比如直接发 `PairRespond` 接受一个
+//! 入站配对，而屏幕上不会弹出任何东西。这不是疏忽，是与本仓既有形态一致的取舍
+//! （见 `CLAUDE.md`）：那类进程本来就能读走 `identity.json` 里的**明文私钥**并冒充这台
+//! 设备，给通道加一次性 token 不会改变实际的攻击面，只会让人误以为它防住了什么。
+//!
+//! 界面上的配对确认（`crates/cli/src/cmd/pair.rs`）挡的是**远端**——一个抢先扫到码的人。
+//! 那条防线由 `pending_id` 只在本机流转这一点保证，与本通道的信任边界是两件事。
 
 use std::path::Path;
 
@@ -19,8 +33,9 @@ use crate::exit::{CliError, CliResult};
 
 /// 客户端请求。
 ///
-/// 动词与命令面一一对应——多一个命令就多一个变体，不做通用的「转发任意调用」，
-/// 那会把这层变成一个需要版本协商的 API。
+/// 动词都是具体的、单一用途的，**不做通用的「转发任意调用」**——那会把这层变成一个
+/// 需要版本协商的 API。一个命令可以对应多个动词（`pair` 就用了三个：签发、取待确认
+/// 请求、送回答复），但每个动词只干一件写得出名字的事。
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "verb", rename_all = "snake_case")]
 pub enum Request {
@@ -34,6 +49,18 @@ pub enum Request {
     /// 以一个邀请完成配对握手。
     PairAccept {
         invite: String,
+    },
+    /// 长轮询：取走一个待用户确认的入站配对请求。
+    ///
+    /// **这条请求本身就是「有人在等配对」的信号**——常驻节点靠它判断配对窗口开着没有，
+    /// 窗口关着时入站配对一律被拒。因此客户端必须持续轮询，停下来就等于关窗。
+    ///
+    /// 应答：`Data` 带一个待确认请求；`Ok` 表示本轮没有请求（应立即再问一次）。
+    PairWaitNext,
+    /// 对一个待确认的入站配对请求作答。
+    PairRespond {
+        pending_id: u64,
+        accept: bool,
     },
     /// 列出收件箱条目。
     InboxList,
@@ -118,6 +145,24 @@ pub async fn is_alive(socket_path: &Path) -> bool {
     LocalSocketStream::connect(name).await.is_ok()
 }
 
+/// 等到对端关闭连接。
+///
+/// 一问一答的协议里，请求读完之后对端不会再发任何字节——所以这里能读到的只有 EOF。
+/// **正常情况下它永不完成**，只在连接断开时返回，可以安全地放进 `select!` 的一侧。
+async fn peer_gone<R: tokio::io::AsyncRead + Unpin>(reader: &mut R) {
+    use tokio::io::AsyncReadExt;
+
+    let mut scratch = [0u8; 1];
+    loop {
+        match reader.read(&mut scratch).await {
+            // EOF 或读失败：两者都意味着这条连接上不会再有人接应答了。
+            Ok(0) | Err(_) => return,
+            // 协议外的字节。不该出现，但也不是断开的证据——继续盯着。
+            Ok(_) => {}
+        }
+    }
+}
+
 /// 请求处理器。
 ///
 /// 做成 trait 而非闭包：处理器要被多个并发连接共享（`Arc<dyn RequestHandler>`），
@@ -161,14 +206,23 @@ impl IpcServer {
             .map_err(|err| CliError::NodeUnavailable(format!("接受连接失败: {err}")))?;
 
         tokio::spawn(async move {
-            let mut reader = BufReader::new(stream);
+            // 读写分开：处理期间要一边算一边盯着对端有没有走。
+            let (read_half, mut write_half) = tokio::io::split(stream);
+            let mut reader = BufReader::new(read_half);
             let mut line = String::new();
             if reader.read_line(&mut line).await.is_err() {
                 return; // 对端提前断开，不是本端的错误
             }
 
             let response = match serde_json::from_str::<Request>(&line) {
-                Ok(req) => handler.handle(req).await,
+                // **处理期间必须盯着对端**：长轮询类动词会挂十几秒，而客户端完全可能在
+                // 这期间被 Ctrl-C 掉。不盯的话这个任务会继续跑到自然结束，把它取走的
+                // 东西（确认台的名额、接收锁）一直占着——期间到达的配对请求会被交给一条
+                // 已经没人接的连接、就此消失，而下一个客户端还得排在它后面等。
+                Ok(req) => tokio::select! {
+                    response = handler.handle(req) => response,
+                    _ = peer_gone(&mut reader) => return,
+                },
                 Err(err) => Response::Error {
                     message: format!("无法解析请求: {err}"),
                 },
@@ -179,7 +233,7 @@ impl IpcServer {
                 format!(r#"{{"kind":"error","message":"响应序列化失败: {err}"}}"#)
             });
             out.push('\n');
-            let _ = reader.get_mut().write_all(out.as_bytes()).await;
+            let _ = write_half.write_all(out.as_bytes()).await;
         });
 
         Ok(())
@@ -216,6 +270,74 @@ mod tests {
     async fn absent_socket_is_not_alive() {
         let dir = tempfile::tempdir().unwrap();
         assert!(!is_alive(&dir.path().join("nonexistent.sock")).await);
+    }
+
+    /// **客户端走了，处理就该停下**，不能继续跑到自然结束。
+    ///
+    /// 看守的是一个只在长动词上显形的缺陷：处理任务与连接的存活脱钩，于是客户端被
+    /// Ctrl-C 掉之后它还占着自己取走的东西（配对确认台的名额、接收锁）直到超时——
+    /// 期间到达的配对请求会被交给一条没人接的连接、就此消失，而下一个客户端还得排在
+    /// 它后面。这里用一个 `Arc` 探针观察 handler 的 future 有没有被丢弃。
+    #[tokio::test]
+    async fn handling_stops_when_the_client_walks_away() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        struct Blocking {
+            /// handler 的 future 一旦被丢弃，它持有的这份 clone 就跟着没了。
+            canary: Arc<()>,
+            finished: Arc<AtomicBool>,
+        }
+
+        #[async_trait::async_trait]
+        impl RequestHandler for Blocking {
+            async fn handle(&self, _req: Request) -> Response {
+                let _held = self.canary.clone();
+                // 挂到天荒地老：真实场景里这是 `desk.take()` 的长轮询。
+                std::future::pending::<()>().await;
+                self.finished.store(true, Ordering::SeqCst);
+                Response::Ok
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.sock");
+        let server = IpcServer::bind(&path).unwrap();
+
+        let canary = Arc::new(());
+        let finished = Arc::new(AtomicBool::new(false));
+        let handler = Arc::new(Blocking {
+            canary: canary.clone(),
+            finished: finished.clone(),
+        });
+
+        let serving = tokio::spawn(async move { server.accept_one(handler).await });
+
+        // 连上、问一句、**立刻走人**（不读应答）。
+        {
+            let name = socket_name(&path).unwrap();
+            let stream = LocalSocketStream::connect(name).await.unwrap();
+            let mut writer = BufReader::new(stream);
+            writer
+                .get_mut()
+                .write_all(b"{\"verb\":\"status\"}\n")
+                .await
+                .unwrap();
+            // 作用域结束即断开连接。
+        }
+
+        serving.await.unwrap().unwrap();
+
+        // 探针回落到只剩测试自己那一份 ⇒ handler 的 future 已经被丢弃。
+        let released = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while Arc::strong_count(&canary) > 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+
+        assert!(released.is_ok(), "客户端已断开，处理任务却还占着资源");
+        assert!(!finished.load(Ordering::SeqCst), "被放弃的处理不该跑完");
     }
 
     /// 一问一答的完整往返。

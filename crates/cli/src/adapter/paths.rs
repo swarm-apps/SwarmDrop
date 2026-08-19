@@ -49,6 +49,7 @@ impl DataDir {
         std::fs::create_dir_all(&dir).map_err(|err| {
             CliError::NodeUnavailable(format!("创建数据目录 {} 失败: {err}", dir.display()))
         })?;
+        restrict_to_owner(&dir)?;
 
         Ok(Self(dir))
     }
@@ -73,6 +74,38 @@ impl DataDir {
     pub fn device_config(&self) -> PathBuf {
         self.0.join(DEVICE_CONFIG_FILE)
     }
+}
+
+/// 把数据目录收紧到「仅属主可访问」。
+///
+/// 这不是卫生习惯，是**整个数据目录的信任边界**：
+///
+/// - `identity.json` 自己是 0600（端口层写的），但**本地通道套接字不是**。
+///   `create_dir_all` 走 umask，通常落成 0755，于是同机的**其他用户**能连上那条通道——
+///   而它能启停节点、列设备、发文件、应答配对请求。私钥保住了，节点却被别人使唤。
+/// - 数据库与设备配置同样是明文，也都在这道目录权限之下。
+///
+/// 用**目录**而不是逐个文件设权限：套接字由 `interprocess` 创建、锁文件由 `File::create`
+/// 创建，逐个 chmod 都留着「创建完到 chmod 之间」的窗口，而目录权限在文件出现之前就已就位。
+///
+/// 边界与本仓既有形态一致（见 `CLAUDE.md`）：防的是「其他用户」，**不防「同用户下的
+/// 其他进程」**——那类进程能直接读走 `identity.json` 里的明文私钥并冒充这台设备，
+/// 再去拦一条本地通道没有意义。
+///
+/// ⚠️ **Windows 不做**：命名管道不经文件系统权限，收紧它要构造 SECURITY_ATTRIBUTES，
+/// 而 `interprocess` 当前没有暴露那个口子。已知缺口。
+#[cfg(unix)]
+fn restrict_to_owner(dir: &Path) -> CliResult<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).map_err(|err| {
+        CliError::NodeUnavailable(format!("收紧数据目录 {} 权限失败: {err}", dir.display()))
+    })
+}
+
+#[cfg(not(unix))]
+fn restrict_to_owner(_dir: &Path) -> CliResult<()> {
+    Ok(())
 }
 
 #[cfg(test)]
@@ -112,6 +145,49 @@ mod tests {
 
         let unique: std::collections::HashSet<_> = paths.iter().collect();
         assert_eq!(unique.len(), paths.len(), "存在重名文件");
+    }
+
+    /// 数据目录必须对其他用户关闭。
+    ///
+    /// 看守的是本地通道：套接字自己按默认权限创建（`srwxr-xr-x`），拦住其他用户的
+    /// 只有这道目录权限。它松掉的表现不是报错，而是同机另一个用户可以直接
+    /// `swarmdrop stop` 掉你的节点、列出你的设备、以你的身份发文件。
+    #[cfg(unix)]
+    #[test]
+    fn data_directory_is_closed_to_other_users() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = DataDir::resolve(Some(tmp.path().join("data"))).expect("resolve");
+
+        let mode = std::fs::metadata(dir.path())
+            .expect("metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o700, "数据目录对其他用户可访问: {mode:o}");
+    }
+
+    /// 已经存在的目录也要被收紧——用户可能是从旧版本升上来的，
+    /// 那时目录是按 umask 建的。
+    #[cfg(unix)]
+    #[test]
+    fn existing_loose_directory_is_tightened() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let target = tmp.path().join("legacy");
+        std::fs::create_dir_all(&target).expect("create");
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+
+        let dir = DataDir::resolve(Some(target)).expect("resolve");
+
+        let mode = std::fs::metadata(dir.path())
+            .expect("metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o700, "存量目录未被收紧: {mode:o}");
     }
 
     /// 默认目录必须与图形界面宿主区分开——两者共用会让 CLI 抢桌面端的身份与数据库。

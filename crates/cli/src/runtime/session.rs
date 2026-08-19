@@ -4,7 +4,7 @@
 //! 这条规则只写一遍。命令层不需要知道自己拿到的是哪一种。
 
 use crate::adapter::paths::DataDir;
-use crate::exit::CliResult;
+use crate::exit::{CliError, CliResult};
 
 use super::boot::{RunningNode, boot};
 use super::ipc;
@@ -55,6 +55,15 @@ impl Session {
             Self::Temporary { node, .. } => Some(node),
             Self::Existing { .. } => None,
         }
+    }
+
+    /// 取本进程自持的节点，没有则报「节点不可用」。
+    ///
+    /// 每条命令的本地回落分支都要这一句。摊在各命令里各写一遍时它们迟早会各说各的措辞，
+    /// 而这句话正是用户在通道意外断开时看到的唯一解释。
+    pub fn require_local(&self) -> CliResult<&RunningNode> {
+        self.local()
+            .ok_or_else(|| CliError::NodeUnavailable("节点不可用".into()))
     }
 
     /// 命令收尾。

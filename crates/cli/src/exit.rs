@@ -26,6 +26,12 @@ pub enum Code {
     PeerUnreachable = 4,
     /// 已建立连接，但传输过程中失败。
     TransferFailed = 5,
+    /// 对端明确拒绝了配对请求。
+    ///
+    /// **与 [`Self::PeerUnreachable`] 必须分开**：拒绝意味着链路是通的、对方看见了并且
+    /// 说了不——重试同一条邀请只会再被拒一次。调用方该做的是换一张邀请或让对方主动发起，
+    /// 而不是像对待「没连上」那样退避重试。
+    PairingRefused = 6,
     /// 被用户中止。
     Aborted = 130,
 }
@@ -47,6 +53,8 @@ pub enum CliError {
     PeerUnreachable(String),
     #[error("{0}")]
     TransferFailed(String),
+    #[error("{0}")]
+    PairingRefused(String),
     #[error("已中止")]
     Aborted,
 }
@@ -60,6 +68,7 @@ impl CliError {
             Self::NodeUnavailable(_) => Code::NodeUnavailable,
             Self::PeerUnreachable(_) => Code::PeerUnreachable,
             Self::TransferFailed(_) => Code::TransferFailed,
+            Self::PairingRefused(_) => Code::PairingRefused,
             Self::Aborted => Code::Aborted,
         }
     }
@@ -79,6 +88,7 @@ mod tests {
             CliError::NodeUnavailable(String::new()).code(),
             CliError::PeerUnreachable(String::new()).code(),
             CliError::TransferFailed(String::new()).code(),
+            CliError::PairingRefused(String::new()).code(),
             CliError::Aborted.code(),
         ];
         let mut seen = std::collections::HashSet::new();

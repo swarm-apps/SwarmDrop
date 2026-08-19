@@ -35,9 +35,7 @@ pub async fn run(data_dir: &DataDir, json: bool, files: Vec<PathBuf>, to: String
         }
         Some(Response::Error { message }) => Err(CliError::TransferFailed(message)),
         Some(Response::Ok) | None => {
-            let node = session
-                .local()
-                .ok_or_else(|| CliError::NodeUnavailable("节点不可用".into()))?;
+            let node = session.require_local()?;
             match send_files(node, &absolute, &to, !json).await {
                 Ok(outcome) => {
                     crate::render::send::render(&outcome, json);

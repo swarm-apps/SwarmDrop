@@ -20,9 +20,7 @@ pub async fn run(data_dir: &DataDir, json: bool) -> CliResult<()> {
         }
         Some(Response::Ok) | None => {
             // 本进程自持节点：直接取。
-            let node = session
-                .local()
-                .ok_or_else(|| CliError::NodeUnavailable("节点不可用".into()))?;
+            let node = session.require_local()?;
             serde_json::to_value(node.manager.get_network_status())
                 .map_err(|err| CliError::NodeUnavailable(format!("序列化状态失败: {err}")))?
         }

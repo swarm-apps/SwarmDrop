@@ -52,6 +52,14 @@ interprocess = { version = "2.4.3", features = ["tokio"] }
 serde = { workspace = true, features = ["derive"] }
 swarmdrop-invite = { version = "0.1.0", path = "../invite" }
 uuid = { workspace = true, features = ["v4"] }
+# 配对确认的交互提示。**只在有终端时用**（见 src/prompt.rs）——命令行宿主同样跑在
+# 服务单元与脚本里，那些场景没有 stdin 可读。
+dialoguer = { version = "0.12", default-features = false }
+# 跨平台探测「电脑名称」。**不能用 `OsInfo::default().hostname`**——它读的是
+# COMPUTERNAME / HOSTNAME 环境变量，而 macOS 与多数 Linux 上 HOSTNAME 是 shell 变量、
+# 根本没有导出，于是必然落到兜底值 `Device`（见 runtime/boot.rs）。
+# 关掉默认特性：wasm-web / wasi 两条本 crate 用不上，CLI 是纯 native。
+whoami = { version = "2", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

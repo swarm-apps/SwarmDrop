@@ -139,6 +139,28 @@ pub async fn boot(data_dir: &DataDir, json: bool) -> CliResult<RunningNode> {
     })
 }
 
+/// 本机名字后面挂的宿主标识。
+///
+/// 括号形式而非连字符：设备列表里 `study-mac (cli)` 比 `study-mac-cli` 更容易一眼
+/// 认出「这是同一台机器上的命令行」，而不是另一台叫这个名字的设备。
+const CLI_SUFFIX: &str = " (cli)";
+
+/// 探测一个能让**对端**认出这台机器的名字。
+///
+/// ⚠️ **不能用 `OsInfo::default().hostname`**：那一条读的是 `COMPUTERNAME` /
+/// `HOSTNAME` 环境变量，而 macOS 与多数 Linux 上 `HOSTNAME` 是 shell 变量、**根本没有
+/// 导出**，于是它必然落到兜底值 `Device`——同一网络里每一台 CLI 都自称 `Device (cli)`，
+/// 而那个名字正是对面在决定要不要接受配对时看的第一行。
+///
+/// `whoami::devicename` 取的是系统里那个「电脑名称」（macOS 的共享名、Windows 的计算机名、
+/// Linux 的 pretty hostname），比裸 hostname 更接近用户自己认得出的东西；拿不到再退回
+/// hostname，最后才是兜底值。
+fn detect_device_label() -> String {
+    whoami::devicename()
+        .or_else(|_| whoami::hostname())
+        .unwrap_or_else(|_| "Device".to_string())
+}
+
 /// 首次启动时落一个能与同机图形界面宿主区分开的默认设备名。
 ///
 /// 已有名字则原样保留——用户改过的名字不该被每次启动覆盖。
@@ -147,10 +169,13 @@ async fn ensure_device_name(config: &dyn DeviceConfig) {
     if config.load_device_name().await.is_some() {
         return;
     }
-    let hostname = OsInfo::default().hostname;
-    // 括号形式而非连字符：设备列表里 `study-mac (cli)` 比 `study-mac-cli` 更容易一眼
-    // 认出「这是同一台机器上的命令行」，而不是另一台叫这个名字的设备。
-    let Some(name) = DeviceName::parse(&format!("{hostname} (cli)")) else {
+
+    // **先给后缀留出位置再截断**：`DeviceName::parse` 自己也会截到 `MAX_CHARS`，
+    // 但它砍的是尾巴——那样长名字会把 ` (cli)` 整个砍掉，标识就没了。
+    let budget = DeviceName::MAX_CHARS.saturating_sub(CLI_SUFFIX.chars().count());
+    let label: String = detect_device_label().chars().take(budget).collect();
+
+    let Some(name) = DeviceName::parse(&format!("{label}{CLI_SUFFIX}")) else {
         return;
     };
     if let Err(err) = config.save_device_name(Some(name)).await {
