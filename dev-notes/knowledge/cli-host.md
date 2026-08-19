@@ -584,7 +584,7 @@ dist 的 **announcement 粒度由 tag 决定**，粒度又决定 release notes �
 标题还带着桌面的日期 `0.1.0 - 2026-02-14`。事后用 `gh release edit --title --notes-file` 修的
 （assets 挂在原 tag 上，所以 notes 里的下载 URL 段要保留原样，只换 changelog 那一段）。
 
-**三条版本线共存把它从「可能」变成「必然」**：桌面已走到 0.16.x，CLI 从 0.1.0 重新起步，
+**三条版本线共存把它从「可能」变成「必然」**：桌面已走到 0.23.x，CLI 从 0.1.0 重新起步，
 CLI 的 0.1.x / 0.2.x 一路都会撞上桌面的历史条目。
 
 `DistMetadata` 的 73 个配置项里**没有** changelog 路径字段（`changelog` 只存在于 dist 自有
@@ -593,6 +593,42 @@ manifest 的 `[package]` 表，那是给非 cargo 的 generic 包用的），所
 `crates/cli/Cargo.toml` 读版本、构造包级 tag，并在打 tag 前把 `dist plan` 解析出的正文
 前三行回查 `crates/cli/CHANGELOG.md`（判据是内容而非配置，dist 取错了就一行都对不上）。
 `--check-only` 只校验。护栏本身验证过：把脚本里的 tag 改回 `cli/v$VERSION`，它会红。
+
+### release 标题与 latest 归属：`cli-release-polish.yml`
+
+三条版本线发到**同一个** releases 列表，另外两条自带前缀（`SwarmDrop v0.23.0` /
+`SwarmDrop Mobile mobile-v0.23.0`），CLI 却是裸的 `0.1.0 - 2026-08-19`。
+
+**`announcement_title` 改不了。** 它是 dist 从 `crates/cli/CHANGELOG.md` 的 section 标题
+原样取的，没有对应配置项（`display-name` 只改 `display_name` 字段，管的是 installer 文案，
+实测不动 title）。而给 changelog 标题加前缀会**连正文一起丢**——三种写法实测都让
+parse_changelog 认不出版本号，title 退化成 tag 本身、notes 变空：
+
+| changelog 标题 | dist 给出的 title |
+|---|---|
+| `## [0.1.0] - 2026-08-19` | `0.1.0 - 2026-08-19` ✅ 正文正常 |
+| `## SwarmDrop CLI 0.1.0 - 2026-08-19` | `cli/swarmdrop-cli-v0.1.0`（解析失败） |
+| `## [SwarmDrop CLI 0.1.0] - 2026-08-19` | 同上 |
+| `## SwarmDrop CLI v0.1.0 - 2026-08-19` | 同上 |
+
+所以改成 post-process：`.github/workflows/cli-release-polish.yml` 在 `release: published`
+上触发，把标题改成 `SwarmDrop CLI v<版本>`。体例照搬 SwarmHive 的 `release-notes.yml`
+——**不碰 dist 生成的 `cli-release.yml`**（那个文件 `dist generate` 会覆盖），且
+`gh release edit` 只发 `edited` 事件，不会自触发成环。幂等判据是标题前缀。
+
+**顺带修 latest 归属。** GitHub 把最新创建的非 prerelease release 标为 latest，于是 CLI
+一发版就把仓库首页的 Releases 侧栏和 `releases/latest`（`docs/lib/shared.ts` 的下载入口
+指向它）从桌面端手里拿走。
+
+⚠️ **`make_latest=false` 解决不了**：它的语义是「别把**这个** release 设为 latest」，
+不是「取消现有的 latest」——latest 总要指向某个 release。实测对 CLI 发
+`make_latest=false`（`gh release edit --latest=false` 与 REST PATCH 两条路都试过）之后，
+它**仍然是** latest，因为它依然是最新创建的非 prerelease。正解是显式把 latest
+`make_latest=true` 交给最新的桌面 release。
+
+⚠️ 查那个 release 时**不要加 `--paginate`**：jq 表达式会对每一页各求一次值，`first`
+于是每页出一个，`$desktop` 变成多行 id，PATCH 的 URL 直接废掉。最新的桌面版必在第一页
+（API 按创建时间倒序），`?per_page=100` + `head -1` 就够。
 
 **改 tag 形式不影响 workflow 触发**：模式仍是 `dist generate` 产出的
 `'cli**[0-9]+.[0-9]+.[0-9]+*'`（改配置注释后重跑 generate 零 diff），`**` 段吃掉

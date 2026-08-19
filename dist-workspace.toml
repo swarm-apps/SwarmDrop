@@ -31,7 +31,7 @@ ci = "github"
 #   cli/swarmdrop-cli-v0.1.0  → 带包名 → 包级 announcement → 取 crates/cli/CHANGELOG.md
 # 前者不报错：dist 在根 CHANGELOG.md 里按版本号找到桌面端的同号条目就用了。cli/v0.1.0
 # 因此把桌面 2026-02-14 的「限制 Android 构建目标为 aarch64」发成了 CLI 首版说明。
-# 三条版本线共存放大了它 —— 桌面已到 0.16.x、CLI 从 0.1.0 重起，撞号是必然而非偶然。
+# 三条版本线共存放大了它 —— 桌面已到 0.23.x、CLI 从 0.1.0 重起，撞号是必然而非偶然。
 #
 # ⚠️ 也**不要**用连字符裸形式 `cli-v0.1.0`：namespace `cli` ≠ 包名 `swarmdrop-cli`，
 # dist 会把整串当版本号解析并报
