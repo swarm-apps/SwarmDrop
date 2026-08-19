@@ -1,108 +1,61 @@
 //! `inbox`：收件箱的列出、查看与导出。
 //!
-//! **有常驻节点就走本地通道，没有才直连数据库。**
-//!
-//! 这不是优化，是正确性：`migration` 的连接不设 `journal_mode`，走 SQLite 的 `delete`
-//! 模式——那模式下写事务会阻塞所有读，而常驻节点接收文件时一直在写。直连会撞上
-//! `database is locked`。反过来，没有常驻节点时也不该为了看一眼收件箱就起一个 P2P 节点
-//! （要连引导节点，慢且没必要），那时也没有并发写者，直连是安全的。
+//! `list` / `show` 是 `Persisted` 档；`export` 在取到详情之后还要复制文件，那一步纯本地。
 
 use std::path::Path;
-use std::sync::Arc;
 
 use serde_json::Value;
-use swarmdrop_core::transfer::store::TransferStore;
-use uuid::Uuid;
 
 use crate::adapter::paths::DataDir;
 use crate::cmd::InboxAction;
 use crate::exit::{CliError, CliResult};
-use crate::runtime::ipc::{self, Request, Response};
+use crate::runtime::access::{RecordAccess, to_value};
+use crate::runtime::inbox as records_inbox;
+use crate::runtime::ipc::Request;
 
 pub async fn run(data_dir: &DataDir, json: bool, action: InboxAction) -> CliResult<()> {
-    let via_ipc = ipc::is_alive(&data_dir.socket()).await;
+    let access = RecordAccess::open(data_dir).await;
 
     match action {
         InboxAction::List => {
-            let items = fetch(data_dir, via_ipc, Request::InboxList, Query::List).await?;
+            let items = access
+                .query(Request::InboxList, |records| async move {
+                    let store = records.transfers().await?;
+                    to_value(&records_inbox::list(&*store).await?, "收件箱")
+                })
+                .await?;
             crate::render::inbox::render_list(&items, json);
         }
-        InboxAction::Get { id } => {
-            let detail = fetch(
-                data_dir,
-                via_ipc,
-                Request::InboxGet { id: id.clone() },
-                Query::Detail(id),
-            )
-            .await?;
+        InboxAction::Show { id } => {
+            let detail = detail(&access, &id).await?;
             crate::render::inbox::render_detail(&detail, json);
         }
-        InboxAction::Export { id, to } => {
-            let detail = fetch(
-                data_dir,
-                via_ipc,
-                Request::InboxGet { id: id.clone() },
-                Query::Detail(id.clone()),
-            )
-            .await?;
-            let count = export(&detail, &id, &to)?;
-            crate::render::inbox::render_exported(count, &to, json);
+        InboxAction::Export { id, dir } => {
+            let detail = detail(&access, &id).await?;
+            let count = export(&detail, &id, &dir)?;
+            crate::render::inbox::render_exported(count, &dir, json);
         }
     }
+
     Ok(())
 }
 
-/// 直连时要执行哪种查询。
-enum Query {
-    List,
-    Detail(String),
-}
+/// 取一个条目的详情。
+async fn detail(access: &RecordAccess, id: &str) -> CliResult<Value> {
+    // 先在本地校验格式：格式错误是**用法错误**，与「没有这个条目」是两回事。
+    // 通道那侧同样会校验，这里先做一次是为了在没有常驻节点时也立刻给出用法错误。
+    records_inbox::parse_id(id)?;
 
-/// 取数据：优先走通道，否则直连库。两条路都产出同一形状的 JSON。
-async fn fetch(
-    data_dir: &DataDir,
-    via_ipc: bool,
-    request: Request,
-    query: Query,
-) -> CliResult<Value> {
-    if via_ipc {
-        return match ipc::request(&data_dir.socket(), &request).await? {
-            Some(Response::Data { payload }) => Ok(payload),
-            Some(Response::Error { message }) => Err(CliError::NodeUnavailable(message)),
-            // 通道刚才还活着、现在没了：节点在这一瞬关停了。直连兜底而不是报错——
-            // 此刻已经没有并发写者，正是直连安全的时候。
-            Some(Response::Ok) | None => direct(data_dir, query).await,
-        };
-    }
-    direct(data_dir, query).await
-}
-
-async fn direct(data_dir: &DataDir, query: Query) -> CliResult<Value> {
-    let db = migration::connect_and_migrate(&data_dir.database())
+    let owned = id.to_owned();
+    access
+        .query(
+            Request::InboxShow { id: id.to_owned() },
+            move |records| async move {
+                let store = records.transfers().await?;
+                to_value(&records_inbox::detail(&*store, &owned).await?, "条目详情")
+            },
+        )
         .await
-        .map_err(|err| CliError::NodeUnavailable(format!("打开数据库失败: {err}")))?;
-    let store: Arc<dyn TransferStore> =
-        Arc::new(swarmdrop_storage_sql::SqlSessionStore::new(Arc::new(db)));
-
-    match query {
-        Query::List => {
-            let items = store
-                .list_inbox_items(false)
-                .await
-                .map_err(|err| CliError::NodeUnavailable(format!("读取收件箱失败: {err}")))?;
-            serde_json::to_value(items)
-                .map_err(|err| CliError::NodeUnavailable(format!("序列化失败: {err}")))
-        }
-        Query::Detail(id) => {
-            let detail = store
-                .get_inbox_item_detail(parse_id(&id)?)
-                .await
-                .map_err(|err| CliError::NodeUnavailable(format!("读取条目失败: {err}")))?
-                .ok_or_else(|| CliError::Usage(format!("收件箱里没有条目 {id}")))?;
-            serde_json::to_value(detail)
-                .map_err(|err| CliError::NodeUnavailable(format!("序列化失败: {err}")))
-        }
-    }
 }
 
 /// 导出：把条目的文件复制到目标目录。
@@ -158,8 +111,4 @@ fn export(detail: &Value, id: &str, to: &Path) -> CliResult<usize> {
         exported += 1;
     }
     Ok(exported)
-}
-
-fn parse_id(id: &str) -> CliResult<Uuid> {
-    Uuid::parse_str(id).map_err(|_| CliError::Usage(format!("不是合法的条目标识: {id}")))
 }

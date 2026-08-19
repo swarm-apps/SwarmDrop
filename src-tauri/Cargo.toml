@@ -16,6 +16,32 @@ homepage = "https://github.com/swarm-apps/SwarmDrop"
 name = "swarmdrop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# **bin 名不能是 `swarmdrop`**：`crates/cli` 的 bin 也叫这个，两者都写
+# `target/<profile>/swarmdrop`，后构建的那个**静默覆盖**前一个。cargo 只给一条
+# `output filename collision` 警告（并写明「this may become a hard error in the future」，
+# rust-lang/cargo#6313），构建照样成功。
+#
+# 后果不在构建而在测试：`crates/cli/tests/` 经 `env!("CARGO_BIN_EXE_swarmdrop")` 跑二进制，
+# 拿到的可能是桌面壳——它在无窗口环境下启动即退出，于是那几条测试以「退出码 0、stdout 空」
+# 失败，报出来的却是 `["pair"] 仍然可用` 这类**完全指错方向**的断言消息。
+# 谁赢取决于构建顺序，所以它是随机红的，`cargo test -p swarmdrop-cli` 单跑还必过。
+#
+# 反过来改 CLI 那个不行：用户敲的就是 `swarmdrop`，且已发到 npm 与 homebrew。
+#
+# **对外产物名不受影响**：`swarmdrop.app` / `swarmdrop_x.y.z_aarch64.dmg` /
+# `swarmdrop.app.tar.gz` 都由 `productName` 决定，与 bin 名无关。变的是 `.app` 内部的
+# `Contents/MacOS/swarmdrop-desktop`（`CFBundleExecutable` 由 Tauri 一并写对）与
+# Windows 的 `swarmdrop-desktop.exe`。
+#
+# ⚠️ **不要用 `tauri.conf.json` 的 `mainBinaryName` 把内部名改回 `swarmdrop`。**
+# 那个字段是在 `tauri build` 阶段**重命名 cargo 产物**（`--no-bundle` 也一样），
+# 也就是把 `target/<profile>/swarmdrop-desktop` move 成 `swarmdrop`——冲突原样回归，
+# 而且更糟：产物叫什么变成取决于最后跑的是 `cargo build` 还是 `tauri build`，
+# `e2e/desktop/wdio.conf.ts` 那种写死路径的地方于是没有正确答案。2026-08-19 实测过。
+[[bin]]
+name = "swarmdrop-desktop"
+path = "src/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

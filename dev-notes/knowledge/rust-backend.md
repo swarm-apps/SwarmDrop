@@ -19,12 +19,12 @@ Rust 端的项目特有约束：crates/core 与 src-tauri 边界、specta IPC �
 
 现象：双击文件 /「打开方式」后窗口只是被聚焦、停在当前页，不进选设备屏，且 dev 日志里没有 `external open: ingest paths`。
 
-机制：macOS 的文件打开走 Apple Event（`RunEvent::Opened`）而非 argv。Launch Services 把 dev 裸二进制（`target/debug/swarmdrop`）和 release .app 视为不同 app → 启动一个新的 release 实例并把 Apple Event 发给它 → 新实例的 single-instance 插件发现已有实例（相同 identifier 的 dev 进程）就转发 argv 并退出——但 macOS 下路径在 Apple Event 里、argv 里没有（`external_open.rs` 的 `handle_second_instance` 在 macOS 是显式 no-op）→ 路径随退出的进程丢失。
+机制：macOS 的文件打开走 Apple Event（`RunEvent::Opened`）而非 argv。Launch Services 把 dev 裸二进制（`target/debug/swarmdrop-desktop`）和 release .app 视为不同 app → 启动一个新的 release 实例并把 Apple Event 发给它 → 新实例的 single-instance 插件发现已有实例（相同 identifier 的 dev 进程）就转发 argv 并退出——但 macOS 下路径在 Apple Event 里、argv 里没有（`external_open.rs` 的 `handle_second_instance` 在 macOS 是显式 no-op）→ 路径随退出的进程丢失。
 
 **正确做法**：
 - 测试「打开方式 / 右键发送」链路时确保只跑一个实例；release 单独运行（冷启动或已运行）链路都正常
 - 调试该链路不必真右键：在 dev 里 emit `external-file-open` 事件即可全链路模拟（见 toolchain.md）
-- 从终端直接跑 `swarmdrop.app/Contents/MacOS/swarmdrop` 可以看到 release 的 tracing stdout，且 LS 能正常把 Apple Event 发给它
+- 从终端直接跑 `swarmdrop.app/Contents/MacOS/swarmdrop-desktop` 可以看到 release 的 tracing stdout，且 LS 能正常把 Apple Event 发给它
 
 **相关文件**：`src-tauri/src/external_open.rs`、`src-tauri/src/setup.rs`（single-instance 注册）
 
@@ -928,6 +928,52 @@ specta + chrono 会把 `DateTime<Utc>` 映射成 ISO 8601 字符串（前端 `st
 区分标准是「跨 IPC」还是「跨设备」——前者用 `DateTime<Utc>`，后者用 `i64`。
 
 **相关文件**：`crates/core/src/presence/mod.rs`（`OnlineRecord`）
+
+### 护栏测试不能拿声明去断言声明
+
+两次踩到，形态一样：测试看起来在守一条不变量，实际断言的是自己。
+
+**例一（`Command::need`，已删）**：枚举声明每条命令的资源档位，测试断言
+「`need()` 返回 `Persisted`」——而 `need()` 就是那个声明本身。把实现改成去起节点，
+它照样绿。真正测到行为的是从**进程外**判断的集成测试（跑一遍命令，看 `identity.json`
+有没有被创建）。
+
+**例二（`PairInvite::id`）**：
+```rust
+// 恒真——右边逐字就是 id() 的实现
+assert_eq!(invite.id(), capability_hash_to_hex(&capability_hash(&invite.capability)));
+```
+它要守的是「生成侧印出的标识 == 撤销侧匹配用的标识」，而这两个值来自**两条独立路径**
+（一条从邀请自身现算，一条来自注册表登记时存下的哈希）。改成走真路径
+（`register` → `list_active` → 比对）之后，把 `id()` 改成用错的字节算，测试立刻红。
+
+**判据**：写完一条护栏测试，问「把实现改坏，它会红吗？」——如果断言的两边最终归结到
+同一个表达式，答案是不会。**验证方法就是真的去改坏一次**（本仓这么验过三次：
+`record_commands_never_start_a_node`、`direction_names_match_the_wire`、
+`id_matches_the_registry_listing`）。
+
+### 「现在几点」一律走 `swarmdrop_host::now_secs`，不要 `SystemTime`
+
+Unix 秒的取值收在 `crates/host/src/time.rs` 一处，理由是**两个 target 的实现不一样**：
+`std::time::SystemTime::now()` 在 `wasm32-unknown-unknown` 上没有可用时钟源，而 chrono
+在 wasm 下走 JS 的 `Date.now()`。
+
+**这不是理论风险**：邀请 TTL（24h）、一次性消费判定、`InviteRegistry::load/check/is_expired`
+全部按 Unix 秒计时，且这套逻辑三端共用。用 `SystemTime` 写出来的版本在 native 上一切正常，
+只有编到浏览器 target 时才暴露，而那时的症状是「邀请刚生成就判为过期」——离时钟很远，
+没人会往这想。
+
+曾经有两份：core 的 `pairing::manager::now_secs`（chrono，私有）与 CLI 的
+`runtime::access::now_secs`（`SystemTime`）。后者的注释还写着「语义与它逐字相同」——
+在 native 上是，在 wasm 上不是。现在只有 `swarmdrop_host::now_secs` 一份，
+`crates/host` 已依赖 chrono，两个消费方都转出它。
+
+**不要做**：在任何 crate 里现取 `SystemTime::now().duration_since(UNIX_EPOCH)`。
+需要毫秒或 `DateTime<Utc>` 时同理走 chrono——判据是「这段代码有没有可能被编进 wasm」，
+而 core / host / transfer / invite 四个 crate 的答案永远是「有」。
+
+**相关文件**：`crates/host/src/time.rs`（含一条「值必须落在合理年代区间」的护栏测试，
+看守单位从秒变成毫秒这类改动）
 
 ### MCP 读取前端本机偏好时要容错降级
 

@@ -2,31 +2,29 @@
 
 use crate::adapter::paths::DataDir;
 use crate::exit::{CliError, CliResult};
-use crate::runtime::ipc::{Request, Response};
-use crate::runtime::session::Session;
+use crate::runtime::ipc::{self, Request, Response};
 
 /// 取一次状态并交给渲染层。
 ///
-/// 常驻节点在跑时经本地通道取它的状态；否则起一个临时节点——**临时节点期间状态就是
-/// `Running`**，因为这台设备此刻确实在线（spec: cli-host「临时节点期间的状态查询」）。
+/// **无节点时如实报「停止」，不去起一个临时节点来问自己。** 这条曾经是反的：`status`
+/// 走通用的「无常驻就起临时节点」路径，于是在没有节点的机器上执行它会启动一个节点、
+/// 报告 `Running`、再把它关掉——用户问「节点在跑吗」，得到的答案是这个提问本身造成的。
+///
+/// spec 的「临时节点期间的状态查询 → `Running`」不受影响，反而更自洽：那条说的是**别的**
+/// 命令（如 `send`）持有临时节点的期间，此时通道活着，本命令经它取到 `Running`。
 pub async fn run(data_dir: &DataDir, json: bool) -> CliResult<()> {
-    let session = Session::open(data_dir, json).await?;
+    let socket = data_dir.socket();
 
-    let payload = match session.ask(&Request::Status).await? {
+    let payload = match ipc::request(&socket, &Request::Status).await? {
         Some(Response::Data { payload }) => payload,
-        Some(Response::Error { message }) => {
-            session.close().await;
-            return Err(CliError::NodeUnavailable(message));
-        }
+        Some(Response::Error { code, message }) => return Err(CliError::from_code(code, message)),
+        // 通道连不上 = 没有节点在跑。这**不是错误**，是问题的答案。
         Some(Response::Ok) | None => {
-            // 本进程自持节点：直接取。
-            let node = session.require_local()?;
-            serde_json::to_value(node.manager.get_network_status())
+            serde_json::to_value(swarmdrop_core::network::NetworkStatus::default())
                 .map_err(|err| CliError::NodeUnavailable(format!("序列化状态失败: {err}")))?
         }
     };
 
     crate::render::status::render(&payload, json);
-    session.close().await;
     Ok(())
 }

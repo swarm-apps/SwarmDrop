@@ -179,7 +179,7 @@ fn connection_of(node: &RunningNode, peer_id: &NodeId) -> Option<ConnectionType>
 /// 常驻节点自己问不了人——它多半跑在后台或服务单元里，没有 stdin。所以它把待确认的
 /// 请求**转交给正在等待的 `pair` 客户端**，由那个终端前的人来决定。
 ///
-/// 于是「配对窗口」有了一个明确的开合判据：**只有你执行 `swarmdrop pair` 时它才开着**。
+/// 于是「配对窗口」有了一个明确的开合判据：**只有你执行 `swarmdrop invite create` 时它才开着**。
 /// 其余时间到来的配对请求一律被拒——这正是想要的：没有人在等配对的时候，任何配对请求
 /// 都是意外的。
 pub struct ConfirmationDesk {
@@ -273,21 +273,11 @@ pub fn spawn_desk_service(node: Arc<RunningNode>, desk: Arc<ConfirmationDesk>, a
                 respond(&node, pending_id, false).await;
                 tracing::warn!(
                     who,
-                    "已拒绝入站配对请求：此刻没有人在等待配对（需要在本机执行 swarmdrop pair）"
+                    "已拒绝入站配对请求：此刻没有人在等待配对（需要在本机执行 swarmdrop invite create）"
                 );
             }
         }
     });
-}
-
-/// 已配对设备清单。
-///
-/// **过滤器必须是 `Paired` 而不是默认的 `All`**：后者返回的是「本次运行发现的 peer」，
-/// 与「已配对设备」是两个集合，两个方向都会错——刚配完对方却因为还没被发现而不出现
-/// （一次性命令每次都新起节点，这是常态），同时局域网里路过的陌生设备反而列了出来。
-/// 用户唯一能确认「配上没有」的手段就是这条命令，它答错等于配对功能不存在。
-pub fn paired_devices(node: &RunningNode) -> Vec<swarmdrop_core::device::Device> {
-    node.manager.devices().get_devices(DeviceFilter::Paired)
 }
 
 /// 一次「以邀请配对」的结局。

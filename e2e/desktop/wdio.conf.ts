@@ -4,8 +4,13 @@ import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 
 // 从本文件位置派生二进制路径，避免写死 machine-specific 的绝对路径（换机/换开发者/CI 都会失效）。
+//
+// ⚠️ 是 `swarmdrop-desktop` 不是 `swarmdrop`：后者是 `crates/cli` 的命令行二进制。
+// 两者曾经同名并互相覆盖，桌面壳的 bin 因此在 `src-tauri/Cargo.toml` 里显式改了名。
+// 打包后的 `.app` / `.dmg` 外层名不变（那由 `productName` 决定），但 `.app` **内部**
+// 也是 `Contents/MacOS/swarmdrop-desktop`——这里指的是未打包的 cargo 产物。
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const APP_BINARY_PATH = path.resolve(__dirname, "../../target/debug/swarmdrop");
+const APP_BINARY_PATH = path.resolve(__dirname, "../../target/debug/swarmdrop-desktop");
 
 // 单独声明成带类型的变量再引用：直接内联进 `capabilities: [...]` 字面量会被
 // WebdriverIO.Config 的默认 capabilities 类型做多余属性检查，挡掉 'tauri:options'。

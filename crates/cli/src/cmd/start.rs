@@ -43,7 +43,7 @@ pub async fn run(data_dir: &DataDir, json: bool, detach: bool, auto_accept: bool
     let save_dir = crate::adapter::receive::resolve()?;
     crate::runtime::receive::spawn_auto_accept(node.clone(), save_dir.clone());
 
-    // 入站配对**不自动接受**：请求转交给正在等待的 `swarmdrop pair` 客户端由人确认，
+    // 入站配对**不自动接受**：请求转交给正在等待的 `swarmdrop invite create` 客户端由人确认，
     // 没有人在等就拒绝。判据与理由见 `runtime::pairing`。
     let desk = Arc::new(ConfirmationDesk::default());
     crate::runtime::pairing::spawn_desk_service(node.clone(), desk.clone(), auto_accept);
@@ -56,7 +56,7 @@ pub async fn run(data_dir: &DataDir, json: bool, detach: bool, auto_accept: bool
         if auto_accept {
             println!("配对策略  自动接受邀请配对（--auto-accept）");
         } else {
-            println!("配对策略  需要确认——在本机执行 swarmdrop pair 期间才接受配对");
+            println!("配对策略  需要确认——在本机执行 swarmdrop invite create 期间才接受配对");
         }
     }
 
@@ -65,6 +65,7 @@ pub async fn run(data_dir: &DataDir, json: bool, detach: bool, auto_accept: bool
         node: node.clone(),
         desk,
         shutdown: shutdown.clone(),
+        data_dir: data_dir.clone(),
     });
 
     serve_until_stopped(&server, handler, &shutdown).await?;
@@ -81,7 +82,7 @@ pub async fn run(data_dir: &DataDir, json: bool, detach: bool, auto_accept: bool
 /// 所以标志位在那一刻**必然**还是旧值——循环转头又阻塞在下一次 accept 上，而 `stop`
 /// 客户端一问一答就断开了，不会再有连接把它唤醒。表现是 `swarmdrop stop` 打印
 /// 「节点已停止」、客户端正常退出，**前台进程却一直挂着**，直到有人碰巧再执行一条命令。
-/// 由 [`tests::stop_ends_serve_loop_without_further_connections`] 看守。
+/// 由 `tests::stop_ends_serve_loop_without_further_connections` 看守。
 async fn serve_until_stopped(
     server: &IpcServer,
     handler: Arc<dyn RequestHandler>,
@@ -105,6 +106,8 @@ struct NodeHandler {
     node: Arc<RunningNode>,
     desk: Arc<ConfirmationDesk>,
     shutdown: Arc<Notify>,
+    /// 解除配对要经它拿到已配对设备表的端口。
+    data_dir: DataDir,
 }
 
 #[async_trait::async_trait]
@@ -115,11 +118,85 @@ impl RequestHandler for NodeHandler {
                 serde_json::to_value(self.node.manager.get_network_status()),
                 "状态",
             ),
-            Request::Devices => json_or_error(
-                serde_json::to_value(crate::runtime::pairing::paired_devices(&self.node)),
+            Request::DeviceList => json_or_error(
+                serde_json::to_value(crate::runtime::devices::from_node(&self.node)),
                 "设备列表",
             ),
-            Request::PairGenerate => {
+            Request::DeviceForget { peer_id } => {
+                // 节点在跑 ⇒ 传 `Some`，核心会额外停掉对该设备的在线状态维持。
+                // `Records` 只用来拿已配对设备表这个端口，不另开数据库连接。
+                let records = crate::runtime::access::Records::new(self.data_dir.clone());
+                match crate::runtime::devices::forget(&records, Some(&self.node), &peer_id).await {
+                    Ok(outcome) => json_or_error(serde_json::to_value(outcome), "解除结果"),
+                    Err(err) => Response::err(err),
+                }
+            }
+            Request::InviteList => json_or_error(
+                serde_json::to_value(
+                    self.node
+                        .manager
+                        .pairing()
+                        .list_invites()
+                        .into_iter()
+                        .map(crate::runtime::invites::InviteRow::from)
+                        .collect::<Vec<_>>(),
+                ),
+                "邀请清单",
+            ),
+            Request::InviteRevoke { hash } => {
+                let Some(bytes) = swarmdrop_invite::capability_hash_from_hex(&hash) else {
+                    return Response::usage(format!("不是合法的邀请标识: {hash}"));
+                };
+                let persisted = self
+                    .node
+                    .manager
+                    .pairing()
+                    .revoke_invite_by_hash(bytes)
+                    .await;
+                json_or_error(
+                    serde_json::to_value(crate::runtime::invites::RevokeOutcome {
+                        revoked: 1,
+                        persisted,
+                    }),
+                    "撤销结果",
+                )
+            }
+            Request::InviteRevokeAll => {
+                let mut revoked = 0usize;
+                let mut persisted = true;
+                for summary in self.node.manager.pairing().list_invites() {
+                    // **不短路**：某一张写穿失败不该让后面的都不撤——那正是「全撤」要防的情形。
+                    persisted &= self
+                        .node
+                        .manager
+                        .pairing()
+                        .revoke_invite_by_hash(summary.capability_hash)
+                        .await;
+                    revoked += 1;
+                }
+                json_or_error(
+                    serde_json::to_value(crate::runtime::invites::RevokeOutcome {
+                        revoked,
+                        persisted,
+                    }),
+                    "撤销结果",
+                )
+            }
+            Request::TransferList => {
+                let store = self.node.manager.transfer_arc().store().clone();
+                match crate::runtime::transfers::list(&*store).await {
+                    Ok(items) => json_or_error(serde_json::to_value(items), "传输记录"),
+                    Err(err) => Response::err(err),
+                }
+            }
+            Request::TransferShow { id } => {
+                let store = self.node.manager.transfer_arc().store().clone();
+                match crate::runtime::transfers::show(&*store, &id).await {
+                    Ok(item) => json_or_error(serde_json::to_value(item), "传输记录"),
+                    Err(err) => Response::err(err),
+                }
+            }
+            Request::InviteCreate => {
                 match self
                     .node
                     .manager
@@ -133,9 +210,9 @@ impl RequestHandler for NodeHandler {
                     Ok(invite) => Response::Data {
                         payload: serde_json::json!({ "invite": invite }),
                     },
-                    Err(err) => Response::Error {
-                        message: format!("生成邀请失败: {err}"),
-                    },
+                    Err(err) => {
+                        Response::err(CliError::NodeUnavailable(format!("生成邀请失败: {err}")))
+                    }
                 }
             }
             Request::PairWaitNext => match self.desk.take().await {
@@ -150,12 +227,11 @@ impl RequestHandler for NodeHandler {
                 // 而客户端那侧只会有一条被测到。
                 match crate::runtime::pairing::respond(&self.node, pending_id, accept).await {
                     Some(outcome) => json_or_error(serde_json::to_value(outcome), "配对结果"),
-                    None => Response::Error {
-                        message: "这条配对请求已经失效（对端已断开或等待超时）".into(),
-                    },
+                    // 请求失效不是「节点不可用」——客户端应当继续等下一条，而不是判定节点坏了。
+                    None => Response::usage("这条配对请求已经失效（对端已断开或等待超时）"),
                 }
             }
-            Request::PairAccept { invite } => {
+            Request::InviteUse { invite } => {
                 // **必须把 `PairingResponse` 原样传回**：`Ok(..)` 只说明「这次问答走完了」，
                 // 对端完全可能答的是「拒绝」。丢掉它等于把婉拒渲染成配对成功——
                 // 用户要到之后 `send` 找不到设备时才发现，那时已经无从归因。
@@ -166,47 +242,23 @@ impl RequestHandler for NodeHandler {
                         )),
                         "配对结果",
                     ),
-                    Err(err) => Response::Error {
-                        message: format!("配对失败: {err}"),
-                    },
+                    Err(err) => {
+                        Response::err(CliError::PeerUnreachable(format!("配对失败: {err}")))
+                    }
                 }
             }
             Request::InboxList => {
-                match self
-                    .node
-                    .manager
-                    .transfer_arc()
-                    .store()
-                    .list_inbox_items(false)
-                    .await
-                {
+                let store = self.node.manager.transfer_arc().store().clone();
+                match crate::runtime::inbox::list(&*store).await {
                     Ok(items) => json_or_error(serde_json::to_value(items), "收件箱"),
-                    Err(err) => Response::Error {
-                        message: format!("读取收件箱失败: {err}"),
-                    },
+                    Err(err) => Response::err(err),
                 }
             }
-            Request::InboxGet { id } => {
-                let Ok(uuid) = uuid::Uuid::parse_str(&id) else {
-                    return Response::Error {
-                        message: format!("不是合法的条目标识: {id}"),
-                    };
-                };
-                match self
-                    .node
-                    .manager
-                    .transfer_arc()
-                    .store()
-                    .get_inbox_item_detail(uuid)
-                    .await
-                {
-                    Ok(Some(detail)) => json_or_error(serde_json::to_value(detail), "条目详情"),
-                    Ok(None) => Response::Error {
-                        message: format!("收件箱里没有条目 {id}"),
-                    },
-                    Err(err) => Response::Error {
-                        message: format!("读取条目失败: {err}"),
-                    },
+            Request::InboxShow { id } => {
+                let store = self.node.manager.transfer_arc().store().clone();
+                match crate::runtime::inbox::detail(&*store, &id).await {
+                    Ok(detail) => json_or_error(serde_json::to_value(detail), "条目详情"),
+                    Err(err) => Response::err(err),
                 }
             }
             Request::Send { paths, to } => {
@@ -220,9 +272,7 @@ impl RequestHandler for NodeHandler {
                             "totalBytes": outcome.total_bytes,
                         }),
                     },
-                    Err(err) => Response::Error {
-                        message: err.to_string(),
-                    },
+                    Err(err) => Response::err(err),
                 }
             }
             Request::Stop => {
@@ -239,9 +289,10 @@ impl RequestHandler for NodeHandler {
 fn json_or_error(value: serde_json::Result<serde_json::Value>, what: &str) -> Response {
     match value {
         Ok(payload) => Response::Data { payload },
-        Err(err) => Response::Error {
-            message: format!("序列化{what}失败: {err}"),
-        },
+        // 序列化失败是服务端自己的问题，不是用户参数错——按「节点不可用」报。
+        Err(err) => Response::err(CliError::NodeUnavailable(format!(
+            "序列化{what}失败: {err}"
+        ))),
     }
 }
 

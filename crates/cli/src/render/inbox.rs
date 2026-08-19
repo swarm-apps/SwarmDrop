@@ -7,9 +7,11 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use super::{bytes_or_dash, text_or};
+
 pub fn render_list(items: &Value, json: bool) {
     if json {
-        emit(items);
+        super::emit_json(items, "收件箱");
         return;
     }
 
@@ -27,31 +29,30 @@ pub fn render_list(items: &Value, json: bool) {
         println!(
             "{} {}",
             if missing { "!" } else { " " },
-            text(item, "title")
+            text_or(item, "title", "—")
         );
-        println!("   {}  来自 {}", text(item, "id"), text(item, "sourceName"));
+        println!(
+            "   {}  来自 {}",
+            text_or(item, "id", "—"),
+            text_or(item, "sourceName", "—")
+        );
         println!(
             "   {} 项 · {}",
             item.get("itemCount").and_then(Value::as_i64).unwrap_or(0),
-            crate::render::send::human_bytes(
-                item.get("totalSize")
-                    .and_then(Value::as_i64)
-                    .unwrap_or(0)
-                    .max(0) as u64
-            )
+            bytes_or_dash(item.get("totalSize"))
         );
     }
 }
 
 pub fn render_detail(detail: &Value, json: bool) {
     if json {
-        emit(detail);
+        super::emit_json(detail, "条目详情");
         return;
     }
 
-    println!("标题    {}", text(detail, "title"));
-    println!("来自    {}", text(detail, "sourceName"));
-    println!("标识    {}", text(detail, "id"));
+    println!("标题    {}", text_or(detail, "title", "—"));
+    println!("来自    {}", text_or(detail, "sourceName", "—"));
+    println!("标识    {}", text_or(detail, "id", "—"));
 
     if detail.pointer("/content/kind").and_then(Value::as_str) == Some("text") {
         println!("内容    文本");
@@ -76,14 +77,8 @@ pub fn render_detail(detail: &Value, json: bool) {
         println!(
             "{}  {}  {}",
             if missing { "!" } else { " " },
-            text(entry, "relativePath"),
-            crate::render::send::human_bytes(
-                entry
-                    .get("size")
-                    .and_then(Value::as_i64)
-                    .unwrap_or(0)
-                    .max(0) as u64
-            )
+            text_or(entry, "relativePath", "—"),
+            bytes_or_dash(entry.get("size"))
         );
     }
 }
@@ -95,20 +90,4 @@ pub fn render_exported(count: usize, to: &Path, json: bool) {
     } else {
         println!("已导出 {count} 项到 {}", to.display());
     }
-}
-
-/// 结构化输出。序列化失败时什么都不写——stdout 只能有完整结果。
-fn emit(value: &Value) {
-    match serde_json::to_string_pretty(value) {
-        Ok(text) => println!("{text}"),
-        Err(err) => eprintln!("序列化失败: {err}"),
-    }
-}
-
-fn text(value: &Value, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .unwrap_or("—")
-        .to_owned()
 }

@@ -19,7 +19,7 @@
 //! （见 `CLAUDE.md`）：那类进程本来就能读走 `identity.json` 里的**明文私钥**并冒充这台
 //! 设备，给通道加一次性 token 不会改变实际的攻击面，只会让人误以为它防住了什么。
 //!
-//! 界面上的配对确认（`crates/cli/src/cmd/pair.rs`）挡的是**远端**——一个抢先扫到码的人。
+//! 界面上的配对确认（`crates/cli/src/cmd/invite.rs`）挡的是**远端**——一个抢先扫到码的人。
 //! 那条防线由 `pending_id` 只在本机流转这一点保证，与本通道的信任边界是两件事。
 
 use std::path::Path;
@@ -29,7 +29,7 @@ use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-use crate::exit::{CliError, CliResult};
+use crate::exit::{CliError, CliResult, Code};
 
 /// 客户端请求。
 ///
@@ -40,16 +40,37 @@ use crate::exit::{CliError, CliResult};
 #[serde(tag = "verb", rename_all = "snake_case")]
 pub enum Request {
     Status,
-    Devices,
+    /// 已配对设备清单。
+    DeviceList,
+    /// 解除与某台设备的配对。
+    DeviceForget {
+        /// 节点标识（完整）。名称到标识的解析在客户端完成。
+        peer_id: String,
+    },
     /// 生成一张配对邀请。
     ///
     /// **必须由持有节点的那个进程签发**：邀请里带的是签发者的可拨地址，别的进程另起一个
     /// 节点签出来的码指向一个即将消失的临时节点。
-    PairGenerate,
+    InviteCreate,
     /// 以一个邀请完成配对握手。
-    PairAccept {
+    InviteUse {
         invite: String,
     },
+    /// 本机已发出且未过期的邀请清单。
+    InviteList,
+    /// 按 capability 哈希撤销一张邀请。
+    ///
+    /// 传完整哈希而非用户敲的前缀：前缀要在**当前邀请集合**里解析才谈得上唯一，
+    /// 而那个集合客户端已经取过一次了。让服务端再解析一遍等于把同一段逻辑写两份。
+    InviteRevoke {
+        /// `sha256(capability)` 的小写 hex。
+        hash: String,
+    },
+    /// 撤销全部未过期邀请。
+    ///
+    /// 不用「客户端取列表再逐条撤」代替它：那是 N 次往返，且中途新签发的邀请会漏掉——
+    /// 而这条命令服务的正是「不知道哪张泄露了，全撤」。
+    InviteRevokeAll,
     /// 长轮询：取走一个待用户确认的入站配对请求。
     ///
     /// **这条请求本身就是「有人在等配对」的信号**——常驻节点靠它判断配对窗口开着没有，
@@ -65,7 +86,13 @@ pub enum Request {
     /// 列出收件箱条目。
     InboxList,
     /// 取一个收件箱条目的详情。
-    InboxGet {
+    InboxShow {
+        id: String,
+    },
+    /// 传输记录清单。
+    TransferList,
+    /// 一条传输记录的详情。
+    TransferShow {
         id: String,
     },
     /// 发送文件。**阻塞到传输终态**——客户端期望 `swarmdrop send` 返回时事情已经做完。
@@ -92,7 +119,32 @@ pub enum Response {
     /// 成功但无负载。
     Ok,
     /// 服务端处理失败。
-    Error { message: String },
+    ///
+    /// **必须带分类**：同一件事（「没有这条记录」）在无常驻节点时由本地路径产出
+    /// `CliError::Usage`（退出码 2），经通道时如果只回一个字符串，客户端就只能一律
+    /// 按「节点不可用」（退出码 3）处理——于是
+    /// `swarmdrop transfer show $id || retry_if_node_down` 的行为取决于**此刻恰好有没有
+    /// 常驻节点在跑**。而 spec「退出码区分失败原因」的整个前提是脚本不必解析文本。
+    Error { code: Code, message: String },
+}
+
+impl Response {
+    /// 把一个失败连同它的分类送回客户端。
+    ///
+    /// **服务端一律走这里**，不要手写 `Response::Error { .. }`：分类是从 [`CliError`]
+    /// 自己身上取的（`err.code()`），手填等于给了一次填错的机会，而填错**不报错**——
+    /// 客户端只是拿到一个错误的退出码。
+    pub fn err(err: CliError) -> Self {
+        Self::Error {
+            code: err.code(),
+            message: err.to_string(),
+        }
+    }
+
+    /// 服务端自己发现的用法错误（参数格式不对之类），配一句话。
+    pub fn usage(message: impl Into<String>) -> Self {
+        Self::err(CliError::Usage(message.into()))
+    }
 }
 
 /// 把路径转成本地套接字名。
@@ -223,14 +275,23 @@ impl IpcServer {
                     response = handler.handle(req) => response,
                     _ = peer_gone(&mut reader) => return,
                 },
-                Err(err) => Response::Error {
-                    message: format!("无法解析请求: {err}"),
-                },
+                // 请求解析失败 = 客户端发来的东西不对，那是用法错误。
+                Err(err) => Response::usage(format!("无法解析请求: {err}")),
             };
 
             let mut out = serde_json::to_string(&response).unwrap_or_else(|err| {
                 // 响应本身序列化失败极罕见，但静默丢弃会让客户端一直等到超时。
-                format!(r#"{{"kind":"error","message":"响应序列化失败: {err}"}}"#)
+                // **必须经 `json!` 而不是手拼**：`err` 里带引号或换行时，手拼出来的是
+                // 一行非法 JSON，客户端的解析同样失败——兜底路径于是和它要兜的那个
+                // 故障一模一样。`Value` 转字符串不会失败，这里不存在二次兜底的需要。
+                serde_json::json!({
+                    "kind": "error",
+                    // 分类不能漏——少一个字段客户端连这条兜底响应都解析不出来，
+                    // 于是它一直等到超时，而超时与「服务端出错」在用户那里是两种表现。
+                    "code": Code::NodeUnavailable,
+                    "message": format!("响应序列化失败: {err}"),
+                })
+                .to_string()
             });
             out.push('\n');
             let _ = write_half.write_all(out.as_bytes()).await;
@@ -243,6 +304,69 @@ impl IpcServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **失败的分类必须过得了通道。**
+    ///
+    /// 这条看守的是一个只在「恰好有常驻节点在跑」时才出现的差异：同一件事
+    /// （`transfer show <格式合法但不存在的 id>`）在无节点时由本地路径产出
+    /// `Usage`（退出码 2），经通道时如果分类丢了，客户端只能一律按「节点不可用」
+    /// 处理（退出码 3）。于是 `swarmdrop transfer show $id || retry_if_node_down`
+    /// 的行为取决于此刻有没有常驻节点——而 spec「退出码区分失败原因」的整个前提
+    /// 是脚本不必解析文本。
+    #[test]
+    fn error_classification_survives_the_wire() {
+        for original in [
+            CliError::Usage("没有这条传输记录".into()),
+            CliError::PeerUnreachable("拨不通".into()),
+            CliError::TransferFailed("中断".into()),
+            CliError::PairingRefused("对方拒绝".into()),
+            CliError::NodeUnavailable("节点没起来".into()),
+        ] {
+            let expected = original.code();
+            let wire = serde_json::to_string(&Response::err(original)).expect("编码");
+            let back: Response = serde_json::from_str(&wire).expect("往返");
+
+            let Response::Error { code, .. } = back else {
+                panic!("往返后不再是错误响应");
+            };
+            assert_eq!(
+                CliError::from_code(code, String::new()).code(),
+                expected,
+                "分类在通道上丢了"
+            );
+        }
+    }
+
+    /// **服务端不得产出 `Aborted`。**
+    ///
+    /// 中止是本地的用户动作（Ctrl-C），通道对面没有立场替用户宣布中止。这条约束支撑着
+    /// `CliError::from_code` 里那个丢消息的分支——`CliError::Aborted` 的 Display 是固定的
+    /// 「已中止」，服务端若给它配了解释，那句话会静默消失。
+    ///
+    /// 它同时挡住一类分类错误：传输因「常驻节点被停」而中断时若报 `Aborted`，
+    /// 退出码就是 130，而脚本按惯例把 130 读作「人按了 Ctrl-C，别重试」——
+    /// 一次本该恢复的中断于是被当成用户主动放弃。那条路径现在报 `TransferFailed`。
+    #[test]
+    fn aborted_is_never_produced_by_the_server() {
+        let source =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/cmd/start.rs"))
+                .expect("读取通道服务端源码");
+
+        assert!(
+            !source.contains("CliError::Aborted"),
+            "通道服务端不得产出 Aborted——它的消息会在 from_code 里被丢掉，\
+             且退出码 130 会被脚本读作「用户主动放弃」"
+        );
+    }
+
+    /// 服务端自己发现的用法错误也要带对分类——否则客户端会把它当成节点故障去重试。
+    #[test]
+    fn server_side_usage_errors_keep_their_code() {
+        let Response::Error { code, .. } = Response::usage("不是合法的邀请标识") else {
+            panic!("不是错误响应");
+        };
+        assert_eq!(code, Code::Usage);
+    }
 
     /// 请求与响应都要能往返——通道两端是独立编译的代码路径，形状对不上时
     /// 表现是「命令卡住」而不是编译错误。

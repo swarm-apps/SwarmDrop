@@ -10,7 +10,9 @@ use std::process::ExitCode;
 ///
 /// `0` 与 `2` 沿用既有惯例（POSIX 成功、clap 的用法错误），`130` 是 shell 的
 /// `128 + SIGINT`。中间三个是本程序自有的分类，取值只要求稳定且互不相同。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// `Serialize` 是为了让分类能过本地通道：服务端把失败的类别一并回给客户端，
+/// 否则通道那侧的失败只能一律按「节点不可用」处理（见 [`crate::runtime::ipc::Response`]）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[repr(u8)]
 pub enum Code {
     /// 命令按预期完成。
@@ -60,6 +62,28 @@ pub enum CliError {
 }
 
 impl CliError {
+    /// 按分类重建一个错误。
+    ///
+    /// 通道对面送回来的失败要还原成同一个类别，否则它的退出码会与本地路径产出的
+    /// 那条不同——同一件事因此有两个退出码，取决于此刻有没有常驻节点在跑。
+    ///
+    /// `Success` 不是失败：真收到它说明服务端把成功编码成了错误，那是它的 bug，
+    /// 按「节点不可用」处理（客户端无法为服务端的编码错误给出更准确的类别）。
+    pub fn from_code(code: Code, message: String) -> Self {
+        match code {
+            Code::Usage => Self::Usage(message),
+            Code::NodeUnavailable | Code::Success => Self::NodeUnavailable(message),
+            Code::PeerUnreachable => Self::PeerUnreachable(message),
+            Code::TransferFailed => Self::TransferFailed(message),
+            Code::PairingRefused => Self::PairingRefused(message),
+            // `Aborted` 的 Display 是固定的「已中止」，**消息会被丢掉**。
+            // 这可以接受的前提是「服务端不产出 Aborted」——中止是本地的用户动作
+            // （Ctrl-C），通道对面没有立场替用户宣布中止。由
+            // `aborted_is_never_produced_by_the_server` 看守。
+            Code::Aborted => Self::Aborted,
+        }
+    }
+
     pub fn code(&self) -> Code {
         // 无 `_ =>` 兜底分支：新增一个变体时编译器会在这里报错，
         // 强制为它选一个退出码，而不是让它静默落进某个笼统的类别。

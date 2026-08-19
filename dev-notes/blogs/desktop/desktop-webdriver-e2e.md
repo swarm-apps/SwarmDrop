@@ -284,6 +284,8 @@ export const config: WebdriverIO.Config = {
       '@wdio/tauri-service',
       {
         appBinaryPath: '../../target/debug/swarmdrop', // 仓库根 target/，不是 src-tauri/target/
+        // ⚠️ 2026-08-19 起这个文件名是 `swarmdrop-desktop`——`crates/cli` 的 bin 也叫
+        // `swarmdrop`，两者曾互相覆盖，桌面壳的 bin 因此改了名（打包产物名不变）。
         driverProvider: 'embedded',
       },
     ],
@@ -423,8 +425,11 @@ pnpm tauri build --debug --no-bundle
 再确认路径——`src-tauri` 是 Cargo workspace member 而非独立项目，产物在仓库根 `target/`：
 
 ```text
-target/debug/swarmdrop
+target/debug/swarmdrop-desktop
 ```
+
+> 2026-08-19 前这个文件叫 `swarmdrop`。改名是因为 `crates/cli` 的 bin 也叫这个，
+> 两者写到同一路径互相覆盖。**打包产物名没变**（`mainBinaryName`），只有裸产物变了。
 
 ### 官方向导生成的 `wdio.conf.ts` 有两处要手动改
 

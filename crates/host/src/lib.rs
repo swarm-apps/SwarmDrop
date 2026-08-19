@@ -23,9 +23,11 @@ pub mod device;
 pub mod error;
 pub mod notification;
 pub mod ports;
+pub mod time;
 
 pub use error::{AppError, AppResult};
 pub use notification::{
     SystemNotification, SystemNotificationPublisher, publish_if_window_unfocused,
 };
 pub use ports::*;
+pub use time::now_secs;

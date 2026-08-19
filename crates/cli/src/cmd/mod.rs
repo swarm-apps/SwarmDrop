@@ -2,18 +2,35 @@
 //!
 //! **本层不含网络与存储细节**。任何「怎么连上对端」「文件写到哪」的知识都属于
 //! [`crate::runtime`] 与 [`crate::adapter`]；本层只知道用户要做什么。
+//!
+//! ## 命令怎么组织：三条可判定的规则
+//!
+//! 1. 操作对象是**程序自身且为单例** → 平铺动词。`start` / `stop` / `status`
+//!    （节点没有集合，无从列举）。
+//! 2. 操作对象是**本程序管理的一个集合** → 「名词 + 动词」两级。
+//!    `invite` / `device` / `inbox` / `transfer`。
+//! 3. 操作对象**不归本程序管理** → 平铺动词。`send`（对象是文件系统里的文件）。
+//!
+//! 规则 3 是 `send` 唯一的豁免依据，写下来是为了防止它被读成「高频所以平放」——
+//! 那条理由不可判定，下一个人会用它把 `device list` 也拉平。`git push` 与 `docker run`
+//! 同样落在规则 3。
+//!
+//! **同一集合上的动作不得做成开关**（`invite --list` / `--revoke`）：开关表达修饰而非
+//! 动作，且两个动作开关的互斥关系在 `--help` 里看不出来，只能运行时报错。
+//! **层级不超过两级**——三层只在「资源的子资源」上才成立，本仓没有那种嵌套。
 
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-pub mod devices;
+pub mod device;
 pub mod inbox;
-pub mod pair;
+pub mod invite;
 pub mod send;
 pub mod start;
 pub mod status;
 pub mod stop;
+pub mod transfer;
 
 use crate::exit::{CliResult, Code};
 
@@ -36,7 +53,15 @@ macro_rules! third_party_noise {
 
 /// SwarmDrop 命令行宿主。
 #[derive(Debug, Parser)]
-#[command(name = "swarmdrop", version, about, long_about = None)]
+#[command(
+    name = "swarmdrop",
+    version,
+    about,
+    long_about = "SwarmDrop 命令行宿主：无账号、无公网 IP 的设备间端到端加密传输。\n\n\
+上手：先 `swarmdrop invite create` 生成一张配对邀请给对方扫，\n\
+配对完成后用 `swarmdrop send <文件> --to <设备>` 发送。\n\
+接收是节点在线时的被动行为，没有对应的命令。"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
@@ -44,8 +69,19 @@ pub struct Cli {
     /// 结构化输出：结果以机器可读格式写入 stdout。
     ///
     /// 进度与诊断始终走 stderr，因此本开关不会污染 stdout（spec: cli-host）。
+    /// 它同时**禁用一切交互提示**——该模式声明的是「调用方是程序」。
     #[arg(long, global = true)]
     pub json: bool,
+
+    /// 禁止一切交互提示。
+    ///
+    /// 缺参数时不再询问而是直接以用法错误退出；等待配对期间收到的入站请求一律**拒绝**。
+    ///
+    /// ⚠️ **与 `--auto-accept` 方向相反**，两者不可混用理解：本开关是 fail-closed
+    /// （不问就是不放行），`--auto-accept` 是 fail-open（不问但放行）。两者同时给出时
+    /// `--auto-accept` 生效——它是对配对行为的明确指令，而本开关只声明不弹提示。
+    #[arg(long, global = true)]
+    pub no_input: bool,
 
     /// 数据目录（身份、配对表、数据库、本地通道）。默认取平台约定位置。
     #[arg(
@@ -62,17 +98,16 @@ impl Cli {
     ///
     /// 结构化模式下压到 `warn`：那种场景的调用方是程序，info 级的运行叙述对它没有意义。
     ///
-    /// **交互命令一并压到 `warn`**：`pair` 要让用户看清二维码和对端信息，而节点起来时的
+    /// **交互命令一并压到 `warn`**：它们要让用户看清屏幕上的内容再作决定，而节点起来时的
     /// info 级叙述（每次网络状态变化都是一整个结构体）会在几百毫秒里把那一屏顶出可视区。
-    /// 配对确认恰恰是**唯一一处**要求用户看清屏幕内容再作决定的地方，日志把它冲掉
-    /// 等于让那道确认失去意义。需要排查时用 `RUST_LOG` 覆盖。
+    /// 配对确认与撤销选择恰恰是要求用户看清屏幕的地方，日志把它冲掉等于让那道确认失去意义。
     ///
     /// ⚠️ **`swarmdrop_cli` 在这里是错的**，尽管它是 package 名：tracing 的 target 默认取
     /// `module_path!()`，而 bin target 的 crate 根是 **bin 名 `swarmdrop`**。`EnvFilter`
     /// 按字符串前缀匹配，`swarmdrop::runtime::pairing` 不以 `swarmdrop_cli` 开头，于是本
     /// 程序自己的日志**一条都不会出现**——修复前常驻节点接受了配对、拒绝了直连请求，
     /// 日志里却什么都没有，而那正是无人值守场景下唯一的排查凭据。
-    /// 由 [`tests::default_filter_covers_this_crate`] 看守。
+    /// 由 `tests::default_filter_covers_this_crate` 看守。
     ///
     /// 反过来 `swarmdrop` 这一条同时覆盖了 `swarmdrop_core` / `swarmdrop_net` / 其余
     /// `swarmdrop_*`——同样是那条前缀规则，单列它们纯属冗余。
@@ -104,7 +139,7 @@ pub enum Command {
         ///
         /// **默认关闭**：邀请会泄露、会被抢先用掉，而它是一次性的——被抢走那次会消耗
         /// 掉凭证，真正的设备再来就配不上了。默认形态是把请求转交给正在运行的
-        /// `swarmdrop pair` 由人核对后放行，没有人在等时一律拒绝。
+        /// `swarmdrop invite create` 由人核对后放行，没有人在等时一律拒绝。
         #[arg(long)]
         auto_accept: bool,
     },
@@ -117,30 +152,6 @@ pub enum Command {
     /// 显示节点状态、监听地址、NAT 与中继可达性。
     Status,
 
-    /// 生成配对邀请，或以一个邀请完成配对。
-    Pair {
-        /// 邀请链接。省略则生成一个新的邀请，并守着它直到配对完成。
-        invite: Option<String>,
-
-        /// 不渲染二维码，只输出邀请链接（用于 CI / 日志 / 管道）。
-        #[arg(long)]
-        no_qr: bool,
-
-        /// 自动接受出示**任一有效邀请**的设备，不停下来问。
-        ///
-        /// ⚠️ 范围是「任一有效邀请」而不是「刚打印的这张」：邀请跨重启存活、TTL 24 小时，
-        /// 本机此前发出过而尚未过期的邀请在等待期间同样能配上。要收窄到某一张，前提是
-        /// 先有邀请清单与撤销入口（尚未实现）。
-        ///
-        /// 无人值守场景（脚本、CI、agent harness）用。**届时没有人核对对端身份**，
-        /// 只在可控网络里这么做。
-        #[arg(long)]
-        auto_accept: bool,
-    },
-
-    /// 列出已配对设备。
-    Devices,
-
     /// 向一台已配对设备发送文件或目录。
     Send {
         /// 要发送的文件或目录。
@@ -152,28 +163,141 @@ pub enum Command {
         to: String,
     },
 
+    /// 配对邀请：生成、使用、清点与撤销。
+    Invite {
+        #[command(subcommand)]
+        action: InviteAction,
+    },
+
+    /// 已配对设备。
+    Device {
+        #[command(subcommand)]
+        action: DeviceAction,
+    },
+
     /// 收件箱。
     Inbox {
         #[command(subcommand)]
         action: InboxAction,
+    },
+
+    /// 传输记录。
+    Transfer {
+        #[command(subcommand)]
+        action: TransferAction,
     },
 }
 
 impl Command {
     /// 这条命令会不会停下来等用户看屏幕、作决定。
     ///
-    /// 目前只有 `pair`：它要展示二维码，并在入站请求到来时展示对端信息等人确认。
     /// 穷尽 match 而非 `matches!`：新增交互命令时这里会编译失败，
     /// 而不是让它带着一屏滚动的日志上线。
     fn is_interactive(&self) -> bool {
         match self {
-            Self::Pair { .. } => true,
+            Self::Invite { action } => action.is_interactive(),
+            Self::Device { action } => action.is_interactive(),
             Self::Start { .. }
             | Self::Stop
             | Self::Status
-            | Self::Devices
             | Self::Send { .. }
-            | Self::Inbox { .. } => false,
+            | Self::Inbox { .. }
+            | Self::Transfer { .. } => false,
+        }
+    }
+}
+
+#[derive(Debug, Subcommand)]
+pub enum InviteAction {
+    /// 生成一张邀请并守着它，直到有设备配对成功或你中断。
+    ///
+    /// 邀请的可拨地址就是签发节点的，所以**命令退出后临时节点签发的那张码即失效**。
+    Create {
+        /// 不渲染二维码，只输出邀请链接（用于 CI / 日志 / 管道）。
+        #[arg(long)]
+        no_qr: bool,
+
+        /// 自动接受出示**任一有效邀请**的设备，不停下来问。
+        ///
+        /// ⚠️ 范围是「任一有效邀请」而不是「刚打印的这张」：邀请跨重启存活、TTL 24 小时，
+        /// 本机此前发出过而尚未过期的邀请在等待期间同样能配上。要先看清楚有哪些，
+        /// 用 `swarmdrop invite list`。
+        ///
+        /// 无人值守场景（脚本、CI、agent harness）用。**届时没有人核对对端身份**，
+        /// 只在可控网络里这么做。
+        #[arg(long)]
+        auto_accept: bool,
+    },
+
+    /// 用一张别人给的邀请完成配对。
+    Use {
+        /// 邀请链接。
+        invite: String,
+    },
+
+    /// 列出本机已发出、尚未过期的邀请。
+    List,
+
+    /// 撤销邀请。
+    ///
+    /// 不给标识时会列出邀请让你选（需要可交互的终端）。
+    Revoke {
+        /// 邀请标识，接受唯一前缀（至少 4 位）。
+        id: Option<String>,
+
+        /// 撤销全部未过期的邀请。
+        ///
+        /// 邀请泄露时往往无法判断是哪一张——而停掉节点**不管用**，邀请已落盘，
+        /// 重启回来它们会全部恢复可用。
+        #[arg(long, conflicts_with = "id")]
+        all: bool,
+
+        /// 跳过 `--all` 的确认。
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
+impl InviteAction {
+    fn is_interactive(&self) -> bool {
+        match self {
+            // 要展示二维码，并在入站请求到来时展示对端信息等人确认。
+            //
+            // ⚠️ **`--auto-accept` 不是例外**（2026-08-19 试过一次，错了）：它免去的是
+            // 「每条入站请求要人点一次确认」，不是「没人在看屏幕」——这条命令的产出**就是
+            // 那张二维码**，得有人拿另一台设备去扫。放开日志的净效果是：临时节点起来后
+            // `NetworkStatusChanged`（二十来个字段的结构体）与 `DevicesChanged`
+            // （每秒可能多次）几秒内把码顶出可视区，而命令要守着等人扫、以分钟计。
+            //
+            // 真正的无人值守是 `start --auto-accept`（常驻节点），那条本来就是 false。
+            Self::Create { .. } => true,
+            // 不给标识时要弹选择菜单；`--all` 要确认。
+            Self::Revoke { id, all, yes } => (id.is_none() && !all) || (*all && !yes),
+            Self::Use { .. } | Self::List => false,
+        }
+    }
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DeviceAction {
+    /// 列出已配对设备。
+    List,
+
+    /// 解除与一台设备的配对。
+    ///
+    /// **单方面操作**：它移除的是本机对该设备的记录，对端是否仍记着你不在本命令的控制
+    /// 范围内。不给目标时会列出设备让你选（需要可交互的终端）。
+    Forget {
+        /// 设备名称或节点标识。
+        device: Option<String>,
+    },
+}
+
+impl DeviceAction {
+    fn is_interactive(&self) -> bool {
+        match self {
+            Self::Forget { device } => device.is_none(),
+            Self::List => false,
         }
     }
 }
@@ -183,7 +307,7 @@ pub enum InboxAction {
     /// 列出收件箱条目。
     List,
     /// 查看一个条目的详情。
-    Get {
+    Show {
         /// 条目标识。
         id: String,
     },
@@ -192,8 +316,21 @@ pub enum InboxAction {
         /// 条目标识。
         id: String,
         /// 导出目标目录。
-        #[arg(long, value_name = "DIR")]
-        to: PathBuf,
+        ///
+        /// 位置参数而非 `--to`：`send --to` 指的是**设备**，这里是**目录**，
+        /// 同名不同类型会诱导误用。形态对齐 `cp 源 目标`。
+        dir: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TransferAction {
+    /// 列出传输记录（最近开始的在前）。
+    List,
+    /// 查看一条传输记录的详情。
+    Show {
+        /// 会话标识。
+        id: String,
     },
 }
 
@@ -212,25 +349,26 @@ pub async fn dispatch(cli: Cli) -> Code {
 }
 
 async fn run(cli: Cli) -> CliResult<()> {
+    // 交互能力是**环境事实**，在分派之前记一次；此后 `prompt::can_ask` 是唯一的判据。
+    crate::prompt::configure(cli.no_input, cli.json);
+
     // 数据目录对每条命令都是前置条件（身份、数据库、通道、锁都在它下面），
     // 因此在分派之前解析一次，而不是让每个命令各自解析。
     let data_dir = crate::adapter::paths::DataDir::resolve(cli.data_dir)?;
+    let json = cli.json;
 
     match cli.command {
         Command::Start {
             detach,
             auto_accept,
-        } => start::run(&data_dir, cli.json, detach, auto_accept).await,
-        Command::Stop => stop::run(&data_dir, cli.json).await,
-        Command::Status => status::run(&data_dir, cli.json).await,
-        Command::Pair {
-            invite,
-            no_qr,
-            auto_accept,
-        } => pair::run(&data_dir, cli.json, invite, no_qr, auto_accept).await,
-        Command::Devices => devices::run(&data_dir, cli.json).await,
-        Command::Send { files, to } => send::run(&data_dir, cli.json, files, to).await,
-        Command::Inbox { action } => inbox::run(&data_dir, cli.json, action).await,
+        } => start::run(&data_dir, json, detach, auto_accept).await,
+        Command::Stop => stop::run(&data_dir, json).await,
+        Command::Status => status::run(&data_dir, json).await,
+        Command::Send { files, to } => send::run(&data_dir, json, files, to).await,
+        Command::Invite { action } => invite::run(&data_dir, json, action).await,
+        Command::Device { action } => device::run(&data_dir, json, action).await,
+        Command::Inbox { action } => inbox::run(&data_dir, json, action).await,
+        Command::Transfer { action } => transfer::run(&data_dir, json, action).await,
     }
 }
 
@@ -238,6 +376,10 @@ async fn run(cli: Cli) -> CliResult<()> {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    fn parse(args: &[&str]) -> Cli {
+        Cli::try_parse_from(args).expect("parse")
+    }
 
     /// clap 的定义自洽性（重复的短选项、非法的默认值等）由它自己的 debug_assert 检查。
     #[test]
@@ -262,7 +404,7 @@ mod tests {
         let root = module_path!().split("::").next().expect("crate root");
         assert_eq!(root, "swarmdrop", "bin 名变了就要同步改默认过滤器");
 
-        let cli = Cli::try_parse_from(["swarmdrop", "status"]).expect("parse");
+        let cli = parse(&["swarmdrop", "status"]);
         assert!(
             cli.default_log_filter().contains(&format!("{root}=")),
             "默认过滤器没覆盖本 crate: {}",
@@ -270,14 +412,44 @@ mod tests {
         );
     }
 
-    /// 配对是唯一要求用户看清屏幕再作决定的命令，它的默认日志必须安静。
+    /// 会停下来等用户看屏幕的命令，默认日志必须安静。
     ///
-    /// 这条看守的是一个只在真终端上才显形的缺陷：info 级的网络状态叙述会在确认提示
-    /// 出现后的几百毫秒里把它顶出可视区，用户来不及核对对端身份就只剩一个光标。
+    /// 这条看守的是一个只在真终端上才显形的缺陷：info 级的网络状态叙述会在提示出现后的
+    /// 几百毫秒里把它顶出可视区，用户来不及核对就只剩一个光标。
     #[test]
-    fn pairing_is_quiet_by_default() {
-        let cli = Cli::try_parse_from(["swarmdrop", "pair"]).expect("parse");
-        assert!(!cli.default_log_filter().contains("swarmdrop=info"));
+    fn interactive_commands_are_quiet_by_default() {
+        for args in [
+            vec!["swarmdrop", "invite", "create"],
+            // **`--auto-accept` 也要安静**：它免去的是逐条确认，不是「没人在看屏幕」——
+            // 产出的二维码仍然要有人扫。改错过一次，这条钉住它。
+            vec!["swarmdrop", "invite", "create", "--auto-accept"],
+            vec!["swarmdrop", "invite", "revoke"],
+            vec!["swarmdrop", "invite", "revoke", "--all"],
+            vec!["swarmdrop", "device", "forget"],
+        ] {
+            let cli = parse(&args);
+            assert!(
+                !cli.default_log_filter().contains("swarmdrop=info"),
+                "{args:?} 会提问，日志却不安静"
+            );
+        }
+    }
+
+    /// 给全了参数就不再是交互命令——那时日志该照常出，它是无人值守场景的唯一排查凭据。
+    #[test]
+    fn fully_specified_commands_keep_their_logs() {
+        for args in [
+            vec!["swarmdrop", "invite", "revoke", "abcd1234"],
+            vec!["swarmdrop", "invite", "revoke", "--all", "--yes"],
+            vec!["swarmdrop", "device", "forget", "phone"],
+            vec!["swarmdrop", "invite", "list"],
+        ] {
+            let cli = parse(&args);
+            assert!(
+                cli.default_log_filter().contains("swarmdrop=info"),
+                "{args:?} 不提问，日志不该被压掉"
+            );
+        }
     }
 
     /// 两种模式都必须压住第三方库的常态噪声。
@@ -287,11 +459,11 @@ mod tests {
     #[test]
     fn third_party_noise_is_suppressed_in_every_mode() {
         for args in [
-            vec!["swarmdrop", "pair"],
+            vec!["swarmdrop", "invite", "create"],
             vec!["swarmdrop", "start"],
             vec!["swarmdrop", "status", "--json"],
         ] {
-            let cli = Cli::try_parse_from(args.clone()).expect("parse");
+            let cli = parse(&args);
             let filter = cli.default_log_filter();
             for directive in third_party_noise!().split(',') {
                 assert!(
@@ -305,7 +477,66 @@ mod tests {
     /// 全局选项在子命令之后也能被识别——用户不会记得它必须写在前面。
     #[test]
     fn global_flags_are_accepted_after_subcommand() {
-        let cli = Cli::try_parse_from(["swarmdrop", "devices", "--json"]).expect("parse");
+        let cli = parse(&["swarmdrop", "device", "list", "--json"]);
         assert!(cli.json);
+        let cli = parse(&["swarmdrop", "invite", "revoke", "abcd", "--no-input"]);
+        assert!(cli.no_input);
+    }
+
+    /// 命令层级不得超过两级。
+    ///
+    /// 三层只在「资源的子资源」上才成立（`gh repo deploy-key list`），本仓没有那种嵌套。
+    /// 多一层就是多一次用户要记住的跳转。
+    #[test]
+    fn command_tree_is_at_most_two_levels() {
+        for top in Cli::command().get_subcommands() {
+            for second in top.get_subcommands() {
+                assert!(
+                    second.get_subcommands().next().is_none(),
+                    "{} {} 下面还有第三层",
+                    top.get_name(),
+                    second.get_name()
+                );
+            }
+        }
+    }
+
+    /// **集合上的动作不得做成开关。**
+    ///
+    /// `invite --list` / `--revoke` 这种形态在 `--help` 里看不出互斥关系，只能运行时报错。
+    /// 这条扫的是名词类子命令下有没有混进动作开关。
+    #[test]
+    fn collection_actions_are_subcommands_not_flags() {
+        let forbidden = [
+            "list", "create", "revoke", "forget", "show", "export", "use",
+        ];
+        for top in Cli::command().get_subcommands() {
+            for arg in top.get_arguments() {
+                let name = arg.get_id().as_str();
+                assert!(
+                    !forbidden.contains(&name),
+                    "{} 把动作 `{name}` 做成了开关",
+                    top.get_name()
+                );
+            }
+        }
+    }
+
+    /// `pair` 必须彻底消失，**连别名都不留**。
+    ///
+    /// 留了它就赢——它更短，而 `invite create` 会变成没人用的正式写法（Docker 的
+    /// `ps` 与 `container ls` 至今并存就是这么来的）。CLI 从未发布，这是唯一一次
+    /// 能干净改名的窗口。
+    #[test]
+    fn pair_is_gone_entirely() {
+        assert!(Cli::try_parse_from(["swarmdrop", "pair"]).is_err());
+        assert!(Cli::try_parse_from(["swarmdrop", "devices"]).is_err());
+        assert!(Cli::try_parse_from(["swarmdrop", "inbox", "get", "x"]).is_err());
+    }
+
+    /// `--all` 与具体标识互斥——同时给出是自相矛盾的意图，该在解析期就拦住。
+    #[test]
+    fn revoke_all_conflicts_with_an_id() {
+        assert!(Cli::try_parse_from(["swarmdrop", "invite", "revoke", "abcd", "--all"]).is_err());
     }
 }

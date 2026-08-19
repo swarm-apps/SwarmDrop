@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use crate::adapter::paths::DataDir;
 use crate::exit::{CliError, CliResult};
+use crate::runtime::access::NodeAccess;
 use crate::runtime::ipc::{Request, Response};
-use crate::runtime::session::Session;
 use crate::runtime::transfer::send_files;
 
 pub async fn run(data_dir: &DataDir, json: bool, files: Vec<PathBuf>, to: String) -> CliResult<()> {
@@ -18,7 +18,7 @@ pub async fn run(data_dir: &DataDir, json: bool, files: Vec<PathBuf>, to: String
         })
         .collect::<CliResult<_>>()?;
 
-    let session = Session::open(data_dir, json).await?;
+    let access = NodeAccess::open(data_dir, json).await?;
 
     let request = Request::Send {
         paths: absolute
@@ -28,14 +28,16 @@ pub async fn run(data_dir: &DataDir, json: bool, files: Vec<PathBuf>, to: String
         to: to.clone(),
     };
 
-    let result = match session.ask(&request).await? {
+    let result = match access.ask(&request).await? {
         Some(Response::Data { payload }) => {
             crate::render::send::render_from_json(&payload, json);
             Ok(())
         }
-        Some(Response::Error { message }) => Err(CliError::TransferFailed(message)),
+        // 尊重服务端给的分类：它区分得出「对端不可达」与「传输中断」，
+        // 而在这里一律按后者会让脚本的重试策略选错。
+        Some(Response::Error { code, message }) => Err(CliError::from_code(code, message)),
         Some(Response::Ok) | None => {
-            let node = session.require_local()?;
+            let node = access.require_local()?;
             match send_files(node, &absolute, &to, !json).await {
                 Ok(outcome) => {
                     crate::render::send::render(&outcome, json);
@@ -46,6 +48,6 @@ pub async fn run(data_dir: &DataDir, json: bool, files: Vec<PathBuf>, to: String
         }
     };
 
-    session.close().await;
+    access.close().await;
     result
 }

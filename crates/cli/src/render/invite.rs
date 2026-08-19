@@ -1,16 +1,22 @@
-//! 配对相关渲染。
+//! 配对邀请相关渲染。
 
 use swarmdrop_core::device::ConnectionType;
 
+use super::blank_as_placeholder;
+use crate::runtime::invites::{InviteRow, RevokeOutcome};
 use crate::runtime::pairing::{PairOutcome, PairingRequest};
 
-/// 输出邀请：二维码（可关）+ 链接。
+/// 输出刚生成的邀请：二维码（可关）+ 链接 + **标识**。
 ///
 /// 链接**总是**输出：手机扫码是主路径，但把码复制到另一台电脑同样常见，而 base32 的
 /// 邀请串手输不现实。
-pub fn render_invite(invite: &str, json: bool, no_qr: bool) {
+///
+/// **标识必须给出**（`id`）：邀请清单里没有邀请串本身（capability 明文不落盘），能区分
+/// 多张的信息只有标识与时刻——一分钟内发两张时仅凭时刻分不出哪张发给了谁。它是
+/// 「刚发错人、立刻撤回」这条主场景可用的前提。取不到时省略，不让整条命令失败。
+pub fn render_created(invite: &str, id: Option<&str>, json: bool, no_qr: bool) {
     if json {
-        let payload = serde_json::json!({ "invite": invite });
+        let payload = serde_json::json!({ "invite": invite, "id": id });
         println!("{payload}");
         return;
     }
@@ -24,6 +30,126 @@ pub fn render_invite(invite: &str, json: bool, no_qr: bool) {
     }
 
     println!("{invite}");
+    if let Some(id) = id {
+        // 走 stdout：它是命令结果的一部分（撤销时要用），不是过程信息。
+        println!();
+        println!("邀请标识  {id}");
+        eprintln!("发错了可以撤回：swarmdrop invite revoke {}", short(id));
+    }
+}
+
+/// 标识的短形式——撤销接受唯一前缀，提示里给短的更可能被真的敲进去。
+fn short(id: &str) -> String {
+    id.chars().take(8).collect()
+}
+
+/// 已发出邀请的清单。
+pub fn render_list(rows: &[InviteRow], json: bool) {
+    if json {
+        super::emit_json(rows, "邀请清单");
+        return;
+    }
+
+    if rows.is_empty() {
+        println!("没有尚未过期的邀请。");
+        return;
+    }
+
+    // 循环外读一次——每行各读一次的话，同一屏里的「还有 N 分钟」会跨秒不一致。
+    let now = swarmdrop_host::now_secs();
+    for row in rows {
+        let state = state(row);
+        println!("{}  {state}", short(&row.id));
+        println!("   {}   还有 {}", row.id, remaining(row.expires_at, now));
+    }
+
+    eprintln!();
+    // **必须说明列表里为什么没有链接**：用户会以为是这条命令漏了什么。
+    eprintln!("列表不含邀请链接本身——凭证明文不落盘，重启后拼不回来。想再分享请重新生成一张。");
+}
+
+/// 选择菜单里的一行。
+///
+/// `now` 由调用方给：菜单是一次性渲染出整屏的，每行各取一次时钟会让相邻两行
+/// 落在不同的秒上（「还有 59 分钟」紧挨着「还有 58 分钟」）。
+pub fn menu_line(row: &InviteRow, now: u64) -> String {
+    let state = state(row);
+    format!(
+        "{}  {state}  还有 {}",
+        short(&row.id),
+        remaining(row.expires_at, now)
+    )
+}
+
+/// 剩余有效期的人话。
+///
+/// `saturating_sub` 而非 `checked_sub` + 单独的 None 分支：已过期时得 0，落进第一档，
+/// 与那条分支本来要返回的串一模一样。
+fn remaining(expires_at: u64, now: u64) -> String {
+    match expires_at.saturating_sub(now) {
+        0..=59 => "不到 1 分钟".into(),
+        left @ 60..=3599 => format!("{} 分钟", left / 60),
+        left => format!("{} 小时", left / 3600),
+    }
+}
+
+/// 一张邀请的去向。
+///
+/// 已被使用的仍列到过期为止——用户要能看到「这张被谁用掉了」，而不是它凭空消失。
+fn state(row: &InviteRow) -> &'static str {
+    if row.consumed {
+        "已被使用"
+    } else {
+        "等待中"
+    }
+}
+
+/// 撤销了一张。
+pub fn render_revoked(row: &InviteRow, outcome: &RevokeOutcome, json: bool) {
+    if json {
+        let payload = serde_json::json!({
+            "event": "inviteRevoked",
+            "id": row.id,
+            "persisted": outcome.persisted,
+        });
+        println!("{payload}");
+        return;
+    }
+
+    println!(
+        "已撤销 {}。此后出示这张邀请的配对请求都会被拒绝。",
+        short(&row.id)
+    );
+    warn_if_not_persisted(outcome);
+}
+
+/// 撤销了全部。
+pub fn render_revoked_all(outcome: &RevokeOutcome, json: bool) {
+    if json {
+        let payload = serde_json::json!({
+            "event": "invitesRevoked",
+            "revoked": outcome.revoked,
+            "persisted": outcome.persisted,
+        });
+        println!("{payload}");
+        return;
+    }
+
+    println!("已撤销全部 {} 张邀请。", outcome.revoked);
+    warn_if_not_persisted(outcome);
+}
+
+/// 撤销没落盘时如实说后果。
+///
+/// **不能报成失败**：撤销这个动作确实完成了，本次运行内它已经生效；没落地的是记录。
+/// 但也**不能不说**——用户会以为已经撤销干净了，而重启后那些邀请会复活。
+fn warn_if_not_persisted(outcome: &RevokeOutcome) {
+    if !outcome.persisted {
+        eprintln!(
+            "警告：撤销没能写入本机记录，**重启后这些邀请会重新可用**。\n\
+             请检查数据目录是否可写，然后再撤一次。"
+        );
+    }
 }
 
 /// 等待对方扫码。**写 stderr**：它是过程信息，不是命令结果。
@@ -80,18 +206,6 @@ pub fn render_pairing_request(request: &PairingRequest, json: bool) {
     eprintln!("请与对方核对节点标识后再决定——设备名可以伪造，它不能。");
 }
 
-/// 设备名为空时的占位符。
-///
-/// `OsInfo::display_name` 的文档把占位符留给视图层决定——对端可以报一个空名字，
-/// 而打印一个空白比打印占位符更难判断出了什么事。
-fn blank_as_placeholder(name: &str) -> &str {
-    if name.trim().is_empty() {
-        "（未命名设备）"
-    } else {
-        name
-    }
-}
-
 /// 链路的说法。
 ///
 /// 穷尽 match 而非带 `_` 的兜底：新增链路类型时这里会编译失败，而不是静默显示成
@@ -126,7 +240,10 @@ pub fn render_declined(request: &PairingRequest, json: bool) {
 /// 待确认的请求在确认期间失效了。
 pub fn render_request_expired(json: bool) {
     if json {
-        println!(r#"{{"event":"pairingRequestExpired"}}"#);
+        println!(
+            "{}",
+            serde_json::json!({ "event": "pairingRequestExpired" })
+        );
         return;
     }
     eprintln!("这条配对请求已失效（对方断开或等待超时），仍在等待下一次——继续扫码即可。");

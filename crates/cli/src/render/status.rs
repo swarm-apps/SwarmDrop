@@ -5,23 +5,20 @@
 
 use serde_json::Value;
 
+use super::text_or;
+
 /// 渲染状态快照。结果走 stdout（人类可读与结构化都是「命令的结果」）。
 pub fn render(status: &Value, json: bool) {
     if json {
-        // 结果是唯一写进 stdout 的东西，序列化失败也不能退化成半截输出——
-        // 宁可什么都不写，让调用方按退出码判断。
-        match serde_json::to_string_pretty(status) {
-            Ok(text) => println!("{text}"),
-            Err(err) => eprintln!("序列化状态失败: {err}"),
-        }
+        super::emit_json(status, "状态");
         return;
     }
 
-    println!("状态      {}", text_of(status, "status"));
+    println!("状态      {}", text_or(status, "status", "未知"));
     if let Some(peer) = status.get("peerId").and_then(Value::as_str) {
         println!("节点标识  {peer}");
     }
-    println!("NAT       {}", text_of(status, "natStatus"));
+    println!("NAT       {}", text_or(status, "natStatus", "未知"));
     if let Some(addr) = status.get("publicAddr").and_then(Value::as_str) {
         println!("公网地址  {addr}");
     }
@@ -43,19 +40,13 @@ pub fn render(status: &Value, json: bool) {
     }
 }
 
-/// 取一个字段的可读文本。枚举在 JSON 里可能是字符串，也可能是带标签的对象。
-fn text_of(value: &Value, key: &str) -> String {
-    match value.get(key) {
-        Some(Value::String(s)) => s.clone(),
-        Some(other) => other.to_string(),
-        None => "未知".into(),
-    }
-}
-
 /// 前台启动就绪。
 pub fn render_started(node_id: &swarmdrop_net::NodeId, json: bool) {
     if json {
-        println!(r#"{{"event":"started","nodeId":"{node_id}"}}"#);
+        println!(
+            "{}",
+            serde_json::json!({ "event": "started", "nodeId": node_id.to_string() })
+        );
     } else {
         println!("节点已启动  {node_id}");
         println!("按 Ctrl-C 停止，或在另一个终端执行 swarmdrop stop");
@@ -65,7 +56,10 @@ pub fn render_started(node_id: &swarmdrop_net::NodeId, json: bool) {
 /// 后台启动的结果。`ready=false` 表示等待超时——不是失败，只是还没就绪。
 pub fn render_detached(ready: bool, json: bool) {
     if json {
-        println!(r#"{{"event":"detached","ready":{ready}}}"#);
+        println!(
+            "{}",
+            serde_json::json!({ "event": "detached", "ready": ready })
+        );
     } else if ready {
         println!("节点已在后台启动");
     } else {
@@ -76,7 +70,10 @@ pub fn render_detached(ready: bool, json: bool) {
 /// 停止的结果。`stopped=false` 表示本来就没有节点在运行。
 pub fn render_stopped(stopped: bool, json: bool) {
     if json {
-        println!(r#"{{"event":"stopped","wasRunning":{stopped}}}"#);
+        println!(
+            "{}",
+            serde_json::json!({ "event": "stopped", "wasRunning": stopped })
+        );
     } else if stopped {
         println!("节点已停止");
     } else {

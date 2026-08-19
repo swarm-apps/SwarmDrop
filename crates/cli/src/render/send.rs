@@ -55,34 +55,112 @@ pub fn human_bytes(bytes: u64) -> String {
     }
 }
 
-/// 传输进度。**写 stderr**：结构化模式下 stdout 只能有最终结果，
-/// 而人类可读模式下把进度和结果混在一起也不利于管道使用。
+/// 传输进度条。
 ///
-/// 用回车原地刷新而非逐行追加：一次传输会有成百上千条进度事件，逐行打印会把终端刷满。
-pub fn render_progress(transferred: u64, total: u64) {
-    use std::io::Write;
+/// **画在 stderr**：结构化模式下 stdout 只能有最终结果，而人类可读模式下把进度混进
+/// 结果也不利于管道使用。
+///
+/// 走 `indicatif` 而不是自己 `\r` 刷新，换来的是三件自写版本没有的事：
+///
+/// - **非终端时自动静默**。自写版本在 `swarmdrop send … | tee log` 或 CI 里照样输出
+///   回车控制符，日志文件里于是变成一行几百个 `\r` 拼起来的乱码。
+/// - **速率与剩余时间**。传大文件时这两个数才是用户真正在等的答案，
+///   而它们要维护一个时间窗口，不是「再加一行 format!」能顺手做对的。
+/// - **重绘时清行**。stderr 上还有 tracing 的日志，自写版本被日志插一行后会留下
+///   半截残影，直到下一次刷新才被覆盖。
+pub struct Progress(indicatif::ProgressBar);
 
-    let percent = if total == 0 {
-        0.0
-    } else {
-        transferred as f64 / total as f64 * 100.0
-    };
-    eprint!(
-        "\r传输中 {percent:>5.1}%  {} / {}",
-        human_bytes(transferred),
-        human_bytes(total)
-    );
-    let _ = std::io::stderr().flush();
+/// 进度条模板。
+///
+/// **必须是常量**：模板写错时 [`Progress::new`] 回退到默认样式，进度条照常出现、
+/// 只是速率与剩余时间不见了，没有任何报错。看守它的测试如果自己抄一份字面量，
+/// 改坏这里、忘了改那里，测试仍然绿——那条护栏就等于不存在。
+/// **不用 indicatif 的 `{binary_bytes}`**：它给两位小数（`1.00 MiB`），而同一条 `send`
+/// 结束时打印的结果行走 [`human_bytes`]（一位小数，`1.0 MiB`）——同一个数在同一屏里
+/// 两种写法。改用自定义的 key 把两处都接到 `human_bytes` 上。
+const TEMPLATE: &str = "传输中 {bar:24} {percent:>3}%  {done}/{total}  {rate}  剩余 {eta}";
+
+impl Progress {
+    /// `enabled` 为假（结构化输出模式）时返回一个不绘制任何东西的实例。
+    ///
+    /// 不用 `Option<Progress>` 是刻意的：调用点会因此散落 `if let Some(..)`，
+    /// 而「什么时候该画」必须只回答一次。stderr 不是终端时由 indicatif 自己隐藏。
+    pub fn new(enabled: bool) -> Self {
+        let bar = if enabled {
+            indicatif::ProgressBar::no_length()
+        } else {
+            indicatif::ProgressBar::hidden()
+        };
+        bar.set_style(
+            indicatif::ProgressStyle::with_template(TEMPLATE)
+                // 写错只会在运行时退化成默认样式——由 `progress_template_is_valid` 钉住。
+                .unwrap_or_else(|_| indicatif::ProgressStyle::default_bar())
+                .with_key(
+                    "done",
+                    |state: &indicatif::ProgressState, w: &mut dyn std::fmt::Write| {
+                        let _ = write!(w, "{}", human_bytes(state.pos()));
+                    },
+                )
+                .with_key(
+                    "total",
+                    |state: &indicatif::ProgressState, w: &mut dyn std::fmt::Write| {
+                        let _ = write!(w, "{}", human_bytes(state.len().unwrap_or(0)));
+                    },
+                )
+                .with_key(
+                    "rate",
+                    |state: &indicatif::ProgressState, w: &mut dyn std::fmt::Write| {
+                        let _ = write!(w, "{}/s", human_bytes(state.per_sec() as u64));
+                    },
+                ),
+        );
+        Self(bar)
+    }
+
+    /// 收到一条进度事件。
+    ///
+    /// 总量每次都重设：它由第一条事件才带过来，而续传场景下同一会话的总量可能变化。
+    pub fn update(&self, transferred: u64, total: u64) {
+        self.0.set_length(total);
+        self.0.set_position(transferred);
+    }
 }
 
-/// 结束进度行——否则最终结果会接在那条没有换行的进度后面。
-pub fn finish_progress() {
-    eprintln!();
+/// 离开作用域即收掉进度条。
+///
+/// **不做成 `finish()` 方法在每个返回点各调一次**：等待终态的那个循环有四条出口
+/// （完成、失败、拒绝、通道断开），只有第一条会自然想起要收尾——旧版本就漏了另外三条，
+/// 于是「传输失败: …」直接印在那条没有换行的进度行后面。新增一种终态时同样会漏。
+///
+/// `finish_and_clear` 而非 `finish`：最终结果紧接着打印在 stdout 上，
+/// 留一条走完的进度条在旁边只是把同一个数字再说一遍。
+impl Drop for Progress {
+    fn drop(&mut self) {
+        self.0.finish_and_clear();
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 进度条模板必须可解析。
+    ///
+    /// [`Progress::new`] 在模板写错时回退到默认样式——那是**静默**降级：进度条照常
+    /// 出现，只是速率与剩余时间不见了，而没有人会因此收到报错。
+    #[test]
+    fn progress_template_is_valid() {
+        assert!(
+            indicatif::ProgressStyle::with_template(TEMPLATE).is_ok(),
+            "模板无法解析，Progress::new 会静默退回默认样式"
+        );
+    }
+
+    /// 结构化输出模式下一个字节都不能画——stdout 的解析方会被进度条冲掉。
+    #[test]
+    fn structured_mode_draws_nothing() {
+        assert!(Progress::new(false).0.is_hidden());
+    }
 
     #[test]
     fn bytes_use_binary_units() {

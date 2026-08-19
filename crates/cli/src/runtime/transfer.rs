@@ -80,20 +80,16 @@ async fn wait_for_terminal(
 ) -> CliResult<()> {
     use swarmdrop_core::host::CoreEvent;
 
+    // 「该不该画」在这里回答一次；之后的调用点无条件调用它。
+    let progress = crate::render::send::Progress::new(show_progress);
+
     while let Some(event) = events.recv().await {
         match event {
             CoreEvent::TransferProgress { event } if event.session_id == session_id => {
-                if show_progress {
-                    crate::render::send::render_progress(
-                        event.transferred_bytes,
-                        event.total_bytes,
-                    );
-                }
+                progress.update(event.transferred_bytes, event.total_bytes);
             }
             CoreEvent::TransferCompleted { event } if event.session_id == session_id => {
-                if show_progress {
-                    crate::render::send::finish_progress();
-                }
+                // 进度条由 `Progress` 的 `Drop` 收尾——这里以及下面三条出口都不必各收一次。
                 return Ok(());
             }
             CoreEvent::TransferFailed { event } if event.session_id == session_id => {
@@ -109,8 +105,12 @@ async fn wait_for_terminal(
         }
     }
 
-    // 事件通道断开只发生在节点关停时。
-    Err(CliError::Aborted)
+    // 事件通道断开只发生在节点关停时（另一个终端跑了 `swarmdrop stop`，或进程被杀）。
+    //
+    // **不是 `Aborted`**：那个分类的退出码是 130（`128 + SIGINT`），脚本按惯例读作
+    // 「人按了 Ctrl-C，别重试」。而这里是传输被外力打断，重试完全合理——分类错了会让
+    // 一次本该恢复的中断被当成用户主动放弃。
+    Err(CliError::TransferFailed("常驻节点已停止，传输中断".into()))
 }
 
 /// 把设备名或节点标识解析成一台已配对设备。
@@ -134,7 +134,7 @@ fn resolve_target(node: &RunningNode, to: &str) -> CliResult<(String, String)> {
 
     match matched.as_slice() {
         [] => Err(CliError::Usage(format!(
-            "找不到已配对设备「{to}」；执行 swarmdrop devices 查看可用目标"
+            "找不到已配对设备「{to}」；执行 swarmdrop device list 查看可用目标"
         ))),
         [device] => Ok((device.peer_id.to_string(), display_name(device))),
         multiple => Err(CliError::Usage(format!(

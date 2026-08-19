@@ -614,6 +614,20 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 
 - **Rust library naming:** lib 名为 `swarmdrop_lib`（非 `swarmdrop`），避开 Windows 上 cargo
   的 lib/bin 命名冲突。
+- **`swarmdrop` 这个 bin 名归 `crates/cli` 独占。** 桌面壳的可执行文件是
+  **`swarmdrop-desktop`**（`src-tauri/Cargo.toml` 显式 `[[bin]]`）。
+  两者曾经同名并写到同一个 `target/<profile>/swarmdrop`，**后构建的静默覆盖前一个**
+  （cargo 只给一条 `output filename collision` 警告，并写明将来会是硬错误）。症状是
+  `cargo test --workspace` 随机红——CLI 的集成测试经 `CARGO_BIN_EXE_swarmdrop` 拿到桌面壳，
+  以「退出码 0、stdout 空」失败，报的却是完全指错方向的断言消息。
+  **对外产物名一个都没变**（`swarmdrop.app` / `swarmdrop_x.y.z_aarch64.dmg` /
+  `swarmdrop.app.tar.gz`，它们由 `productName` 决定），变的是 `.app` 内部的
+  `Contents/MacOS/swarmdrop-desktop`、Windows 的 `swarmdrop-desktop.exe`，以及未打包的
+  cargo 产物。
+  ⚠️ **不要用 `tauri.conf.json` 的 `mainBinaryName` 把它改回 `swarmdrop`**——那个字段
+  是在 `tauri build` 阶段**重命名 cargo 产物**（`--no-bundle` 也一样），冲突会原样回归。
+  ⚠️ **跟着改的引用点**：`e2e/desktop/wdio.conf.ts` 的 `APP_BINARY_PATH`、
+  `.github/ISSUE_TEMPLATE/bug_report.yml` 里给用户的日志启动路径。
 - **libp2p git pin（本项目最大的单点依赖风险）。** `libp2p` / `libp2p-stream` /
   `libp2p-core` / `libp2p-swarm` / `libp2p-webrtc-utils` 同 pin
   `github.com/yexiyue/rust-libp2p` 一个 rev——**仍是个人 fork**。退出条件写死在

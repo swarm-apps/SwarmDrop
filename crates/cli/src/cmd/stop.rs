@@ -18,6 +18,6 @@ pub async fn run(data_dir: &DataDir, json: bool) -> CliResult<()> {
             crate::render::status::render_stopped(true, json);
             Ok(())
         }
-        Some(Response::Error { message }) => Err(CliError::NodeUnavailable(message)),
+        Some(Response::Error { code, message }) => Err(CliError::from_code(code, message)),
     }
 }

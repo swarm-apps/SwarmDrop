@@ -7,11 +7,15 @@
 //! `send`，以及将来可能出现的长期存活的交互式前端（design.md 的 D11）。
 //! 具体表现：不要把「干完就退出」的假设写进生命周期，也不要让装配路径依赖进程即将结束。
 
+pub mod access;
 pub mod boot;
 pub mod bootstrap_nodes;
+pub mod devices;
+pub mod inbox;
+pub mod invites;
 pub mod ipc;
 pub mod pairing;
 pub mod receive;
-pub mod session;
 pub mod single;
 pub mod transfer;
+pub mod transfers;

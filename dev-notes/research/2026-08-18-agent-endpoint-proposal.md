@@ -307,7 +307,7 @@ M0 复用现有 20 个 MCP tool（`send_files` / `list_paired_devices` / `list_i
 | M1-6 | 第三条版本线 `cli-v*` | 与 `v*`（桌面）、`mobile-v*`（移动）并列；CLAUDE.md 版本管理节需同步 |
 
 **独立验收**（不涉及任何 harness）：一台没装过 SwarmDrop 的机器，
-`brew install` 或 `npx` 之后，`swarmdrop pair` → `swarmdrop send f.zip --to phone` 成功。
+`brew install` 或 `npx` 之后，`swarmdrop invite create` → `swarmdrop send f.zip --to phone` 成功。
 
 ### M2 —— Agent 端点（**~2 周，M0 有信号才启动**）
 

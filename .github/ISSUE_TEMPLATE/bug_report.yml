@@ -93,9 +93,12 @@ body:
         **On desktop** there is no log file yet — the app writes to stdout, so you only see
         logs if you launch it from a terminal:
 
-        - **macOS**: `/Applications/swarmdrop.app/Contents/MacOS/swarmdrop`
-        - **Linux**: run the AppImage or `swarmdrop` binary from a shell
-        - **Windows**: run `swarmdrop.exe` from PowerShell
+        - **macOS**: `/Applications/swarmdrop.app/Contents/MacOS/swarmdrop-desktop`
+        - **Linux**: run the AppImage or `swarmdrop-desktop` binary from a shell
+        - **Windows**: run `swarmdrop-desktop.exe` from PowerShell
+
+        (The desktop executable is named `swarmdrop-desktop`; plain `swarmdrop` is the
+        separate command-line tool.)
 
         For more detail, prefix with `RUST_LOG=swarmdrop=trace,swarmdrop_net=trace`.
         In the browser build, the Settings page has an event log.

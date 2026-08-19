@@ -22,13 +22,20 @@ use crate::exit::{CliError, CliResult};
 
 use super::bootstrap_nodes::default_network_config;
 
+/// 命令行宿主的网络管理器类型。
+///
+/// **存在的理由是 `Option<&CliNetManager>` 的 `None` 分支**：核心的 `unpair` 收
+/// `Option<&NetManager<T>>`，传 `None` 时 `T` 推不出来，必须显式标注。别名收在这里，
+/// 免得每个「节点可能不在」的调用点各写一遍那串类型。
+pub type CliNetManager = NetManager<TransferManager>;
+
 /// 一个已经起来的节点，以及命令还用得着的东西。
 ///
 /// **刻意不持有存储与文件访问端口**：它们已经注入 `TransferManager`，命令经它操作即可。
 /// 再存一份 `Arc` 只会诱使调用方绕过管理器直接动存储——那正是「两张进行中的暂存表」
 /// 这类问题的来源。收件箱命令不经节点、直接连库，也不需要它们。
 pub struct RunningNode {
-    pub manager: NetManager<TransferManager>,
+    pub manager: CliNetManager,
     /// 本机节点标识。
     pub node_id: swarmdrop_net::NodeId,
     /// 身份密钥。生成配对邀请要用它签名。
