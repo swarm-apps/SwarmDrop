@@ -59,7 +59,11 @@ pub fn render_list(rows: &[InviteRow], json: bool) {
     let now = swarmdrop_host::now_secs();
     for row in rows {
         let state = state(row);
-        println!("{}  {state}", short(&row.id));
+        println!(
+            "{}  {state}  {}",
+            short(&row.id),
+            issued(row.created_at, now)
+        );
         println!("   {}   还有 {}", row.id, remaining(row.expires_at, now));
     }
 
@@ -79,6 +83,20 @@ pub fn menu_line(row: &InviteRow, now: u64) -> String {
         short(&row.id),
         remaining(row.expires_at, now)
     )
+}
+
+/// 发出多久了。
+///
+/// spec「列出已发出的邀请」要求清单给出创建时刻。用**相对时间**而非绝对时刻是刻意的：
+/// 这一列要回答的是「哪张是我刚发的、哪张是昨天那张」——一分钟内发两张时，标识前缀之外
+/// 就靠它区分，而 `2026-08-19 15:30:07` 在那个用途上比「3 分钟前」难读。
+/// 绝对值在 `--json` 里（`createdAt`，Unix 秒），要精确的调用方取那个。
+fn issued(created_at: u64, now: u64) -> String {
+    match now.saturating_sub(created_at) {
+        0..=59 => "刚刚发出".into(),
+        left @ 60..=3599 => format!("{} 分钟前发出", left / 60),
+        left => format!("{} 小时前发出", left / 3600),
+    }
 }
 
 /// 剩余有效期的人话。
@@ -277,5 +295,33 @@ pub fn render_paired(outcome: &PairOutcome, json: bool) {
     if !outcome.persisted {
         // 如实说后果，而不是说「配对失败」——配对是成的，丢的是这台机器上的记录。
         eprintln!("警告：这台设备没能写入本机配对表，重启后会从列表里消失（对方仍记着）。");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 清单必须给得出「这张是什么时候发的」——spec「列出已发出的邀请」要求输出含创建时刻。
+    ///
+    /// 它不是装饰：一分钟内发两张时，标识前缀之外就靠这一列区分哪张发给了谁，
+    /// 而那正是「刚发错人、立刻撤回」这条主场景可用的前提。
+    #[test]
+    fn listing_says_when_each_invite_was_issued() {
+        let now = 1_800_000_000;
+        assert_eq!(issued(now, now), "刚刚发出");
+        assert_eq!(issued(now - 180, now), "3 分钟前发出");
+        assert_eq!(issued(now - 7200, now), "2 小时前发出");
+        // 时钟回拨不该 panic，也不该给出一个巨大的数。
+        assert_eq!(issued(now + 60, now), "刚刚发出");
+    }
+
+    /// 已过期的邀请不会进清单（`list_active` 过滤掉了），但渲染仍要能收住。
+    #[test]
+    fn remaining_never_underflows() {
+        let now = 1_800_000_000;
+        assert_eq!(remaining(now - 100, now), "不到 1 分钟");
+        assert_eq!(remaining(now + 120, now), "2 分钟");
+        assert_eq!(remaining(now + 7200, now), "2 小时");
     }
 }
