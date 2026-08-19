@@ -553,10 +553,12 @@ let id = PairInvite::decode(&invite).ok().map(|parsed| parsed.id());
 与注册表算出的一致、`ids_are_distinct_for_invites_minted_at_the_same_instant`）。
 副产品是省掉一次 IPC 往返。
 
-## 分发（`dist`）的三个坑
+## 分发（`dist`）的四个坑
 
-1. **tag 必须用斜杠**：`cli/v0.1.0`。`tag-namespace = "cli"` ≠ 包名 `swarmdrop-cli` 时，
-   连字符形式 `cli-v0.1.0` 会被 dist 整串当版本号解析并报
+1. **tag 必须带包名**：`cli/swarmdrop-cli-v0.1.0`。**这条是本节最贵的一条**——选错不报错，
+   发出去的 release notes 会是另一条版本线的内容。见下方「tag 形式决定 release notes 取哪份
+   CHANGELOG」。也不要用连字符裸形式 `cli-v0.1.0`：`tag-namespace = "cli"` ≠ 包名
+   `swarmdrop-cli` 时，dist 会把整串当版本号解析并报
    `Couldn't parse the version ... unexpected character 'c'`。
 2. **workspace 里其余 bin crate 必须显式排除**。`dist-workspace.toml` 的 `members` 只列 CLI，
    但 dist 仍会扫描每个有 bin 的包；给它们补了 `repository` 之后就会被纳入发布计划
@@ -565,6 +567,36 @@ let id = PairInvite::decode(&invite).ok().map(|parsed| parsed.id());
 3. **`tag-namespace` 顺带解决了 workflow 命名冲突**：产出的是 `cli-release.yml`，
    不会覆盖既有的 `release.yml`（桌面 Tauri 发版）。改配置后重跑 `dist generate` 前，
    建议先记一份 `release.yml` 的 sha256 用于核对。
+
+### tag 形式决定 release notes 取哪份 CHANGELOG
+
+dist 的 **announcement 粒度由 tag 决定**，粒度又决定 release notes 从哪份 CHANGELOG 取正文。
+两份 changelog dist **都会扫到**（`-v info` 能看到两条 `Found CHANGELOG at`），选哪份只看粒度：
+
+| tag | 粒度 | notes 来源 |
+|---|---|---|
+| `cli/v0.1.0` | 剥掉 namespace 只剩版本号 → 判定「整个 workspace 统一发布」 | **仓库根** `CHANGELOG.md`（桌面版本线） |
+| `cli/swarmdrop-cli-v0.1.0` | 带包名 → 包级 | `crates/cli/CHANGELOG.md` ✅ |
+
+它**不报错**——dist 在根 CHANGELOG.md 里按版本号找到桌面端的同号条目，日志照样打
+`successfully parsed changelog!`。首个 CLI 版本 `cli/v0.1.0` 就是这么把桌面 2026-02-14 的
+「限制 Android 构建目标为 aarch64」「配对请求超时设为 180 秒」发成了 CLI 首版说明，
+标题还带着桌面的日期 `0.1.0 - 2026-02-14`。事后用 `gh release edit --title --notes-file` 修的
+（assets 挂在原 tag 上，所以 notes 里的下载 URL 段要保留原样，只换 changelog 那一段）。
+
+**三条版本线共存把它从「可能」变成「必然」**：桌面已走到 0.16.x，CLI 从 0.1.0 重新起步，
+CLI 的 0.1.x / 0.2.x 一路都会撞上桌面的历史条目。
+
+`DistMetadata` 的 73 个配置项里**没有** changelog 路径字段（`changelog` 只存在于 dist 自有
+manifest 的 `[package]` 表，那是给非 cargo 的 generic 包用的），所以这件事无法用配置消除
+——tag 形式就是唯一的开关。因此发版走 **`./scripts/release-cli.sh`**：它从
+`crates/cli/Cargo.toml` 读版本、构造包级 tag，并在打 tag 前把 `dist plan` 解析出的正文
+前三行回查 `crates/cli/CHANGELOG.md`（判据是内容而非配置，dist 取错了就一行都对不上）。
+`--check-only` 只校验。护栏本身验证过：把脚本里的 tag 改回 `cli/v$VERSION`，它会红。
+
+**改 tag 形式不影响 workflow 触发**：模式仍是 `dist generate` 产出的
+`'cli**[0-9]+.[0-9]+.[0-9]+*'`（改配置注释后重跑 generate 零 diff），`**` 段吃掉
+`/swarmdrop-cli-v`，版本号照常匹配。三条版本线的隔离性也没变。
 
 参照实现：`../SwarmHive/dist-workspace.toml`（同家族项目，配置与踩坑注释可直接对照）。
 
@@ -577,9 +609,11 @@ let id = PairInvite::decode(&invite).ok().map(|parsed| parsed.id());
 **那是非致命警告**：退出码仍是 0、产物齐全。CI 用 `matrix.runner` 按 target 分配原生
 runner，不会走到那条路径。第一次见到它很容易误判成「本地验证不了」而直接去发版。
 
-带 tag 构建才能验证下载地址：`dist build --tag cli/v0.1.0`。不带 tag 时 npm 包里的
-`artifactDownloadUrls` 是 `releases/download/v0.1.0`，**少了 namespace 段**，
-带上才是正确的 `releases/download/cli/v0.1.0`。
+带 tag 构建才能验证下载地址：`dist build --tag cli/swarmdrop-cli-v0.1.1`。不带 tag 时
+npm 包里的 `artifactDownloadUrls` 是 `releases/download/v0.1.1`，**少了 namespace 段**，
+带上才是正确的 `releases/download/cli/swarmdrop-cli-v0.1.1`。
+（0.1.0 的 assets 挂在旧形式的 `cli/v0.1.0` 下，那个 tag 保持原样——已发出的 installer
+与 npm 包里的 URL 都指向它。）
 
 ## 接收落点
 

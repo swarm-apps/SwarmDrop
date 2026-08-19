@@ -19,9 +19,22 @@ ci = "github"
 # `.github/workflows/cli-release.yml`，触发模式 'cli**[0-9]+.[0-9]+.[0-9]+*'，从而与桌面的
 # `v*` 和移动的 `mobile-v*` 彻底解耦（默认贪婪的 '**[0-9]+...' 会把三者都吃进去）。
 #
-# ⚠️ CLI 发版打 **斜杠** 形式的 tag `cli/v0.1.0` —— namespace 作为路径前缀被 dist 剥离，
-# 剩 `v0.1.0` 正常解析。**不要**用连字符 `cli-v0.1.0`：namespace `cli` ≠ 包名
-# `swarmdrop-cli`，dist 会把整串当版本号解析并报
+# ⚠️ **tag 必须带包名**：`cli/swarmdrop-cli-v0.1.0`，不是 `cli/v0.1.0`。
+# 这里没有对应的配置项 —— tag 形式**就是**唯一的开关，且选错时静默出错，所以发版走
+# `./scripts/release-cli.sh`（它构造 tag 并校验 notes 来源），别手敲 `git tag`。
+#
+# 原因：dist 的 **announcement 粒度由 tag 决定**，粒度又决定 release notes 取哪份
+# CHANGELOG（两份 dist 都会扫到，选哪份只看粒度）：
+#   cli/v0.1.0                → 剥掉 namespace 只剩版本号 → 判定「整个 workspace 统一
+#                               发布」→ 取 **workspace root** 的 CHANGELOG.md，
+#                               那是**桌面端**的版本线
+#   cli/swarmdrop-cli-v0.1.0  → 带包名 → 包级 announcement → 取 crates/cli/CHANGELOG.md
+# 前者不报错：dist 在根 CHANGELOG.md 里按版本号找到桌面端的同号条目就用了。cli/v0.1.0
+# 因此把桌面 2026-02-14 的「限制 Android 构建目标为 aarch64」发成了 CLI 首版说明。
+# 三条版本线共存放大了它 —— 桌面已到 0.16.x、CLI 从 0.1.0 重起，撞号是必然而非偶然。
+#
+# ⚠️ 也**不要**用连字符裸形式 `cli-v0.1.0`：namespace `cli` ≠ 包名 `swarmdrop-cli`，
+# dist 会把整串当版本号解析并报
 # "Couldn't parse the version ... unexpected character 'c'"。
 # （namespace 与包名相同的项目可以用连字符，这里不成立。）
 tag-namespace = "cli"

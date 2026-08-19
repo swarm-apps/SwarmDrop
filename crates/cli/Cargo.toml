@@ -11,9 +11,10 @@ homepage = "https://github.com/swarm-apps/SwarmDrop"
 #
 # **package 名与 bin 名刻意不同**：bin 必须是干净的 `swarmdrop`（用户敲的就是它），
 # 而 package 名带 `-cli` 后缀，与将来可能出现的其他分发单元区分。
-# ⚠️ 两者不同意味着 `dist` 的发布标签必须用**斜杠**形式 `cli/v0.1.0`：
-# tag-namespace（`cli`）≠ package 名（`swarmdrop-cli`）时，连字符形式 `cli-v0.1.0`
-# 会被 dist 整串当作版本号解析并报错。判据见 design.md 的 D9。
+# ⚠️ 两者不同影响发布标签的形式：tag 必须是 `cli/swarmdrop-cli-v<版本>`（**带包名**，
+# 否则 release notes 会静默取到桌面版本线的 CHANGELOG——见 dist-workspace.toml 的注释），
+# 且不能用连字符裸形式 `cli-v0.1.0`（tag-namespace `cli` ≠ package 名 `swarmdrop-cli` 时，
+# dist 会把整串当版本号解析并报错）。发版走 `./scripts/release-cli.sh`，别手敲 git tag。
 
 [[bin]]
 name = "swarmdrop"

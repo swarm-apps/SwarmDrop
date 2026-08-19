@@ -2,7 +2,8 @@
 
 `swarmdrop` 命令行工具的变更记录。
 
-> 这条版本线独立于桌面端（tag `v*`）与移动端（tag `mobile-v*`），tag 形如 `cli/v0.1.0`。
+> 这条版本线独立于桌面端（tag `v*`）与移动端（tag `mobile-v*`），tag 形如
+> `cli/swarmdrop-cli-v0.1.1`（0.1.0 用的是旧形式 `cli/v0.1.0`，见 dist-workspace.toml）。
 > 仓库根目录的 `CHANGELOG.md` 记的是桌面端，与本文件无关。
 
 ## [0.1.0] - 2026-08-19

@@ -886,7 +886,7 @@ Linux `.desktop`），且带幂等比对，升级后首次启动会自动重写�
 swarmhive-action 自己挑 updater bundle，也不硬编码。
 
 **不能反过来改 CLI 的 bin 名**：用户敲的就是 `swarmdrop`，而且它已经作为
-`cli/v*` 发到 npm 与 homebrew。
+`cli/swarmdrop-cli-v*` 发到 npm 与 homebrew。
 
 **跟着改的引用点**：`e2e/desktop/wdio.conf.ts` 的 `APP_BINARY_PATH`、
 `.github/ISSUE_TEMPLATE/bug_report.yml` 里给用户的三条日志启动路径。

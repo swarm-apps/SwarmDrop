@@ -145,7 +145,16 @@ x86-64、PE）。
 确认后：
 
 ```sh
-git tag cli/v0.1.0 && git push origin cli/v0.1.0
+./scripts/release-cli.sh --push
 ```
 
-想先小成本验证整条流水线的话，用 `cli/v0.1.0-rc.1`——dist 会标成 prerelease。
+想先小成本验证整条流水线的话，手打一个 `-rc.1` 后缀的 tag——dist 会标成 prerelease。
+
+> ⚠️ **更正（2026-08-19，实际发布后）**：这里原本写的是
+> `git tag cli/v0.1.0 && git push origin cli/v0.1.0`，**那个 tag 形式是错的**，
+> 0.1.0 就是照它发的。少了包名段会让 dist 判定为「整个 workspace 统一发布」，
+> release notes 于是取**仓库根**的 `CHANGELOG.md`（桌面版本线）而不是
+> `crates/cli/CHANGELOG.md`，且不报错。正确形式是 `cli/swarmdrop-cli-v<版本>`，
+> 由 `scripts/release-cli.sh` 构造并校验。完整因果见
+> [`cli-host.md`](../../../dev-notes/knowledge/cli-host.md) 的
+> 「tag 形式决定 release notes 取哪份 CHANGELOG」。
