@@ -68,6 +68,17 @@ targets = [
 
 # CI 中运行的发布任务
 publish-jobs = ["npm", "homebrew"]
+
+# 发布公告之后跑的自定义 job：把 release 的标题与 latest 归属摆正。
+#
+# ⚠️ **它必须挂在这里，不能写成独立的 `on: release: published` workflow。**
+# release 是 `cli-release.yml` 的 host job 用 `secrets.GITHUB_TOKEN` 创建的，而
+# GITHUB_TOKEN 造出来的事件**不会触发新的 workflow run**（GitHub 防递归的硬规则）。
+# 前两版就是这么静默失效的 —— release 照发、产物齐全、Actions 里零运行记录，
+# v0.2.0 与 v0.3.0 的标题和 latest 都是事后手工补的。理由全文见那个文件的头注释。
+#
+# 改这一项后必须 `dist generate` 重新产出 `.github/workflows/cli-release.yml`。
+post-announce-jobs = ["./cli-release-polish"]
 # 安装器把二进制放到哪
 install-path = "CARGO_HOME"
 # 只构建需要的包，且逐个构建

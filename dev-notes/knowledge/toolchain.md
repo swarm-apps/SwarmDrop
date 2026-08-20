@@ -1462,6 +1462,27 @@ funcref 表恒为 `min == max`，一眼可辨。
 `check-wasm.sh` 的 `CRATES` 对齐（另加 `crates/entity` 与 `Cargo.lock`）。源码动了但产物
 字节确实不变时，用 commit message 里的 `[wasm-artifact-unchanged]` 放行——刻意要求留痕。
 
+⚠️ **那个逃生舱比它读起来窄得多，默认按「老实重建」办。** 判据是「字节不变」，而
+wasm 里嵌着 panic location 元数据（`file:line`），**任何往文件中间插代码的改动都会挪动
+行号、从而改掉产物字节**。实测一次：`crates/transfer/src/inbox.rs` 加了一个连 wasm 侧都
+没人调用的 `pub fn`，重建后产物**大小一字节没变**、内容差 **8 个字节**，全是行号
+（`inbox.rs:503` → `inbox.rs:537` 及邻近三处）。所以逃生舱实际上只对「在文件末尾追加」
+或「只动 native-only 文件」成立；判不准就重建一次，用下面这段直接看差在哪：
+
+```bash
+git show HEAD:packages/swarmdrop-web/swarmdrop_web_bg.wasm > /tmp/old.wasm
+cd docs && pnpm build:wasm && cd ..
+python3 -c "
+old=open('/tmp/old.wasm','rb').read(); new=open('packages/swarmdrop-web/swarmdrop_web_bg.wasm','rb').read()
+d=[i for i in range(min(len(old),len(new))) if old[i]!=new[i]]
+print(f'长度 {len(old)} → {len(new)}，不同字节 {len(d)}')
+print(old[d[0]-24:d[0]+40], '\n', new[d[0]-24:d[0]+40]) if d else None"
+```
+
+差异只有几个字节且落在路径字符串附近 = 纯行号漂移，功能没变；但**产物仍然要提交**，
+否则下一次 push 还会红。顺带：这也说明 wasm 构建是**字节可复现**的——同一份源码重建
+两次结果相同，差异都能归因到源码。
+
 **改了 wasm 侧 crate 的工作流**：`cd docs && pnpm build:wasm`，把产物一起提交
 （历史上那些 `chore(web): 重建 wasm 产物` 就是它）。
 

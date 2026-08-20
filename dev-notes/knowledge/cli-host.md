@@ -896,10 +896,11 @@ parse_changelog 认不出版本号，title 退化成 tag 本身、notes 变空�
 | `## [SwarmDrop CLI 0.1.0] - 2026-08-19` | 同上 |
 | `## SwarmDrop CLI v0.1.0 - 2026-08-19` | 同上 |
 
-所以改成 post-process：`.github/workflows/cli-release-polish.yml` 在 `release: published`
-上触发，把标题改成 `SwarmDrop CLI v<版本>`。体例照搬 SwarmHive 的 `release-notes.yml`
-——**不碰 dist 生成的 `cli-release.yml`**（那个文件 `dist generate` 会覆盖），且
-`gh release edit` 只发 `edited` 事件，不会自触发成环。幂等判据是标题前缀。
+所以改成 post-process：`.github/workflows/cli-release-polish.yml` 把标题改成
+`SwarmDrop CLI v<版本>`。**不手改 dist 生成的 `cli-release.yml`**（那个文件
+`dist generate` 会覆盖），而是经 `dist-workspace.toml` 的 `post-announce-jobs`
+把这个 workflow 接进去——怎么接、以及为什么**不能**写成 `on: release: published`，
+见下面「触发方式」。标题完全由 tag 推出，所以重跑一次结果相同，不需要幂等守卫。
 
 **顺带修 latest 归属。** GitHub 把最新创建的非 prerelease release 标为 latest，于是 CLI
 一发版就把仓库首页的 Releases 侧栏和 `releases/latest`（`docs/lib/shared.ts` 的下载入口
@@ -921,21 +922,73 @@ parse_changelog 认不出版本号，title 退化成 tag 本身、notes 变空�
 
 参照实现：`../SwarmHive/dist-workspace.toml`（同家族项目，配置与踩坑注释可直接对照）。
 
-⚠️ **这个 workflow 必须躺在默认分支（`main`）上才会触发，只在 `develop` 上等于不存在。**
-`release`（以及 `issues` / `schedule` 等除 `push` / `pull_request` 之外的仓库事件）一律
-只从**默认分支**取 workflow 定义——它们没有「事件发生在哪个 commit 上」这回事，GitHub
-不知道该拿哪一版。而 `cli-release.yml` 之所以在 develop 上就能跑，是因为它由 `push: tags`
-触发，那种事件带着 commit，workflow 就从 tag 指向的那个 commit 上读。
+#### 触发方式：为什么不是 `on: release: published`
 
-**失败形态是彻底静默的**：release 正常发出、六平台产物齐全，只是标题仍是裸的
-`0.2.0 - 2026-08-20` 且 latest 被它拿走——也就是这个 workflow 存在的全部理由都没兑现，
-而 Actions 页面上**没有任何一条运行记录**可看（`gh run list --workflow=cli-release-polish.yml`
-报的是 404 而不是「零次运行」，那句 404 就是唯一的线索）。`cli/swarmdrop-cli-v0.2.0`
-就是这么发出去的，事后按 workflow 的两步手工补的。
+**这条查了两轮才查全，第一轮的结论是对的但不够，于是又静默失败了一次。**
+`cli/swarmdrop-cli-v0.2.0` 与 `v0.3.0` 两次发版，标题和 latest 都是事后手工补的。
 
-所以：**新增任何按 `release` / `issues` / `schedule` 触发的 workflow，都要确认它已经合进
-`main`**，别只看 develop 上有这个文件。develop → main 的合并是常规节奏的一部分，
-但「写完就以为它在跑」这一步差着一整个合并周期。
+失败形态彻底静默：release 正常发出、六平台产物齐全，只是标题仍是裸的
+`0.3.0 - 2026-08-20` 且 latest 被它拿走——这个 workflow 存在的全部理由都没兑现，
+而 Actions 页面上**没有任何一条运行记录**（`gh run list --workflow=cli-release-polish.yml`
+返回空数组，不报错也不提示，看起来跟「还没跑完」一模一样）。
+
+两条**各自独立**的根因：
+
+1. **GITHUB_TOKEN 造出来的事件不触发新的 workflow run。** GitHub 防递归的硬规则，
+   例外只有 `workflow_dispatch` / `repository_dispatch`。而 release 正是
+   `cli-release.yml` 的 `host` job 用 `GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}` 跑
+   `gh release create` 造出来的（它直接建成已发布状态，不经草稿）。
+   **这条换分支、换事件类型都绕不开**，除非改用 PAT。
+2. **`release` 事件只从默认分支读 workflow 定义。** 这类事件（同 `issues` / `schedule`
+   等除 `push` / `pull_request` 之外的仓库事件）不附带 commit，GitHub 无从知道该拿
+   哪一版。`cli-release.yml` 之所以在 develop 上就能跑，是因为它由 `push: tags` 触发，
+   那种事件带着 commit。
+
+第一轮只查出第 2 条，把文件合进 `main` 就以为修好了——`v0.3.0` 发版前还专门确认过
+「`origin/main` 命中」。它确实在 main 上，然后照样一条记录都没有。**验证「文件在
+默认分支上」根本不构成「它会跑」的证据**；能构成证据的只有一次真实的运行记录。
+
+**现在的形态：dist 的 post-announce job。**
+
+```toml
+# dist-workspace.toml
+post-announce-jobs = ["./cli-release-polish"]
+```
+
+`dist generate` 据此在 `cli-release.yml` 末尾生成：
+
+```yaml
+custom-cli-release-polish:
+  needs: [plan, announce]
+  uses: ./.github/workflows/cli-release-polish.yml
+  with:
+    plan: ${{ needs.plan.outputs.val }}
+  secrets: inherit
+```
+
+于是它跑在**同一次运行**里：没有事件，就没有 token 限制；也不再依赖「文件躺在 main
+上」——`workflow_call` 跟着 tag 所在的 commit 走，与 `cli-release.yml` 同一条规则。
+被调用方要写成 `on: workflow_call` + 一个 `plan` 输入（dist 固定传这个），并自己声明
+`permissions: contents: write`（可复用 workflow 的权限与调用方取交集，`cli-release.yml`
+顶层正好是 `contents: write`）。
+
+tag 与 prerelease 判据从 `inputs.plan` 里取，**不要**用 `github.event.release.*`
+（workflow_call 里那个对象不存在）也不必用 `github.ref_name`：
+
+| 字段 | 值（实测 `dist plan --tag=cli/swarmdrop-cli-v0.3.0 --output-format=json`） |
+|---|---|
+| `announcement_tag` | `cli/swarmdrop-cli-v0.3.0` |
+| `announcement_is_prerelease` | `false` |
+| `announcement_title` | `0.3.0 - 2026-08-20`（就是要被改掉的那个） |
+
+跟着 dist 自己建 release 用的同一批字段走，就不会有第二套解析。
+
+代价：手动在 UI 上 publish 的 release 不再会被摆正。可以接受——CLI 的 release 一律由
+dist 创建。
+
+**可推广的那条**：新增任何按 `release` / `workflow_run` / `issues` 触发的 workflow，
+先问「触发它的那个事件是谁造的」。只要是 CI 里用 `GITHUB_TOKEN` 造的，它就不会触发，
+且**不留任何痕迹**。能跑在同一次运行里就别拆成两次。
 
 ### 本地能验证到哪一步
 
