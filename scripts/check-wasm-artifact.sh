@@ -16,9 +16,15 @@
 #
 # base-ref 默认 origin/main；CI 由 rust.yml 传入（PR 传 base sha，push 传 before sha）。
 #
-# 逃生舱：源码动了但产物字节确实不变（只改注释、测试、或 native-only 的代码路径）时，
-# `pnpm build:wasm` 跑完 git 是干净的，这条检查会永远红。此时在**该分支任一 commit 的
-# message** 里写 [wasm-artifact-unchanged] 放行 —— 刻意要求留痕，而不是默默跳过。
+# 逃生舱：源码动了但产物字节确实不变时，`pnpm build:wasm` 跑完 git 是干净的，这条检查
+# 会永远红。此时在**该分支任一 commit 的 message** 里写 [wasm-artifact-unchanged]
+# 放行 —— 刻意要求留痕，而不是默默跳过。
+#
+# ⚠️ 它比听起来窄得多：wasm 里嵌着 panic location 元数据（`file:line`），**任何往文件
+# 中间插代码的改动都会挪动行号、从而改掉字节**。实测过一次 —— 加一个 wasm 侧根本没人
+# 调用的 `pub fn`，产物大小一字节没变、内容差 8 个字节，全是行号。所以逃生舱基本只对
+# 「在文件末尾追加」成立；测试 / examples / `*.md` 已由下面的 EXCLUDE 自动排除，不必
+# 走逃生舱。判不准就重建一次，差异落在路径字符串附近就是纯行号漂移。
 
 set -euo pipefail
 
@@ -55,10 +61,31 @@ fi
 
 changed="$(git diff --name-only "$BASE...HEAD")"
 
+# 进不了 wasm 产物的东西，即使躺在上面那些目录里也不算改动。
+#
+# `crates/*/tests/` 与 `examples/` 是**独立的编译单元**，从不链进 cdylib；`*.md` 更不用说。
+# 不排除它们的话，「只改了一条 e2e 测试」也会要求重建 4.8 MB 的二进制 —— 2026-08-20
+# 就这么红过一次（改 `crates/core/tests/e2e_transfer.rs`，产物一个字节都不会变）。
+#
+# ⚠️ **这里是黑名单而不是白名单，是刻意的。** 白名单（只认 `src/` + `Cargo.toml` +
+# `build.rs`）看起来更精确，但它对**新出现的输入种类**默认放行 —— 而本脚本存在的全部
+# 理由就是防「产物悄悄过期」。实例：`crates/web/bindings/bindings.ts` 被
+# `src/node.rs` 用 `include_str!` 吃进二进制，它既不在 `src/` 下也不叫 `.rs`，白名单
+# 会直接漏掉它。误报只是烦人，漏报会把旧协议发到线上。
+#
+# 目录部分**只认 crate 顶层**（`crates/<名>/tests/`），不写成 `(^|/)tests/`：后者会连
+# `src/**/tests/` 一起吃掉，而那种是**编进 lib 的模块目录**。当前没有这样的目录（加规则
+# 时 find 过），写死顶层是为了将来有人加时不会静默失效。
+#
+# 唯一已知的残余风险：将来若有人 `include_str!` 一个 `.md`，这里会漏掉它。
+EXCLUDE='^crates/[^/]+/(tests|examples|benches)/|\.md$'
+
 # 这些条目会拼成正则，所以 `.` 要转义 —— 否则 `Cargo.lock` 里的点是通配符。
 pattern="$(IFS='|'; printf '%s' "${WASM_SOURCES[*]}" | sed 's/\./\\./g')"
 
-touched_sources="$(printf '%s\n' "$changed" | grep -E "^(${pattern})(/|$)" || true)"
+touched_sources="$(printf '%s\n' "$changed" \
+  | grep -E "^(${pattern})(/|$)" \
+  | grep -Ev "$EXCLUDE" || true)"
 
 if [ -z "$touched_sources" ]; then
   echo "✅ 本次改动不涉及 wasm 侧源码，无需重建产物。"
@@ -91,7 +118,8 @@ $(printf '%s\n' "$touched_sources" | sed 's/^/  /')
   cd docs && pnpm build:wasm && cd ..
   git add ${ARTIFACT_DIR} && git commit
 
-如果重建后产物字节确实没变（只改了注释、测试或 native-only 路径），
-在本分支任一 commit 的 message 里加上 ${SKIP_MARKER} 放行。
+如果重建后产物字节确实没变，在本分支任一 commit 的 message 里加上
+${SKIP_MARKER} 放行。但先看清楚：往文件中间插代码会挪动 panic location 里的行号，
+产物字节会变而行为不变 —— 那种情况老实提交重建后的产物即可。
 EOF
 exit 1

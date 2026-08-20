@@ -1483,6 +1483,13 @@ print(old[d[0]-24:d[0]+40], '\n', new[d[0]-24:d[0]+40]) if d else None"
 否则下一次 push 还会红。顺带：这也说明 wasm 构建是**字节可复现**的——同一份源码重建
 两次结果相同，差异都能归因到源码。
 
+**`crates/*/tests|examples|benches/` 与 `*.md` 已自动排除**（2026-08-20 起）：改一条
+e2e 测试曾经也要求重建 4.8 MB 二进制。排除规则写成黑名单而不是白名单是刻意的——白名单
+对**新出现的输入种类**默认放行，而本脚本存在的全部理由就是防漏报。反例就在手边：
+`crates/web/bindings/bindings.ts` 被 `src/node.rs` 用 `include_str!` 吃进二进制，
+它既不在 `src/` 下也不是 `.rs`，白名单会直接漏掉。目录部分只认 crate 顶层，
+不写 `(^|/)tests/`——后者会连 `src/**/tests/` 这种**编进 lib 的模块目录**一起吃掉。
+
 **改了 wasm 侧 crate 的工作流**：`cd docs && pnpm build:wasm`，把产物一起提交
 （历史上那些 `chore(web): 重建 wasm 产物` 就是它）。
 
