@@ -98,6 +98,14 @@ fn missing_argument_in_a_pipe_exits_with_usage() {
         ["transfer", "show"].as_slice(),
         ["send"].as_slice(),
         ["send", "--to", "phone"].as_slice(),
+        // 文本那支缺目标时同样要立刻退出。
+        //
+        // ⚠️ **这两条只覆盖到 `choose_target`**：空数据目录里一台已配对设备都没有，
+        // 所以 `--to phone` 也解析不出来，正文那一段一行都执行不到。
+        // 真正覆盖正文来源的是下面的 `reading_the_body_from_a_pipe_never_hangs`
+        // ——它先把一台设备写进配对表，让流程走得过第一关。
+        ["send", "--text"].as_slice(),
+        ["send", "--text", "你好"].as_slice(),
     ] {
         let tmp = tempfile::tempdir().expect("tempdir");
         let output = run(tmp.path(), args);
@@ -175,4 +183,50 @@ fn removed_commands_are_gone() {
             "{args:?} 仍然可用——旧命令必须彻底消失"
         );
     }
+}
+/// **管道里的 `send --text` 读标准输入，绝不拉起 `$EDITOR`，也不起节点。**
+///
+/// 这条要先把一台已配对设备写进记录里才有意义：`send` 的顺序是「解析目标 → 取正文」，
+/// 空数据目录下前一步就退出了，正文那一段一行都执行不到——本文件此前那三条 `--text`
+/// 用例正是这样，与 `["send", "--to", "phone"]` 是同一个断言，零增量。
+///
+/// 走到正文之后，管道里的 stdin 接的是空 ⇒ 读到 EOF ⇒ 空正文 ⇒ 用法错误。
+/// **拉起编辑器会挂死**（一个全屏程序接到一条管道上，两边都动不了），
+/// 所以这条同时是「分流判据没写反」的看守。
+#[test]
+fn reading_the_body_from_a_pipe_never_hangs() {
+    use swarmdrop_core::host::PairedDeviceStore;
+    use swarmdrop_host::device::{OsInfo, PairedDeviceInfo};
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let peer_id = swarmdrop_net::SecretKey::generate().node_id();
+    let store = swarmdrop_host_fs::JsonFileIdentityStore::new(tmp.path());
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime")
+        .block_on(store.save_paired_devices(&[PairedDeviceInfo::new(
+            peer_id,
+            OsInfo::default(),
+            1,
+        )]))
+        .expect("写入配对表");
+
+    let output = run(
+        tmp.path(),
+        &["send", "--text", "--to", &peer_id.to_string()],
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "空正文应当以用法错误退出: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("不能为空"),
+        "报的不是空正文，说明没走到读标准输入那一步: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!started_a_node(tmp.path()), "正文校验之前就把节点起了");
 }

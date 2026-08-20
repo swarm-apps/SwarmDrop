@@ -21,7 +21,8 @@ SwarmDrop 把 LocalSend 的「装好即用、点对点」体验，扩展到**任
 - **跨网络自动选路**：局域网 mDNS 直连、DHT + DCUtR 打洞、中继兜底，自动选最快路径。
 - **端到端加密**：每条连接经 Noise / TLS 1.3 加密并双向鉴权，中继只转发它解不开的密文。
 - **零配置**：不要账号，不要中央服务器，可选自建引导节点。
-- **全平台**：Windows、macOS、Linux 桌面端，Android 移动端，共用同一套 Rust 核心。
+- **四端同源**：Windows / macOS / Linux 桌面端、Android 移动端、浏览器端（wasm）、
+  以及命令行端 `swarmdrop`，共用同一套 Rust 核心与同一套配对协议。
 - **开源可自托管**：MIT 协议，引导节点可自建。
 
 ## 与同类工具对比
@@ -36,6 +37,7 @@ SwarmDrop 把 LocalSend 的「装好即用、点对点」体验，扩展到**任
 ## 下一步
 
 - [快速开始](/docs/quick-start)：装好应用，传出第一个文件。
+- [命令行指南](/docs/cli)：在服务器、NAS 或一条 SSH 会话里收发文件。
 - [核心概念](/docs/concepts)：配对邀请、DHT、NAT 穿透是怎么回事。
 - [安全模型](/docs/security)：密钥、加密与零信任设计。
 - [自托管引导节点](/docs/self-host)：把发现层也握在自己手里。

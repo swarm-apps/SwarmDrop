@@ -370,3 +370,12 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+
+  custom-cli-release-polish:
+    needs:
+      - plan
+      - announce
+    uses: ./.github/workflows/cli-release-polish.yml
+    with:
+      plan: ${{ needs.plan.outputs.val }}
+    secrets: inherit

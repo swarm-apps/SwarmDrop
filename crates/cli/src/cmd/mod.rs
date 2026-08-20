@@ -31,6 +31,7 @@ pub mod start;
 pub mod status;
 pub mod stop;
 pub mod transfer;
+pub mod update;
 
 use crate::exit::{CliResult, Code};
 
@@ -59,7 +60,8 @@ macro_rules! third_party_noise {
     about,
     long_about = "SwarmDrop 命令行宿主：无账号、无公网 IP 的设备间端到端加密传输。\n\n\
 上手：先 `swarmdrop invite create` 生成一张配对邀请给对方扫，\n\
-配对完成后用 `swarmdrop send <文件> --to <设备>` 发送。\n\
+配对完成后用 `swarmdrop send <文件> --to <设备>` 发送，\n\
+或 `swarmdrop send --text <内容> --to <设备>` 发一段文本。\n\
 接收是节点在线时的被动行为，没有对应的命令。"
 )]
 pub struct Cli {
@@ -152,7 +154,19 @@ pub enum Command {
     /// 显示节点状态、监听地址、NAT 与中继可达性。
     Status,
 
-    /// 向一台已配对设备发送文件或目录。
+    /// 更新到最新版本。
+    ///
+    /// 落在「操作对象是程序自身且为单例」那条规则下，与 `start` / `stop` / `status` 并列。
+    ///
+    /// **只有安装脚本（shell / powershell）装的那份能就地更新**。用 Homebrew 或 npm 装的
+    /// 会被认出来并转交给对应的包管理器——不去和它们争「哪个版本是当前版本」。
+    Update {
+        /// 只检查有没有新版本，不安装。
+        #[arg(long)]
+        check: bool,
+    },
+
+    /// 向一台已配对设备发送文件、目录或一段文本。
     Send {
         /// 要发送的文件或目录。不给则逐行询问（需要可交互的终端）。
         #[arg(value_name = "PATH")]
@@ -161,6 +175,23 @@ pub enum Command {
         /// 目标设备（名称或节点标识）。不给则列出已配对设备让你选。
         #[arg(long, value_name = "DEVICE")]
         to: Option<String>,
+
+        /// 发一段文本而不是文件。与路径互斥——一次只送一样东西。
+        ///
+        /// 只给 `--text` 不给内容时正文从别处取，取决于标准输入是不是终端：是管道就
+        /// 读到 EOF（`pbpaste | swarmdrop send --text --to 台式机`），是终端就拉起
+        /// `$EDITOR` 让你写。
+        ///
+        /// 对端在收件箱里收到它（`swarmdrop inbox show` 看正文），不是文件。
+        //
+        // ⚠️ **这是内容类型而不是一个动作开关**，所以它不违反本模块开头那条「同一集合上
+        // 的动作不得做成开关」：`send` 的动作只有一个，`--text` 换的是被发送的东西。
+        //
+        // `num_args = 0..=1` 那层是「给没给内容」与「用没用这个开关」的区别，塌成
+        // `Option<String>` 会让 `swarmdrop send --text` 变成解析错误，管道那条路径就此
+        // 消失（由 `text_flag_keeps_its_three_states` 看守）。
+        #[arg(long, value_name = "TEXT", num_args = 0..=1, conflicts_with = "files")]
+        text: Option<Option<String>>,
     },
 
     /// 配对邀请：生成、使用、清点与撤销。
@@ -202,6 +233,25 @@ fn dedup_by_id<T>(rows: Vec<T>, id: impl Fn(&T) -> String) -> Vec<T> {
         .collect()
 }
 
+/// `send` 的**内容**这一侧要不要占着屏幕。
+///
+/// 三种来源里只有一种不占：`--text` 只给了开关、而标准输入是一条管道——那时正文从管道
+/// 读到 EOF，全程没有人在看。另外两种都占：拉起 `$EDITOR` 是整屏接管，逐行问路径要用户
+/// 看清每一条回显。
+///
+/// ⚠️ **判据是「标准输入是不是终端」，不能换成 [`crate::prompt::can_ask`]**：那个函数在
+/// 本函数的唯一调用点（[`Cli::default_log_filter`]，跑在 `main` 里）尚未被
+/// [`crate::prompt::configure`] 初始化，读到的是两个还是默认值的静态位。
+fn send_body_is_interactive(files: &[PathBuf], text: &Option<Option<String>>) -> bool {
+    use std::io::IsTerminal;
+
+    match text {
+        Some(Some(_)) => false,
+        Some(None) => std::io::stdin().is_terminal(),
+        None => files.is_empty(),
+    }
+}
+
 impl Command {
     /// 这条命令会不会停下来等用户看屏幕、作决定。
     ///
@@ -217,8 +267,8 @@ impl Command {
             Self::Device { action } => action.is_interactive(),
             Self::Inbox { action } => action.is_interactive(),
             Self::Transfer { action } => action.is_interactive(),
-            Self::Send { files, to } => files.is_empty() || to.is_none(),
-            Self::Start { .. } | Self::Stop | Self::Status => false,
+            Self::Send { files, to, text } => to.is_none() || send_body_is_interactive(files, text),
+            Self::Start { .. } | Self::Stop | Self::Status | Self::Update { .. } => false,
         }
     }
 }
@@ -445,7 +495,8 @@ async fn run(cli: Cli) -> CliResult<()> {
         } => start::run(&data_dir, json, detach, auto_accept).await,
         Command::Stop => stop::run(&data_dir, json).await,
         Command::Status => status::run(&data_dir, json).await,
-        Command::Send { files, to } => send::run(&data_dir, json, files, to).await,
+        Command::Update { check } => update::run(&data_dir, json, check).await,
+        Command::Send { files, to, text } => send::run(&data_dir, json, files, to, text).await,
         Command::Invite { action } => invite::run(&data_dir, json, action).await,
         Command::Device { action } => device::run(&data_dir, json, action).await,
         Command::Inbox { action } => inbox::run(&data_dir, json, action).await,
@@ -483,6 +534,66 @@ mod tests {
         ] {
             assert!(Cli::try_parse_from(&args).is_ok(), "{args:?} 应当能解析");
         }
+    }
+
+    /// `--text` 的三种形态各自解析成一个可区分的值。
+    ///
+    /// **三态不能塌成两态**：`Option<Option<String>>` 里那层嵌套正是「给没给内容」与
+    /// 「用没用这个开关」的区别，而正文来自哪里（命令行 / 管道 / 编辑器）全靠它。
+    /// 塌成 `Option<String>` 之后，`swarmdrop send --text` 会变成一个解析错误，
+    /// 管道那条路径就此消失。
+    #[test]
+    fn text_flag_keeps_its_three_states() {
+        for (args, expected) in [
+            (
+                vec!["swarmdrop", "send", "--text", "你好", "--to", "phone"],
+                Some(Some("你好".to_owned())),
+            ),
+            (
+                vec!["swarmdrop", "send", "--text", "--to", "phone"],
+                Some(None),
+            ),
+            (vec!["swarmdrop", "send", "--to", "phone"], None),
+        ] {
+            let Command::Send { text, .. } = parse(&args).command else {
+                panic!("{args:?} 解析成了别的命令");
+            };
+            assert_eq!(text, expected, "{args:?} 的 --text 解析结果不对");
+        }
+    }
+
+    /// 一次 `send` 只送一样东西：`--text` 与位置参数互斥。
+    ///
+    /// 由 clap 在解析期拒绝，而不是留到运行时挑一个——「同时给了两样」没有正确答案，
+    /// 而静默地只发其中一样是最坏的那种：用户以为两样都发出去了。
+    #[test]
+    fn text_and_paths_cannot_both_be_given() {
+        assert!(
+            Cli::try_parse_from(["swarmdrop", "send", "a.txt", "--text", "你好"]).is_err(),
+            "文本与路径同时给出必须被拒绝"
+        );
+    }
+
+    /// 正文来自命令行时不需要有人看屏幕；目标缺席时需要。
+    ///
+    /// 这个判据决定的是**日志要不要压到 `warn`**——答错不报错，只是把一屏交互内容
+    /// 冲掉（或反过来，在无人值守的管道里白白丢掉运行叙述）。
+    ///
+    /// 只钉与环境无关的两条：`--text <内容>` 恒不交互，缺 `--to` 恒交互。
+    /// 「只给 `--text`」那条取决于标准输入是不是终端，在测试进程里不可靠。
+    #[test]
+    fn inline_text_needs_nobody_watching() {
+        assert!(
+            !parse(&["swarmdrop", "send", "--text", "你好", "--to", "phone"])
+                .command
+                .is_interactive()
+        );
+        assert!(
+            parse(&["swarmdrop", "send", "--text", "你好"])
+                .command
+                .is_interactive(),
+            "缺目标设备就得列出候选让人选"
+        );
     }
 
     /// 集合类命令的目标参数**可以给多个**——交互能勾选多条，参数侧就不该只收一个，

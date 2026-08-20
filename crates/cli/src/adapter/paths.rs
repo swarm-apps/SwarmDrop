@@ -20,6 +20,8 @@ const SOCKET_FILE: &str = "swarmdrop.sock";
 const LOCK_FILE: &str = "swarmdrop.lock";
 /// 设备名等用户配置。
 const DEVICE_CONFIG_FILE: &str = "device_config.json";
+/// 上次检查更新的时刻。**只是节流状态，不是配置**——删掉它最多让下次启动多查一次网络。
+const UPDATE_CHECK_FILE: &str = "update_check.json";
 
 /// 已解析并确保存在的数据目录。
 ///
@@ -116,6 +118,11 @@ impl DataDir {
 
     pub fn device_config(&self) -> PathBuf {
         self.0.join(DEVICE_CONFIG_FILE)
+    }
+
+    /// 启动时更新检查的节流状态。见 [`crate::runtime::update`]。
+    pub fn update_check(&self) -> PathBuf {
+        self.0.join(UPDATE_CHECK_FILE)
     }
 }
 
@@ -234,7 +241,12 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let dir = DataDir::resolve(Some(tmp.path().to_path_buf())).expect("resolve");
 
-        let paths = [dir.database(), dir.lock(), dir.device_config()];
+        let paths = [
+            dir.database(),
+            dir.lock(),
+            dir.device_config(),
+            dir.update_check(),
+        ];
         for path in &paths {
             assert_eq!(path.parent(), Some(dir.path()), "{path:?} 不在数据目录内");
         }

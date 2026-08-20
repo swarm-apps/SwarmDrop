@@ -7,7 +7,7 @@ use tokio::sync::Notify;
 use crate::adapter::paths::DataDir;
 use crate::exit::{CliError, CliResult};
 use crate::runtime::boot::{RunningNode, boot};
-use crate::runtime::ipc::{IpcServer, Request, RequestHandler, Response};
+use crate::runtime::ipc::{IpcServer, ProgressSink, Request, RequestHandler, Response};
 use crate::runtime::pairing::ConfirmationDesk;
 use crate::runtime::single::{Acquisition, acquire};
 
@@ -16,6 +16,13 @@ use crate::runtime::single::{Acquisition, acquire};
 /// 超时不代表失败——子进程可能只是起得慢。所以超时只影响「要不要打印就绪信息」，
 /// 不影响退出码：把一次慢启动报成失败，会诱导用户重复执行，反而撞上单实例拒绝。
 const READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// 后台启动时，留给「有没有新版本」那次查询的上限。
+///
+/// 它**必须有上限且很短**：父进程做完这件事就退出，用户正在终端前等 `start -d` 返回。
+/// 检查更新是搭便车的，永远排在启动之后——超时就当没查过（时间戳已经记下，
+/// 下一次启动不会立刻重试）。
+const HINT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// 收到 `stop` 信号后，关停前留给在途应答写回的窗口。
 ///
@@ -58,6 +65,13 @@ pub async fn run(data_dir: &DataDir, json: bool, detach: bool, auto_accept: bool
         } else {
             println!("配对策略  需要确认——在本机执行 swarmdrop invite create 期间才接受配对");
         }
+    }
+
+    // 顺带看一眼有没有新版本。**前台必须 spawn 而不能 await**：紧接着就是服务循环，
+    // 在这里等一次网络往返等于让节点晚几百毫秒开始接受连接。进程长期存活，任务跑得完。
+    if crate::runtime::update::should_check(data_dir, json) {
+        let data_dir = data_dir.clone();
+        tokio::spawn(async move { crate::cmd::update::hint_if_outdated(&data_dir).await });
     }
 
     let shutdown = Arc::new(Notify::new());
@@ -117,7 +131,7 @@ struct NodeHandler {
 
 #[async_trait::async_trait]
 impl RequestHandler for NodeHandler {
-    async fn handle(&self, req: Request) -> Response {
+    async fn handle(&self, req: Request, progress: &ProgressSink) -> Response {
         match req {
             Request::Status => json_or_error(
                 serde_json::to_value(self.node.manager.get_network_status()),
@@ -297,13 +311,26 @@ impl RequestHandler for NodeHandler {
             Request::Send { paths, to } => {
                 let paths: Vec<std::path::PathBuf> =
                     paths.into_iter().map(std::path::PathBuf::from).collect();
-                match crate::runtime::transfer::send_files(&self.node, &paths, &to, false).await {
+                // **进度推给通道对面的客户端**：终端在那一侧，画在这边等于画进
+                // 常驻节点自己的日志流。
+                match crate::runtime::transfer::send_files(
+                    &self.node,
+                    &paths,
+                    &to,
+                    crate::runtime::transfer::ProgressOut::Ipc(progress),
+                )
+                .await
+                {
                     Ok(outcome) => Response::Data {
-                        payload: serde_json::json!({
-                            "sessionId": outcome.session_id.to_string(),
-                            "fileCount": outcome.file_count,
-                            "totalBytes": outcome.total_bytes,
-                        }),
+                        payload: crate::render::send::file_payload(&outcome),
+                    },
+                    Err(err) => Response::err(err),
+                }
+            }
+            Request::SendText { body, to } => {
+                match crate::runtime::transfer::send_text(&self.node, body, &to).await {
+                    Ok(outcome) => Response::Data {
+                        payload: crate::render::send::text_payload(&outcome),
                     },
                     Err(err) => Response::err(err),
                 }
@@ -350,7 +377,11 @@ async fn spawn_detached(data_dir: &DataDir, json: bool, auto_accept: bool) -> Cl
         .arg(data_dir.path())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+        .stderr(std::process::Stdio::null())
+        // **子进程不查更新，由父进程查。** 它的 stderr 是 null，那行提示没有人看得到；
+        // 更要紧的是它会**抢先记下时间戳**，把父进程那次挤进节流窗口——于是提示既没显示、
+        // 又要等满一个间隔才有下次机会。复用现成的开关而不新增一个隐藏参数。
+        .env(crate::runtime::update::NO_CHECK_ENV, "1");
     if json {
         cmd.arg("--json");
     }
@@ -366,6 +397,15 @@ async fn spawn_detached(data_dir: &DataDir, json: bool, auto_accept: bool) -> Cl
     while std::time::Instant::now() < deadline {
         if crate::runtime::ipc::is_alive(&data_dir.socket()).await {
             crate::render::status::render_detached(true, json);
+            // **这里只能 await**：父进程马上退出，spawn 出去的任务会随它一起消失。
+            // 与前台那处的写法不同，两边各有各的理由，别统一。
+            if crate::runtime::update::should_check(data_dir, json) {
+                let _ = tokio::time::timeout(
+                    HINT_TIMEOUT,
+                    crate::cmd::update::hint_if_outdated(data_dir),
+                )
+                .await;
+            }
             return Ok(());
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -398,7 +438,7 @@ mod tests {
         }
         #[async_trait::async_trait]
         impl RequestHandler for StopHandler {
-            async fn handle(&self, _req: Request) -> Response {
+            async fn handle(&self, _req: Request, _progress: &ProgressSink) -> Response {
                 self.shutdown.notify_one();
                 Response::Ok
             }

@@ -9,7 +9,7 @@ use crate::cmd::DeviceAction;
 use crate::exit::{CliError, CliResult};
 use crate::prompt::pick::Picker;
 use crate::runtime::access::{RecordAccess, to_value};
-use crate::runtime::devices::{self, DeviceRow, ForgetOutcome, TargetError};
+use crate::runtime::devices::{self, DeviceRow, ForgetOutcome};
 use crate::runtime::ipc::Request;
 
 pub async fn run(data_dir: &DataDir, json: bool, action: DeviceAction) -> CliResult<()> {
@@ -75,13 +75,5 @@ async fn forget(access: &RecordAccess, json: bool, targets: Vec<String>) -> CliR
 pub(super) fn locate(rows: &[DeviceRow], target: &str) -> CliResult<DeviceRow> {
     devices::resolve_target(rows, target)
         .cloned()
-        .map_err(|err| match err {
-            TargetError::NotFound => CliError::Usage(format!(
-                "没有叫「{target}」的已配对设备。用 swarmdrop device list 看看有哪些。"
-            )),
-            TargetError::Ambiguous(ids) => CliError::Usage(format!(
-                "有多台设备叫「{target}」，请改用节点标识指定其中一台：\n  {}",
-                ids.join("\n  ")
-            )),
-        })
+        .map_err(|err| devices::target_error(target, err))
 }

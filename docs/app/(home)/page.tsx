@@ -78,7 +78,7 @@ export default async function HomePage() {
       <Hero />
       <PlatformStrip />
       <Routing />
-      <ThreeHosts />
+      <FourHosts />
       <SecurityLedger />
       <Agents />
       <Downloads catalog={initialCatalog} mobileCatalog={initialMobileCatalog} />
@@ -155,7 +155,7 @@ function Hero() {
             className="anim-rise mt-7 max-w-[44ch] text-pretty text-[17px] leading-8 text-white/72"
             style={{ "--d": "0.07s" } as React.CSSProperties}
           >
-            无账号，无中央服务器。桌面、手机和浏览器都是真正的传输端；配一次对，之后一直有效。
+            无账号，无中央服务器。桌面、手机、浏览器和命令行都是真正的传输端；配一次对，之后一直有效。
           </p>
 
           <div
@@ -208,7 +208,7 @@ function Hero() {
 
 /* ────────────────────────  PLATFORM STRIP  ──────────────────────── */
 
-const PLATFORMS = ["macOS", "Windows", "Linux", "Android", "浏览器"];
+const PLATFORMS = ["macOS", "Windows", "Linux", "Android", "浏览器", "命令行"];
 
 /**
  * hero 与正文之间的一条细带。
@@ -361,19 +361,23 @@ function Routing() {
   );
 }
 
-/* ─────────────────────────  THREE HOSTS  ────────────────────────── */
+/* ──────────────────────────  FOUR HOSTS  ────────────────────────── */
 
 /**
  * 错位双图。**不做等大三宫格**——那是本页要避开的「相同卡片网格」，
  * 也不是这两张图的真实关系：桌面端是主场，浏览器端是「连这个都能是完整客户端」的证据，
  * 两者权重不等，版面就该不等。
+ *
+ * ⚠️ **第四端（命令行）刻意不在这里出图。** 这个区块的论据是截图——一张终端截图与
+ * 这两张 GUI 图放在一起，读者会去比界面，而命令行端要证明的恰恰不是「界面也不差」，
+ * 是「没有界面也是完整节点」。它的位置在下载区那条细带上，用两行安装命令说话。
  */
-function ThreeHosts() {
+function FourHosts() {
   return (
     <Section tone="sunken">
       <SectionHead
-        title="三端，同一个内核"
-        lead="桌面端与移动端共用同一份 Rust 核心，浏览器端把它编成 wasm——不是「网页版精简功能」，而是完整的节点、协议和配对握手，只少了 mDNS。"
+        title="四端，同一个内核"
+        lead="桌面端与移动端共用同一份 Rust 核心，浏览器端把它编成 wasm，命令行端直接链上它。四种形态都是完整的节点、协议和配对握手，不是谁的精简版——浏览器那份只少了 mDNS。"
       />
 
       <div className="mt-14 grid items-end gap-8 lg:grid-cols-12">
@@ -617,6 +621,31 @@ function Downloads({
           initialCatalog={mobileCatalog}
           allowClientRefresh={allowClientRefresh}
         />
+      </div>
+
+      {/* 命令行端**不做成第三张卡**。那两张卡的内容（版本号、平台、校验和）由 SwarmHive
+          喂出来并会自己刷新，而这里只有两行永远不变的安装命令——同款卡片是在承诺一种它
+          给不出的动态性，也会把这个区块变成一排等大卡片网格（PRODUCT.md 的反面参考第一条）。
+          它也是区块 lead 的唯一例外：CLI 不走那个发布服务，也不自更新，所以那句话在这里
+          得被就地收回，而不是让读者自己发现。 */}
+      <div className="reveal mt-6 flex flex-col gap-5 rounded-xl border border-fd-border bg-fd-card/30 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="max-w-[48ch]">
+          <p className="text-sm font-semibold text-fd-foreground">没有屏幕的机器</p>
+          <p className="mt-1.5 text-[13px] leading-6 text-fd-muted-foreground">
+            服务器、NAS、一条 SSH 会话——命令行端是同一份内核的第四个客户端。升级归装它的
+            包管理器管，它不自更新。
+            <Link
+              href="/docs/cli"
+              className="ml-1 font-medium text-fd-foreground underline underline-offset-4 transition-colors hover:text-[var(--brand-solid)]"
+            >
+              命令行指南
+            </Link>
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-col gap-1.5">
+          <Mono>brew install swarm-apps/tap/swarmdrop</Mono>
+          <Mono>npm install -g swarmdrop</Mono>
+        </div>
       </div>
     </Section>
   );

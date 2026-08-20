@@ -407,6 +407,40 @@ pub const INBOX_MATCH_CASES: &[InboxMatchCase] = &[
         expected: false,
     },
 ];
+/// 一条收件箱记录的「本地位置」该取哪个字段。
+///
+/// **判据只有一条**：恰好一个文件条目时取那个文件自己，否则（含零个）取记录的根目录。
+/// 一个文件时根目录多半就是收件目录，指过去等于没说；多个文件时逐个列路径又太长，
+/// 用户真正要的是「去哪儿找这一批」。
+///
+/// ## 为什么是「返回取哪个」而不是「返回路径」
+///
+/// 这条规则有三个消费者，而它们**吃的数据形状各不相同**：桌面后端拿的是 typed DTO
+/// （[`InboxItemDetail`]），命令行渲染层拿的是 JSON（它的两条取数路径统一成 JSON，
+/// 生产代码不碰 `entity`），前端拿的是 TS 对象。让这个函数去取字段，就得为三种形状各写
+/// 一个重载——于是它只回答**判据**，取字段留给各自那侧。
+///
+/// 这样收敛的正是唯一会漂移的东西。三份手抄的代价是可预见的：同一条记录，桌面复制出来的
+/// 路径与命令行打印的不是同一个，而两边都看起来完全正常，只有在用户拿命令行给的路径去
+/// 桌面那边找不到时才显形。
+///
+/// ⚠️ **第三份在 TypeScript 里**（`src/routes/_app/inbox/index.lazy.tsx` 的
+/// `inboxItemPath`），跨语言共享不了，只能靠那里的注释指回这里。改这条规则时它必须一起改。
+pub fn local_location(entry_count: usize) -> LocalLocation {
+    match entry_count {
+        1 => LocalLocation::Entry(0),
+        _ => LocalLocation::Root,
+    }
+}
+
+/// [`local_location`] 的结论：本地位置该从哪儿取。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalLocation {
+    /// 取第 n 个文件条目的本地路径。
+    Entry(usize),
+    /// 取记录自身的根目录。
+    Root,
+}
 
 /// 在文件文本里找首个命中子串，按字符切窗口生成片段（UTF-8 安全）。
 ///
@@ -998,5 +1032,23 @@ mod tests {
             inbox_snippet("合同", "无关标题", "", &[hit("合同扫描件", "docs")]),
             Some("合同扫描件 docs".to_string())
         );
+    }
+
+    /// **本地位置的判据只有一条，三个消费者共用它。**
+    ///
+    /// 钉住的是边界：零个条目也走根目录（而不是 panic 或指向不存在的第 0 项），
+    /// 恰好一个才取那一个。此前这条规则在桌面后端与命令行渲染层各手抄一遍，
+    /// 而漂移的表现是「同一条记录，两处给出不同的路径」——两边都看起来正常。
+    #[test]
+    fn a_single_entry_points_at_itself_and_everything_else_at_the_root() {
+        assert_eq!(local_location(1), LocalLocation::Entry(0));
+        assert_eq!(
+            local_location(0),
+            LocalLocation::Root,
+            "零条目必须退回根目录"
+        );
+        for count in [2, 3, 100] {
+            assert_eq!(local_location(count), LocalLocation::Root, "{count} 个条目");
+        }
     }
 }

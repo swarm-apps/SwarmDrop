@@ -20,7 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [`dev-notes/knowledge/web-app-frontend.md`](dev-notes/knowledge/web-app-frontend.md) — Web 应用区**表现层**（`docs/app/app`）：运行时单例只挂 layout、静态导出三限制（无 redirect / 无动态段 / useSearchParams 要 Suspense）、basePath 与 next/link、zustand store 的 selector 与 `setState` 约束。**碰 Web 端 React 代码时必读**
 - [`dev-notes/knowledge/storage-abstraction.md`](dev-notes/knowledge/storage-abstraction.md) — 把 sea-orm 从 core 摘出去。**已落地**：core 零 sea-orm，SQL 实现在 `crates/storage-sql`，Web 端是 IndexedDB 写穿的 `WebTransferStore`（`crates/web/src/store.rs` + `inbox.rs`）。另含端口体例：`SessionStore` / `InboxStore` 均已补全、收件箱领域规则住 `crates/transfer/src/inbox.rs` 由各存储实现调用、组装点建一次端口 `Arc` 注入与自持同一份
 - [`dev-notes/knowledge/iroh-migration.md`](dev-notes/knowledge/iroh-migration.md) — libp2p → iroh 迁移评估（2026-07 调研）。**已决策：不迁移**，但 iroh 的 API 形态被 `crates/net` 借鉴。碰 P2P 选型或有人提「迁 iroh」时先读
-- [`dev-notes/knowledge/cli-host.md`](dev-notes/knowledge/cli-host.md) — **命令行宿主**（`crates/cli`）与端口的 native 实现（`crates/host-fs`）：单实例仲裁为什么是「通道发现 + 文件锁」两段而不是 pidfile、节点生命周期与三端同语义、本地通道的并发与排水、**入站配对必须由人确认且「配对窗口」只在 `pair` 运行时打开**（邀请不构成可以直接接受——它会泄露且一次性，被抢走就消耗掉了）、`dist` 分发的三个坑。**碰 crates/cli、crates/host-fs、dist-workspace.toml 时必读**
+- [`dev-notes/knowledge/cli-host.md`](dev-notes/knowledge/cli-host.md) — **命令行宿主**（`crates/cli`）与端口的 native 实现（`crates/host-fs`）：单实例仲裁为什么是「通道发现 + 文件锁」两段而不是 pidfile、节点生命周期与三端同语义、本地通道的并发与排水、**入站配对必须由人确认且「配对窗口」只在 `invite create` 运行时打开**（邀请不构成可以直接接受——它会泄露且一次性，被抢走就消耗掉了）、`dist` 分发的三个坑。**碰 crates/cli、crates/host-fs、dist-workspace.toml 时必读**
 - [`dev-notes/knowledge/app-update.md`](dev-notes/knowledge/app-update.md) — 应用内更新（SwarmHive）：`ready` 是持久静止态而非「正在等系统」、Android 10+ 后台安装框弹不出且**静默**失败、自动安装必须单点触发、状态判据要穷尽 8 态、续传与产物恢复。**碰更新 UI、`@swarm-hive/sdk`、两个 registry 分发的文件时必读**
 
 ## Design Context
@@ -38,10 +38,13 @@ Always respond in Chinese (简体中文). All output, including thinking, planni
 
 SwarmDrop is a decentralized, cross-network, end-to-end encrypted file transfer tool built with Tauri v2. It aims to be a "cross-network version of LocalSend" — no accounts, no servers, supporting both LAN and cross-network peer-to-peer file transfers.
 
-**Current Status:** 桌面 / 移动 / Web 三端。桌面与移动已发布，Web 端（wasm）随文档站部署到
-GitHub Pages（Phase 5 仍在收敛，见下方 Development Phases）。当前重心已从「把 Web 端跑通」
-转到**三端传输链路的真机收敛**——吞吐、续传基线、接收落点。
-Current desktop release: **v0.23.0**（bootstrap 独立版本线，当前 `bootstrap-v0.8.0`；移动 `mobile-v0.23.0`；CLI `cli/v0.1.0`）。
+**Current Status:** 四个宿主——桌面 / 移动 / Web / 命令行。桌面、移动与命令行已发布，
+Web 端（wasm）随文档站部署到 GitHub Pages（Phase 5 仍在收敛，见下方 Development Phases）。
+当前重心已从「把 Web 端跑通」转到**传输链路的真机收敛**——吞吐、续传基线、接收落点。
+> ⚠️ 本文档里其余的「三端」几乎都指**图形三端**（桌面 / 移动 / Web），那些断言仍然成立：
+> CLI 不吃 Lingui catalog、不吃 `packages/shared-view`、没有设备卡与节点状态弹窗。
+> 只有「同一套节点语义」「同一份内核」这类说法才涵盖四端。
+Current desktop release: **v0.23.0**（bootstrap 独立版本线，当前 `bootstrap-v0.8.0`；移动 `mobile-v0.23.0`；CLI `cli/swarmdrop-cli-v0.2.0`）。
 
 ## Build and Development Commands
 
@@ -332,7 +335,9 @@ Rust 命令薄壳在 `src-tauri/src/commands/`，按业务域分文件：`lifecy
 
 **Responsive Design** — 桌面端**没有侧边栏，也没有底部导航**：全局导航是 `AppTopBar`
 的顶栏 + 面包屑（`src/components/layout/app-topbar.tsx`），导航深度靠面包屑表达。
-这是 `DESIGN.md` 里的刻意简化，不是待补的缺口——加 nav rail 前先读那里第 204 / 228 行。
+这是 `DESIGN.md` 里的刻意简化，不是待补的缺口——加 nav rail 前先读那里的
+`### Navigation — Desktop shell` 与 `### Layout Density Contract`。
+（**按节名引用，不要写行号**：那两个数曾经指向导航段落，文档一改就滑到了别的契约上。）
 
 页面级主从布局用 `MasterDetailShell`（收件箱 / 传输活动 / share-target 共用），
 单一断点 `MASTER_DETAIL_QUERY = (min-width: 920px)`：≥920 左列表 + 右详情双栏，
@@ -607,7 +612,7 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | `rust.yml` | `cargo fmt --check` + `cargo check --workspace --all-targets` + `cargo test --workspace`；**wasm 双 target 门禁**（check + clippy）；native 的 clippy job 暂 `continue-on-error`（存量 warning 基线未清）。⚠️ **但 `wasm` job 里的 clippy 是硬失败的**——它跑 `check-wasm.sh --clippy`（`-D warnings`），不受那条豁免保护。v0.16.0 就是这么红的（4 处 `needless_borrow`），而红着也照样发了版，因为 release.yml 由 tag 触发、不看 rust.yml 的脸色。**动了 wasm 七 crate 就本地跑一遍 `./scripts/check-wasm.sh --clippy`**，别指望 native 那条豁免 |
 | `release.yml` | `v*` tag 触发。generate-changelog → build-tauri（四目标 + 上传 SwarmHive draft）→ finalize-swarmhive → update-latest-json（仅手动 dispatch）→ publish-release |
 | `cli-release.yml` | **`cli/swarmdrop-cli-v*` tag**（workflow 由 `dist generate` 产出，勿手改；tag 由 `scripts/release-cli.sh` 打）。六平台构建 + shell / powershell / npm / homebrew 四种 installer；npm 发到 `swarmdrop`（无 scope），formula 进 `swarm-apps/homebrew-tap`。三条版本线的 tag 模式互不重叠 |
-| `cli-release-polish.yml` | CLI release published 后把标题改成 `SwarmDrop CLI v*`（dist 的 `announcement_title` 取自 changelog section 标题，无配置项可改，加前缀会让 parse_changelog 连正文一起丢），并把 latest 交还给最新桌面 release |
+| `cli-release-polish.yml` | 把 CLI release 的标题改成 `SwarmDrop CLI v*`（dist 的 `announcement_title` 取自 changelog section 标题，无配置项可改，加前缀会让 parse_changelog 连正文一起丢），并把 latest 交还给最新桌面 release。**它是 dist 的 post-announce job**（`dist-workspace.toml` 的 `post-announce-jobs` → `dist generate` 接进 `cli-release.yml`），跑在同一次运行里。⚠️ 别改回 `on: release: published` —— release 是 CI 用 `GITHUB_TOKEN` 建的，**GITHUB_TOKEN 造的事件不触发新的 workflow run**，v0.2.0 与 v0.3.0 就是这么静默失效两次的（Actions 里连运行记录都没有）|
 | `mobile-release.yml` | `mobile-v*` tag，仅 Android |
 | `mobile-checks.yml` | `mobile/**` 的 push / PR。typecheck + biome + zustand + expo-patches 四条，**全部硬失败**（前三条 2026-08-13 才接进来，此前零覆盖且三条同时红着） |
 | `mobile-build-android.yml` / `bootstrap-release.yml` / `docs.yml` | 移动构建 / 引导节点发布 / 文档站（含 develop → GitHub Pages）。⚠️ docs 那条**不再重新生成 wasm**，吃的是入库的 `packages/swarmdrop-web/`（2026-08-13 起）—— 此前两版分别栽在「wasm-pack 裸下 binaryen 无重试」与「apt 的 binaryen 停在 108，产出的 `__wbindgen_externrefs` 指向不可 grow 的 funcref 表，线上一加载就 `RangeError`」。产物新鲜度改由 rust.yml 的 `check-wasm-artifact.sh` 拦，详见 toolchain.md |
@@ -773,6 +778,7 @@ open-source release & update server (same swarm-apps family). UpgradeLink has be
 | Phase 3 — File Transfer | Done | 加密传输、断点续传、SQLite 历史与收件箱、MCP server |
 | Phase 4 — Mobile | Done | React Native + Expo + uniffi，独立版本线 `mobile-v*` |
 | Phase 5 — Web (wasm) | In Progress | `crates/web` + `docs/app/app`；WebRTC / relay 链路仍在收敛 |
+| Phase 6 — CLI | Done | `crates/cli` + `crates/host-fs`，独立版本线 `cli/swarmdrop-cli-v*`，经 dist 分发 |
 
 Detailed per-phase specs: `dev-notes/archive/completed-roadmap/phase-*.md`（历史存档，
 描述的是重构前的架构，读时注意时效）。

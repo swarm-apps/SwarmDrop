@@ -29,6 +29,7 @@ branches — the project moves fast and old builds are superseded rather than pa
 |---|---|---|
 | Desktop | `v*` | latest release only |
 | Mobile | `mobile-v*` | latest release only |
+| CLI | `cli/swarmdrop-cli-v*` | latest release only |
 | Browser | continuously deployed | current deployment |
 
 ## What we consider a vulnerability
@@ -43,7 +44,9 @@ following is in scope:
   single-use with a 24h TTL).
 - Defeating per-chunk BLAKE3 / bao-tree verification so corrupted or substituted data is
   accepted as authentic.
-- Extracting the Ed25519 device private key out of the OS keychain.
+- Extracting the Ed25519 device private key from wherever the platform holds it — the OS
+  secure store on mobile, an owner-only `identity.json` (`0600` on unix) on desktop and in
+  the CLI.
 - Making the MCP server reachable from outside `127.0.0.1`, or driving it to send files
   from a device whose MCP permission is off.
 - Remote code execution, path traversal on received files, or anything that writes
@@ -76,9 +79,10 @@ The full model — key hierarchy, transport encryption, zero-trust relaying, and
 verification — is documented at
 [**swarm-apps.github.io/SwarmDrop/docs/security**](https://swarm-apps.github.io/SwarmDrop/docs/security).
 
-Briefly: Ed25519 device identity held in the OS keychain, Noise or TLS 1.3 on every
-connection with fresh ephemeral keys and mutual authentication, BLAKE3 + bao-tree
-per-chunk verification, and relays that only ever forward ciphertext.
+Briefly: Ed25519 device identity — in the OS secure store on mobile, in an owner-only file
+on desktop and in the CLI — Noise or TLS 1.3 on every connection with fresh ephemeral keys
+and mutual authentication, BLAKE3 + bao-tree per-chunk verification, and relays that only
+ever forward ciphertext.
 
 ## Disclosure
 

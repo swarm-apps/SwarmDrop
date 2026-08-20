@@ -77,6 +77,8 @@ pnpm check:quit-entry      # 禁止绕过 src/lib/quit-app.ts 直接终止进程
 pnpm check:node-lifecycle  # 禁止在 useEffect 里调节点启停（收敛环 → 用户停不掉节点）
 pnpm check:shared-view     # 共享包零平台依赖（import 纯度 + 无 DOM lib 的 tsc）
 pnpm check:landing         # 配对落地页体积（≤10KB gzip，含注释）+ 字典完整性
+pnpm check:design-contracts # DESIGN.md 的跨端契约层还在，且引用它的节名都指得到
+                           # （那一层被 /impeccable 整层冲掉过一次，六天没人发现）
 pnpm i18n:extract          # 新增/修改翻译字符串后
                            # ⚠️ 提取完要**补 en / zh-TW 译文**，否则那两个语言静默回落中文
 

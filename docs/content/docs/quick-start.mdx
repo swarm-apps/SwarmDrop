@@ -17,6 +17,8 @@ import { Step, Steps } from "fumadocs-ui/components/steps";
 | **macOS** | `.dmg`（Apple Silicon · Intel） |
 | **Linux** | `.deb` · `.rpm` · `.AppImage`（x64） |
 | **Android** | `.apk`（arm64-v8a）—— 见 [Releases](https://github.com/swarm-apps/SwarmDrop/releases) 里的 `mobile-v*` |
+| **浏览器** | 什么都不用装，打开 [/app](/app/devices) 就是一个节点 |
+| **命令行** | `brew install swarm-apps/tap/swarmdrop` · `npm i -g swarmdrop` —— 见[命令行指南](/docs/cli) |
 
 ## 第一次传输
 
@@ -77,5 +79,8 @@ pnpm install
 pnpm tauri dev      # 开发
 pnpm tauri build    # 打包
 ```
+
+没有屏幕的机器（服务器、NAS、一条 SSH 会话）走[命令行指南](/docs/cli)，那边的流程是
+`swarmdrop start` → `swarmdrop invite create` → `swarmdrop send`。
 
 接下来可以读一读[核心概念](/docs/concepts)，理解配对邀请和 NAT 穿透背后发生了什么。

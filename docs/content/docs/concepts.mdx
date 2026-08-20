@@ -10,8 +10,8 @@ import { Mermaid } from "@/components/mermaid";
 ## 整体架构
 
 <Mermaid chart={`graph TB
-  subgraph Shells["三端外壳"]
-    A["桌面 React + Tauri · 移动 React Native · 浏览器 wasm"]
+  subgraph Shells["四端外壳"]
+    A["桌面 React + Tauri · 移动 React Native · 浏览器 wasm · 命令行 Rust 二进制"]
   end
   subgraph Core["共享业务核心 · Rust"]
     B["分块 · 逐块验签 · 进度调度 · 断点续传"]

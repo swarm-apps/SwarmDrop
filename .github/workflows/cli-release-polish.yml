@@ -20,53 +20,61 @@ name: CLI release polish
 #    （gh CLI 与 REST API 两条路都试过）之后，它仍然是 latest，因为它依然是最新创建的
 #    非 prerelease release。
 #
-# 设计（沿用 SwarmHive `release-notes.yml` 的体例）：post-process，不碰 dist 生成的
-# `cli-release.yml`（那个文件由 `dist generate` 产出，手改会被覆盖）。只在
-# `release: published` 上触发 —— 本 workflow 自己的 `gh release edit` 只发 `edited`
-# 事件，不会自触发成环。
+# ## 为什么是 dist 的 post-announce job，而不是 `on: release: published`
 #
-# ⚠️ **它只有躺在默认分支（`main`）上才会跑。** `release` 事件（同 `issues` / `schedule`
-# 等除 `push` / `pull_request` 之外的仓库事件）一律只从默认分支读 workflow 定义——这类
-# 事件不附带 commit，GitHub 无从知道该拿哪一版。旁边的 `cli-release.yml` 在 develop 上
-# 就能跑，是因为它由 `push: tags` 触发，那种事件带着 commit。
+# 前两版都写成 `on: release: [published]`，**两次都一条运行记录都没有**
+# （`cli/swarmdrop-cli-v0.2.0` 与 `v0.3.0` 的标题和 latest 都是事后手工补的）。
+# 根因有**两条独立的**，第一次只查出了第二条、以为修好了：
 #
-# 失败形态彻底静默：release 照常发出、产物齐全，只是标题没改、latest 也没交还，而
-# Actions 页面上连一条运行记录都没有。`cli/swarmdrop-cli-v0.2.0` 就是这么发出去的
-# （事后手工补的两步）。**改完这个文件记得确认它进了 `main`**，别只看 develop。
+# 1. **GITHUB_TOKEN 造出来的事件不触发新的 workflow run。** 这是 GitHub 防递归的硬规则
+#    （例外只有 `workflow_dispatch` / `repository_dispatch`）。而 release 正是
+#    `cli-release.yml` 的 `host` job 用 `GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}` 跑
+#    `gh release create` 造出来的 —— 于是 `release: published` 这个事件根本不会派生
+#    运行。**换个分支、换个触发类型都绕不开，除非改用 PAT。**
+# 2. `release` 事件只从默认分支读 workflow 定义（这类事件不附带 commit，GitHub 无从
+#    知道该拿哪一版）。这条也真、也踩过，但它只是必要条件。
+#
+# 所以改成 dist 的 **post-announce job**：由 `cli-release.yml` 在 `announce` 之后
+# `uses:` 调进来，跑在**同一次运行**里。没有事件、就没有 token 限制；也不再依赖
+# 「文件躺在 main 上」—— workflow_call 跟着 tag 所在的 commit 走。
+# 接线在 `dist-workspace.toml` 的 `post-announce-jobs`，**改完要 `dist generate`**
+# 重新产出 `cli-release.yml`（那个文件是生成物，手改会被覆盖）。
+#
+# 代价：手动在 UI 上 publish 一个 release 不再会被摆正。可以接受 —— CLI 的 release
+# 一律由 dist 创建。
 
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      # dist 传给每个自定义 job 的发布计划（dist-manifest 的 JSON）。
+      plan:
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
   polish:
-    # 只管 CLI 那条线，桌面 `v*` 与移动 `mobile-v*` 不受影响。
-    if: ${{ startsWith(github.event.release.tag_name, 'cli/') }}
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      # 取自 plan 而不是 `github.ref_name`：dist 自己就是按这两个字段建的 release，
+      # 跟着它走就不会有第二套解析。
+      TAG: ${{ fromJson(inputs.plan).announcement_tag }}
+      IS_PRERELEASE: ${{ fromJson(inputs.plan).announcement_is_prerelease }}
     steps:
       - name: Retitle and hand latest back
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.release.tag_name }}
-          TITLE: ${{ github.event.release.name }}
-          REPO: ${{ github.repository }}
-          IS_PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
           set -euo pipefail
-
-          # 幂等：标题已经摆正过就跳过（re-run / 手动 publish 都会再进来一次）。
-          case "$TITLE" in
-            "SwarmDrop CLI v"*) echo "已处理过：$TITLE — skip"; exit 0 ;;
-          esac
 
           # cli/swarmdrop-cli-v0.1.1 → 0.1.1；旧形式 cli/v0.1.0 → 0.1.0 也吃得下。
           # 版本里的 -rc.1 等后缀保留（rc 不含 v，不会被截断）。
           version="${TAG##*/}"
           version="${version##*v}"
 
+          # 标题完全由 tag 推出，所以重跑一次结果相同 —— 不需要幂等守卫。
           gh release edit "$TAG" --repo "$REPO" --title "SwarmDrop CLI v${version}"
           echo "✓ $TAG → SwarmDrop CLI v${version}"
 

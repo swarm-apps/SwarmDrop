@@ -293,9 +293,21 @@ impl NodeAccess {
 
     /// 向常驻节点发一条请求；本进程自持节点时返回 `None`，由调用方走本地路径。
     pub async fn ask(&self, request: &Request) -> CliResult<Option<Response>> {
+        self.ask_watching(request, |_| {}).await
+    }
+
+    /// 同上，但把常驻节点推来的每一帧进度交给 `on_progress`。
+    ///
+    /// 只有会长时间处理的动词（`send`）用得上；其余走 [`Self::ask`]，那条会安静地跳过
+    /// 进度帧——所以服务端给某个动词加进度，不会噎住任何一个不认识它的命令。
+    pub async fn ask_watching(
+        &self,
+        request: &Request,
+        on_progress: impl FnMut(&Value),
+    ) -> CliResult<Option<Response>> {
         match self {
             Self::Owned { .. } => Ok(None),
-            Self::Daemon { socket } => ipc::request(socket, request).await,
+            Self::Daemon { socket } => ipc::request_watching(socket, request, on_progress).await,
         }
     }
 

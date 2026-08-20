@@ -14,6 +14,7 @@
     "check:quit-entry": "node scripts/check-quit-entry.mjs",
     "check:node-lifecycle": "node scripts/check-node-lifecycle.mjs",
     "check:landing": "node scripts/check-landing.mjs",
+    "check:design-contracts": "node scripts/check-design-contracts.mjs",
     "check:shared-view": "node scripts/check-shared-view-imports.mjs && tsc -p packages/shared-view --noEmit",
     "tauri": "tauri",
     "i18n:extract": "lingui extract",

@@ -4,6 +4,30 @@
 
 构建 / 包管理 / lint / CI 的项目特有约束。常规命令参考 CLAUDE.md "Build and Development Commands"；本主题只记非显见的坑。
 
+## `DESIGN.md` 的契约层要靠门禁守，不能靠人看
+
+`e7d9caee`（2026-08-14）重新生成 `DESIGN.md` 时把手写的跨端契约层整层覆盖掉了
+（1274 行 → 186 行，10 个 `### … Contract` 全没）。**六天没有人发现**——因为损害不是报错，
+而是 `CLAUDE.md` 与十几处代码注释里的引用**指向了不存在的东西**：读到那些注释的人会去
+找判据，找不到，然后凭感觉实现。
+
+这个文件分两层，混在一起是它被冲掉的原因：
+
+| 层 | 谁维护 | 能不能重新生成 |
+|---|---|---|
+| 视觉令牌（frontmatter / Colors / Typography / Components） | `/impeccable` 系列命令 | 能 |
+| `## Cross-platform Contracts` | 手写 | **不能** |
+
+`pnpm check:design-contracts` 守两条：契约节数不低于 `MIN_CONTRACTS`（整层被冲掉时归零），
+以及**全仓每一处 `Xxx Contract` 引用都指得到某个 `### ` 标题**（匹配按前缀，于是
+`Node Status Contract` 对得上 `### Node Status Contract (cross-platform)`）。
+两种故障都实测过会红并返回退出码 1。
+
+⚠️ **它刻意不管 `… Rule`**：`One Accent Rule` 这类在同一次重新生成里被中文重写成了
+「**单一强调色规则**」，引用它们的注释同样悬空。那属于「token 层要不要保留英文命名」，
+与「手写判据别被工具冲掉」不是一回事——一起管会让门禁第一次运行就红，然后被人加进忽略清单。
+
+
 ## 包管理
 
 ### pnpm only
@@ -1437,6 +1461,34 @@ funcref 表恒为 `min == max`，一眼可辨。
 `scripts/check-wasm-artifact.sh` 在 rust.yml 的 wasm job 里拦这件事，输入面与
 `check-wasm.sh` 的 `CRATES` 对齐（另加 `crates/entity` 与 `Cargo.lock`）。源码动了但产物
 字节确实不变时，用 commit message 里的 `[wasm-artifact-unchanged]` 放行——刻意要求留痕。
+
+⚠️ **那个逃生舱比它读起来窄得多，默认按「老实重建」办。** 判据是「字节不变」，而
+wasm 里嵌着 panic location 元数据（`file:line`），**任何往文件中间插代码的改动都会挪动
+行号、从而改掉产物字节**。实测一次：`crates/transfer/src/inbox.rs` 加了一个连 wasm 侧都
+没人调用的 `pub fn`，重建后产物**大小一字节没变**、内容差 **8 个字节**，全是行号
+（`inbox.rs:503` → `inbox.rs:537` 及邻近三处）。所以逃生舱实际上只对「在文件末尾追加」
+或「只动 native-only 文件」成立；判不准就重建一次，用下面这段直接看差在哪：
+
+```bash
+git show HEAD:packages/swarmdrop-web/swarmdrop_web_bg.wasm > /tmp/old.wasm
+cd docs && pnpm build:wasm && cd ..
+python3 -c "
+old=open('/tmp/old.wasm','rb').read(); new=open('packages/swarmdrop-web/swarmdrop_web_bg.wasm','rb').read()
+d=[i for i in range(min(len(old),len(new))) if old[i]!=new[i]]
+print(f'长度 {len(old)} → {len(new)}，不同字节 {len(d)}')
+print(old[d[0]-24:d[0]+40], '\n', new[d[0]-24:d[0]+40]) if d else None"
+```
+
+差异只有几个字节且落在路径字符串附近 = 纯行号漂移，功能没变；但**产物仍然要提交**，
+否则下一次 push 还会红。顺带：这也说明 wasm 构建是**字节可复现**的——同一份源码重建
+两次结果相同，差异都能归因到源码。
+
+**`crates/*/tests|examples|benches/` 与 `*.md` 已自动排除**（2026-08-20 起）：改一条
+e2e 测试曾经也要求重建 4.8 MB 二进制。排除规则写成黑名单而不是白名单是刻意的——白名单
+对**新出现的输入种类**默认放行，而本脚本存在的全部理由就是防漏报。反例就在手边：
+`crates/web/bindings/bindings.ts` 被 `src/node.rs` 用 `include_str!` 吃进二进制，
+它既不在 `src/` 下也不是 `.rs`，白名单会直接漏掉。目录部分只认 crate 顶层，
+不写 `(^|/)tests/`——后者会连 `src/**/tests/` 这种**编进 lib 的模块目录**一起吃掉。
 
 **改了 wasm 侧 crate 的工作流**：`cd docs && pnpm build:wasm`，把产物一起提交
 （历史上那些 `chore(web): 重建 wasm 产物` 就是它）。

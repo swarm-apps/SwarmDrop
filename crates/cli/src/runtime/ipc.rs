@@ -141,10 +141,82 @@ pub enum Request {
         /// 目标设备（名称或节点标识）。
         to: String,
     },
+    /// 发送一段文本。**阻塞到拿得出确定结论**（最长到对端的确认窗口耗尽）。
+    ///
+    /// **与 [`Self::Send`] 是两个动词而不是一个带模式位的动词**：服务端要做的事没有
+    /// 一步重合（那边枚举、准备、分块、订阅事件，这边只发一次 RPC），合并只会得到一个
+    /// 两半互不相干的分支。
+    ///
+    /// 正文原样走这条通道——它是本机套接字，信任边界见本模块开头。
+    SendText {
+        /// UTF-8 正文。上限由核心校验（64 KiB），客户端已先校验过一次以便尽早报错。
+        body: String,
+        /// 目标设备（名称或节点标识）。
+        to: String,
+    },
     Stop,
 }
 
-/// 服务端响应。
+/// 线上的一帧。
+///
+/// 这条通道不是严格的一问一答：一次请求的应答是**若干条进度 + 恰好一条终态**。放宽它的
+/// 理由是一个具体的体验缺陷——`send` 交给常驻节点做时，准备与传输的事件都在**那个进程**
+/// 里，客户端从敲下回车到传完一个字都没有，看起来就是卡住。
+///
+/// ⚠️ **它与 [`Response`] 分成两个类型是刻意的，别合并。** 合并（给 `Response` 加一个
+/// `Progress` 变体）会让**每一个**调用方的 `match` 都被迫处理一种它那里不可能出现的情况
+/// ——[`request`] 已经把进度跳掉了。那种 `unreachable!()` 分支是纯粹的噪声，而且下一个人
+/// 会认真地去想「这里该怎么办」。分成两层之后，「拿得到的一定是终态」由类型保证。
+///
+/// ⚠️ **三个终态变体逐字抄了 [`Response`] 一遍，这也是刻意的，同样别「去重」。**
+/// 上面那条理由只否掉了「给 `Response` 加 `Progress`」，没有否掉「把三个终态收进一个
+/// `Frame::Terminal { #[serde(flatten)] response }`」——那个写法更短，且编译期保证一样强。
+/// 不这么做的理由是**线格式**：现在 `Frame` 序列化出来的字节与**旧版** `Response`
+/// 逐字相同（同一个 `tag = "kind"`、同一组 `snake_case` 变体名、同一批字段）。
+/// 于是「新客户端 × 旧常驻节点」这个真实存在的窗口里（升级 CLI 不会重启常驻节点，
+/// 而 `swarmdrop update` 之后尤其如此），旧节点回来的终态帧新客户端仍然解析得动。
+/// 套一层 `Terminal` 会在 JSON 里多一层嵌套，那个兼容性当场消失。
+/// 由 [`tests::a_terminal_frame_is_byte_identical_to_a_bare_response`] 钉住。
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum Frame {
+    /// **非终态**：处理还在继续。后面**必然**还会有一条终态帧。
+    Progress {
+        payload: serde_json::Value,
+    },
+    Data {
+        payload: serde_json::Value,
+    },
+    Ok,
+    Error {
+        code: Code,
+        message: String,
+    },
+}
+
+impl Frame {
+    /// 终态帧转成响应；进度帧返回 `None`（调用方应当继续读）。
+    fn into_terminal(self) -> Result<Response, serde_json::Value> {
+        match self {
+            Self::Progress { payload } => Err(payload),
+            Self::Data { payload } => Ok(Response::Data { payload }),
+            Self::Ok => Ok(Response::Ok),
+            Self::Error { code, message } => Ok(Response::Error { code, message }),
+        }
+    }
+}
+
+impl From<Response> for Frame {
+    fn from(response: Response) -> Self {
+        match response {
+            Response::Data { payload } => Self::Data { payload },
+            Response::Ok => Self::Ok,
+            Response::Error { code, message } => Self::Error { code, message },
+        }
+    }
+}
+
+/// 服务端响应。**只有终态**——进度不在这里，见 [`Frame`]。
 ///
 /// 负载用 [`serde_json::Value`] 而非核心的 DTO：核心那些类型只 derive 了 `Serialize`
 /// （它们只需单向出到界面），通道却要往返。**这不是「为隔离核心变动而建 DTO 层」**
@@ -198,6 +270,20 @@ fn socket_name(path: &Path) -> CliResult<interprocess::local_socket::Name<'stati
 /// **连不上不是错误**，是「没有活节点」这一事实——调用方据此决定是自起临时节点还是报错。
 /// 因此返回 `Ok(None)`，而不是把「无人应答」和「通道坏了」混成同一个 `Err`。
 pub async fn request(socket_path: &Path, req: &Request) -> CliResult<Option<Response>> {
+    // 空回调 = 跳过一切进度消息。**所有既有调用方都经这里**，所以服务端新增一条进度
+    // 不会噎住任何一个不认识它的命令。
+    request_watching(socket_path, req, |_| {}).await
+}
+
+/// 同上，但每条进度消息都回调一次。
+///
+/// 回调是同步的：它只负责把一帧画出去（更新一个进度条），不该做任何会 await 的事
+/// ——那会拖慢读循环，而进度是可以丢的、连接不是。
+pub async fn request_watching(
+    socket_path: &Path,
+    req: &Request,
+    mut on_progress: impl FnMut(&serde_json::Value),
+) -> CliResult<Option<Response>> {
     let name = socket_name(socket_path)?;
     let Ok(stream) = LocalSocketStream::connect(name).await else {
         return Ok(None);
@@ -214,15 +300,30 @@ pub async fn request(socket_path: &Path, req: &Request) -> CliResult<Option<Resp
         .await
         .map_err(|err| CliError::NodeUnavailable(format!("发送请求失败: {err}")))?;
 
-    let mut buf = String::new();
-    reader
-        .read_line(&mut buf)
-        .await
-        .map_err(|err| CliError::NodeUnavailable(format!("读取响应失败: {err}")))?;
+    loop {
+        let mut buf = String::new();
+        let read = reader
+            .read_line(&mut buf)
+            .await
+            .map_err(|err| CliError::NodeUnavailable(format!("读取响应失败: {err}")))?;
+        if read == 0 {
+            // 对端在给出终态之前就关了连接（节点被杀 / 崩溃）。
+            // **不能当成成功**：调用方会把「没有答案」渲染成一个空结果。
+            return Err(CliError::NodeUnavailable(
+                "常驻节点在应答之前断开了连接".into(),
+            ));
+        }
 
-    let response = serde_json::from_str(&buf)
-        .map_err(|err| CliError::NodeUnavailable(format!("解析响应失败: {err}")))?;
-    Ok(Some(response))
+        let frame: Frame = serde_json::from_str(&buf)
+            .map_err(|err| CliError::NodeUnavailable(format!("解析响应失败: {err}")))?;
+
+        // 进度是**非终态**：交给调用方看一眼，然后继续读。
+        // 不认识它的调用方（`request`）传一个空回调，于是自然地跳过。
+        match frame.into_terminal() {
+            Ok(terminal) => return Ok(Some(terminal)),
+            Err(payload) => on_progress(&payload),
+        }
+    }
 }
 
 /// 探测：有没有活节点在这条通道后面。
@@ -254,13 +355,75 @@ async fn peer_gone<R: tokio::io::AsyncRead + Unpin>(reader: &mut R) {
     }
 }
 
+/// 处理期间往客户端推送进度的出口。
+///
+/// **写失败一律吞掉**：客户端可能已经 Ctrl-C 走人，而一条推不出去的进度不该让正在进行的
+/// 传输失败。真正处理「对端走了」的是 `peer_gone` 那条 select 分支，它会连同整个任务一起
+/// 取消——那才是该中止的时机，不是某一帧写不出去的时候。
+pub struct ProgressSink {
+    /// 与终态帧**共用**的写端。见 [`IpcServer::accept_one`] 里那段注释。
+    writer: std::sync::Arc<tokio::sync::Mutex<DynWriter>>,
+    /// 这条流上是否发生过写超时或写失败。见 [`ProgressSink::send`] 的第 3 道闸。
+    poisoned: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+type DynWriter = Box<dyn tokio::io::AsyncWrite + Send + Unpin>;
+
+/// 一帧进度最多允许占用多久。
+///
+/// 源头每 200ms 才推一帧，所以正常客户端上这次写是微秒级的。超过这个预算只说明对端
+/// **连着但不读**（终端按了 Ctrl-S、进程被 SIGSTOP、stderr 管道对面停了），
+/// 那时套接字发送缓冲会填满、写永久 Pending。
+const PROGRESS_WRITE_BUDGET: std::time::Duration = std::time::Duration::from_millis(500);
+
+impl ProgressSink {
+    /// 推一帧进度。**永不长时间阻塞调用方。**
+    ///
+    /// ⚠️ 这条约束不是防御性编程，它是正确性要求。调用方是
+    /// [`crate::runtime::transfer::prepare_with_progress`] 的 `select!` **分支体**——
+    /// 分支体挂住时 `prepare` 那条 future 得不到轮询，于是**常驻节点上真正的哈希计算
+    /// 停下来**。一个客户端的终端流控因此能卡住服务端上别人的传输，而事件通道是无界的
+    /// （`adapter::events`），期间还会持续涨内存。
+    ///
+    /// 三道闸，任何一道都只丢这一帧、不影响传输：
+    ///
+    /// 1. **`try_lock`**：拿不到说明上一帧还在写。进度是可以丢的，排队不是。
+    /// 2. **写超时**：见 [`PROGRESS_WRITE_BUDGET`]。
+    /// 3. **一次失败即封口**：超时的 `write_all` 可能已经写进去半行，此后再写任何东西
+    ///    都会拼在那半行后面，客户端按行解析当场失败——**而那次传输其实是成功的**。
+    ///    封口之后连终态帧都不再由本类型写（终态走 `accept_one` 自己那条路径），
+    ///    客户端读到 EOF，得到一个诚实的「节点没有应答」，而不是一行拼接出来的乱码。
+    pub async fn send(&self, payload: serde_json::Value) {
+        if self.poisoned.load(std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        let Ok(mut line) = serde_json::to_string(&Frame::Progress { payload }) else {
+            return; // 进度帧序列化失败：丢掉这一帧，不影响传输
+        };
+        line.push('\n');
+
+        // 拿不到锁 = 上一帧还在写。丢掉这一帧，绝不排队。
+        let Ok(mut writer) = self.writer.try_lock() else {
+            return;
+        };
+        match tokio::time::timeout(PROGRESS_WRITE_BUDGET, writer.write_all(line.as_bytes())).await {
+            Ok(Ok(())) => {}
+            // 超时的那次可能写进去了半行；失败的那次同理。两者都只能封口。
+            Ok(Err(_)) | Err(_) => self
+                .poisoned
+                .store(true, std::sync::atomic::Ordering::Relaxed),
+        }
+    }
+}
+
 /// 请求处理器。
 ///
 /// 做成 trait 而非闭包：处理器要被多个并发连接共享（`Arc<dyn RequestHandler>`），
 /// 而闭包形式会把泛型参数一路传染到服务端的每个签名上。
 #[async_trait::async_trait]
 pub trait RequestHandler: Send + Sync {
-    async fn handle(&self, req: Request) -> Response;
+    /// `progress` 是处理期间推送非终态消息的出口；不需要就不用它。
+    async fn handle(&self, req: Request, progress: &ProgressSink) -> Response;
 }
 
 /// 服务端：监听通道并应答。
@@ -298,7 +461,14 @@ impl IpcServer {
 
         tokio::spawn(async move {
             // 读写分开：处理期间要一边算一边盯着对端有没有走。
-            let (read_half, mut write_half) = tokio::io::split(stream);
+            let (read_half, write_half) = tokio::io::split(stream);
+            // 写端共享给 [`ProgressSink`]：处理期间要往同一条连接推进度，
+            // 处理完再往它写终态。**必须是同一个锁**——两边各持一个写端会让
+            // 进度帧和终态帧交错成半行，客户端的按行解析当场失败。
+            let writer: std::sync::Arc<tokio::sync::Mutex<DynWriter>> =
+                std::sync::Arc::new(tokio::sync::Mutex::new(Box::new(write_half)));
+            // 进度流被半行污染时终态帧就不写了，理由见 [`ProgressSink::send`]。
+            let poisoned = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let mut reader = BufReader::new(read_half);
             let mut line = String::new();
             if reader.read_line(&mut line).await.is_err() {
@@ -310,15 +480,21 @@ impl IpcServer {
                 // 这期间被 Ctrl-C 掉。不盯的话这个任务会继续跑到自然结束，把它取走的
                 // 东西（确认台的名额、接收锁）一直占着——期间到达的配对请求会被交给一条
                 // 已经没人接的连接、就此消失，而下一个客户端还得排在它后面等。
-                Ok(req) => tokio::select! {
-                    response = handler.handle(req) => response,
-                    _ = peer_gone(&mut reader) => return,
-                },
+                Ok(req) => {
+                    let progress = ProgressSink {
+                        writer: writer.clone(),
+                        poisoned: poisoned.clone(),
+                    };
+                    tokio::select! {
+                        response = handler.handle(req, &progress) => response,
+                        _ = peer_gone(&mut reader) => return,
+                    }
+                }
                 // 请求解析失败 = 客户端发来的东西不对，那是用法错误。
                 Err(err) => Response::usage(format!("无法解析请求: {err}")),
             };
 
-            let mut out = serde_json::to_string(&response).unwrap_or_else(|err| {
+            let mut out = serde_json::to_string(&Frame::from(response)).unwrap_or_else(|err| {
                 // 响应本身序列化失败极罕见，但静默丢弃会让客户端一直等到超时。
                 // **必须经 `json!` 而不是手拼**：`err` 里带引号或换行时，手拼出来的是
                 // 一行非法 JSON，客户端的解析同样失败——兜底路径于是和它要兜的那个
@@ -333,7 +509,12 @@ impl IpcServer {
                 .to_string()
             });
             out.push('\n');
-            let _ = write_half.write_all(out.as_bytes()).await;
+            // **流已被污染就别再写**：追加一条合法 JSON 只会拼在半行后面，客户端解析
+            // 失败退 3——而那次请求其实是成功的。什么都不写让它读到 EOF，得到一个
+            // 诚实的「常驻节点没有应答这条命令」。
+            if !poisoned.load(std::sync::atomic::Ordering::Relaxed) {
+                let _ = writer.lock().await.write_all(out.as_bytes()).await;
+            }
         });
 
         Ok(())
@@ -343,6 +524,33 @@ impl IpcServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **进度帧不得被当成答案。**
+    ///
+    /// 这条通道从一问一答放宽成了「一问、若干条进度、一答」，而绝大多数命令**不认识**
+    /// 进度帧。少了这条跳过逻辑，任何一个走通道的命令只要撞上一条进度就会把它当成响应
+    /// ——`Data { payload }` 解析成功、内容却是一帧进度，于是命令报告一个空结果并**成功
+    /// 退出**。那是最坏的一种失败形态。
+    #[test]
+    fn a_progress_frame_is_never_terminal() {
+        let progress = Frame::Progress {
+            payload: serde_json::json!({ "phase": "preparing" }),
+        };
+        assert!(progress.into_terminal().is_err(), "进度帧被当成了终态");
+
+        for terminal in [
+            Frame::Ok,
+            Frame::Data {
+                payload: serde_json::json!({}),
+            },
+            Frame::Error {
+                code: Code::Usage,
+                message: "x".into(),
+            },
+        ] {
+            assert!(terminal.into_terminal().is_ok(), "终态帧被当成了进度");
+        }
+    }
 
     /// **失败的分类必须过得了通道。**
     ///
@@ -362,8 +570,14 @@ mod tests {
             CliError::NodeUnavailable("节点没起来".into()),
         ] {
             let expected = original.code();
-            let wire = serde_json::to_string(&Response::err(original)).expect("编码");
-            let back: Response = serde_json::from_str(&wire).expect("往返");
+            // **必须经 `Frame` 往返**：上线的是它，`Response` 一个字节都不过通道
+            // （服务端写 `Frame::from(response)`，客户端解析 `Frame` 再 `into_terminal`）。
+            // 只往返 `Response` 的话，给 `Frame::Error` 的 `code` 加一个 `serde(skip)`
+            // 这条测试照样绿，而所有经通道的失败在客户端解析失败、一律压成
+            // `NodeUnavailable`(3)——正是本测试要挡的那件事。
+            let wire = serde_json::to_string(&Frame::from(Response::err(original))).expect("编码");
+            let frame: Frame = serde_json::from_str(&wire).expect("往返");
+            let back = frame.into_terminal().expect("错误帧是终态");
 
             let Response::Error { code, .. } = back else {
                 panic!("往返后不再是错误响应");
@@ -454,7 +668,7 @@ mod tests {
 
         #[async_trait::async_trait]
         impl RequestHandler for Blocking {
-            async fn handle(&self, _req: Request) -> Response {
+            async fn handle(&self, _req: Request, _progress: &ProgressSink) -> Response {
                 let _held = self.canary.clone();
                 // 挂到天荒地老：真实场景里这是 `desk.take()` 的长轮询。
                 std::future::pending::<()>().await;
@@ -512,7 +726,7 @@ mod tests {
         struct Echo;
         #[async_trait::async_trait]
         impl RequestHandler for Echo {
-            async fn handle(&self, req: Request) -> Response {
+            async fn handle(&self, req: Request, _progress: &ProgressSink) -> Response {
                 match req {
                     Request::Status => Response::Data {
                         payload: serde_json::json!({"ok": true}),
@@ -530,6 +744,92 @@ mod tests {
         match response {
             Some(Response::Data { payload }) => assert_eq!(payload["ok"], true),
             other => panic!("响应不对: {other:?}"),
+        }
+        serving.await.unwrap().unwrap();
+    }
+
+    /// **终态帧的线格式必须与裸 [`Response`] 逐字相同。**
+    ///
+    /// 这条钉的是跨版本兼容：`Frame` 的三个终态变体是抄 `Response` 的，抄的目的就是让
+    /// 旧节点回来的应答新客户端仍然认得（升级 CLI 不会重启常驻节点）。有人「去重」成
+    /// `Frame::Terminal { #[serde(flatten)] .. }` 时，JSON 会多一层嵌套，兼容性当场
+    /// 消失——而那**不报错**，只在真的遇上版本错位时才显形，那时用户看到的是一句
+    /// 「解析响应失败」。
+    #[test]
+    fn a_terminal_frame_is_byte_identical_to_a_bare_response() {
+        for response in [
+            Response::Ok,
+            Response::Data {
+                payload: serde_json::json!({ "sessionId": "x" }),
+            },
+            Response::Error {
+                code: Code::PeerUnreachable,
+                message: "拨不通".into(),
+            },
+        ] {
+            let bare = serde_json::to_string(&response).expect("编码 Response");
+            let framed = serde_json::to_string(&Frame::from(response)).expect("编码 Frame");
+            assert_eq!(framed, bare, "终态帧与裸响应的线格式分叉了");
+        }
+    }
+
+    /// **「一问、若干条进度、一答」的端到端往返。**
+    ///
+    /// 这条是这套协议唯一的真看守，它同时钉住三件此前没人钉的事：
+    ///
+    /// 1. **`request` 会继续读，而不是拿第一帧就返回。** 把它退回单次 `read_line`，
+    ///    别的测试全绿，而**所有走通道的命令**在服务端一加进度就全断——拿到的第一帧
+    ///    是进度，解析成终态失败。
+    /// 2. **进度按序到达，终态在最后。**
+    /// 3. **不看进度的老调用方不受影响。** `request` 用的是空回调，服务端新增一条进度
+    ///    不该噎住任何一个不认识它的命令。
+    ///
+    /// 此前这里只有 `Frame::into_terminal` 的单元测试——那是个同义反复（断言一个手写
+    /// 四臂 match 的四个臂），它声称要挡的「命令把进度帧当成 `Data` 解析成功」
+    /// 根本不可能发生：两者是不同的 serde tag。
+    #[tokio::test]
+    async fn progress_frames_precede_the_terminal_and_do_not_break_plain_requests() {
+        let dir = tempfile::tempdir().unwrap();
+
+        struct Chatty;
+        #[async_trait::async_trait]
+        impl RequestHandler for Chatty {
+            async fn handle(&self, _req: Request, progress: &ProgressSink) -> Response {
+                for step in 0..3u64 {
+                    progress.send(serde_json::json!({ "step": step })).await;
+                }
+                Response::Data {
+                    payload: serde_json::json!({ "done": true }),
+                }
+            }
+        }
+
+        // ① 不看进度的调用方拿到的是终态，不是第一帧进度。
+        let plain = dir.path().join("plain.sock");
+        let server = IpcServer::bind(&plain).unwrap();
+        let serving =
+            tokio::spawn(async move { server.accept_one(std::sync::Arc::new(Chatty)).await });
+        match request(&plain, &Request::Status).await.unwrap() {
+            Some(Response::Data { payload }) => assert_eq!(payload["done"], true),
+            other => panic!("不看进度的调用方拿到了: {other:?}"),
+        }
+        serving.await.unwrap().unwrap();
+
+        // ② 看进度的调用方按序收到三条，且终态仍在最后。
+        let watching = dir.path().join("watch.sock");
+        let server = IpcServer::bind(&watching).unwrap();
+        let serving =
+            tokio::spawn(async move { server.accept_one(std::sync::Arc::new(Chatty)).await });
+        let mut seen = Vec::new();
+        let response = request_watching(&watching, &Request::Status, |frame| {
+            seen.push(frame["step"].as_u64().expect("进度帧缺 step"));
+        })
+        .await
+        .unwrap();
+        assert_eq!(seen, vec![0, 1, 2], "进度帧的条数或顺序不对");
+        match response {
+            Some(Response::Data { payload }) => assert_eq!(payload["done"], true),
+            other => panic!("终态不对: {other:?}"),
         }
         serving.await.unwrap().unwrap();
     }
