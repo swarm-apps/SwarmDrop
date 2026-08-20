@@ -4,6 +4,30 @@
 
 构建 / 包管理 / lint / CI 的项目特有约束。常规命令参考 CLAUDE.md "Build and Development Commands"；本主题只记非显见的坑。
 
+## `DESIGN.md` 的契约层要靠门禁守，不能靠人看
+
+`e7d9caee`（2026-08-14）重新生成 `DESIGN.md` 时把手写的跨端契约层整层覆盖掉了
+（1274 行 → 186 行，10 个 `### … Contract` 全没）。**六天没有人发现**——因为损害不是报错，
+而是 `CLAUDE.md` 与十几处代码注释里的引用**指向了不存在的东西**：读到那些注释的人会去
+找判据，找不到，然后凭感觉实现。
+
+这个文件分两层，混在一起是它被冲掉的原因：
+
+| 层 | 谁维护 | 能不能重新生成 |
+|---|---|---|
+| 视觉令牌（frontmatter / Colors / Typography / Components） | `/impeccable` 系列命令 | 能 |
+| `## Cross-platform Contracts` | 手写 | **不能** |
+
+`pnpm check:design-contracts` 守两条：契约节数不低于 `MIN_CONTRACTS`（整层被冲掉时归零），
+以及**全仓每一处 `Xxx Contract` 引用都指得到某个 `### ` 标题**（匹配按前缀，于是
+`Node Status Contract` 对得上 `### Node Status Contract (cross-platform)`）。
+两种故障都实测过会红并返回退出码 1。
+
+⚠️ **它刻意不管 `… Rule`**：`One Accent Rule` 这类在同一次重新生成里被中文重写成了
+「**单一强调色规则**」，引用它们的注释同样悬空。那属于「token 层要不要保留英文命名」，
+与「手写判据别被工具冲掉」不是一回事——一起管会让门禁第一次运行就红，然后被人加进忽略清单。
+
+
 ## 包管理
 
 ### pnpm only
