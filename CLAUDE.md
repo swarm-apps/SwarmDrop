@@ -29,7 +29,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Language
 
-Always respond in Chinese (简体中文). All output, including thinking, planning, commit messages, and comments, must be in Chinese.
+Always respond in Chinese (简体中文). All output, including thinking, planning, and code comments, must be in Chinese.
+
+**Exception — commit messages are in English**（2026-08-20 起）。仓库历史里 `0a27fbc7`
+及更早的提交是中文，那是旧约定，不必回改。
 
 ## Project Overview
 
