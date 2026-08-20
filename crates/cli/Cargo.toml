@@ -1,6 +1,6 @@
 [package]
 name = "swarmdrop-cli"
-version = "0.2.0"
+version = "0.3.0"
 edition.workspace = true
 description = "SwarmDrop 命令行宿主：无账号、无公网 IP 的设备间端到端加密传输"
 license = "MIT"
