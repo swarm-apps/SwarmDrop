@@ -335,7 +335,9 @@ Rust 命令薄壳在 `src-tauri/src/commands/`，按业务域分文件：`lifecy
 
 **Responsive Design** — 桌面端**没有侧边栏，也没有底部导航**：全局导航是 `AppTopBar`
 的顶栏 + 面包屑（`src/components/layout/app-topbar.tsx`），导航深度靠面包屑表达。
-这是 `DESIGN.md` 里的刻意简化，不是待补的缺口——加 nav rail 前先读那里第 204 / 228 行。
+这是 `DESIGN.md` 里的刻意简化，不是待补的缺口——加 nav rail 前先读那里的
+`### Navigation — Desktop shell` 与 `### Layout Density Contract`。
+（**按节名引用，不要写行号**：那两个数曾经指向导航段落，文档一改就滑到了别的契约上。）
 
 页面级主从布局用 `MasterDetailShell`（收件箱 / 传输活动 / share-target 共用），
 单一断点 `MASTER_DETAIL_QUERY = (min-width: 920px)`：≥920 左列表 + 右详情双栏，
