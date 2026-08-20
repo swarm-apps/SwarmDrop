@@ -10,7 +10,6 @@ No accounts. No servers. No cloud.
 
 [![Release](https://img.shields.io/github/v/release/swarm-apps/SwarmDrop?style=flat-square)](https://github.com/swarm-apps/SwarmDrop/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
-[![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Android%20%7C%20Web-lightgrey?style=flat-square)](#download)
 
 [Website](https://swarm-apps.github.io/SwarmDrop/) · [简体中文](README.zh-CN.md)
 
@@ -24,16 +23,16 @@ The LocalSend experience, freed from the local network: send files between **any
 your devices, across any network, with only the sender and receiver able to decrypt
 them. Nothing to sign up for, no central server in the middle.
 
-It runs on desktop, Android and — with nothing to install — [in the browser](https://swarm-apps.github.io/SwarmDrop/app).
-All three are real transfer endpoints backed by the same Rust core, not a full client
-plus a companion web page.
+It runs on desktop, on Android, [in the browser](https://swarm-apps.github.io/SwarmDrop/app)
+with nothing to install, and in a terminal. All four are real transfer endpoints backed by
+the same Rust core — not one client plus a set of companions.
 
 It also runs a local MCP server, so AI agents can deliver files across your devices and
 search what you've received.
 
 > **Project status.** The core is feature-complete and has been stable for a while:
-> cross-network transfer, pairing, resume, three clients, MCP. Current work is the
-> finishing pass — aligning interaction across the three clients, edge-case copy, and
+> cross-network transfer, pairing, resume, four clients, MCP. Current work is the
+> finishing pass — aligning interaction across the graphical clients, edge-case copy, and
 > converging the on-device links (cross-network especially). Bug reports and UX
 > friction are exactly what's most useful right now.
 
@@ -50,6 +49,8 @@ search what you've received.
   it lands. Survives drops, restarts and flaky links.
 - **Runs in the browser** — the same core compiled to wasm. Pairing, transfer, resume and
   OPFS-backed storage, over WebRTC and WebTransport. No extension, no install.
+- **Runs headless** — a `swarmdrop` binary with the same core, the same identity file and
+  the same pairing protocol, for machines with no screen: a server, a NAS, an SSH session.
 - **AI-drivable** — an embedded MCP server exposes transfers and inbox search to agents.
 
 ## Download
@@ -63,6 +64,7 @@ search what you've received.
 | Linux | `.deb` · `.rpm` · `.AppImage` (x64) |
 | Android | `.apk` |
 | Browser | [nothing to install](https://swarm-apps.github.io/SwarmDrop/app) — runs as wasm |
+| Terminal | `brew` · `npm` · install script — see [below](#command-line) |
 | iOS | build from source only<sup>†</sup> |
 
 <sup>†</sup> iOS has no sideloading path: every build must be signed by Apple and tied to
@@ -72,7 +74,9 @@ works on iOS Safari.
 
 Downloads and automatic updates are served by
 [SwarmHive](https://github.com/swarm-apps/SwarmHive) — our own open-source, self-hostable
-release server. No proprietary update SaaS in the loop.
+release server. No proprietary update SaaS in the loop. The CLI is the exception: it has
+no built-in updater, because whichever package manager installed it already owns the
+question of which version is current.
 
 ## Getting started
 
@@ -92,6 +96,35 @@ once. On the same Wi-Fi, devices discover each other automatically.
 | NAT hole-punch (DCUtR) | 10–100 ms | different networks, punch succeeds |
 | Relay fallback | 100–500 ms | hole-punching fails |
 
+## Command line
+
+`swarmdrop` is a fourth client, not a remote control for the desktop app: same Rust core,
+same identity file, same pairing protocol. It exists for the machines with no screen.
+
+```bash
+brew install swarm-apps/tap/swarmdrop     # macOS · Linux
+npm install -g swarmdrop                  # anywhere Node runs
+```
+
+Windows and scripted installs use the shell / PowerShell installer from the
+[latest CLI release](https://github.com/swarm-apps/SwarmDrop/releases?q=swarmdrop-cli).
+
+```bash
+swarmdrop start                      # bring the node up (foreground; -d to detach)
+swarmdrop invite create              # pair — hand the link or QR to the other device
+swarmdrop send ./photos --to laptop
+swarmdrop transfer watch             # live progress; p / r / c to pause, resume, cancel
+```
+
+Receiving takes no command: while the node is up, inbound transfers land in the inbox.
+
+Every command also runs bare and asks for what it's missing, so the surface is explorable
+without reading `--help` first. Read-only ones (`device list`, `inbox list`,
+`transfer list`) never start a node at all. `--json` turns the whole surface into
+something a script can parse, and `--no-input` makes it fail rather than prompt.
+
+Full reference: [CLI guide](https://swarm-apps.github.io/SwarmDrop/docs/cli).
+
 ## AI agents (MCP)
 
 SwarmDrop embeds a [Model Context Protocol](https://modelcontextprotocol.io) server,
@@ -107,8 +140,8 @@ See the [MCP guide](src-tauri/docs/mcp-guide.md) to wire it up.
 
 ```mermaid
 graph TB
-    subgraph Shells["Shells — desktop · mobile · web"]
-        A["React + Tauri · React Native + uniffi · wasm"]
+    subgraph Shells["Shells — desktop · mobile · web · CLI"]
+        A["React + Tauri · React Native + uniffi · wasm · a plain Rust binary"]
     end
     subgraph Core["Shared core — Rust (crates/*)"]
         B["transfer: chunking · per-chunk verification · progress · resume"]
@@ -159,10 +192,11 @@ graph TB
 | AI | embedded MCP server (rmcp + axum, `127.0.0.1` only) |
 | IPC types | tauri-specta — commands and events, fully typed |
 
-One Rust core in `crates/*` backs all three shells: desktop (`src-tauri`), mobile
-(`mobile/`, via uniffi) and browser (`crates/web`, via wasm). `crates/core` carries no
-`sea-orm` and `crates/transfer` no dependency on `core` — those boundaries are what keep
-the wasm target compiling.
+One Rust core in `crates/*` backs all four shells: desktop (`src-tauri`), mobile
+(`mobile/`, via uniffi), browser (`crates/web`, via wasm) and the CLI (`crates/cli`, which
+links the core directly and needs no IPC layer at all). `crates/core` carries no `sea-orm`
+and `crates/transfer` no dependency on `core` — those boundaries are what keep the wasm
+target compiling.
 
 </details>
 
@@ -188,7 +222,8 @@ pnpm tauri build    # package
 - [x] MCP server — agents can send files and search the inbox
 - [x] Mobile apps
 - [x] Browser client (wasm) — a full node at [`/app`](https://swarm-apps.github.io/SwarmDrop/app): pairing, transfer, resume
-- [ ] **Polish pass** — interaction parity across the three clients, edge-case states, on-device link convergence
+- [x] Command-line client — `swarmdrop`, for servers and headless machines
+- [ ] **Polish pass** — interaction parity across the graphical clients, edge-case states, on-device link convergence
 - [ ] Cross-network throughput measured on real devices (LAN is; the relayed and hole-punched paths are not yet)
 - [ ] Full transfer lifecycle over MCP — status · cancel · pause · resume
 - [ ] On-device content extraction for richer inbox search

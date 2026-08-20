@@ -1,0 +1,194 @@
+---
+title: 命令行指南
+description: 在服务器、NAS 或一条 SSH 会话里用 swarmdrop 收发文件。
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+
+`swarmdrop` 是 SwarmDrop 的第四个客户端，与桌面、移动、浏览器共用同一份 Rust 内核、
+同一套配对协议、同一种加密与验签。它不是桌面端的遥控器，而是一个完整的传输端点——
+为没有屏幕的机器而存在：服务器、NAS、一条 SSH 会话，以及需要脚本调度传输的场合。
+
+## 安装
+
+```bash
+brew install swarm-apps/tap/swarmdrop     # macOS · Linux
+npm install -g swarmdrop                  # 有 Node 的地方都行
+```
+
+也可以直接跑安装脚本（Windows 用 PowerShell 那条），命令在
+[最新 CLI release](https://github.com/swarm-apps/SwarmDrop/releases?q=swarmdrop-cli)
+页面里。安装后 `swarmdrop --version` 应能打印版本号。
+
+<Callout type="info">
+命令行端**不内建自更新**：升级走装它的那个包管理器（`brew upgrade`、`npm update -g`、
+或重跑一次安装脚本）。内建 updater 会与包管理器争夺「当前版本是哪个」的事实源。
+</Callout>
+
+## 第一次传输
+
+<Steps>
+
+<Step>
+
+### 启动节点
+
+```bash
+swarmdrop start
+```
+
+默认**前台运行**——systemd / launchd 这类服务管理器要的就是前台。想让它转后台并立即返回，
+加 `-d`。
+
+首次启动会生成本机的 Ed25519 设备身份，不需要设任何密码。启动后的输出里有节点标识、
+监听地址和**接收落点**。
+
+</Step>
+
+<Step>
+
+### 配对设备
+
+两个方向任选其一。
+
+**由本机发起**——生成一张邀请交给对方（另一台机器的图形端扫码或粘链接都行）：
+
+```bash
+swarmdrop invite create
+```
+
+它生成邀请后会**一直守着**，直到有设备用它配对成功，或你按 Ctrl-C 中断。这不是偷懒的
+阻塞式实现：入站配对必须由人核对后放行，而**配对窗口只在这条命令运行期间打开**。
+邀请会经聊天工具、剪贴板辗转到对方手上，路上可能被别人看到；它又是一次性的，被抢先用掉
+那次就消耗掉了凭证，真正的设备再来就配不上。
+
+**由对方发起**——把对方给的邀请串交给本机消费：
+
+```bash
+swarmdrop invite use "<邀请链接>"
+```
+
+配对是一次性动作，配完即长期信任，之后传文件不必再确认身份。
+
+</Step>
+
+<Step>
+
+### 发送
+
+```bash
+swarmdrop send ./photos ./report.pdf --to laptop
+```
+
+`--to` 认设备名，也认节点标识。两个参数都可以省——省了就列出已配对设备让你选、
+逐行问你要发什么。
+
+</Step>
+
+</Steps>
+
+## 接收不需要命令
+
+节点在线期间，**已配对设备**发来的传输会被自动接受并落盘。这与图形三端不同：那边有收件箱
+让人逐条决策，而命令行端没有界面可以弹确认框，等一个不会到来的人工确认只会让对端一直卡在
+「等待接受」。判据是**已配对**——能发起传输的对端必然已经过配对握手，那一步才是信任边界。
+
+落点默认是 `<系统下载目录>/SwarmDrop`，用环境变量覆盖：
+
+```bash
+export SWARMDROP_RECEIVE_DIR=/srv/incoming
+```
+
+<Callout type="warn">
+这个变量**不经 shell 展开**（`~` 除外，那个会展开）。别写通配符，路径里的空格就是路径的
+一部分，不必也不要加引号转义。
+</Callout>
+
+收到的东西同时进本机收件箱：
+
+```bash
+swarmdrop inbox list
+swarmdrop inbox show <条目>
+swarmdrop inbox export <条目> ./somewhere
+```
+
+## 命令一览
+
+| 命令 | 做什么 |
+| --- | --- |
+| `start` · `stop` · `status` | 节点生命周期；`status` 还报 NAT 与中继可达性 |
+| `invite create` · `use` · `list` · `revoke` | 配对邀请：生成并守着、消费、清点、撤销 |
+| `device list` · `forget` | 已配对设备 |
+| `send` | 向一台已配对设备发文件或目录 |
+| `inbox list` · `show` · `export` | 收件箱 |
+| `transfer list` · `show` | 传输记录 |
+| `transfer watch` | 实时进度面板，`p` / `r` / `c` 就地暂停、恢复、取消 |
+| `transfer pause` · `resume` · `cancel` | 同样三个动作，也可以直接下命令 |
+
+**每条命令都能不带参数运行**，缺什么问什么——不必先读 `--help` 才敢试。给了参数就按参数走，
+不再打断你。
+
+## 实时盯着传输
+
+```bash
+swarmdrop transfer watch
+```
+
+每条未结束的会话一行进度条。正在传的那条显示速率与剩余时间；等待确认、已暂停、已中断的
+只显示状态——给它们画一个「0 B/s、剩余 ∞」是在报告一个假事实。
+
+面板上按 `p` / `r` / `c` 会弹出一个多选菜单，列出**此刻能做这个动作**的会话：暂停只列
+正在传的，恢复只列可续传的，取消只列尚未结束的。菜单里出现的每一条都当真做得成。
+
+没有常驻节点时它照样能开——列出的是等着续传的那几条，正是你此刻该知道的事。这时按 `p`
+会就地报一句「先 start」，面板不退。
+
+## 给人用，还是给脚本用
+
+两个全局开关，方向相反：
+
+| 开关 | 语义 |
+| --- | --- |
+| `--json` | 结果以机器可读格式写 stdout，进度与诊断始终走 stderr。同时**禁用一切交互提示**——它声明的是「调用方是程序」 |
+| `--no-input` | 只是不弹提示：缺参数直接以用法错误退出，等待配对期间收到的入站请求一律**拒绝**（fail-closed） |
+
+`start --auto-accept` 与 `--no-input` 方向相反，别混着理解：前者是 fail-open（不问但放行），
+后者是 fail-closed（不问就是不放行）。两者同时给出时 `--auto-accept` 生效——它是对配对行为的
+明确指令，而 `--no-input` 只声明不弹提示。
+
+`--auto-accept` **默认关闭**，理由同上文的「配对窗口」：邀请会泄露，而它是一次性的。
+
+## 常驻节点与只读命令
+
+`start` 起来的那个节点是常驻的，其余命令经数据目录下的本地通道复用它，不会各起一个。
+
+**只读命令压根不启动节点**——`device list`、`invite list`、`inbox list`、`transfer list`
+这些直接读本机记录，没有常驻节点时也是秒回，不会花几秒去连引导节点。
+
+反过来，`transfer pause` / `resume` / `cancel` **要求常驻节点在跑**，且绝不为它们起临时节点：
+它们动的是活传输，临时节点里空空如也。没有节点时它们立刻报错并告诉你先 `swarmdrop start`。
+
+## 独立的设备身份
+
+**命令行端与同一台机器上的桌面端是两台不同的设备**，各有各的身份、各有各的配对表与数据库。
+它们的数据目录刻意分开：
+
+| 平台 | 命令行端数据目录 |
+| --- | --- |
+| macOS | `~/Library/Application Support/com.yexiyue.swarmdrop-cli` |
+| Linux | `~/.local/share/swarmdrop-cli` |
+| Windows | `%LOCALAPPDATA%\yexiyue\swarmdrop-cli\data` |
+
+共用目录会让两个进程抢同一份私钥和同一个数据库。所以如果你想在自己的桌面端和自己服务器上的
+命令行端之间传文件，需要像对待任意两台设备那样**先配一次对**。
+
+用 `--data-dir` 或 `SWARMDROP_CLI_DATA_DIR` 可以指定别的位置——一台机器上跑多个互不相干的
+身份时用得上。目录会被设为仅本人可读（unix 0700）。
+
+## 已知限制
+
+- **接收需要节点在线。** 没有 `swarmdrop start` 跑着，对端发起的传输无人应答。
+  长期使用请把它交给 systemd / launchd 托管（默认前台正是为此）。
+- **入站配对只在 `invite create` 运行期间可能发生。** 这是刻意的，见上文。
+- **命令行端不参与图形端的收件箱决策流程**：已配对设备发来的东西直接落盘。
+  不想要这个行为，就别让那台设备保持配对。

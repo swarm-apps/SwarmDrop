@@ -10,7 +10,6 @@
 
 [![Release](https://img.shields.io/github/v/release/swarm-apps/SwarmDrop?style=flat-square)](https://github.com/swarm-apps/SwarmDrop/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
-[![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Android%20%7C%20Web-lightgrey?style=flat-square)](#下载)
 
 [官网](https://swarm-apps.github.io/SwarmDrop/) · [English](README.md)
 
@@ -22,13 +21,13 @@
 
 把 LocalSend 的体验从局域网里解放出来：在你的**任意**设备之间、跨任意网络传文件，且只有收发双方能解密。不用注册，中间也没有任何中央服务器。
 
-桌面、Android，以及[无需安装的浏览器端](https://swarm-apps.github.io/SwarmDrop/app)都能用。三端都是真正的传输端点，由同一份 Rust 内核驱动，而不是「一个完整客户端 + 一个配套网页」。
+桌面、Android、[无需安装的浏览器端](https://swarm-apps.github.io/SwarmDrop/app)，以及终端里的命令行，都能用。四端都是真正的传输端点，由同一份 Rust 内核驱动，而不是「一个完整客户端 + 几个配套」。
 
 它还内置一个本地 MCP Server，AI Agent 因此可以跨设备投递文件、检索你收到过的东西。
 
 > **项目状态。** 核心功能已经完成并稳定运行了一段时间：跨网络传输、配对、断点续传、
-> 三端客户端、MCP。当前工作集中在收尾打磨——三端交互对齐、边界状态文案，以及真机链路的
-> 收敛（尤其是跨网络那条）。这个阶段最有价值的反馈就是 bug 与用起来别扭的地方。
+> 四端客户端、MCP。当前工作集中在收尾打磨——图形三端的交互对齐、边界状态文案，以及真机
+> 链路的收敛（尤其是跨网络那条）。这个阶段最有价值的反馈就是 bug 与用起来别扭的地方。
 
 ## 特性
 
@@ -39,6 +38,8 @@
 - **断点续传** —— BLAKE3 + bao-tree 逐块验签，每块收到即验。掉线、重启、弱网都能扛。
 - **浏览器里也能跑** —— 同一份内核编译成 wasm，配对、传输、续传与 OPFS 落盘一应俱全，
   走 WebRTC 与 WebTransport。不装插件，不装应用。
+- **没有屏幕也能跑** —— `swarmdrop` 命令行客户端，与图形端同一份内核、同一份身份文件、
+  同一套配对协议。服务器、NAS、一条 SSH 会话都能用。
 - **可被 Agent 驱动** —— 内置 MCP Server 把传输与收件箱检索开放给 AI Agent。
 
 ## 下载
@@ -52,6 +53,7 @@
 | Linux | `.deb` · `.rpm` · `.AppImage` (x64) |
 | Android | `.apk` |
 | 浏览器 | [无需安装](https://swarm-apps.github.io/SwarmDrop/app) —— 以 wasm 运行 |
+| 终端 | `brew` · `npm` · 安装脚本 —— 见[下文](#命令行) |
 | iOS | 仅能自行构建<sup>†</sup> |
 
 <sup>†</sup> iOS 没有侧载途径：任何构建都必须由 Apple 签名并绑定 provisioning profile。装到自己
@@ -59,7 +61,8 @@
 上可以正常使用。
 
 > 下载与自动更新由 [SwarmHive](https://github.com/swarm-apps/SwarmHive) 提供 —— 我们自研、
-> 可自托管的开源发布服务，全程不依赖商业更新 SaaS。
+> 可自托管的开源发布服务，全程不依赖商业更新 SaaS。命令行端是例外：它**不内建自更新**，
+> 因为「当前版本是哪个」这件事已经归装它的那个包管理器管了。
 
 ## 快速开始
 
@@ -78,6 +81,34 @@
 | NAT 打洞（DCUtR） | 10–100 ms | 跨网络且打洞成功 |
 | 中继兜底 | 100–500 ms | 打洞失败 |
 
+## 命令行
+
+`swarmdrop` 是第四个客户端，不是桌面端的遥控器：同一份 Rust 内核、同一份身份文件、
+同一套配对协议。它为没有屏幕的机器而存在。
+
+```bash
+brew install swarm-apps/tap/swarmdrop     # macOS · Linux
+npm install -g swarmdrop                  # 有 Node 的地方都行
+```
+
+Windows 与脚本化安装走[最新 CLI release](https://github.com/swarm-apps/SwarmDrop/releases?q=swarmdrop-cli)
+里的 shell / PowerShell 安装脚本。
+
+```bash
+swarmdrop start                      # 启动节点（默认前台，-d 转后台）
+swarmdrop invite create              # 配对 —— 把链接或二维码交给对方
+swarmdrop send ./photos --to laptop
+swarmdrop transfer watch             # 实时进度；p / r / c 就地暂停、恢复、取消
+```
+
+**接收不需要命令**：节点在线期间，收到的东西自己落进收件箱。
+
+每条命令都能不带参数运行，缺什么问什么，因此不必先读 `--help` 才敢试。只读命令
+（`device list`、`inbox list`、`transfer list`）压根不启动节点。`--json` 把整个命令面
+变成脚本能解析的输出，`--no-input` 则让它在该问人的地方直接失败而不是弹提示。
+
+完整参考：[命令行指南](https://swarm-apps.github.io/SwarmDrop/docs/cli)。
+
 ## AI Agent（MCP）
 
 SwarmDrop 内置一个 [Model Context Protocol](https://modelcontextprotocol.io) Server，严格绑定
@@ -92,8 +123,8 @@ Agent 的推理可以在云端，但你的文件不会离开你的设备。接�
 
 ```mermaid
 graph TB
-    subgraph Shells["外壳 —— 桌面 · 移动 · 浏览器"]
-        A["React + Tauri · React Native + uniffi · wasm"]
+    subgraph Shells["外壳 —— 桌面 · 移动 · 浏览器 · 命令行"]
+        A["React + Tauri · React Native + uniffi · wasm · 一个 Rust 二进制"]
     end
     subgraph Core["共享内核 —— Rust (crates/*)"]
         B["transfer：分块 · 逐块验签 · 进度 · 续传"]
@@ -140,9 +171,10 @@ graph TB
 | AI | 内置 MCP Server（rmcp + axum，仅 `127.0.0.1`） |
 | IPC 类型 | tauri-specta —— 命令与事件全类型化 |
 
-`crates/*` 这一份 Rust 内核支撑三端外壳：桌面（`src-tauri`）、移动（`mobile/`，经 uniffi）与
-浏览器（`crates/web`，经 wasm）。`crates/core` 零 sea-orm、`crates/transfer` 零 core 依赖 ——
-正是这两条边界让 wasm target 编得过。
+`crates/*` 这一份 Rust 内核支撑四端外壳：桌面（`src-tauri`）、移动（`mobile/`，经 uniffi）、
+浏览器（`crates/web`，经 wasm）与命令行（`crates/cli`，直接链内核，连 IPC 层都不需要）。
+`crates/core` 零 sea-orm、`crates/transfer` 零 core 依赖 —— 正是这两条边界让 wasm target
+编得过。
 
 </details>
 
@@ -167,7 +199,8 @@ pnpm tauri build    # 打包
 - [x] MCP Server —— Agent 可发文件、检索收件箱
 - [x] 移动端
 - [x] 浏览器端（wasm）—— [`/app`](https://swarm-apps.github.io/SwarmDrop/app) 是一个完整节点：配对、传输、续传
-- [ ] **收尾打磨** —— 三端交互对齐、边界状态、真机链路收敛
+- [x] 命令行端 —— `swarmdrop`，面向服务器与无屏机器
+- [ ] **收尾打磨** —— 图形三端交互对齐、边界状态、真机链路收敛
 - [ ] 跨网络吞吐的真机实测（局域网已测，中继与打洞两条路径还没有）
 - [ ] MCP 覆盖完整传输生命周期 —— 状态 · 取消 · 暂停 · 恢复
 - [ ] 端上内容提取，让收件箱检索更强
