@@ -44,18 +44,51 @@ pub enum ProgressOut<'a> {
 pub const PHASE_PREPARING: &str = "preparing";
 pub const PHASE_TRANSFERRING: &str = "transferring";
 
-impl ProgressOut<'_> {
-    /// 推一帧准备进度。
-    async fn preparing(&self, bar: &crate::render::send::Preparing, event: &PrepareFrame<'_>) {
+impl<'a> ProgressOut<'a> {
+    /// 开一段准备进度。
+    fn preparing(&self) -> Stage<'_, crate::render::send::Preparing> {
         match self {
-            Self::Bars { .. } => bar.update(
+            Self::Bars { enabled } => Stage::Local(crate::render::send::Preparing::new(*enabled)),
+            Self::Ipc(sink) => Stage::Remote(sink),
+        }
+    }
+
+    /// 开一段传输进度。
+    fn transferring(&self) -> Stage<'_, crate::render::send::Progress> {
+        match self {
+            Self::Bars { enabled } => Stage::Local(crate::render::send::Progress::new(*enabled)),
+            Self::Ipc(sink) => Stage::Remote(sink),
+        }
+    }
+}
+
+/// 一段进度，**出口已经绑定**。
+///
+/// 这个类型替掉了原先的 `draws_locally()`。那个方法存在的唯一目的是喂两个进度条的构造
+/// 函数，于是两处调用点都得写「先问该不该画、再建一个可能永远不画的 bar」——推给通道时
+/// 那个 bar 建了从不使用。现在「出口是什么」只在开一段的时候回答一次，之后 `update`
+/// 无条件调用。
+///
+/// bar 作为字段被持有，因此它的 `Drop`（收进度条、清行）与这一段的作用域绑在一起，
+/// 不再依赖调用点记得让它活到正确的时刻。
+enum Stage<'a, B> {
+    /// 画在本地终端。
+    Local(B),
+    /// 推给通道对面的客户端。
+    Remote(&'a crate::runtime::ipc::ProgressSink),
+}
+
+impl Stage<'_, crate::render::send::Preparing> {
+    async fn update(&self, event: &PrepareFrame<'_>) {
+        match self {
+            Self::Local(bar) => bar.update(
                 event.done,
                 event.total,
                 event.file,
                 event.completed_files,
                 event.total_files,
             ),
-            Self::Ipc(sink) => {
+            Self::Remote(sink) => {
                 sink.send(serde_json::json!({
                     "phase": PHASE_PREPARING,
                     "done": event.done,
@@ -68,12 +101,13 @@ impl ProgressOut<'_> {
             }
         }
     }
+}
 
-    /// 推一帧传输进度。
-    async fn transferring(&self, bar: &crate::render::send::Progress, done: u64, total: u64) {
+impl Stage<'_, crate::render::send::Progress> {
+    async fn update(&self, done: u64, total: u64) {
         match self {
-            Self::Bars { .. } => bar.update(done, total),
-            Self::Ipc(sink) => {
+            Self::Local(bar) => bar.update(done, total),
+            Self::Remote(sink) => {
                 sink.send(serde_json::json!({
                     "phase": PHASE_TRANSFERRING,
                     "done": done,
@@ -81,14 +115,6 @@ impl ProgressOut<'_> {
                 }))
                 .await
             }
-        }
-    }
-
-    /// 本地进度条该不该真的绘制。推给通道时一律不画（见类型文档）。
-    fn draws_locally(&self) -> bool {
-        match self {
-            Self::Bars { enabled } => *enabled,
-            Self::Ipc(_) => false,
         }
     }
 }
@@ -287,7 +313,8 @@ async fn prepare_with_progress<T, E>(
 ) -> Result<T, E> {
     use swarmdrop_core::host::CoreEvent;
 
-    let bar = crate::render::send::Preparing::new(progress.draws_locally());
+    // 出口在这里绑定一次，之后无条件 `update`——「该不该画」不再散在每个调用点。
+    let stage = progress.preparing();
     tokio::pin!(prepare);
 
     // 事件通道还开着吗。**这个标志不能省，也不能用「在分支体里挂起」代替**：
@@ -312,14 +339,14 @@ async fn prepare_with_progress<T, E>(
                 // 后果不是「少画一帧」：`send_offer` 之后要等对端接受（最长 180 秒），
                 // 这期间屏幕上就停在**最后一次节流帧**的那个数上——可能是 99%，
                 // 小文件上可能是 4%。用户看到的与「卡住」一模一样。
-                drain_prepare_progress(events, prepared_id, progress, &bar).await;
+                drain_prepare_progress(events, prepared_id, &stage).await;
                 return result;
             }
             event = events.recv(), if events_open => match event {
                 // 按 `prepared_id` 认领：同一个节点上可能有另一次准备在跑
                 // （常驻节点同时服务着别的命令），不认领会让两批进度互相覆盖。
                 Some(CoreEvent::PrepareProgress { event }) if event.prepared_id == prepared_id => {
-                    emit_prepare_frame(progress, &bar, &event).await;
+                    emit_prepare_frame(&stage, &event).await;
                 }
                 // 通道断开（节点关停）：关掉本分支，由 `prepare` 给出真正的失败原因
                 // ——那比在这里编一个准确。`prepare` 分支永远开着，所以不会出现
@@ -339,8 +366,7 @@ async fn prepare_with_progress<T, E>(
 async fn drain_prepare_progress(
     events: &mut tokio::sync::mpsc::UnboundedReceiver<swarmdrop_core::host::CoreEvent>,
     prepared_id: uuid::Uuid,
-    progress: &ProgressOut<'_>,
-    bar: &crate::render::send::Preparing,
+    stage: &Stage<'_, crate::render::send::Preparing>,
 ) {
     use swarmdrop_core::host::CoreEvent;
 
@@ -348,27 +374,23 @@ async fn drain_prepare_progress(
         if let CoreEvent::PrepareProgress { event } = event
             && event.prepared_id == prepared_id
         {
-            emit_prepare_frame(progress, bar, &event).await;
+            emit_prepare_frame(stage, &event).await;
         }
     }
 }
 
 async fn emit_prepare_frame(
-    progress: &ProgressOut<'_>,
-    bar: &crate::render::send::Preparing,
+    stage: &Stage<'_, crate::render::send::Preparing>,
     event: &swarmdrop_core::transfer::progress::PrepareProgressEvent,
 ) {
-    progress
-        .preparing(
-            bar,
-            &PrepareFrame {
-                done: event.bytes_hashed,
-                total: event.total_bytes,
-                file: &event.current_file,
-                completed_files: event.completed_files,
-                total_files: event.total_files,
-            },
-        )
+    stage
+        .update(&PrepareFrame {
+            done: event.bytes_hashed,
+            total: event.total_bytes,
+            file: &event.current_file,
+            completed_files: event.completed_files,
+            total_files: event.total_files,
+        })
         .await;
 }
 
@@ -383,13 +405,14 @@ async fn wait_for_terminal(
 ) -> CliResult<()> {
     use swarmdrop_core::host::CoreEvent;
 
-    // 「该不该画」在这里回答一次；之后的调用点无条件调用它。
-    let bar = crate::render::send::Progress::new(out.draws_locally());
+    // 出口在这里绑定一次；之后的调用点无条件 `update`。
+    let stage = out.transferring();
 
     while let Some(event) = events.recv().await {
         match event {
             CoreEvent::TransferProgress { event } if event.session_id == session_id => {
-                out.transferring(&bar, event.transferred_bytes, event.total_bytes)
+                stage
+                    .update(event.transferred_bytes, event.total_bytes)
                     .await;
             }
             CoreEvent::TransferCompleted { event } if event.session_id == session_id => {
@@ -423,57 +446,25 @@ async fn wait_for_terminal(
     Err(CliError::TransferFailed("常驻节点已停止，传输中断".into()))
 }
 
-/// 把设备名或节点标识解析成一台已配对设备。
+/// 把设备名或节点标识解析成一台已配对设备，返回 `(标识, 显示名)`。
 ///
-/// 允许用名字是因为节点标识对人不可读；名字重复时报错而不是随便挑一个——
-/// 「发错设备」是不可撤销的。
+/// **匹配与措辞都复用 [`super::devices`] 那一份**，这里只负责取数与取字段。此前它是独立的
+/// 第二份实现，代价已经付过一次：`DeviceFilter` 用错（`All` 而非 `Paired`）的修复只落在
+/// `device list` 那一份上，这一份继续错着——表现是 `swarmdrop send … --to <设备>` 在没有
+/// 常驻节点时报「找不到已配对设备」，而 `swarmdrop device list` 明明列着它。
 ///
-/// ⚠️ **过滤器必须是 `Paired`，`Default`（= `All`）是错的。** `All` 取的是**本次运行
-/// 发现的对端**，而一次性命令每次都新起一个临时节点——那张表在发出请求的这一刻通常是
-/// 空的（mDNS / DHT 发现还没跑完）。表现是 `swarmdrop send … --to <设备>` 在没有常驻
-/// 节点时报「找不到已配对设备」，而 `swarmdrop device list` 明明列着它。
+/// 两份还各自漂移出了不同的行为：那一份**标识优先**、歧义时列出全部候选标识；这一份把
+/// 标识与名称混在一个 filter 里、只报「匹配到 N 台」——用户知道有歧义却无从消歧。
 ///
-/// 反方向也错：`All` 会把局域网里路过的**未配对**设备也算进候选，于是能按名字选中一台
+/// ⚠️ **过滤器必须是 `Paired`**（现由 [`super::devices::from_node`] 独家决定）。`All` 取的
+/// 是本次运行发现的对端，而一次性命令每次都新起临时节点，那张表在发出请求的这一刻通常还是
+/// 空的；反方向也错——`All` 会把局域网里路过的**未配对**设备算进候选，于是能按名字选中一台
 /// 根本没配过对的机器，然后在数据面被对端拒掉。
-///
-/// 同一个坑在 `device list` 上踩过一次，判据写在 `dev-notes/knowledge/cli-host.md`
-/// 的「设备列表要用 `DeviceFilter::Paired`」——这里当时漏了。
 fn resolve_target(node: &RunningNode, to: &str) -> CliResult<(String, String)> {
-    let devices = node
-        .manager
-        .devices()
-        .get_devices(swarmdrop_core::device_manager::DeviceFilter::Paired);
-
-    let matched: Vec<_> = devices
-        .iter()
-        .filter(|d| {
-            let id = d.peer_id.to_string();
-            if id == to {
-                return true;
-            }
-            let name = display_name(d);
-            name.eq_ignore_ascii_case(to)
-        })
-        .collect();
-
-    match matched.as_slice() {
-        [] => Err(CliError::Usage(format!(
-            "找不到已配对设备「{to}」；执行 swarmdrop device list 查看可用目标"
-        ))),
-        [device] => Ok((device.peer_id.to_string(), display_name(device))),
-        multiple => Err(CliError::Usage(format!(
-            "「{to}」匹配到 {} 台设备，请改用节点标识指定",
-            multiple.len()
-        ))),
-    }
-}
-
-fn display_name(device: &swarmdrop_core::device::Device) -> String {
-    device
-        .os_info
-        .name
-        .clone()
-        .unwrap_or_else(|| device.os_info.hostname.clone())
+    let rows = super::devices::from_node(node);
+    let row = super::devices::resolve_target(&rows, to)
+        .map_err(|err| super::devices::target_error(to, err))?;
+    Ok((row.peer_id.clone(), row.name.clone()))
 }
 
 /// 展开命令行给的路径：文件直接收，目录递归展开。

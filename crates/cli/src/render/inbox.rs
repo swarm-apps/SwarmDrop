@@ -4,6 +4,7 @@
 //! 常驻节点，后者只能是 JSON。统一吃 JSON 就不必为两条来源各写一份渲染。
 
 use std::path::Path;
+use swarmdrop_core::transfer::inbox::LocalLocation;
 
 use serde_json::Value;
 
@@ -167,10 +168,14 @@ pub fn render_detail(detail: &Value, json: bool) {
 /// 文件已缺失时照样给路径——用户正需要它去排查东西被谁挪走了，这一点也与桌面端的
 /// 「复制路径」一致（那边同样不校验存在性）。
 fn item_location(detail: &Value, entries: &[Value]) -> String {
-    if let [only] = entries {
-        return text_or(only, "localPath", "—");
+    // **判据来自领域模型，取字段留在这里**：本层吃的是 JSON（两条取数路径统一成它），
+    // 而桌面后端吃 typed DTO——共享的只能是「该取哪个」，不是「怎么取」。
+    match swarmdrop_core::transfer::inbox::local_location(entries.len()) {
+        LocalLocation::Entry(n) => entries
+            .get(n)
+            .map_or_else(|| "—".to_owned(), |entry| text_or(entry, "localPath", "—")),
+        LocalLocation::Root => text_or(detail, "rootPath", "—"),
     }
-    text_or(detail, "rootPath", "—")
 }
 
 pub fn render_exported(count: usize, to: &Path, json: bool) {

@@ -7,6 +7,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use swarmdrop_core::transfer::inbox::LocalLocation;
 
 use swarmdrop_core::host::FileAccess;
 use swarmdrop_core::transfer::inbox::{
@@ -194,16 +195,20 @@ fn item_target_path(detail: &InboxItemDetail, file_id: Option<i32>) -> crate::Ap
         return Ok(PathBuf::from(&file.local_path));
     }
 
-    if entries.len() == 1 {
-        return Ok(PathBuf::from(&entries[0].local_path));
+    // 判据由领域模型独家给出（`local_location`），本函数只负责按它的结论取字段。
+    // 此前这四行是手抄的第二份，与命令行渲染层各写各的。
+    match swarmdrop_core::transfer::inbox::local_location(entries.len()) {
+        LocalLocation::Entry(n) => entries
+            .get(n)
+            .map(|file| PathBuf::from(&file.local_path))
+            .ok_or_else(|| crate::AppError::transfer("收件箱记录缺少本地位置")),
+        LocalLocation::Root => detail
+            .item
+            .root_path
+            .as_ref()
+            .map(PathBuf::from)
+            .ok_or_else(|| crate::AppError::transfer("收件箱记录缺少本地位置")),
     }
-
-    detail
-        .item
-        .root_path
-        .as_ref()
-        .map(PathBuf::from)
-        .ok_or_else(|| crate::AppError::transfer("收件箱记录缺少本地位置"))
 }
 
 /// 账本说有、磁盘上没有：回写 missing 标志再报错，让列表与磁盘保持一致。

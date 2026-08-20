@@ -145,6 +145,29 @@ pub fn resolve_target<'a>(
     }
 }
 
+/// 把定位失败翻成可行动的措辞。
+///
+/// **两个调用点共用这一份**（`device forget` 与 `send --to`）。此前它只存在于
+/// `cmd::device::locate`，而 `send` 那条路径自带了一份**行为不同**的实现——歧义时只说
+/// 「匹配到 2 台」却不说是哪两台，用户于是既改不了命令也查不出原因。
+///
+/// 文案落在 runtime 而不是各命令里，是因为它回答的是「定位为什么失败」，而那件事对每条
+/// 命令都是同一个答案；命令自己该决定的是**问什么**（[`crate::prompt::pick::Picker`]），
+/// 不是同一个失败说两种话。
+pub fn target_error(target: &str, err: TargetError) -> CliError {
+    match err {
+        TargetError::NotFound => CliError::Usage(format!(
+            "没有叫「{target}」的已配对设备。用 swarmdrop device list 看看有哪些。"
+        )),
+        // **必须列出候选标识**：只报数量的话，用户知道有歧义却无从消歧——
+        // 而消歧的唯一办法正是改用其中一个标识。
+        TargetError::Ambiguous(ids) => CliError::Usage(format!(
+            "有多台设备叫「{target}」，请改用节点标识指定其中一台：\n  {}",
+            ids.join("\n  ")
+        )),
+    }
+}
+
 /// 解除配对的结局。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

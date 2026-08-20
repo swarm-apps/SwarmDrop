@@ -102,9 +102,15 @@ type RunAndRefresh = (
 ) => Promise<InboxItemSummary[] | null>;
 
 /**
- * 可复制的本地路径：单文件取文件自身，多文件取所在目录，与 Rust 侧
- * `item_target_path` 同一优先级。但这里不校验路径是否仍存在——文件已缺失时
- * 用户仍需要拿到路径去排查，所以复制不走后端的 `ensure_path_exists`。
+ * 可复制的本地路径：单文件取文件自身，多文件取所在目录。
+ *
+ * ⚠️ **判据的唯一事实源在 Rust 侧**：`crates/transfer/src/inbox.rs` 的 `local_location`。
+ * 桌面后端与命令行渲染层都调它；这里是**第三份手抄**，因为跨语言共享不了一个 Rust 函数。
+ * 改那条规则时这里必须一起改——漏改是静默的：同一条记录，前端复制出来的路径与后端
+ * 「在文件夹中显示」定位到的不是同一个，两边看起来都正常。
+ *
+ * 但这里不校验路径是否仍存在——文件已缺失时用户仍需要拿到路径去排查，
+ * 所以复制不走后端的 `ensure_path_exists`。
  */
 function inboxItemPath(detail: InboxItemDetail): string | null {
   if (detail.content.kind !== "files") return null;
