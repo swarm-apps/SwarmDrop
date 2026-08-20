@@ -18,9 +18,11 @@
 
 - **是什么**：去中心化、跨网络、端到端加密的文件传输工具 —— "跨网络版 LocalSend"。
   无账号、无服务器。同时是 AI Agent 的设备间数据通道（内置本地 MCP server）。
-- **三端**：桌面（Tauri）· 移动（React Native + uniffi，`mobile/`）· Web（wasm，`crates/web`）
+- **四个宿主**：桌面（Tauri）· 移动（React Native + uniffi，`mobile/`）· Web（wasm，`crates/web`）
+  · 命令行（`crates/cli`，bin `swarmdrop`）
 - **应用标识**：`com.yexiyue.swarmdrop`
-- **主语言**：简体中文 —— 所有注释、文档、commit message 均用中文
+- **主语言**：简体中文 —— 所有注释与文档均用中文。**commit message 例外，用英文**
+  （2026-08-20 起；`0a27fbc7` 及更早的中文提交是旧约定，不必回改）
 
 ## 开发规范
 
