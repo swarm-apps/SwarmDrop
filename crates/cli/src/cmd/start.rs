@@ -37,7 +37,7 @@ pub async fn run(data_dir: &DataDir, json: bool, detach: bool, auto_accept: bool
     };
 
     let node = Arc::new(boot(data_dir, json).await?);
-    let server = IpcServer::bind(lock.socket_path())?;
+    let server = IpcServer::bind(&lock.socket_path())?;
 
     // 被动接收：节点在线即自动接受入站传输（spec: cli-host「接收不是一条命令」）。
     let save_dir = crate::adapter::receive::resolve()?;
@@ -122,11 +122,11 @@ impl RequestHandler for NodeHandler {
                 serde_json::to_value(crate::runtime::devices::from_node(&self.node)),
                 "设备列表",
             ),
-            Request::DeviceForget { peer_id } => {
-                // 节点在跑 ⇒ 传 `Some`，核心会额外停掉对该设备的在线状态维持。
+            Request::DeviceForget { peer_ids } => {
+                // 节点在跑 ⇒ 传 `Some`，核心会额外停掉对这些设备的在线状态维持。
                 // `Records` 只用来拿已配对设备表这个端口，不另开数据库连接。
                 let records = crate::runtime::access::Records::new(self.data_dir.clone());
-                match crate::runtime::devices::forget(&records, Some(&self.node), &peer_id).await {
+                match crate::runtime::devices::forget(&records, Some(&self.node), &peer_ids).await {
                     Ok(outcome) => json_or_error(serde_json::to_value(outcome), "解除结果"),
                     Err(err) => Response::err(err),
                 }
@@ -143,23 +143,32 @@ impl RequestHandler for NodeHandler {
                 ),
                 "邀请清单",
             ),
-            Request::InviteRevoke { hash } => {
-                let Some(bytes) = swarmdrop_invite::capability_hash_from_hex(&hash) else {
-                    return Response::usage(format!("不是合法的邀请标识: {hash}"));
+            Request::InviteRevoke { hashes } => {
+                // **先把标识全部解析完再动手**：其中一个不合法时一张都不该被撤——
+                // 批量撤销不可逆，部分执行之后用户既不知道做到了哪张，也无法原样重试。
+                let mut parsed = Vec::with_capacity(hashes.len());
+                for hash in &hashes {
+                    let Some(bytes) = swarmdrop_invite::capability_hash_from_hex(hash) else {
+                        return Response::usage(format!("不是合法的邀请标识: {hash}"));
+                    };
+                    parsed.push(bytes);
+                }
+
+                let mut outcome = crate::runtime::invites::RevokeOutcome {
+                    revoked: 0,
+                    persisted: true,
                 };
-                let persisted = self
-                    .node
-                    .manager
-                    .pairing()
-                    .revoke_invite_by_hash(bytes)
-                    .await;
-                json_or_error(
-                    serde_json::to_value(crate::runtime::invites::RevokeOutcome {
-                        revoked: 1,
-                        persisted,
-                    }),
-                    "撤销结果",
-                )
+                for bytes in parsed {
+                    // **不短路**：某一张写穿失败不该让后面的都不撤。
+                    outcome.persisted &= self
+                        .node
+                        .manager
+                        .pairing()
+                        .revoke_invite_by_hash(bytes)
+                        .await;
+                    outcome.revoked += 1;
+                }
+                json_or_error(serde_json::to_value(outcome), "撤销结果")
             }
             Request::InviteRevokeAll => {
                 let mut revoked = 0usize;

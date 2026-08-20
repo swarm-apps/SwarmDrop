@@ -44,20 +44,20 @@ pub enum Acquisition {
 /// 会在旧节点还活着时拿到锁。
 pub struct NodeLock {
     file: std::fs::File,
-    socket_path: PathBuf,
+    /// 持有整个数据目录而不只是通道路径：清理残留是**它**的方法
+    /// （见 [`DataDir::clear_stale_channel`]），那条平台差异不该在这一层再写一遍。
+    data_dir: DataDir,
 }
 
 impl NodeLock {
-    pub fn socket_path(&self) -> &std::path::Path {
-        &self.socket_path
+    pub fn socket_path(&self) -> PathBuf {
+        self.data_dir.socket()
     }
 }
 
 impl Drop for NodeLock {
     fn drop(&mut self) {
-        // 通道文件由监听器创建。类 Unix 上它不会随进程退出自动消失，留着会让下一个进程
-        // 多走一次「连不上 → 判陈旧」；删除失败无所谓，那条路径本来就能自愈。
-        let _ = std::fs::remove_file(&self.socket_path);
+        self.data_dir.clear_stale_channel();
         let _ = self.file.unlock();
     }
 }
@@ -92,8 +92,11 @@ pub async fn acquire(data_dir: &DataDir) -> CliResult<Acquisition> {
             Ok(()) => {
                 // 拿到锁：此刻通道要么不存在，要么是崩溃留下的残留——两种都该清掉，
                 // 否则监听器会因「地址已占用」起不来。
-                let _ = std::fs::remove_file(&socket_path);
-                return Ok(Acquisition::Owner(NodeLock { file, socket_path }));
+                data_dir.clear_stale_channel();
+                return Ok(Acquisition::Owner(NodeLock {
+                    file,
+                    data_dir: data_dir.clone(),
+                }));
             }
             Err(TryLockError::WouldBlock) => {
                 // 有并发者正持锁启动。等它把通道建起来，然后走复用路径。
@@ -136,6 +139,8 @@ mod tests {
     ///
     /// 进程被强杀后类 Unix 上会留下一个连不上的套接字文件。若据此判定「有节点在跑」，
     /// 用户会陷入「怎么都起不来、也没有进程可杀」的死局，只能手工删文件。
+    /// 只在 Unix：Windows 的通道不是文件，写不出「陈旧残留」这个前提。
+    #[cfg(unix)]
     #[tokio::test]
     async fn stale_socket_does_not_block_startup() {
         let (_tmp, dir) = temp_data_dir();

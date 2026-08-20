@@ -82,16 +82,57 @@ fn listing_on_a_fresh_machine_succeeds() {
 /// **管道里缺参数必须立刻退出，绝不读 stdin。**
 ///
 /// 挂起的表现是命令永远不返回、日志里什么也没有——CI 上只会看到一个超时。
+///
+/// **每一个可缺省的参数都要在这里**。清单与 `cmd::tests::every_optional_target_makes_
+/// the_command_interactive` 一一对应，但看守的是另一件事：那边管日志安不安静，
+/// 这边管进程会不会挂住。空机器上有些会先撞到「集合是空的」，同样是用法错误——
+/// 两条路径都必须**退出**，这正是本测试的判据。
 #[test]
 fn missing_argument_in_a_pipe_exits_with_usage() {
+    for args in [
+        ["invite", "revoke"].as_slice(),
+        ["invite", "use"].as_slice(),
+        ["device", "forget"].as_slice(),
+        ["inbox", "show"].as_slice(),
+        ["inbox", "export"].as_slice(),
+        ["transfer", "show"].as_slice(),
+        ["send"].as_slice(),
+        ["send", "--to", "phone"].as_slice(),
+    ] {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let output = run(tmp.path(), args);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{args:?} 缺参数应以用法错误退出: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        // **补不出参数就不该已经起了节点。** 只对 `send` 断言是不够的：`invite use`
+        // 今天恰好也先问后起，但没有任何东西钉住它——把 `NodeAccess::open` 挪到提问
+        // 之前（比如想预热连接）照样全绿，而每一条误调用都会从一毫秒的用法错误
+        // 变成几秒的启动 + NAT 探测。
+        assert!(
+            !started_a_node(tmp.path()),
+            "{args:?} 在补参数失败之前就启动了节点"
+        );
+    }
+}
+
+/// **`send` 补参数补不出来时，不得先起一个节点。**
+///
+/// 起临时节点要连引导节点、做 NAT 探测，以秒计。补参数只读本机记录，把它排在
+/// 起节点之前，管道里这条命令就是立刻失败而不是几秒后失败——而顺序写反了**不报错**，
+/// 只是慢，所以没有别的东西看得见它。
+#[test]
+fn send_resolves_its_arguments_before_starting_a_node() {
     let tmp = tempfile::tempdir().expect("tempdir");
+    let output = run(tmp.path(), &["send", "/etc/hosts"]);
 
-    // 空机器上会先撞到「没有可撤销的邀请」，同样是用法错误；两条路径都必须**退出**。
-    let output = run(tmp.path(), &["invite", "revoke"]);
-    assert_eq!(output.status.code(), Some(2), "缺参数应以用法错误退出");
-
-    let output = run(tmp.path(), &["device", "forget"]);
-    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(output.status.code(), Some(2), "缺 --to 应以用法错误退出");
+    assert!(
+        !started_a_node(tmp.path()),
+        "补参数之前就把节点起了——那几秒等待毫无用处"
+    );
 }
 
 /// 结构化模式下 stdout 只能有结果，诊断一律走 stderr。

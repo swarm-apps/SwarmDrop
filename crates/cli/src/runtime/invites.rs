@@ -60,7 +60,12 @@ pub fn list(registry: &InviteRegistry, now: u64) -> Vec<InviteRow> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RevokeOutcome {
-    /// 实际撤销了几张。
+    /// 撤销了几张。
+    ///
+    /// ⚠️ 严格说是「**送去撤销**的条数」：`revoke_by_hash` 报的是有没有写穿，不是有没有
+    /// 命中——一张在「取清单」与「执行撤销」之间刚被用掉或过期的邀请，这里照样计数。
+    /// 正常路径上不会偏（客户端撤的就是它刚列出来的那几张），窗口只在那两步之间。
+    /// 要它精确得让 `revoke_by_hash` 一并返回「找到了没有」，那是 `crates/invite` 的改动。
     pub revoked: usize,
     /// 是否**全部**已写入持久化存储。
     ///
@@ -69,13 +74,27 @@ pub struct RevokeOutcome {
     pub persisted: bool,
 }
 
-/// 撤销一张。
-pub async fn revoke(registry: &InviteRegistry, hex: &str) -> Option<RevokeOutcome> {
-    let hash = capability_hash_from_hex(hex)?;
-    Some(RevokeOutcome {
-        revoked: 1,
-        persisted: registry.revoke_by_hash(hash).await,
-    })
+/// 撤销指定的若干张。
+///
+/// **不因某一张写穿失败而短路**：那正是用户要求撤掉的其余几张。汇总的 `persisted`
+/// 取合取——只要有一张没落盘，就得如实警告「重启后会复活」。
+///
+/// 任一标识不合法时整条失败（返回 `None` 并带上那个标识）：批量撤销不可逆，
+/// 敲错一个的正确处置是停下来，而不是撤掉另外几张之后再说有一个没认出来。
+pub async fn revoke_each<'a>(
+    registry: &InviteRegistry,
+    hexes: impl IntoIterator<Item = &'a str>,
+) -> Result<RevokeOutcome, &'a str> {
+    let mut outcome = RevokeOutcome {
+        revoked: 0,
+        persisted: true,
+    };
+    for hex in hexes {
+        let hash = capability_hash_from_hex(hex).ok_or(hex)?;
+        outcome.persisted &= registry.revoke_by_hash(hash).await;
+        outcome.revoked += 1;
+    }
+    Ok(outcome)
 }
 
 /// 撤销全部未过期的邀请。

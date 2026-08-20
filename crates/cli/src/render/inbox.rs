@@ -7,7 +7,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use super::{bytes_or_dash, text_or};
+use super::{bytes_or_dash, flag, int_or_zero, text_or};
 
 pub fn render_list(items: &Value, json: bool) {
     if json {
@@ -25,7 +25,7 @@ pub fn render_list(items: &Value, json: bool) {
     }
 
     for item in list {
-        let missing = item.get("missing").and_then(Value::as_bool) == Some(true);
+        let missing = flag(item, "missing");
         println!(
             "{} {}",
             if missing { "!" } else { " " },
@@ -38,10 +38,29 @@ pub fn render_list(items: &Value, json: bool) {
         );
         println!(
             "   {} 项 · {}",
-            item.get("itemCount").and_then(Value::as_i64).unwrap_or(0),
+            int_or_zero(item, "itemCount"),
             bytes_or_dash(item.get("totalSize"))
         );
     }
+}
+
+/// 选择菜单里的一行。
+///
+/// 标题 + 来源 + 件数大小，够用户认出是哪一条；标识（UUID）刻意不进来——36 个字符会
+/// 把真正能区分的信息挤出屏幕，而用户认不出一串随机十六进制是哪次接收。
+///
+/// **文件缺失的标记要留着**：那条记录仍在收件箱里，但导出它只会得到一个空目录，
+/// 用户有权在选之前就看见。
+pub fn menu_line(item: &Value) -> String {
+    let missing = flag(item, "missing");
+    format!(
+        "{}{}  来自 {}  {} 项 · {}",
+        if missing { "! " } else { "" },
+        text_or(item, "title", "—"),
+        text_or(item, "sourceName", "—"),
+        int_or_zero(item, "itemCount"),
+        bytes_or_dash(item.get("totalSize"))
+    )
 }
 
 pub fn render_detail(detail: &Value, json: bool) {
@@ -73,7 +92,7 @@ pub fn render_detail(detail: &Value, json: bool) {
         .unwrap_or_default();
     println!("内容    {} 个文件", entries.len());
     for entry in entries {
-        let missing = entry.get("missing").and_then(Value::as_bool) == Some(true);
+        let missing = flag(entry, "missing");
         println!(
             "{}  {}  {}",
             if missing { "!" } else { " " },

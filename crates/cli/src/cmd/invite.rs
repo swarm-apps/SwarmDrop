@@ -22,6 +22,8 @@ use std::path::Path;
 use crate::adapter::paths::DataDir;
 use crate::cmd::InviteAction;
 use crate::exit::{CliError, CliResult};
+use crate::prompt::Question;
+use crate::prompt::pick::Picker;
 use crate::runtime::access::{NodeAccess, RecordAccess, now_secs, to_value};
 use crate::runtime::invites::{self, InviteRow, PrefixError, RevokeOutcome};
 use crate::runtime::ipc::{self, Request, Response};
@@ -29,12 +31,10 @@ use crate::runtime::pairing::{InboundPairings, PairOutcome, PairingRequest};
 
 pub async fn run(data_dir: &DataDir, json: bool, action: InviteAction) -> CliResult<()> {
     match action {
-        InviteAction::Create { no_qr, auto_accept } => {
-            create(data_dir, json, no_qr, auto_accept).await
-        }
+        InviteAction::Create { auto_accept } => create(data_dir, json, auto_accept).await,
         InviteAction::Use { invite } => use_invite(data_dir, json, invite).await,
         InviteAction::List => list(data_dir, json).await,
-        InviteAction::Revoke { id, all, yes } => revoke(data_dir, json, id, all, yes).await,
+        InviteAction::Revoke { ids, all, yes } => revoke(data_dir, json, ids, all, yes).await,
     }
 }
 
@@ -59,41 +59,56 @@ async fn fetch(access: &RecordAccess) -> CliResult<Vec<InviteRow>> {
         .map_err(|err| CliError::NodeUnavailable(format!("无法解析邀请清单: {err}")))
 }
 
-/// 撤销：一张，或全部。
+/// 撤销：指定的几张、勾选的几张，或全部。
+///
+/// **逐张与 `--all` 不是同一件事**，不要把后者实现成「取列表再逐条撤」：那是 N 次往返，
+/// 且这期间新签发的邀请会漏掉——而 `--all` 服务的正是「不知道哪张泄露了」。
 async fn revoke(
     data_dir: &DataDir,
     json: bool,
-    id: Option<String>,
+    ids: Vec<String>,
     all: bool,
     yes: bool,
 ) -> CliResult<()> {
     let access = RecordAccess::open(data_dir).await;
-    let rows = fetch(&access).await?;
-
-    if rows.is_empty() {
-        return Err(CliError::Usage("本机没有尚未过期的邀请，无需撤销".into()));
-    }
 
     if all {
-        return revoke_all(&access, json, &rows, yes).await;
+        return revoke_all(&access, json, yes).await;
     }
 
-    let chosen = match id {
-        Some(prefix) => pick(&rows, &prefix)?.clone(),
-        None => choose(&rows).await?,
-    };
+    // 整屏共用一个时刻：每行各取一次时钟会让相邻两行的剩余时间落在不同的秒上
+    // （「还有 59 分钟」紧挨着「还有 58 分钟」）。
+    let now = now_secs();
+    let chosen = Picker {
+        fetch: async || fetch(&access).await,
+        label: |row: &InviteRow| crate::render::invite::menu_line(row, now),
+        prompt: "撤销哪些邀请？",
+        empty: "本机没有尚未过期的邀请，无需撤销",
+        unavailable: "请指定要撤销哪些邀请（标识，接受唯一前缀，可给多个）。\n\
+                      当前环境无法交互选择；用 swarmdrop invite list 查看有哪些，或用 --all 全部撤销。",
+    }
+    .many(&ids, locate)
+    .await?;
 
+    // **先去重**：两个参数可能指向同一张（`revoke abcd abcd1234` 都是那张的唯一前缀），
+    // 而每一条都会被计数一次——用户会看到「已撤销 2 张」下面列着同一个标识两遍。
+    // 按标识去重而不是按参数：前缀写法不同、指向同一张时字符串并不相等。
+    let chosen = super::dedup_by_id(chosen, |row| row.id.clone());
+
+    // **一次调用撤掉全部选中的**，不要在这里循环：无常驻节点时每一次 `send_revoke` 都要
+    // 新开数据库连接、跑迁移、把整张邀请表读回内存（还带一次 prune 写事务），逐张发等于
+    // 把这些全做 N 遍；有常驻节点时则是 N 次通道往返。
+    let hashes: Vec<String> = chosen.iter().map(|row| row.id.clone()).collect();
     let outcome = send_revoke(
         &access,
         Request::InviteRevoke {
-            hash: chosen.id.clone(),
+            hashes: hashes.clone(),
         },
         {
-            let hash = chosen.id.clone();
             move |registry| async move {
-                invites::revoke(&registry, &hash)
+                invites::revoke_each(&registry, hashes.iter().map(String::as_str))
                     .await
-                    .ok_or_else(|| CliError::Usage(format!("不是合法的邀请标识: {hash}")))
+                    .map_err(|bad| CliError::Usage(format!("不是合法的邀请标识: {bad}")))
             }
         },
     )
@@ -107,12 +122,12 @@ async fn revoke(
 ///
 /// **在可交互环境下确认一次**：它一次废掉全部在外流通的邀请，属于 clig.dev 分级里的
 /// moderate。不可交互且未给 `--yes` 时报用法错误——脚本要做这件事就得把意图写明白。
-async fn revoke_all(
-    access: &RecordAccess,
-    json: bool,
-    rows: &[InviteRow],
-    yes: bool,
-) -> CliResult<()> {
+async fn revoke_all(access: &RecordAccess, json: bool, yes: bool) -> CliResult<()> {
+    let rows = fetch(access).await?;
+    if rows.is_empty() {
+        return Err(CliError::Usage("本机没有尚未过期的邀请，无需撤销".into()));
+    }
+
     if !yes {
         if !crate::prompt::can_ask() {
             return Err(CliError::Usage(format!(
@@ -161,37 +176,27 @@ where
 }
 
 /// 按前缀定位一张邀请，把失败翻成可行动的措辞。
-fn pick<'a>(rows: &'a [InviteRow], prefix: &str) -> CliResult<&'a InviteRow> {
-    invites::resolve_prefix(rows, prefix).map_err(|err| match err {
-        PrefixError::TooShort => CliError::Usage(format!(
-            "邀请标识至少要给 {} 位，防止手滑撤掉一张没打算撤的。",
-            invites::MIN_PREFIX
-        )),
-        PrefixError::NotFound => CliError::Usage(format!(
-            "没有以「{prefix}」开头的未过期邀请。用 swarmdrop invite list 看看有哪些。"
-        )),
-        // **绝不代为消解歧义**：撤销不可逆。
-        PrefixError::Ambiguous(candidates) => CliError::Usage(format!(
-            "「{prefix}」匹配到 {} 张邀请，请多给几位区分开：\n  {}",
-            candidates.len(),
-            candidates.join("\n  ")
-        )),
-    })
-}
-
-/// 没给标识时，列出未过期的邀请让用户挑一张。
-async fn choose(rows: &[InviteRow]) -> CliResult<InviteRow> {
-    // 整屏共用一个时刻——见 `menu_line`。
-    let now = swarmdrop_host::now_secs();
-    crate::prompt::choose_one(
-        rows,
-        "撤销哪一张邀请？",
-        "请指定要撤销哪一张邀请（标识，接受唯一前缀）。\n\
-         当前环境无法交互选择；用 swarmdrop invite list 查看有哪些，或用 --all 全部撤销。",
-        |row| crate::render::invite::menu_line(row, now),
-    )
-    .await
-    .cloned()
+///
+/// 返回**拥有的**行而非引用：[`Picker`] 要把选中的结果带出候选集的作用域
+/// （候选集是它内部取的临时值）。`InviteRow` 只有四个小字段，克隆的代价可以忽略。
+fn locate(rows: &[InviteRow], prefix: &str) -> CliResult<InviteRow> {
+    invites::resolve_prefix(rows, prefix)
+        .cloned()
+        .map_err(|err| match err {
+            PrefixError::TooShort => CliError::Usage(format!(
+                "邀请标识至少要给 {} 位，防止手滑撤掉一张没打算撤的。",
+                invites::MIN_PREFIX
+            )),
+            PrefixError::NotFound => CliError::Usage(format!(
+                "没有以「{prefix}」开头的未过期邀请。用 swarmdrop invite list 看看有哪些。"
+            )),
+            // **绝不代为消解歧义**：撤销不可逆。
+            PrefixError::Ambiguous(candidates) => CliError::Usage(format!(
+                "「{prefix}」匹配到 {} 张邀请，请多给几位区分开：\n  {}",
+                candidates.len(),
+                candidates.join("\n  ")
+            )),
+        })
 }
 
 // ---------------------------------------------------------------- 生成与使用
@@ -199,13 +204,13 @@ async fn choose(rows: &[InviteRow]) -> CliResult<InviteRow> {
 /// 生成一张新邀请，然后守着它直到有设备配对成功或用户中断。
 ///
 /// 常驻节点在跑时**必须由它签发**：邀请里带的是签发者的可拨地址，本进程另起一个节点
-/// 签出来的码指向一个即将消失的临时节点——扫码方会拿到一张拨不通的码。此时确认仍然
+/// 签出来的邀请指向一个即将消失的临时节点——对方会拿到一条拨不通的邀请。此时确认仍然
 /// 发生在**本命令**这一侧：常驻节点把入站请求经本地通道转交过来。
-async fn create(data_dir: &DataDir, json: bool, no_qr: bool, auto_accept: bool) -> CliResult<()> {
+async fn create(data_dir: &DataDir, json: bool, auto_accept: bool) -> CliResult<()> {
     // **`--json` 与 `--no-input` 在这里必须分开处理**，尽管两者都关掉了交互。
     //
     // `--no-input` 是「不要问我」：命令照常运行、守着邀请，期间到达的请求一律拒绝
-    // （spec: 禁止交互时收到入站配对请求 → 拒绝）。它有明确的用途——只想把码摆出来
+    // （spec: 禁止交互时收到入站配对请求 → 拒绝）。它有明确的用途——只想把邀请摆出来
     // 看看，不打算真的配对。
     //
     // `--json` 是「调用方是程序」，而本命令在结构化模式下**没有可用的形态**：
@@ -235,7 +240,7 @@ async fn create(data_dir: &DataDir, json: bool, no_qr: bool, auto_accept: bool) 
     }
 
     let access = NodeAccess::open(data_dir, json).await?;
-    let result = serve_invite(&access, data_dir, json, no_qr, auto_accept).await;
+    let result = serve_invite(&access, data_dir, json, auto_accept).await;
     access.close().await;
     result
 }
@@ -244,7 +249,6 @@ async fn serve_invite(
     access: &NodeAccess,
     data_dir: &DataDir,
     json: bool,
-    no_qr: bool,
     auto_accept: bool,
 ) -> CliResult<()> {
     let invite = match access.ask(&Request::InviteCreate).await? {
@@ -276,7 +280,7 @@ async fn serve_invite(
         .ok()
         .map(|parsed| parsed.id());
 
-    crate::render::invite::render_created(&invite, id.as_deref(), json, no_qr);
+    crate::render::invite::render_created(&invite, id.as_deref(), json);
     crate::render::invite::render_waiting(access.local().is_some(), auto_accept, json);
 
     let abort = spawn_abort_watch();
@@ -454,7 +458,25 @@ async fn decide(request: &PairingRequest, auto_accept: bool, json: bool) -> Opti
 /// **先在本地解码一次**再交给节点：解码失败是用户把串抄错了（用法错误），与「对端连不上」
 /// 是两回事，而退出码要区分它们——脚本对这两种的处置不同（一个是改参数重来，一个是等对方
 /// 上线再试）。不先解码的话，两种失败会一起落进「对端不可达」。
-async fn use_invite(data_dir: &DataDir, json: bool, invite: String) -> CliResult<()> {
+async fn use_invite(data_dir: &DataDir, json: bool, invite: Option<String>) -> CliResult<()> {
+    // 没给就问。**这里没有候选集可列**——邀请是对方给的，本机对它一无所知，
+    // 所以这一条走行输入而不是菜单。
+    let invite = match invite {
+        Some(invite) => invite,
+        None => {
+            Question::new("粘贴对方给你的邀请链接")
+                .ask(
+                    "请给出邀请链接。当前环境无法交互输入；\n\
+                     链接由对方执行 swarmdrop invite create 生成。",
+                )
+                .await?
+        }
+    };
+    // **粘贴几乎必然带上首尾空白**（换行、终端软换行留下的空格），而 base32 载荷里
+    // 没有空白字符，trim 掉不会误伤任何合法链接。不 trim 的话用户看到的是一句
+    // 「邀请串无效」，而屏幕上那条链接看起来完全正常。
+    let invite = invite.trim().to_owned();
+
     let decoded = swarmdrop_invite::PairInvite::decode(&invite)
         .map_err(|err| CliError::Usage(format!("邀请串无效: {err}；请确认完整复制了整条链接")))?;
 
@@ -515,60 +537,58 @@ mod tests {
         }
     }
 
-    /// **问不了人时立刻退出，绝不去读 stdin。**
+    /// 往一个空数据目录里塞一张真邀请。
     ///
-    /// 这条看守的是本次改动里最难诊断的一种失败：`dialoguer` 在非 TTY 下可能去读一个
-    /// 永不到来的 stdin，在管道或 CI 中表现为**永久挂起且日志无异常**。超时即失败。
-    #[tokio::test]
-    async fn choosing_without_a_terminal_fails_fast() {
-        let _guard = crate::prompt::interaction_test_guard().await;
-        crate::prompt::configure(true, false);
+    /// `revoke_all` 自己取清单，所以测它必须有**真的落盘的**记录——空库上它会先撞到
+    /// 「没有尚未过期的邀请」，那条路径同样退 2，会让下面那条断言变成假绿。
+    async fn with_one_invite(dir: &DataDir) {
+        let invite = swarmdrop_invite::PairInvite::generate(
+            &swarmdrop_net::SecretKey::generate(),
+            vec!["/ip4/192.168.1.10/tcp/4001".parse().expect("addr")],
+            swarmdrop_invite::TransportPolicy::Auto,
+            "测试机".into(),
+            "macos".into(),
+            now_secs(),
+        )
+        .expect("生成邀请");
 
-        let rows = vec![row("abcd1234"), row("ef567890")];
-        let result = tokio::time::timeout(std::time::Duration::from_secs(5), choose(&rows)).await;
-
-        crate::prompt::configure(false, false);
-
-        let outcome = result.expect("缺参数时挂起了——这正是 --no-input 要防的");
-        assert_eq!(
-            outcome.expect_err("应当报用法错误").code(),
-            crate::exit::Code::Usage
-        );
+        crate::runtime::access::Records::new(dir.clone())
+            .invites()
+            .await
+            .expect("注册表")
+            .register(&invite, now_secs())
+            .await;
     }
 
-    /// 全撤在不可交互且未给 `--yes` 时同样立刻退出，不得静默执行。
+    /// 全撤在不可交互且未给 `--yes` 时立刻退出，不得静默执行。
     ///
     /// **静默执行比挂起更坏**：它会在没有任何确认的情况下废掉全部在外流通的邀请。
     #[tokio::test]
     async fn revoke_all_without_a_terminal_requires_yes() {
-        let _guard = crate::prompt::interaction_test_guard().await;
-        crate::prompt::configure(true, false);
+        let _guard = crate::prompt::no_interaction().await;
 
         let tmp = tempfile::tempdir().expect("tempdir");
         let dir = DataDir::resolve(Some(tmp.path().to_path_buf())).expect("resolve");
+        with_one_invite(&dir).await;
         let access = RecordAccess::open(&dir).await;
-        let rows = vec![row("abcd1234")];
 
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            revoke_all(&access, false, &rows, false),
+            revoke_all(&access, false, false),
         )
         .await;
 
-        crate::prompt::configure(false, false);
-
         let outcome = result.expect("确认环节挂起了");
-        assert_eq!(
-            outcome.expect_err("应当要求 --yes").code(),
-            crate::exit::Code::Usage
-        );
+        let err = outcome.expect_err("应当要求 --yes");
+        assert_eq!(err.code(), crate::exit::Code::Usage);
+        assert!(err.to_string().contains("--yes"), "措辞要指出出路: {err}");
     }
 
     /// 前缀撞车时把候选原样交给用户，**不代为挑一张**——撤销不可逆。
     #[test]
     fn ambiguous_prefix_surfaces_candidates() {
         let rows = [row("abcd1111"), row("abcd2222")];
-        let err = pick(&rows, "abcd").expect_err("撞车必须拒绝");
+        let err = locate(&rows, "abcd").expect_err("撞车必须拒绝");
         assert_eq!(err.code(), crate::exit::Code::Usage);
         let text = err.to_string();
         assert!(

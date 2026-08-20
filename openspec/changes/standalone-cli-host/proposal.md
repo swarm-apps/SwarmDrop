@@ -37,8 +37,9 @@ SwarmDrop 有桌面、移动、Web 三个 GUI 宿主，**唯独没有命令行�
 - **`dist`（原 cargo-dist）分发全套**：shell / powershell / npm / homebrew 四种 installer，
   复用已有的 `swarm-apps/homebrew-tap`。经 `tag-namespace` 产出**独立命名的
   workflow**，不触碰既有的 Tauri `release.yml`。新增第三条版本线 `cli/v*`。
-- **`pair` 在终端渲染二维码**（附 `--no-qr` 开关）：手机扫码是配对主路径，
-  base32 邀请串手输不现实。
+- **邀请以 canonical 链接交付，二维码由落地页出**：手机扫码是配对主路径，而终端画不下
+  那张码（裁到下界仍是 69 列 × 35 行，见 cli-host spec）。链接指向的 `/p/` 落地页按需
+  渲染二维码，浏览器没有终端的宽高比与行数约束。
 
 **非目标**：不动桌面端与移动端的任何既有行为；不做 Agent 端点（下一个 change）；
 不做 MCP server 的 CLI 版（`mcp-cross-host` 的另一半，待 Agent 端点定型后再议）。

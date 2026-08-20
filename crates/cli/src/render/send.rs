@@ -1,5 +1,7 @@
 //! 发送结果渲染。
 
+use std::path::Path;
+
 use crate::runtime::transfer::SendOutcome;
 
 pub fn render(outcome: &SendOutcome, json: bool) {
@@ -34,6 +36,21 @@ pub fn render_from_json(payload: &serde_json::Value, json: bool) {
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
     println!("已发送 {count} 个文件（{}）", human_bytes(bytes));
+}
+
+/// 交互收集路径时，回显刚加进来的一条。
+///
+/// **走 stderr**：它是过程信息，不是命令结果。逐条回显是为了让用户看清**拆行拆对了没有**
+/// ——路径里的空格是那一步最容易出错的地方（拖进终端时它是 `\ `，粘贴时可能是裸空格）。
+pub fn echo_added(path: &Path) {
+    eprintln!("  + {}", path.display());
+}
+
+/// 同上，回显一条没能用的。
+///
+/// **只报这一条、不中断整轮**：一次拖五个文件错一个，让用户重来五次不合理。
+pub fn echo_rejected(err: &crate::exit::CliError) {
+    eprintln!("  ! {err}");
 }
 
 /// 人类可读的字节数。

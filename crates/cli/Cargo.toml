@@ -52,9 +52,14 @@ interprocess = { version = "2.4.3", features = ["tokio"] }
 serde = { workspace = true, features = ["derive"] }
 swarmdrop-invite = { version = "0.1.0", path = "../invite" }
 uuid = { workspace = true, features = ["v4"] }
-# 配对确认的交互提示。**只在有终端时用**（见 src/prompt.rs）——命令行宿主同样跑在
-# 服务单元与脚本里，那些场景没有 stdin 可读。
-dialoguer = { version = "0.12", default-features = false }
+# 交互提示（确认、单选、多选、行输入）。**只在有终端时用**（见 src/prompt/mod.rs）——
+# 命令行宿主同样跑在服务单元与脚本里，那些场景没有 stdin 可读。
+#
+# `completion` 是路径输入要的：交互输入框里 shell 不介入，没有 Tab 补全的话，
+# 用户只能把一条长路径逐字敲进去（见 src/prompt/paths.rs）。它是个空 feature，
+# 只放开 `completion_with`，不引入任何依赖。
+# 默认特性里的 `editor`（拉起 $EDITOR）与 `password`（无回显输入）本 crate 用不上。
+dialoguer = { version = "0.12", default-features = false, features = ["completion"] }
 # 传输进度条。与 dialoguer 共用 `console`（已在依赖树里），增量成本只有它自己。
 # 选它而非自己 `\r` 刷新，是为了拿到三件不好自己做对的事：非终端时自动静默、
 # 速率与剩余时间、重绘清行（stderr 上还有 tracing 的日志）。见 render/send.rs。

@@ -11,7 +11,7 @@ use swarmdrop_host::device::{ConnectionType, Device, DeviceStatus, PairedDeviceI
 use crate::adapter::events::{CliEventBus, QuietRenderer};
 use crate::exit::{CliError, CliResult};
 
-use super::access::Records;
+use super::access::{RecordAccess, Records};
 use super::boot::{CliNetManager, RunningNode};
 
 /// 设备清单的一条。
@@ -83,6 +83,22 @@ pub fn from_node(node: &RunningNode) -> Vec<DeviceRow> {
         .collect()
 }
 
+/// 取一次设备清单，走哪条路径由 [`RecordAccess`] 决定。
+///
+/// 放在 runtime 而非某一条命令里：`device forget` 与 `send --to` 都要它，而
+/// 「哪些设备是已配对的」只该有一份取数实现——让后者伸手进前者的模块，等于把
+/// 命令面（按用户看到的动词切分）当成了数据访问的归属地。
+pub async fn list(access: &RecordAccess) -> CliResult<Vec<DeviceRow>> {
+    let payload = access
+        .query(super::ipc::Request::DeviceList, |records| async move {
+            super::access::to_value(&from_records(&records).await?, "设备列表")
+        })
+        .await?;
+
+    serde_json::from_value(payload)
+        .map_err(|err| CliError::NodeUnavailable(format!("无法解析设备列表: {err}")))
+}
+
 /// 无节点时的已配对设备：直读本机记录。
 pub async fn from_records(records: &Records) -> CliResult<Vec<DeviceRow>> {
     Ok(records
@@ -133,8 +149,9 @@ pub fn resolve_target<'a>(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ForgetOutcome {
-    pub peer_id: String,
-    /// 解除后本机还记着几台。
+    /// 实际解除的那几台（完整节点标识）。
+    pub peer_ids: Vec<String>,
+    /// **全部**解除完之后本机还记着几台。
     pub remaining: usize,
 }
 
@@ -148,31 +165,53 @@ pub struct ForgetOutcome {
 pub async fn forget(
     records: &Records,
     node: Option<&RunningNode>,
-    peer_id: &str,
+    peer_ids: &[String],
 ) -> CliResult<ForgetOutcome> {
-    let parsed = peer_id
-        .parse::<swarmdrop_net::NodeId>()
-        .map_err(|err| CliError::Usage(format!("不是合法的节点标识 {peer_id}: {err}")))?;
+    let parsed: Vec<swarmdrop_net::NodeId> = peer_ids
+        .iter()
+        .map(|peer_id| {
+            peer_id
+                .parse::<swarmdrop_net::NodeId>()
+                .map_err(|err| CliError::Usage(format!("不是合法的节点标识 {peer_id}: {err}")))
+        })
+        // **先把标识全部解析完再动手**：其中一个不合法时一台都不该被解除——
+        // 批量操作不可逆，部分执行之后用户既不知道做到了哪台，也无法原样重试。
+        //
+        // ⚠️ 它只覆盖**解析**失败。下面的循环里若某一台写盘失败（磁盘满、无权限），
+        // 之前那几台已经落盘了，而错误一路上抛、命令面来不及渲染任何东西——用户只看到
+        // 一句笼统的失败，不知道已经有几台被解除了。要根治得让存储层支持事务性的批量
+        // 写入（`paired-devices.json` 是整体重写，本来做得到），本次没做。
+        .collect::<CliResult<_>>()?;
 
     let store = records.device_store();
     // 无节点时没有任何东西在监听事件，静默渲染即可——事件是给常驻进程的运行叙述用的，
     // 而本命令的结果由它自己的返回值表达。
     let events = CliEventBus::new(Arc::new(QuietRenderer));
 
-    let remaining = swarmdrop_core::paired_devices::unpair(
-        &parsed,
-        &*store,
-        &events,
-        // ⚠️ 泛型参数在 `None` 分支推不出来，必须显式标注。别名收在 `boot` 里，
-        // 免得每个调用点各写一遍那串类型。
-        node.map(|node| &node.manager) as Option<&CliNetManager>,
-    )
-    .await
-    .map_err(|err| CliError::NodeUnavailable(format!("解除配对失败: {err}")))?;
+    // ⚠️ **空列表不能落进下面那个累加器**：它初值是 0，循环一次都不跑就会报
+    // 「本机还记着 0 台设备」——而设备表原封不动。命令面不会送空列表（`Picker` 保证
+    // 非空），但通道那侧收得到，而同用户下的任何进程都能往通道里写。
+    let mut remaining = records.paired_devices().await?.len();
+    for peer_id in &parsed {
+        remaining = swarmdrop_core::paired_devices::unpair(
+            peer_id,
+            &*store,
+            &events,
+            // ⚠️ 泛型参数在 `None` 分支推不出来，必须显式标注。别名收在 `boot` 里，
+            // 免得每个调用点各写一遍那串类型。
+            node.map(|node| &node.manager) as Option<&CliNetManager>,
+        )
+        .await
+        .map_err(|err| CliError::NodeUnavailable(format!("解除配对失败: {err}")))?
+        .len();
+    }
 
     Ok(ForgetOutcome {
-        peer_id: parsed.to_string(),
-        remaining: remaining.len(),
+        peer_ids: parsed.iter().map(ToString::to_string).collect(),
+        // **取最后一次的值**：每解除一台核心都会报一遍还剩几台，顺序执行下只有最后那个
+        // 是最终数。这个「取最后一个」的知识属于这里——它是关于核心返回值的，
+        // 不该由命令面在循环里自己拼。
+        remaining,
     })
 }
 

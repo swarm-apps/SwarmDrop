@@ -256,7 +256,7 @@ workflow 型部署会忽略它）、`crates/invite` 的 `INVITE_URL_PREFIX`，�
 Pages 在国内可达性不确定（域名未备案，境内 CDN 也就接不了），所以它必须在慢网络下秒开。
 
 **Next 页面达不到这个体积**：client component 必然带上 React + framework runtime，
-baseline 约 150KB gzip，而这个页面的全部逻辑是「读 hash → 给两个出口」。
+baseline 约 150KB gzip，而这个页面的全部逻辑是「读 hash → 给几个出口」。
 
 做法是写成 `docs/public/p/index.html`（内联 CSS + 内联 JS）。`public/` 下的文件被静态导出
 原样复制到 `out/p/index.html`，路径正好对上 canonical 邀请链接的 `/p/` 段。
@@ -274,9 +274,14 @@ Next 页面。
 悄悄涨到 5.9KB 都没人发现——直到 2026-08-06 加多语言时才撞见。所以现在不记数字，记判据
 与门禁：
 
-- **上限 10KB gzip**，依据是 TCP 初始拥塞窗口。多数服务端 initcwnd = 10，
-  10 × MSS(1460) ≈ 14.6KB，扣掉响应头后 10KB 的正文仍能在**第一个 RTT** 内送完——
+- **上限 12KB gzip**（2026-08-20 起，此前 10KB），依据是 TCP 初始拥塞窗口。多数服务端
+  initcwnd = 10，10 × MSS(1460) ≈ 14.6KB，扣掉响应头后正文仍能在**第一个 RTT** 内送完——
   也就是「一次往返看到完整页面」，与「零额外请求」是同一个目标的两半。
+  抬这一档是加二维码出口时做的决定：**判据没变，只是把余量收窄**——14.6 − 12 = 2.6KB 留给
+  响应头，而典型响应头 300–600B。再往上抬要重新算这道减法，不能只说「差一点」。
+- **按需注入的 `qr.js` 不在这条预算里**，但自带一条上限（同一个脚本把关）。它是第二跳、
+  非阻塞、只有真要看码的人才付；而正因为它在预算外，天然是首屏预算的逃逸口——
+  把内容挪进去就能让 `index.html` 一直「过关」，所以那条独立上限不能省。
 - **`pnpm check:landing`**（`scripts/check-landing.mjs`，**在仓库根跑**，与另外三条 `check:*`
   同一个登记处：`CLAUDE.md` 的命令块与 `/dev-workflow` 的门禁清单）是它唯一的执行者
   ——这页不经 bundler，拿不到任何工具链的体积报告，Lingui 的 `Missing` 统计也看不见
@@ -657,12 +662,37 @@ docs/app/app/_lib/view-types.ts        ← 手工再导出新类型（它刻意�
 
 **相关文件**：`crates/web/src/idb.rs`、`crates/web/src/store.rs`、`crates/web/src/inbox.rs`
 
-## 二维码只能从 wasm 侧取，不许引 JS 二维码库
+## 二维码只能从 wasm 侧取，不许引 JS 二维码库（落地页是唯一例外）
 
 编码规范（原样编码 + 最优分段 + ECL::M + quiet zone 4 模块）单点固化在
 `crates/invite/src/qr.rs`，三端共用：桌面走 Tauri 命令 `invite_qr_svg`，移动走 uniffi
 `invite_qr_matrix`，Web 走 `WebNode::invite_qr_svg`。**另引 JS 库 = 第四套编码策略**，
 而漂了的症状是「这端生成的码那端扫不出来」，极难归因。
+
+### 例外：配对落地页（2026-08-20）
+
+`docs/public/p/` **必须**自带一个 JS 编码器（vendored `qr-creator`），因为这条规则的前提
+在那里不成立 —— 那一页刻意不走 Next、也不引 wasm（理由见上面「要求极小的页面不要走
+Next」；`crates/invite` 单独编个薄 wasm 包最小也几十 KB，是内联编码器的十倍）。它出码是
+必须的：命令行宿主的 `invite create` 不在终端画码（判据见
+[`cli-host.md`](cli-host.md)），扫码这条路径全靠这一页。
+
+**代价是可量化的，不是「大概没事」**：qr-creator 只有 byte mode，没有最优分段，所以同一
+条链接它编出来比 `crates/invite` 那份**更密**。
+但「扫不出来」不会因此发生 —— QR 是标准格式，密度差异只影响 px/模块。两条补偿必须留着：
+
+- **码面 280px 而不是三端那档 196–240px**。2026-08-20 拿 `invite create` 真出的一条满配
+  邀请实测：链接 583 字符 → **93 模块** → 3.0px/模块，是 `MIN_PX_PER_MODULE = 2` 的 1.5 倍。
+  ⚠️ 别拿手工拼的短样本校准这个数：造一条两地址的样本只有 415 字符 / 81 模块，据此会得出
+  「余量 1.7 倍」的乐观结论。真机签出来的邀请地址桶更多。
+- **quiet zone 由 CSS padding 提供**（16px ≈ 5.3 模块，ISO 要求 4）——编码器不自带。
+
+⚠️ 还有一条它与三端**结构性**的不同：这一页**不裁地址**。`invite_qr_svg` 那侧会按码面
+预算调 `fit` 丢地址，而落地页不 decode 邀请（同一条体积理由），只能把整条链接原样编进去。
+所以它的码只会比三端那份更密，上面那 1.7 倍余量就是留给这个的，别调小。
+
+判据同时写在页面里（`#qr` 那段 CSS 注释）与 `scripts/check-landing.mjs`（编码器有独立
+体积上限，免得它成为首屏预算的逃逸口）。
 
 几条只有踩过才知道的：
 

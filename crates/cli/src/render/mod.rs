@@ -17,7 +17,6 @@
 pub mod device;
 pub mod inbox;
 pub mod invite;
-pub mod qr;
 pub mod send;
 pub mod status;
 pub mod transfer;
@@ -64,6 +63,36 @@ pub fn bytes_or_dash(value: Option<&serde_json::Value>) -> String {
         Some(n) => crate::render::send::human_bytes(n.max(0) as u64),
         None => "—".into(),
     }
+}
+
+/// 从一段 JSON 里取一个布尔标志；缺失或不是布尔时为假。
+///
+/// 与 [`text_or`] 同一条理由：**取值与降级的规则不该有第二种**。`missing` 这个标志
+/// 此前在收件箱的清单、菜单行、详情与导出里各写了一遍
+/// `get(..).and_then(Value::as_bool) == Some(true)`，四份行为一致纯属巧合。
+///
+/// 缺失当假：这个标志表达的都是「出了点问题」（文件丢了），而**默认不该无中生有地
+/// 报警**——旧版本的记录里没有这个字段。
+pub fn flag(value: &serde_json::Value, key: &str) -> bool {
+    value.get(key).and_then(serde_json::Value::as_bool) == Some(true)
+}
+
+/// 从一段 JSON 里取一个计数；缺失或不是数字时为 0。
+pub fn int_or_zero(value: &serde_json::Value, key: &str) -> i64 {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(0)
+}
+
+/// 标识的短形式。
+///
+/// 给人看的截断，**按字符不按字节**——节点标识是 base58（ASCII），但这个函数也用在
+/// 别处，而按字节切中文会 panic。
+///
+/// 长度由调用方给：邀请标识按前缀撤销（要够长到唯一），节点标识只用于辨认（短些即可）。
+pub fn short(id: &str, chars: usize) -> String {
+    id.chars().take(chars).collect()
 }
 
 /// 设备名为空时的占位符。

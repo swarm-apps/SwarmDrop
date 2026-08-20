@@ -238,6 +238,21 @@ impl NodeAccess {
     }
 }
 
+/// 把一段「清单」JSON 拆成一行一条。
+///
+/// 通道那侧回来的清单是整段 `Value`，而选择菜单要逐行渲染。两条命令（收件箱、传输记录）
+/// 都要做这一步，形态还曾经不一致（一处内联、一处包成函数，且都用 `as_array().cloned()`
+/// 把整份清单深拷贝一遍——原件随即丢弃）。这里直接把内层 `Vec` 搬走，零拷贝。
+///
+/// 不是数组时给空——那意味着通道对面回了个非预期形状，此时「没有候选」比 panic 好，
+/// 调用方的空集措辞会把它呈现成一句人话。
+pub fn rows(value: Value) -> Vec<Value> {
+    match value {
+        Value::Array(rows) => rows,
+        _ => Vec::new(),
+    }
+}
+
 /// 把序列化失败翻成统一的错误措辞。
 pub fn to_value<T: serde::Serialize>(value: &T, what: &str) -> CliResult<Value> {
     serde_json::to_value(value)
@@ -318,7 +333,7 @@ mod tests {
         let rows = super::super::invites::list(&reopened, now_secs());
         assert_eq!(rows.len(), 1, "重启后应当仍看得见这张邀请");
 
-        let outcome = super::super::invites::revoke(&reopened, &rows[0].id)
+        let outcome = super::super::invites::revoke_each(&reopened, [rows[0].id.as_str()])
             .await
             .expect("撤销");
         assert_eq!(outcome.revoked, 1);
@@ -372,7 +387,7 @@ mod tests {
             .expect("写入");
         assert_eq!(records.paired_devices().await.expect("读取").len(), 1);
 
-        let outcome = super::super::devices::forget(&records, None, &peer_id.to_string())
+        let outcome = super::super::devices::forget(&records, None, &[peer_id.to_string()])
             .await
             .expect("解除配对");
 

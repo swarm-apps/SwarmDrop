@@ -13,7 +13,8 @@ use crate::exit::{CliError, CliResult};
 
 /// 身份与已配对设备文件所在目录（两个文件名由端口层的共享实现决定）。
 const DATABASE_FILE: &str = "swarmdrop.db";
-/// 本地通道：其余命令经它复用正在运行的节点。
+/// 本地通道：其余命令经它复用正在运行的节点。**只有 Unix 用得上**（见 [`DataDir::socket`]）。
+#[cfg(unix)]
 const SOCKET_FILE: &str = "swarmdrop.sock";
 /// 单实例仲裁锁。
 const LOCK_FILE: &str = "swarmdrop.lock";
@@ -63,8 +64,50 @@ impl DataDir {
         self.0.join(DATABASE_FILE)
     }
 
+    /// 本地通道的地址。
+    ///
+    /// **两个平台的形态不同，这不是可以统一掉的实现细节**：
+    ///
+    /// | | 形态 | 谁挡住其他用户 |
+    /// |---|---|---|
+    /// | Unix | 数据目录下的域套接字**文件** | 目录的 0700（见 [`restrict_to_owner`]） |
+    /// | Windows | 全局命名空间里的一个管道名 | 管道自己的默认 DACL |
+    ///
+    /// ⚠️ **Windows 上不能拿数据目录下的路径当通道地址**——命名管道不在文件系统里，
+    /// `interprocess` 的 `GenericFilePath` 对非 `\\.\pipe\` 开头的路径直接报
+    /// 「not a named pipe path」，于是 `swarmdrop start` 在 Windows 上**整条命令起不来**
+    /// （v0.1.0 就是这样）。
+    ///
+    /// 也**不能改用 `GenericNamespaced` 一把统一**，尽管它正是为跨平台命名设计的：
+    /// 它在 Linux 上解析到 abstract namespace、在其余 Unix 上解析到 `/tmp/`，
+    /// 两者都不在数据目录里，于是那道 0700 就再也挡不住任何人——而这条通道能启停节点、
+    /// 列设备、发文件、应答配对请求。上游把这三种映射逐条写在
+    /// `GenericNamespaced` 的文档里，它给的是可移植性，**安全语义得自己选**。
+    #[cfg(unix)]
     pub fn socket(&self) -> PathBuf {
         self.0.join(SOCKET_FILE)
+    }
+
+    #[cfg(windows)]
+    pub fn socket(&self) -> PathBuf {
+        named_pipe_path(&self.0)
+    }
+
+    /// 清掉通道的陈旧残留。
+    ///
+    /// **只有 Unix 有东西可清**：域套接字是个文件，不随进程退出消失——留着会让下一个
+    /// 进程多走一次「连不上 → 判陈旧」，而监听器还会因「地址已占用」起不来。删除失败
+    /// 无所谓，那条路径本来就能自愈。
+    ///
+    /// Windows 上通道压根不是文件（见 [`Self::socket`]），命名管道也由内核在最后一个
+    /// 句柄关闭时回收——**没有可清理的东西，也不能去 `remove_file` 它**。
+    ///
+    /// 与 [`Self::socket`] 放在同一个类型上，是为了让「通道在这个平台上长什么样」
+    /// 只有一个地方需要知道：此前这条知识被拆在两层，`runtime` 那侧也得写一次
+    /// `cfg(unix)`——而这次要修的 bug 正是这个形状（有人对着一个不是文件的路径做文件操作）。
+    pub fn clear_stale_channel(&self) {
+        #[cfg(unix)]
+        let _ = std::fs::remove_file(self.socket());
     }
 
     pub fn lock(&self) -> PathBuf {
@@ -92,8 +135,21 @@ impl DataDir {
 /// 其他进程」**——那类进程能直接读走 `identity.json` 里的明文私钥并冒充这台设备，
 /// 再去拦一条本地通道没有意义。
 ///
-/// ⚠️ **Windows 不做**：命名管道不经文件系统权限，收紧它要构造 SECURITY_ATTRIBUTES，
-/// 而 `interprocess` 当前没有暴露那个口子。已知缺口。
+/// ⚠️ **Windows 不做，这是一个已知缺口。** 那里的通道根本不在数据目录里
+/// （见 [`DataDir::socket`]），收紧目录管不着它。
+///
+/// 此处一度写作「`interprocess` 没有暴露那个口子」——**是错的**（2026-08-20 核实）：
+/// `interprocess::os::windows::local_socket::ListenerOptionsExt::security_descriptor()`
+/// 就是那个口子，配 `SecurityDescriptor::deserialize()` 吃一个 SDDL 字符串。
+///
+/// 没有顺手补上，是因为**补错的失败形态比缺口更糟**：SDDL 写错时 `deserialize` 返回
+/// `Err`，那条路径要么让 `swarmdrop start` 又一次起不来，要么被静默忽略而只是看起来
+/// 做了防护。而 `CREATOR OWNER` 这类 SID 在非继承的 DACL 里是否按预期生效、默认 DACL
+/// 现在到底放行到什么程度，**本仓一条都没有实测过**，而本机没有 Windows 环境可验
+/// （连交叉编译都卡在 `ring` 的 C 代码上）。
+///
+/// 所以：**不要把「Windows 默认更严」当成结论写进任何地方**，也不要在没有真机验证的
+/// 情况下把 SDDL 合进来。
 #[cfg(unix)]
 fn restrict_to_owner(dir: &Path) -> CliResult<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -106,6 +162,48 @@ fn restrict_to_owner(dir: &Path) -> CliResult<()> {
 #[cfg(not(unix))]
 fn restrict_to_owner(_dir: &Path) -> CliResult<()> {
     Ok(())
+}
+
+/// Windows 上这个数据目录对应的命名管道路径。
+///
+/// 管道名从数据目录派生：`--data-dir` 允许同机跑多个互不相干的实例，而管道命名空间是
+/// **全局**的——名字撞了就等于两个实例互相接管对方的命令。
+///
+/// ⚠️ **刻意不加 `#[cfg(windows)]`，在所有平台上编译。** `cfg` 掉的代码连语法都不检查，
+/// 写错要到 Windows 构建机上才第一次显形——本仓写这段时就踩了一次（raw string 以
+/// 反斜杠结尾，是编译错误，而 macOS 上的 `cargo test` 全绿）。放开编译之后，
+/// 下面那两条测试在**每个**平台上都跑得到它。
+// `not(test)` 那一半不能省：测试里用得到它，那时它并非死代码，而 `expect` 对
+// 「没有发生的告警」本身也会告警（`unfulfilled_lint_expectations`）。
+#[cfg_attr(
+    all(not(windows), not(test)),
+    expect(dead_code, reason = "只有 Windows 用，但要处处编译")
+)]
+fn named_pipe_path(dir: &Path) -> PathBuf {
+    // 规范化能消掉 `.` / `..` / 短名（8.3）等等价写法；失败（目录刚被删？）就退回原路径
+    // ——那时最坏结果是多一个通道名，而文件锁仍然是最终仲裁。
+    //
+    // 大小写一并归一：Windows 的文件系统大小写不敏感，`C:\Users` 与 `c:\users` 是同一个
+    // 目录，得到两个名字就等于把一个实例分裂成两个。
+    let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let token = fnv1a(&canonical.to_string_lossy().to_lowercase());
+    PathBuf::from(format!(r"\\.\pipe\swarmdrop-cli-{token:016x}"))
+}
+
+/// FNV-1a（64 位）。
+///
+/// **不用 `DefaultHasher`**：标准库明写它的算法与种子不保证在版本间不变，而这个值决定
+/// 通道名——换一次就等于旧节点还在跑、新命令却连不上它，同时文件锁又不让新进程起节点，
+/// 用户陷入「怎么都连不上、也停不掉」。这里要的是一个**写死在代码里**的算法。
+///
+/// 由 `fnv1a_matches_the_published_vectors` 钉死：算法被换掉时它会红，
+/// 而不是等某个用户升级之后发现自己的常驻节点失联。
+fn fnv1a(text: &str) -> u64 {
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    text.bytes().fold(OFFSET, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(PRIME)
+    })
 }
 
 #[cfg(test)]
@@ -128,23 +226,75 @@ mod tests {
     ///
     /// 「都在目录内」防的是某个拼接不慎逃到目录外；「互不重名」防的是两份数据
     /// 共用一个文件而互相覆盖。
+    ///
+    /// **通道不在这份清单里**：它只有在 Unix 上才是数据目录下的文件（见
+    /// [`DataDir::socket`]），由下面那两条按平台各自看守。
     #[test]
     fn known_files_live_inside_the_directory_and_are_distinct() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let dir = DataDir::resolve(Some(tmp.path().to_path_buf())).expect("resolve");
 
-        let paths = [
-            dir.database(),
-            dir.socket(),
-            dir.lock(),
-            dir.device_config(),
-        ];
+        let paths = [dir.database(), dir.lock(), dir.device_config()];
         for path in &paths {
             assert_eq!(path.parent(), Some(dir.path()), "{path:?} 不在数据目录内");
         }
 
         let unique: std::collections::HashSet<_> = paths.iter().collect();
         assert_eq!(unique.len(), paths.len(), "存在重名文件");
+    }
+
+    /// Unix 上通道是数据目录里的一个文件——那道 0700 才管得着它。
+    #[cfg(unix)]
+    #[test]
+    fn the_channel_lives_inside_the_data_directory() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = DataDir::resolve(Some(tmp.path().to_path_buf())).expect("resolve");
+
+        assert_eq!(dir.socket().parent(), Some(dir.path()));
+        assert_ne!(dir.socket(), dir.lock());
+    }
+
+    /// Windows 的通道名：**必须** `\\.\pipe\` 开头，且与数据目录一一对应。
+    ///
+    /// 前半条看守的是一个整条命令起不来的失败：`interprocess` 对别的路径直接报
+    /// 「not a named pipe path」，`swarmdrop start` 当场退出（v0.1.0 在 Windows 上就是这样）。
+    ///
+    /// 后半条看守的是一个更隐蔽的：管道命名空间是全局的，两个 `--data-dir` 派生出同一个
+    /// 名字，就等于两个本该互不相干的实例互相接管对方的命令；而同一个目录派生出两个名字，
+    /// 则会让 `status` 认不出自己刚 `start` 的节点。
+    ///
+    /// **在每个平台上跑**（不加 `cfg(windows)`），理由见 [`named_pipe_path`]。
+    #[test]
+    fn the_named_pipe_is_keyed_by_the_data_directory() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let one = tmp.path().join("one");
+        let two = tmp.path().join("two");
+        std::fs::create_dir_all(&one).expect("create");
+        std::fs::create_dir_all(&two).expect("create");
+
+        let name = named_pipe_path(&one);
+        let text = name.to_string_lossy();
+        // 前缀写全到 `swarmdrop-cli-`，不是啰嗦：raw string **不能以反斜杠结尾**，
+        // 只写到 `pipe\` 的那个写法是编译错误。
+        assert!(
+            text.starts_with(r"\\.\pipe\swarmdrop-cli-"),
+            "不是命名管道名: {text}"
+        );
+
+        assert_eq!(named_pipe_path(&one), name, "同一个目录必须恒得同一个名字");
+        assert_ne!(named_pipe_path(&two), name, "两个目录撞名了");
+    }
+
+    /// 通道名的哈希必须是 FNV-1a，**不是「随便一个稳定哈希」**。
+    ///
+    /// 用官方公布的测试向量钉死。它红了说明有人换掉了算法——那件事在开发机上毫无症状，
+    /// 却会让每一个已经在跑常驻节点的 Windows 用户在升级后失联（新命令连不上旧节点，
+    /// 文件锁又不让它起新的）。
+    #[test]
+    fn fnv1a_matches_the_published_vectors() {
+        assert_eq!(fnv1a(""), 0xcbf2_9ce4_8422_2325);
+        assert_eq!(fnv1a("a"), 0xaf63_dc4c_8601_ec8c);
+        assert_eq!(fnv1a("foobar"), 0x8594_4171_f739_67e8);
     }
 
     /// 数据目录必须对其他用户关闭。

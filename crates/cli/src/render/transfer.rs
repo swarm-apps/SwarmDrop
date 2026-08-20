@@ -39,6 +39,21 @@ pub fn render_list(records: &Value, json: bool) {
     }
 }
 
+/// 选择菜单里的一行。
+///
+/// **信息要够用户认出是哪一条**，而菜单只有一行的宽度：方向 + 对端 + 阶段 + 大小。
+/// 会话标识（UUID）刻意不进来——36 个字符会把上面那些真正能区分的信息挤出屏幕，
+/// 而用户认不出一串随机十六进制是哪次传输。要精确指定的场合走参数，那里才用标识。
+pub fn menu_line(record: &Value) -> String {
+    format!(
+        "{} {}  {}  {}",
+        direction_glyph(record.get("direction").and_then(Value::as_str)),
+        text_or(record, "peerName", "—"),
+        text_or(record, "phase", "—"),
+        bytes(record.get("totalSize"))
+    )
+}
+
 pub fn render_detail(record: &Value, json: bool) {
     if json {
         super::emit_json(record, "传输记录");

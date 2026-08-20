@@ -18,7 +18,13 @@ pub fn resolve() -> CliResult<PathBuf> {
     if let Ok(explicit) = std::env::var("SWARMDROP_RECEIVE_DIR")
         && !explicit.trim().is_empty()
     {
-        return ensure(PathBuf::from(explicit));
+        // ⚠️ **展开 `~` 但不做别的**：环境变量不经 shell——写 `~/Downloads/x` 会原样传
+        // 进来，于是这里会**创建一个名字就叫 `~` 的目录**并把收到的文件放进去。
+        //
+        // 同样重要的是**不要**用 `paths::parse`（那是给交互输入框用的）：它按 shell 规则
+        // 拆行，而环境变量里的空格就是路径的一部分——`/home/me/My Files` 会被截成
+        // `/home/me/My`，同样是静默地把文件放进一个用户找不到的地方。
+        return ensure(crate::prompt::paths::expand(explicit.trim()));
     }
 
     let dir = directories::UserDirs::new()

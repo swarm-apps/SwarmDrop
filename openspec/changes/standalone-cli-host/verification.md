@@ -23,8 +23,8 @@
 | 13 | 与同机桌面端并存 | ✅ | 两个独立数据目录各起一个节点，**节点标识不同**、互不干扰 |
 | 14 | 独立配对 | ✅ | 数据目录与身份文件各自独立（`identity.json` 不共享） |
 | 15 | 常驻期间自动接收 | 🔵 | `runtime/receive.rs` 订阅 `TransferOfferReceived` 后自动 `accept_and_start_receive`；需对端才能观察 |
-| 16 | 交互式终端生成邀请 | ✅ | 输出半块字符二维码 + canonical 邀请链接 |
-| 17 | 关闭二维码 | ✅ | `--no-qr` 只输出链接 |
+| 16 | 交互式终端生成邀请 | ✅ | 输出 canonical 邀请链接 + 邀请标识，并提示在浏览器打开可得二维码 |
+| 17 | 在浏览器中取得二维码 | ✅ | 落地页 `docs/public/p/` 按需注入编码器渲染；宽屏自动出码、窄屏给按钮（2026-08-20 实测四档视口 × 明暗两主题） |
 | 18 | 接受邀请 | 🔵 | `pair <invite>` 调 `pair_with_invite`；需对端 |
 | 19 | 结构化输出可被解析 | ✅ | `status --json` / `devices --json` / `inbox list --json` 均被 `json.load` 成功解析 |
 | 20 | 进度不污染标准输出 | ✅ | 日志与进度经 `tracing`/`eprint!` 走 stderr；`2>/dev/null` 后 stdout 仍是完整 JSON |

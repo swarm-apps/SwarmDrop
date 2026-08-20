@@ -154,13 +154,13 @@ pub enum Command {
 
     /// 向一台已配对设备发送文件或目录。
     Send {
-        /// 要发送的文件或目录。
-        #[arg(required = true, value_name = "PATH")]
+        /// 要发送的文件或目录。不给则逐行询问（需要可交互的终端）。
+        #[arg(value_name = "PATH")]
         files: Vec<PathBuf>,
 
-        /// 目标设备（名称或节点标识）。
+        /// 目标设备（名称或节点标识）。不给则列出已配对设备让你选。
         #[arg(long, value_name = "DEVICE")]
-        to: String,
+        to: Option<String>,
     },
 
     /// 配对邀请：生成、使用、清点与撤销。
@@ -188,21 +188,37 @@ pub enum Command {
     },
 }
 
+/// 按标识去重，保留首次出现的顺序。
+///
+/// 批量目标要过这一道：同一条记录可以有多种写法（邀请标识的不同长度前缀、设备的名称与
+/// 节点标识），它们**作为字符串并不相等**，所以只能在解析成记录之后按标识去重。
+///
+/// 不去重的后果不是「多做一遍」（撤销与解除都幂等），而是**虚报**——命令会说
+/// 「已撤销 2 张」并把同一个标识列两遍，`--json` 里的 `revoked` 也跟着翻倍。
+fn dedup_by_id<T>(rows: Vec<T>, id: impl Fn(&T) -> String) -> Vec<T> {
+    let mut seen = std::collections::HashSet::new();
+    rows.into_iter()
+        .filter(|row| seen.insert(id(row)))
+        .collect()
+}
+
 impl Command {
     /// 这条命令会不会停下来等用户看屏幕、作决定。
     ///
     /// 穷尽 match 而非 `matches!`：新增交互命令时这里会编译失败，
     /// 而不是让它带着一屏滚动的日志上线。
+    ///
+    /// **判据基本等同于「有参数缺席」**（唯一的例外是 `invite create`，它没有参数可缺、
+    /// 却整条命令都要有人看着屏幕）。缺席的那个会由 [`crate::prompt::pick::Picker`] 或
+    /// [`crate::prompt::Question`] 补出来，而补的过程要用户看清屏幕。
     fn is_interactive(&self) -> bool {
         match self {
             Self::Invite { action } => action.is_interactive(),
             Self::Device { action } => action.is_interactive(),
-            Self::Start { .. }
-            | Self::Stop
-            | Self::Status
-            | Self::Send { .. }
-            | Self::Inbox { .. }
-            | Self::Transfer { .. } => false,
+            Self::Inbox { action } => action.is_interactive(),
+            Self::Transfer { action } => action.is_interactive(),
+            Self::Send { files, to } => files.is_empty() || to.is_none(),
+            Self::Start { .. } | Self::Stop | Self::Status => false,
         }
     }
 }
@@ -211,12 +227,8 @@ impl Command {
 pub enum InviteAction {
     /// 生成一张邀请并守着它，直到有设备配对成功或你中断。
     ///
-    /// 邀请的可拨地址就是签发节点的，所以**命令退出后临时节点签发的那张码即失效**。
+    /// 邀请的可拨地址就是签发节点的，所以**命令退出后临时节点签发的那张邀请即失效**。
     Create {
-        /// 不渲染二维码，只输出邀请链接（用于 CI / 日志 / 管道）。
-        #[arg(long)]
-        no_qr: bool,
-
         /// 自动接受出示**任一有效邀请**的设备，不停下来问。
         ///
         /// ⚠️ 范围是「任一有效邀请」而不是「刚打印的这张」：邀请跨重启存活、TTL 24 小时，
@@ -231,8 +243,8 @@ pub enum InviteAction {
 
     /// 用一张别人给的邀请完成配对。
     Use {
-        /// 邀请链接。
-        invite: String,
+        /// 邀请链接。不给则询问（需要可交互的终端）。
+        invite: Option<String>,
     },
 
     /// 列出本机已发出、尚未过期的邀请。
@@ -240,16 +252,20 @@ pub enum InviteAction {
 
     /// 撤销邀请。
     ///
-    /// 不给标识时会列出邀请让你选（需要可交互的终端）。
+    /// 不给标识时会列出邀请让你**勾选若干张**（需要可交互的终端）。
     Revoke {
-        /// 邀请标识，接受唯一前缀（至少 4 位）。
-        id: Option<String>,
+        /// 邀请标识，接受唯一前缀（至少 4 位）。可给多个。
+        #[arg(value_name = "ID")]
+        ids: Vec<String>,
 
         /// 撤销全部未过期的邀请。
         ///
         /// 邀请泄露时往往无法判断是哪一张——而停掉节点**不管用**，邀请已落盘，
         /// 重启回来它们会全部恢复可用。
-        #[arg(long, conflicts_with = "id")]
+        ///
+        /// **与逐张勾选不是一回事**：它连本命令列不出来的、这一瞬新签发的也一并作废，
+        /// 所以它是「不知道是哪张泄露了」时的处置，而勾选是「知道是哪几张」。
+        #[arg(long, conflicts_with = "ids")]
         all: bool,
 
         /// 跳过 `--all` 的确认。
@@ -261,19 +277,21 @@ pub enum InviteAction {
 impl InviteAction {
     fn is_interactive(&self) -> bool {
         match self {
-            // 要展示二维码，并在入站请求到来时展示对端信息等人确认。
+            // 要展示邀请链接，并在入站请求到来时展示对端信息等人确认。
             //
             // ⚠️ **`--auto-accept` 不是例外**（2026-08-19 试过一次，错了）：它免去的是
             // 「每条入站请求要人点一次确认」，不是「没人在看屏幕」——这条命令的产出**就是
-            // 那张二维码**，得有人拿另一台设备去扫。放开日志的净效果是：临时节点起来后
-            // `NetworkStatusChanged`（二十来个字段的结构体）与 `DevicesChanged`
-            // （每秒可能多次）几秒内把码顶出可视区，而命令要守着等人扫、以分钟计。
+            // 那条链接**，得有人把它搬到另一台设备上（或在浏览器里打开它扫码）。放开日志的
+            // 净效果是：临时节点起来后 `NetworkStatusChanged`（二十来个字段的结构体）与
+            // `DevicesChanged`（每秒可能多次）几秒内把它顶出可视区，而命令要守着等人
+            // 扫码 / 粘贴、以分钟计。
             //
             // 真正的无人值守是 `start --auto-accept`（常驻节点），那条本来就是 false。
             Self::Create { .. } => true,
-            // 不给标识时要弹选择菜单；`--all` 要确认。
-            Self::Revoke { id, all, yes } => (id.is_none() && !all) || (*all && !yes),
-            Self::Use { .. } | Self::List => false,
+            // 不给标识时要弹多选菜单；`--all` 要确认。
+            Self::Revoke { ids, all, yes } => (ids.is_empty() && !all) || (*all && !yes),
+            Self::Use { invite } => invite.is_none(),
+            Self::List => false,
         }
     }
 }
@@ -283,20 +301,21 @@ pub enum DeviceAction {
     /// 列出已配对设备。
     List,
 
-    /// 解除与一台设备的配对。
+    /// 解除与设备的配对。
     ///
     /// **单方面操作**：它移除的是本机对该设备的记录，对端是否仍记着你不在本命令的控制
-    /// 范围内。不给目标时会列出设备让你选（需要可交互的终端）。
+    /// 范围内。不给目标时会列出设备让你**勾选若干台**（需要可交互的终端）。
     Forget {
-        /// 设备名称或节点标识。
-        device: Option<String>,
+        /// 设备名称或节点标识。可给多个。
+        #[arg(value_name = "DEVICE")]
+        devices: Vec<String>,
     },
 }
 
 impl DeviceAction {
     fn is_interactive(&self) -> bool {
         match self {
-            Self::Forget { device } => device.is_none(),
+            Self::Forget { devices } => devices.is_empty(),
             Self::List => false,
         }
     }
@@ -308,19 +327,32 @@ pub enum InboxAction {
     List,
     /// 查看一个条目的详情。
     Show {
-        /// 条目标识。
-        id: String,
+        /// 条目标识。不给则列出收件箱让你选。
+        id: Option<String>,
     },
     /// 把一个条目导出到指定目录。
     Export {
-        /// 条目标识。
-        id: String,
-        /// 导出目标目录。
+        /// 条目标识。不给则列出收件箱让你选。
+        id: Option<String>,
+        /// 导出目标目录。不给则询问（默认当前目录）。
         ///
         /// 位置参数而非 `--to`：`send --to` 指的是**设备**，这里是**目录**，
         /// 同名不同类型会诱导误用。形态对齐 `cp 源 目标`。
-        dir: PathBuf,
+        ///
+        /// ⚠️ 两个位置参数都可缺省，但**只能从后往前省**（`export <id>` 合法，
+        /// 「只给目录不给标识」无从表达——第一个位置参数永远解析成标识）。
+        dir: Option<PathBuf>,
     },
+}
+
+impl InboxAction {
+    fn is_interactive(&self) -> bool {
+        match self {
+            Self::Show { id } => id.is_none(),
+            Self::Export { id, dir } => id.is_none() || dir.is_none(),
+            Self::List => false,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -329,9 +361,18 @@ pub enum TransferAction {
     List,
     /// 查看一条传输记录的详情。
     Show {
-        /// 会话标识。
-        id: String,
+        /// 会话标识。不给则列出传输记录让你选。
+        id: Option<String>,
     },
+}
+
+impl TransferAction {
+    fn is_interactive(&self) -> bool {
+        match self {
+            Self::Show { id } => id.is_none(),
+            Self::List => false,
+        }
+    }
 }
 
 /// 分派并把失败翻译成退出码。
@@ -387,12 +428,44 @@ mod tests {
         Cli::command().debug_assert();
     }
 
-    /// `send` 至少要一个路径与一个目标——两者缺一都应是用法错误而非运行到一半才失败。
+    /// `send` 的两个参数各自都可以缺席——缺的那个由交互补出来。
+    ///
+    /// ⚠️ **缺席在解析期合法，不等于在管道里合法**：那里补不出来，必须以用法错误退出。
+    /// 那一半由 `tests/without_a_node.rs` 从进程外看守（解析期拦不住它，因为
+    /// 「有没有终端」不是 clap 知道的事）。
     #[test]
-    fn send_requires_files_and_target() {
-        assert!(Cli::try_parse_from(["swarmdrop", "send", "--to", "phone"]).is_err());
-        assert!(Cli::try_parse_from(["swarmdrop", "send", "a.txt"]).is_err());
-        assert!(Cli::try_parse_from(["swarmdrop", "send", "a.txt", "--to", "phone"]).is_ok());
+    fn send_accepts_partial_arguments() {
+        for args in [
+            vec!["swarmdrop", "send", "a.txt", "--to", "phone"],
+            vec!["swarmdrop", "send", "--to", "phone"],
+            vec!["swarmdrop", "send", "a.txt"],
+            vec!["swarmdrop", "send"],
+        ] {
+            assert!(Cli::try_parse_from(&args).is_ok(), "{args:?} 应当能解析");
+        }
+    }
+
+    /// 集合类命令的目标参数**可以给多个**——交互能勾选多条，参数侧就不该只收一个，
+    /// 否则脚本只能把同一条命令循环敲 N 遍。
+    #[test]
+    fn collection_targets_accept_several() {
+        let cli = parse(&["swarmdrop", "invite", "revoke", "abcd1234", "ef567890"]);
+        let Command::Invite {
+            action: InviteAction::Revoke { ids, .. },
+        } = cli.command
+        else {
+            panic!("解析成了别的命令");
+        };
+        assert_eq!(ids.len(), 2);
+
+        let cli = parse(&["swarmdrop", "device", "forget", "手机", "书房"]);
+        let Command::Device {
+            action: DeviceAction::Forget { devices },
+        } = cli.command
+        else {
+            panic!("解析成了别的命令");
+        };
+        assert_eq!(devices.len(), 2);
     }
 
     /// 默认过滤器必须覆盖本 crate 自己的 target 根。
@@ -425,7 +498,21 @@ mod tests {
             vec!["swarmdrop", "invite", "create", "--auto-accept"],
             vec!["swarmdrop", "invite", "revoke"],
             vec!["swarmdrop", "invite", "revoke", "--all"],
+            vec!["swarmdrop", "invite", "use"],
             vec!["swarmdrop", "device", "forget"],
+            vec!["swarmdrop", "inbox", "show"],
+            vec!["swarmdrop", "inbox", "export"],
+            // 只缺目录也算——那一问同样要用户看清屏幕。
+            vec![
+                "swarmdrop",
+                "inbox",
+                "export",
+                "00000000-0000-4000-8000-000000000000",
+            ],
+            vec!["swarmdrop", "transfer", "show"],
+            vec!["swarmdrop", "send"],
+            vec!["swarmdrop", "send", "a.txt"],
+            vec!["swarmdrop", "send", "--to", "phone"],
         ] {
             let cli = parse(&args);
             assert!(
@@ -443,6 +530,27 @@ mod tests {
             vec!["swarmdrop", "invite", "revoke", "--all", "--yes"],
             vec!["swarmdrop", "device", "forget", "phone"],
             vec!["swarmdrop", "invite", "list"],
+            vec!["swarmdrop", "invite", "use", "https://swarmdrop.dev/p/xxx"],
+            vec![
+                "swarmdrop",
+                "transfer",
+                "show",
+                "00000000-0000-4000-8000-000000000000",
+            ],
+            vec![
+                "swarmdrop",
+                "inbox",
+                "show",
+                "00000000-0000-4000-8000-000000000000",
+            ],
+            vec![
+                "swarmdrop",
+                "inbox",
+                "export",
+                "00000000-0000-4000-8000-000000000000",
+                "/tmp",
+            ],
+            vec!["swarmdrop", "send", "a.txt", "--to", "phone"],
         ] {
             let cli = parse(&args);
             assert!(
@@ -538,5 +646,58 @@ mod tests {
     #[test]
     fn revoke_all_conflicts_with_an_id() {
         assert!(Cli::try_parse_from(["swarmdrop", "invite", "revoke", "abcd", "--all"]).is_err());
+    }
+
+    /// 「参数缺席 ⇒ 会问人」这条规则**必须覆盖每一个可缺省的参数**。
+    ///
+    /// 上面两条测试列的是具体命令，新增命令时容易漏；这条从另一头看守，而且
+    /// **穷尽性交给机器**：从 clap 的定义里递归找出「带可缺省取值参数」的每一条命令，
+    /// 构造它的最小调用，断言那时算交互。加一个可选参数却忘了同步 `is_interactive`，
+    /// 它会自己红——而人工列举的清单只会一直绿着。
+    ///
+    /// 漏了的表现是那条命令的菜单被 info 级日志冲掉，**只在真终端上显形**。
+    #[test]
+    fn every_optional_target_makes_the_command_interactive() {
+        /// 这条命令有没有「不给就得问」的参数。
+        ///
+        /// 只算**取值**的参数：`--all` / `--yes` 这类布尔开关不给就是不给，
+        /// 没有可补的东西。全局参数（`--data-dir` 等）同样排除，它们不属于任何一条命令。
+        fn has_optional_value(cmd: &clap::Command) -> bool {
+            cmd.get_arguments().any(|arg| {
+                // ⚠️ 判据用 `get_action()` 而**不是** `get_num_args()`：后者只在显式
+                // 设过 `num_args` 时才是 `Some`，而本 crate 一处都没设——用它会让这条
+                // 测试只扫到三条命令、其余静默放行。
+                arg.get_action().takes_values() && !arg.is_required_set() && !arg.is_global_set()
+            })
+        }
+
+        let mut checked = 0usize;
+        for top in Cli::command().get_subcommands() {
+            let subs: Vec<_> = top.get_subcommands().collect();
+            // 两级命令看第二级，一级命令（`send`）看它自己。
+            let targets: Vec<(Vec<&str>, &clap::Command)> = if subs.is_empty() {
+                vec![(vec![top.get_name()], top)]
+            } else {
+                subs.iter()
+                    .map(|sub| (vec![top.get_name(), sub.get_name()], *sub))
+                    .collect()
+            };
+
+            for (path, cmd) in targets {
+                if !has_optional_value(cmd) {
+                    continue;
+                }
+                let mut args = vec!["swarmdrop"];
+                args.extend(path.iter().copied());
+                assert!(
+                    parse(&args).command.is_interactive(),
+                    "{args:?} 有可缺省的参数，缺着它却不算交互命令"
+                );
+                checked += 1;
+            }
+        }
+
+        // 反射失灵（clap 的 API 变了、判据写错）时它会静默通过——那正是这条测试要防的。
+        assert!(checked >= 7, "只查到 {checked} 条命令，判据可能失效了");
     }
 }
