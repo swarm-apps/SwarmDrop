@@ -72,6 +72,35 @@ pub fn human_bytes(bytes: u64) -> String {
     }
 }
 
+/// 给一套样式接上 `{done}` / `{total}` / `{rate}` 三个 key，全部经 [`human_bytes`]。
+///
+/// **不用 indicatif 自带的 `{binary_bytes}`**：它给两位小数（`1.00 MiB`），而同一屏里
+/// 的结果行走 [`human_bytes`]（一位小数，`1.0 MiB`）——同一个数在同一屏里两种写法。
+///
+/// 抽出来是因为有两个消费者：`send` 的单条进度条与 `transfer watch` 的面板。
+/// 各注册一遍的话，改了其中一处的单位写法，另一处会**静默**保持旧样子。
+pub fn with_byte_keys(style: indicatif::ProgressStyle) -> indicatif::ProgressStyle {
+    style
+        .with_key(
+            "done",
+            |state: &indicatif::ProgressState, w: &mut dyn std::fmt::Write| {
+                let _ = write!(w, "{}", human_bytes(state.pos()));
+            },
+        )
+        .with_key(
+            "total",
+            |state: &indicatif::ProgressState, w: &mut dyn std::fmt::Write| {
+                let _ = write!(w, "{}", human_bytes(state.len().unwrap_or(0)));
+            },
+        )
+        .with_key(
+            "rate",
+            |state: &indicatif::ProgressState, w: &mut dyn std::fmt::Write| {
+                let _ = write!(w, "{}/s", human_bytes(state.per_sec() as u64));
+            },
+        )
+}
+
 /// 传输进度条。
 ///
 /// **画在 stderr**：结构化模式下 stdout 只能有最终结果，而人类可读模式下把进度混进
@@ -108,29 +137,11 @@ impl Progress {
         } else {
             indicatif::ProgressBar::hidden()
         };
-        bar.set_style(
+        bar.set_style(with_byte_keys(
             indicatif::ProgressStyle::with_template(TEMPLATE)
                 // 写错只会在运行时退化成默认样式——由 `progress_template_is_valid` 钉住。
-                .unwrap_or_else(|_| indicatif::ProgressStyle::default_bar())
-                .with_key(
-                    "done",
-                    |state: &indicatif::ProgressState, w: &mut dyn std::fmt::Write| {
-                        let _ = write!(w, "{}", human_bytes(state.pos()));
-                    },
-                )
-                .with_key(
-                    "total",
-                    |state: &indicatif::ProgressState, w: &mut dyn std::fmt::Write| {
-                        let _ = write!(w, "{}", human_bytes(state.len().unwrap_or(0)));
-                    },
-                )
-                .with_key(
-                    "rate",
-                    |state: &indicatif::ProgressState, w: &mut dyn std::fmt::Write| {
-                        let _ = write!(w, "{}/s", human_bytes(state.per_sec() as u64));
-                    },
-                ),
-        );
+                .unwrap_or_else(|_| indicatif::ProgressStyle::default_bar()),
+        ));
         Self(bar)
     }
 

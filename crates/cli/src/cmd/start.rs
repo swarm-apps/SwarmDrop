@@ -66,6 +66,9 @@ pub async fn run(data_dir: &DataDir, json: bool, detach: bool, auto_accept: bool
         desk,
         shutdown: shutdown.clone(),
         data_dir: data_dir.clone(),
+        // 必须在这里起：`transfer watch` 问的是常驻节点，而只有常驻节点看得见
+        // 传输事件。见 `runtime::progress` —— 库里的发送进度在传输期间是陈旧的。
+        progress: crate::runtime::progress::ProgressCache::spawn(&node.events),
     });
 
     serve_until_stopped(&server, handler, &shutdown).await?;
@@ -108,6 +111,8 @@ struct NodeHandler {
     shutdown: Arc<Notify>,
     /// 解除配对要经它拿到已配对设备表的端口。
     data_dir: DataDir,
+    /// 正在传的那几条的实时进度（库里那份在传输期间是陈旧的）。
+    progress: Arc<crate::runtime::progress::ProgressCache>,
 }
 
 #[async_trait::async_trait]
@@ -202,6 +207,25 @@ impl RequestHandler for NodeHandler {
                 let store = self.node.manager.transfer_arc().store().clone();
                 match crate::runtime::transfers::show(&*store, &id).await {
                     Ok(item) => json_or_error(serde_json::to_value(item), "传输记录"),
+                    Err(err) => Response::err(err),
+                }
+            }
+            Request::TransferUnfinished => {
+                let store = self.node.manager.transfer_arc().store().clone();
+                match crate::runtime::transfers::unfinished(&*store).await {
+                    Ok(mut items) => {
+                        // **必须盖在这里，不能留给客户端**：进度事件只在本进程里，
+                        // 而客户端是另一个进程。见 `runtime::progress`。
+                        self.progress.overlay(&mut items);
+                        json_or_error(serde_json::to_value(items), "传输记录")
+                    }
+                    Err(err) => Response::err(err),
+                }
+            }
+            Request::TransferControl { action, ids } => {
+                let transfer = self.node.manager.transfer_arc();
+                match crate::runtime::transfers::control(&transfer, action, &ids).await {
+                    Ok(outcome) => json_or_error(serde_json::to_value(outcome), "控制结果"),
                     Err(err) => Response::err(err),
                 }
             }

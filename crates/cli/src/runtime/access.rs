@@ -1,7 +1,8 @@
-//! 两条取数路径。
+//! 三条取数路径。
 //!
 //! 一条命令要么只读/只改**本机持久化记录**（[`RecordAccess`]，**永不起节点**），
-//! 要么需要一个**活着的节点**（[`NodeAccess`]），要么什么都不要。
+//! 要么需要一个**活着的节点**（[`NodeAccess`]），要么**只能由常驻节点执行**
+//! （[`DaemonAccess`]，**绝不起临时节点**），要么什么都不要。
 //!
 //! ## 为什么必须收在一处
 //!
@@ -13,9 +14,15 @@
 //!
 //! ## 归属规则是一句可判定的问句
 //!
-//! **这条命令会不会导致一个数据包离开本机？** 会则 [`NodeAccess`]，不会则 [`RecordAccess`]。
-//! 只有三条命令要节点：发送、生成邀请、使用邀请。完整的归属表在
-//! `dev-notes/knowledge/cli-host.md`。
+//! **这条命令会不会导致一个数据包离开本机？** 会则要节点，不会则 [`RecordAccess`]。
+//! 只有三条命令要起得了节点：发送、生成邀请、使用邀请。
+//!
+//! 要节点的那一档还要再问一句：**它作用的对象是不是「某个正在运行的节点内存里的东西」？**
+//! 是则 [`DaemonAccess`]（`transfer pause/resume/cancel` 操作的是活 actor），
+//! 否则 [`NodeAccess`]（`send` 用哪个节点发都行，没有就起一个临时的）。
+//! 这一问也不能凭感觉答：答错同样**不报错**——`transfer pause` 若走 [`NodeAccess`]，
+//! 会先花几秒起一个临时节点、连引导节点、做 NAT 探测，然后在那个空空如也的节点里
+//! 报「会话不存在」。完整的归属表在 `dev-notes/knowledge/cli-host.md`。
 //!
 //! ## 直连数据库的正确性依据
 //!
@@ -61,24 +68,40 @@ fn unpack(response: Option<Response>) -> CliResult<Option<Value>> {
 #[derive(Clone)]
 pub struct Records {
     data_dir: DataDir,
+    /// 惰性打开的数据库连接。
+    ///
+    /// **同一个 `Records`（连同它的克隆）只开一次**——`Arc` 让 [`RecordAccess::query`]
+    /// 里那次 `clone()` 共享同一个格子。理由见 [`Self::db`]。
+    db: Arc<tokio::sync::OnceCell<migration::sea_orm::DatabaseConnection>>,
 }
 
 impl Records {
     pub fn new(data_dir: DataDir) -> Self {
-        Self { data_dir }
+        Self {
+            data_dir,
+            db: Arc::new(tokio::sync::OnceCell::new()),
+        }
     }
 
-    /// 打开数据库（迁移一并跑掉）。
+    /// 打开数据库（迁移一并跑掉），**每个 `Records` 只开一次**。
     ///
-    /// 每个取数方法各自打开一次而不是共用一个连接：一条命令只用得上其中一两个，
-    /// 而 SQLite 的连接建立本身很便宜。
+    /// 惰性：走通道的那条路径压根不会碰它，于是「看一眼收件箱」不必为打开数据库付费。
+    ///
+    /// ⚠️ **只开一次是必须的，不是优化。** `connect_and_migrate` 每次调用都跑一遍
+    /// `Migrator::up`——即使没有待应用的迁移，那也是一次建表 DDL 加一次查询，
+    /// 也就是一次**写事务**。反复取数的消费者（`transfer watch` 每秒问一次）
+    /// 会因此持续在库上开写锁，而那正是常驻节点写 checkpoint 要的同一把锁
+    /// （连接不设 `journal_mode`，走 `delete` 模式，写事务阻塞所有读）。
     ///
     /// 返回类型经 `migration` 的重导出拿到，**本 crate 不直接依赖 sea-orm**——
     /// 命令行宿主只认端口（`TransferStore` / `InviteStore`），ORM 是 `storage-sql`
     /// 那一侧的实现细节，这里只是转手一个不透明的连接。
     async fn db(&self) -> CliResult<migration::sea_orm::DatabaseConnection> {
-        migration::connect_and_migrate(&self.data_dir.database())
+        let path = self.data_dir.database();
+        self.db
+            .get_or_try_init(|| migration::connect_and_migrate(&path))
             .await
+            .cloned()
             .map_err(|err| CliError::NodeUnavailable(format!("打开数据库失败: {err}")))
     }
 
@@ -131,8 +154,13 @@ pub use swarmdrop_host::now_secs;
 /// 有常驻节点就经本地通道问它，否则直连本机记录——**任何情况下都不启动节点**。
 ///
 /// 归属规则是一句可判定的问句：**这条命令会不会导致一个数据包离开本机？** 不会的都走这里
-/// （`device list/forget` · `invite list/revoke` · `inbox list/show` · `transfer list/show`），
-/// 会的走 [`NodeAccess`]（`send` · `invite create` · `invite use`）。
+/// （`device list/forget` · `invite list/revoke` · `inbox list/show` ·
+/// `transfer list/show/watch`），会的走 [`NodeAccess`]（`send` · `invite create` ·
+/// `invite use`）或 [`DaemonAccess`]（`transfer pause/resume/cancel`）。
+///
+/// ⚠️ `transfer watch` 走这里是刻意的：没有常驻节点时它照样有用——列出的是等着续传的
+/// 那几条，而那正是用户此刻该知道的事。面板上的**动作**另走 [`DaemonAccess`]，
+/// 于是「看得见」与「动得了」是两个各自诚实的判断。
 ///
 /// 答错**不报错**：该走 [`NodeAccess`] 的命令走到这里，表现是「跑完了但一个包都没发」；
 /// 反过来则让「看一眼本机记录」变成一次连引导节点的几秒等待。看守它的是
@@ -170,6 +198,50 @@ impl RecordAccess {
             return Ok(payload);
         }
         local(self.records.clone()).await
+    }
+}
+
+/// **只能由常驻节点执行**的命令的取数入口。
+///
+/// 与 [`NodeAccess`] 的差别只有一条，但它是结构性的：**这里不起临时节点**。
+/// 这些命令作用的是常驻节点内存里的活 actor（暂停 / 恢复 / 取消一条正在进行的传输），
+/// 而临时节点里没有它们——起一个只会白等几秒建链、然后报一个与真实原因无关的
+/// 「会话不存在」，用户会转头去查那条传输记录是不是被删了。
+///
+/// 所以没有常驻节点时它**立刻**以「节点不可用」退出，并说清下一步是 `swarmdrop start`。
+pub struct DaemonAccess {
+    socket: PathBuf,
+}
+
+impl DaemonAccess {
+    /// 连上常驻节点；没有就报错。
+    ///
+    /// 判活用 [`ipc::is_alive`]（能连上才算活着），与 [`RecordAccess::open`] 同一个判据。
+    pub async fn open(data_dir: &DataDir) -> CliResult<Self> {
+        let socket = data_dir.socket();
+        if ipc::is_alive(&socket).await {
+            Ok(Self { socket })
+        } else {
+            Err(CliError::NodeUnavailable(
+                "这条命令要操作正在进行的传输，而本机没有常驻节点在跑。\n\
+                 先执行 swarmdrop start（或 swarmdrop start -d 转后台）。"
+                    .into(),
+            ))
+        }
+    }
+
+    /// 问常驻节点要一段负载。
+    ///
+    /// **不回落到本地**：那正是本档与 [`RecordAccess::query`] 的分界。通道在这一瞬没了
+    /// 意味着节点刚刚关停，而节点关停就意味着那些活 actor 也没了——此时回落到直连数据库
+    /// 只会读到一份「刚刚还在传」的快照，然后对它执行一个注定失败的动作。
+    pub async fn ask(&self, request: Request) -> CliResult<Value> {
+        unpack(ipc::request(&self.socket, &request).await?)?.ok_or_else(|| {
+            // `None` 合并了两种情形：连不上（节点刚停），以及服务端回了无负载的
+            // `Ok`（这些动词都该带负载，真收到说明服务端有 bug）。措辞要同时对
+            // 两者成立——不能断言「已停止」，那对后一种是编的。
+            CliError::NodeUnavailable("常驻节点没有应答这条命令，它可能刚刚停止".into())
+        })
     }
 }
 

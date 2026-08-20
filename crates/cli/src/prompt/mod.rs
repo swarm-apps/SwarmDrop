@@ -192,6 +192,65 @@ async fn select_many(prompt: String, items: Vec<String>) -> Option<Vec<usize>> {
     .await
 }
 
+/// 面板上按下的一个键。
+///
+/// 把 `console` 那二十来个变体收敛成三种：调用方只关心「哪个字母」与「要不要停」，
+/// 而方向键、功能键、未识别的转义序列在一个热键面板上都是同一件事——忽略。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hotkey {
+    /// 一个字符键，**已小写化**。大小写归一属于输入归一，不该让每个调用点各写一次
+    /// `to_ascii_lowercase`——漏掉的那处表现是「按 P 没反应而 p 有反应」。
+    Char(char),
+    /// 用户要求停下：Esc / Ctrl-C / Ctrl-D，或 stdin 没了。
+    Interrupt,
+    /// 其他按键。调用方忽略即可。
+    Other,
+}
+
+/// 读一个键：不回显、不用回车。
+///
+/// 与其余提问原语不同，它**不打印任何提示**——调用方（`transfer watch` 的面板）
+/// 自己在屏幕上画那一行说明，因为提示要跟着面板一起刷新。
+///
+/// ⚠️ **只在 [`can_ask`] 为真时调用。** `console` 在 stdin 不是终端时让 `read_key`
+/// 立即返回，于是调用方的 `select!` 循环会变成一个满速空转的忙循环——在管道与 CI 里
+/// 表现为「命令没输出但吃满一个核」。
+///
+/// ## 为什么是 `std::thread` 而不是 `spawn_blocking`
+///
+/// 阻塞会一直持续到用户**下一次按键**，而那可能永远不来。`spawn_blocking` 的任务在
+/// 运行时销毁时会被等待（它们不可取消），于是面板因别的原因退出后，进程会挂在
+/// `main` 的运行时 drop 上，直到有人碰巧碰一下键盘。detached 的 OS 线程随进程退出消失。
+///
+/// ## 为什么是 `read_key_raw`
+///
+/// 它把 Ctrl-C 作为一个**键**交回来，而不是替我们向自己发 `SIGINT`。面板持有一屏
+/// 进度条与一个处于 raw 模式的终端，需要自己收尾之后再退出；被信号打断则两者都留在
+/// 屏幕上。
+pub async fn hotkey() -> Hotkey {
+    use dialoguer::console::Key;
+
+    debug_assert!(can_ask(), "问不了人的时候不该读键——那会变成忙循环");
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(term().read_key_raw());
+    });
+
+    match rx.await {
+        Ok(Ok(key)) => match key {
+            Key::CtrlC | Key::Escape => Hotkey::Interrupt,
+            // raw 模式关掉了 `ISIG`，所以 ^C / ^D 多半是作为**字符**读到的，
+            // 而不是走上面那个变体。两条路都要接住。
+            Key::Char('\u{3}' | '\u{4}') => Hotkey::Interrupt,
+            Key::Char(c) => Hotkey::Char(c.to_ascii_lowercase()),
+            _ => Hotkey::Other,
+        },
+        // 读失败 / 线程没了 = 这个终端已经不能再问了，等同用户走开。
+        Ok(Err(_)) | Err(_) => Hotkey::Interrupt,
+    }
+}
+
 /// 一个要用户敲字的问题。
 ///
 /// 做成 builder 而不是几个平行函数：三处调用点（发送的路径、邀请串、导出目录）

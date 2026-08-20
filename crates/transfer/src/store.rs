@@ -136,6 +136,17 @@ pub trait SessionStore: Send + Sync {
     /// 前端各面板按自己的维度（结束时间 / 更新时间）重排是预期行为，与本契约不冲突。
     async fn list_transfer_projections(&self) -> AppResult<Vec<TransferProjection>>;
 
+    /// 查询**未完成**的传输投影（`phase != Terminal`），同样按 `started_at` 倒序。
+    ///
+    /// **与「取全部再过滤」不是同一件事**，所以它是端口的一等方法而不是调用方的一行
+    /// `filter`：历史记录只增不减，而消费它的是「实时看现在在传什么」这类每秒重取一次
+    /// 的面板（命令行宿主的 `transfer watch`）。在应用层过滤意味着每一次刷新都要把
+    /// 整张表连同全部文件行读回内存，读的行数随使用时长线性增长——而真正要的那几条
+    /// 通常是个位数。
+    ///
+    /// 包含 `Suspended`：暂停与中断的会话仍是「未完成」，恢复入口正是从这份清单里选。
+    async fn list_unfinished_projections(&self) -> AppResult<Vec<TransferProjection>>;
+
     /// 删除单条传输记录：会话行 + 其文件行（级联）。会话不存在时静默成功。
     ///
     /// 级联边界（三端一致，不因平台分叉）：

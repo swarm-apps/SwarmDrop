@@ -175,6 +175,19 @@ impl SessionStore for SqlSessionStore {
         Ok(sessions.into_iter().map(Into::into).collect())
     }
 
+    async fn list_unfinished_projections(&self) -> AppResult<Vec<TransferProjection>> {
+        // 过滤下推到 SQL 而不是取回来再筛——那正是这个端口方法存在的理由（见端口文档）。
+        // 判据写成 `ne(Terminal)` 而不是列举其余四个 phase：新增一个非终态 phase 时，
+        // 列举法会把它静默排除在「未完成」之外，而这里会自动把它算进来。
+        let sessions = entity::TransferSession::load()
+            .with(entity::TransferFile)
+            .filter(entity::transfer_session::Column::Phase.ne(entity::TransferPhase::Terminal))
+            .order_by_desc(entity::transfer_session::Column::StartedAt)
+            .all(self.db())
+            .await?;
+        Ok(sessions.into_iter().map(Into::into).collect())
+    }
+
     async fn delete_session(&self, session_id: Uuid) -> AppResult<()> {
         if let Some(session) = entity::TransferSession::find_by_id(session_id)
             .one(self.db())

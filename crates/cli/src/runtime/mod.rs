@@ -15,6 +15,7 @@ pub mod inbox;
 pub mod invites;
 pub mod ipc;
 pub mod pairing;
+pub mod progress;
 pub mod receive;
 pub mod single;
 pub mod transfer;

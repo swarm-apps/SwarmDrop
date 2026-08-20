@@ -222,6 +222,28 @@ impl WebTransferStore {
         worth_persisting(&stored.session).then(|| PersistedSession::from(stored))
     }
 
+    /// 按端口契约取投影：`started_at` **倒序**。
+    ///
+    /// `HashMap` 的迭代序不可依赖，而端口契约要求确定性。撑着这条契约的是排序键的选择：
+    /// **前端各面板照旧按自己的维度重排**（今天三端都按 `updatedAt`，见 DESIGN.md 的
+    /// Transfer List Order Contract），所以这里保证的是「确定性」而不是「给谁看的顺序」
+    /// ——`started_at` 不可变，比会被 checkpoint 改写的 `updated_at` 更适合当这个锚。
+    fn sorted_projections(
+        &self,
+        keep: impl Fn(&entity::transfer_session::Model) -> bool,
+    ) -> Vec<TransferProjection> {
+        let mut projections: Vec<TransferProjection> = self
+            .sessions
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|s| keep(&s.session))
+            .map(|s| projection_of(&s.session, &s.files))
+            .collect();
+        projections.sort_unstable_by_key(|p| std::cmp::Reverse(p.started_at));
+        projections
+    }
+
     /// 从内存与 IndexedDB 一并移除，**失败上报**。
     ///
     /// 用户点的删除只删掉内存的话，刷新页面记录就会复活（#104 的验收标准正是这一条），
@@ -667,20 +689,13 @@ impl SessionStore for WebTransferStore {
     }
 
     async fn list_transfer_projections(&self) -> AppResult<Vec<TransferProjection>> {
-        let mut projections: Vec<TransferProjection> = self
-            .sessions
-            .lock()
-            .unwrap()
-            .values()
-            .map(|s| projection_of(&s.session, &s.files))
-            .collect();
-        // `HashMap` 的迭代序不可依赖，而端口契约要求 `started_at` 倒序。
-        // 撑着这条契约的是最后这句：**前端各面板照旧按自己的维度重排**（今天三端都按
-        // `updatedAt`，见 DESIGN.md 的 Transfer List Order Contract），所以这里保证的
-        // 是「确定性」而不是「给谁看的顺序」——`started_at` 不可变，比会被 checkpoint
-        // 改写的 `updated_at` 更适合当这个锚。
-        projections.sort_unstable_by_key(|p| std::cmp::Reverse(p.started_at));
-        Ok(projections)
+        Ok(self.sorted_projections(|_| true))
+    }
+
+    /// Web 侧会话表在内存里，过滤本身不贵——但两条路径必须给出**同一种顺序**，
+    /// 所以它们共用同一个取数函数而不是各自排一遍。
+    async fn list_unfinished_projections(&self) -> AppResult<Vec<TransferProjection>> {
+        Ok(self.sorted_projections(|session| session.phase != entity::TransferPhase::Terminal))
     }
 
     /// 会话与其文件行在 Web 侧是同一条 IndexedDB 记录，删掉它即级联。

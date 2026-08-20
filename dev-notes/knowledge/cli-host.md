@@ -367,12 +367,23 @@ CLI 从未发布过，那是唯一一次能干净改名的窗口；留别名的�
 | 入口 | 行为 | 命令 |
 |---|---|---|
 | `NodeAccess` | 有常驻走通道，否则起临时节点 | `send` · `invite create` · `invite use` |
-| `RecordAccess` | 有常驻走通道，否则直连本机记录，**永不起节点** | `device list/forget` · `invite list/revoke` · `inbox list/show` · `transfer list/show` |
+| `DaemonAccess` | **必须有常驻节点，绝不起临时节点** | `transfer pause/resume/cancel`（含面板热键） |
+| `RecordAccess` | 有常驻走通道，否则直连本机记录，**永不起节点** | `device list/forget` · `invite list/revoke` · `inbox list/show` · `transfer list/show/watch` |
 | （都不用） | 只碰本地文件系统 | `inbox export` 的文件复制部分 |
 | 自成一路 | 节点生命周期本身 | `start` / `stop` / `status` |
 
 **答错不报错**：该起节点的没起，表现是「跑完但一个包都没发」；反过来则让「看一眼本机记录」
 变成一次连引导节点的几秒等待。
+
+要节点的那一档还要再问一句：**它作用的对象是不是「某个正在运行的节点内存里的东西」？**
+是则 `DaemonAccess`——传输的暂停 / 恢复 / 取消动的是活 actor，临时节点里空空如也。
+走错这一档同样**不报错**：`transfer pause` 会先花几秒起一个临时节点、连引导节点、
+做 NAT 探测，然后在那个节点里报「会话不存在」，而用户会转头去查那条记录是不是被删了。
+
+`transfer watch` 归 `RecordAccess` 而不是 `DaemonAccess` 是刻意的：没有常驻节点时它照样
+有用——列出的是等着续传的那几条，正是用户此刻该知道的事。**面板上的动作**另走
+`DaemonAccess`，于是「看得见」与「动得了」是两个各自诚实的判断（无节点时按 `p`
+就地报一句「先 start」，面板不退）。
 
 ⚠️ **护栏只有一条，且必须在进程外**：`tests/without_a_node.rs` 的
 `record_commands_never_start_a_node`，用**身份文件在不在**判断进程有没有真的起节点
@@ -920,3 +931,117 @@ npm 包里的 `artifactDownloadUrls` 是 `releases/download/v0.1.1`，**少了 n
 默认 `<下载目录>/SwarmDrop`，`SWARMDROP_RECEIVE_DIR` 覆盖。
 **不落进数据目录**——那是应用私有区，用户在文件管理器里翻不到，收到的文件等于丢了。
 用环境变量而非配置文件做覆盖：命令行宿主常跑在脚本与服务单元里。
+
+## 实时进度面板 `transfer watch`（2026-08-20）
+
+`swarmdrop transfer watch` 是一屏随事实刷新的进度条，带三个热键（`p` 暂停 / `r` 恢复 /
+`c` 取消 / `q` 退出）。热键只是省掉一次敲命令——按下去弹的正是 `transfer pause` 那套
+多选菜单，两条路共用 `control_picker`。
+
+### 库里的**发送**进度在传输期间是假的，必须由常驻节点在内存里补
+
+这是做这个功能时最容易踩空、也最难自己发现的一条：**发送方向的进度不是增量落库的**。
+`save_sender_file_progress` 只在四处被调——`SenderActor::on_completed` / `on_interrupted`、
+`pause_send`、续传定基线，全是终结时刻。于是 `list_unfinished_projections` 交出来的
+`transferred_bytes` 在整条发送传输期间一直是**上一次终结时的值**（首传就是 0），
+直到它结束才跳到全量。
+
+桌面 / 移动 / Web 感觉不到：它们与传输在同一个进程里，界面直接吃 `TransferProgress`
+事件，数据库只是「重启后的基线」。而 `transfer watch` 跑在**另一个进程**里。
+
+第一版实测的症状就是这个：进度条一路停在 0%，暂停的瞬间跳到 43%。
+
+修法是 `runtime::progress::ProgressCache`——常驻节点自己订阅事件总线、把进度记在内存里，
+`TransferUnfinished` 的应答里盖上去。三条判据不能破：
+
+1. **只盖 `transferred_bytes`，不动 `total_size`**。续传时事件里的总量表达的是「本轮要传
+   多少」，盖上去会让百分比按一个变小的分母算，进度条在恢复的瞬间往前跳。
+2. **五种终结事件都要清掉自己那条**（Paused / Resumed / Completed / Failed / Rejected）。
+   缺一条就留下一个永不失效的旧值：那条会话此后每次出现在面板上都带着它最后一刻的进度，
+   而库里真正的值（可能因续传基线而**变小**）被它盖住。`TransferResumed` 尤其容易漏——
+   续传是新一轮，旧值比新基线大。
+3. **不要改成「发送侧周期落库」**。那会给三端的每一次传输都加上周期写事务，只为服务一个
+   此刻恰好有人在看的面板。缓存把代价留在需要它的那一侧。
+
+### 反复取数的命令不能用「每次现开一个数据库连接」
+
+`Records::db()` 原本每次调用都 `connect_and_migrate`，理由是「一条命令只取一两次数，
+而 SQLite 建连接很便宜」。那条理由对**长期运行**的 `watch` 不成立：`connect_and_migrate`
+每次都跑一遍 `Migrator::up`，即使没有待应用的迁移，那也是一次建表 DDL 加一次查询，
+也就是一次**写事务**。每秒一次等于持续在库上开写锁——而那正是常驻节点写 checkpoint
+要的同一把锁（连接不设 `journal_mode`，走 `delete` 模式，写事务阻塞所有读）。
+
+现在 `Records` 内部是 `Arc<tokio::sync::OnceCell<DatabaseConnection>>`：惰性（走通道的
+路径压根不碰它）、且同一个 `Records` 连同它的克隆只开一次。调用点一行未改。
+
+### 面板与选择菜单抢同一片屏幕，解法是「整个丢掉再重建」
+
+`indicatif` 的进度条与 `dialoguer` 的选择框都画在 stderr 的同一片区域，叠在一起两边都
+看不清。`MultiProgress::suspend()` 收的是**同步**闭包，而菜单是 async 的（`Picker` 经
+`spawn_blocking` 跑 dialoguer），塞不进去。
+
+所以按下热键时直接 `drop(panel)`，菜单结束后 `Panel::new()` 重建——清屏与重画的正确顺序
+只写在 `Drop` 里一处。加一对 `hide()`/`show()` 则是两条各自可能写错的路径，而漏掉其中
+一条的表现是半屏残留的进度条压在后续输出上面。
+
+### 读键：`std::thread` + 一次一个，不是 `spawn_blocking`
+
+两条都是必须的：
+
+- **`std::thread` 而非 `spawn_blocking`**：阻塞会一直持续到用户**下一次按键**，而那可能
+  永远不来。`spawn_blocking` 的任务在运行时销毁时会被等待（不可取消），于是面板因别的
+  原因退出后，进程会挂在 `main` 的运行时 drop 上，直到有人碰巧碰一下键盘。detached 的
+  OS 线程随进程退出消失。
+- **一次只开一个读者，读到键之后才开下一个**：否则弹菜单期间面板的读者还在，
+  菜单的方向键会被它截走，用户看到一个动不了的选择框。
+
+`console::Term::read_key_raw()`（`ctrlc_key = true`）把 Ctrl-C 作为**一个键**交回来，
+而不是替我们向自己发 `SIGINT`——面板持有一屏进度条与一个 raw 模式的终端，需要自己收尾。
+raw 模式关掉了 `ISIG`，所以 ^C 多半是作为字符 `\u{3}` 读到的，**两条路都要接住**。
+`select!` 里另有一条 `tokio::signal::ctrl_c()`，接的是没有读键线程的情形（`--no-input`
+下的面板，以及两次读键之间那个极短的窗口）。
+
+⚠️ **`Term::read_key` 在 stdin 不是终端时立即返回**，所以循环调用它会变成满速空转的
+忙循环。`prompt::hotkey()` 因此只能在 `can_ask()` 为真时调用（有 `debug_assert` 盯着），
+而 `watch` 把这个判断做在循环之外、只回答一次。
+
+### 三个动作共用一个通道动词、一份候选判据
+
+`Control { Pause, Resume, Cancel }` 在通道上是一个动词 `TransferControl { action, ids }`
+而不是三个：服务端骨架完全一致（解析标识 → 按方向派生 → 汇总），拆开只会让同一段代码
+出现三遍。
+
+「哪些会话能做哪个动作」也只有一份实现（`Control::applies`），三处依据它：菜单列哪些候选、
+参数指定的那条认不认、面板热键做什么。分开写的话，用户会在菜单里选到一条随即被服务端
+拒绝的会话。规则与桌面端 UI 的按钮可用性一致（`src/lib/transfer-projection.ts` +
+`-session-row.tsx`）：
+
+| 动作 | 候选 |
+|---|---|
+| `pause` | `phase == active`（其余阶段没有活 actor 可暂停） |
+| `resume` | `phase == suspended && recoverable`（不可恢复的只能重发） |
+| `cancel` | `phase ∈ {offered, waiting_accept, active}`（已暂停的没有在跑的东西可取消，要清掉它是删记录） |
+
+⚠️ **phase 名是抄来的字符串**（本 crate 的生产代码不依赖 `entity`），会静默漂移：
+核心改了 `rename_all` 或变体名，判据会全部落空——`transfer pause` 报「没有正在传输的
+会话」，而屏幕上明明有一条在传。常量收在 `runtime::transfers`（判据、文案、面板样式
+三处共用同一份），由 `phase_names_match_the_wire` 与 `status_names_match_the_wire`
+两条护栏看守。
+
+### 方向派生的 `pause` / `cancel` 加在了域上，不是在 CLI 里 match
+
+`TransferManager::pause` / `cancel` 按 `session.direction` 查表派生（与 `initiate_resume`
+同一形态），与桌面用的 `pause_send` / `pause_receive` **并存而不是取代**：持有投影的调用方
+（三端 UI）手上已经有 direction，多查一次库没意义；而通道服务端只拿到一串会话标识。
+
+**不是「先试发送失败再试接收」的试错**——那会把一条真实错误藏进两串拼接文案里
+（「发送会话不存在；接收会话不存在」而真正的原因是别的）。
+
+### 未完成投影是端口的一等方法，不是「取全部再过滤」
+
+`SessionStore::list_unfinished_projections`（`phase != Terminal`）。传输历史只增不减，
+而面板每秒重取一次——在应用层过滤意味着每一次刷新都要把整张表连同全部文件行读回内存，
+读的行数随这台机器用了多久线性增长，而真正要的那几条通常是个位数。
+
+SQL 侧的判据写 `ne(Terminal)` 而不是列举其余四个 phase：新增一个非终态 phase 时，
+列举法会把它静默排除在「未完成」之外。

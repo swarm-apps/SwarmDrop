@@ -364,12 +364,52 @@ pub enum TransferAction {
         /// 会话标识。不给则列出传输记录让你选。
         id: Option<String>,
     },
+
+    /// 实时盯着正在进行的传输，并就地暂停 / 恢复 / 取消。
+    ///
+    /// 每条未结束的传输一行进度条，随事实刷新；按 `q` 退出。
+    /// 屏幕上的热键与下面三条命令是同一件事——热键只是省掉一次敲命令。
+    Watch,
+
+    /// 暂停正在进行的传输。
+    ///
+    /// 不给标识时会列出**此刻正在传**的会话让你勾选（需要可交互的终端）。
+    /// 暂停会通知对端，双方都停在同一个断点上，之后用 `swarmdrop transfer resume` 续。
+    Pause {
+        /// 会话标识（完整）。可给多个。
+        #[arg(value_name = "ID")]
+        ids: Vec<String>,
+    },
+
+    /// 恢复已暂停或已中断的传输。
+    ///
+    /// 不给标识时会列出**可续传**的会话让你勾选。不可恢复的中断不在其列——
+    /// 那种只能重新发一次。
+    Resume {
+        /// 会话标识（完整）。可给多个。
+        #[arg(value_name = "ID")]
+        ids: Vec<String>,
+    },
+
+    /// 取消尚未结束的传输。
+    ///
+    /// 不给标识时会列出**尚未结束**的会话让你勾选。已暂停的不在其列——
+    /// 它此刻没有在跑的东西可取消，要清掉它请删记录。
+    Cancel {
+        /// 会话标识（完整）。可给多个。
+        #[arg(value_name = "ID")]
+        ids: Vec<String>,
+    },
 }
 
 impl TransferAction {
     fn is_interactive(&self) -> bool {
         match self {
             Self::Show { id } => id.is_none(),
+            // **整条命令都要有人看着屏幕**，与 `invite create` 同一类（它也没有参数
+            // 可缺）：面板每秒重画一次，而 info 级的网络状态叙述会把它冲成一片乱码。
+            Self::Watch => true,
+            Self::Pause { ids } | Self::Resume { ids } | Self::Cancel { ids } => ids.is_empty(),
             Self::List => false,
         }
     }
@@ -510,6 +550,10 @@ mod tests {
                 "00000000-0000-4000-8000-000000000000",
             ],
             vec!["swarmdrop", "transfer", "show"],
+            // **面板每秒重画一次**，info 级的网络状态叙述会把它冲成一片乱码。
+            // 它没有可缺省的参数，所以下面那条反射测试覆盖不到它——同 `invite create`。
+            vec!["swarmdrop", "transfer", "watch"],
+            vec!["swarmdrop", "transfer", "pause"],
             vec!["swarmdrop", "send"],
             vec!["swarmdrop", "send", "a.txt"],
             vec!["swarmdrop", "send", "--to", "phone"],
@@ -529,6 +573,12 @@ mod tests {
             vec!["swarmdrop", "invite", "revoke", "abcd1234"],
             vec!["swarmdrop", "invite", "revoke", "--all", "--yes"],
             vec!["swarmdrop", "device", "forget", "phone"],
+            vec![
+                "swarmdrop",
+                "transfer",
+                "pause",
+                "00000000-0000-4000-8000-000000000000",
+            ],
             vec!["swarmdrop", "invite", "list"],
             vec!["swarmdrop", "invite", "use", "https://swarmdrop.dev/p/xxx"],
             vec![
