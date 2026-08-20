@@ -150,7 +150,7 @@ pub async fn archive_inbox_item(
 /// 编排（先文件后记录、删文件失败不阻断、条目不存在报错）是**三端共用的领域规则**，
 /// 住在 [`swarmdrop_transfer::inbox::delete_inbox_item`]。此前这里裸写
 /// `tokio::fs::remove_file` —— 那是绕过 `FileAccess` 端口的第三份删除实现，
-/// 现已收编到 `TauriFileAccess::delete_finalized_file`。
+/// 现已收编到 `LocalFileAccess::delete_finalized_file`。
 ///
 /// `FileAccess` 从 state 取而不是现建一个：与 `start()` 注入给 `TransferManager` 的
 /// **是同一个 `Arc`**（组装点在 `setup.rs`）。收件箱命令刻意不经 `TransferManager`

@@ -6,6 +6,7 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { downloadDir, join } from "@tauri-apps/api/path";
 import type { FileSource } from "@/lib/bindings";
+import { pathsToSources } from "@/lib/file-source";
 import type { SaveLocation } from "@/lib/types";
 
 const SAVE_DIR_NAME = "SwarmDrop";
@@ -25,8 +26,7 @@ export async function getDefaultSavePath(): Promise<string> {
 export async function pickFiles(multiple = true): Promise<FileSource[]> {
   const selected = await open({ multiple });
   if (!selected) return [];
-  const paths = Array.isArray(selected) ? selected : [selected];
-  return paths.map((p) => ({ type: "path" as const, path: p }));
+  return pathsToSources(Array.isArray(selected) ? selected : [selected]);
 }
 
 /**
@@ -89,5 +89,5 @@ export async function openTransferResult(session: {
 export async function pickFolderAsSource(): Promise<FileSource | null> {
   const path = await open({ directory: true });
   if (!path) return null;
-  return { type: "path" as const, path };
+  return pathsToSources([path])[0];
 }

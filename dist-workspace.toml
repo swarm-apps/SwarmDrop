@@ -1,0 +1,77 @@
+# cargo-dist（工具名现为 `dist`）配置。
+#
+# **只发布 CLI**（`swarmdrop-cli` crate 的 `swarmdrop` 二进制）。桌面与移动端各有自己的
+# 发布流水线：桌面走 Tauri + SwarmHive（`.github/workflows/release.yml`，tag `v*`），
+# 移动走 `mobile-release.yml`（tag `mobile-v*`）。三条版本线互不触发。
+#
+# 编辑后重新生成发布 workflow：`dist init`（或 `dist generate`）。
+
+[workspace]
+members = ["cargo:crates/cli"]
+
+[dist]
+# CI 里使用的 dist 版本（Cargo.toml SemVer 语法）
+cargo-dist-version = "0.32.0"
+# CI 后端
+ci = "github"
+
+# tag-namespace：CLI release 的 git tag 必须以 `cli/` 开头。dist generate 据此产出
+# `.github/workflows/cli-release.yml`，触发模式 'cli**[0-9]+.[0-9]+.[0-9]+*'，从而与桌面的
+# `v*` 和移动的 `mobile-v*` 彻底解耦（默认贪婪的 '**[0-9]+...' 会把三者都吃进去）。
+#
+# ⚠️ **tag 必须带包名**：`cli/swarmdrop-cli-v0.1.0`，不是 `cli/v0.1.0`。
+# 这里没有对应的配置项 —— tag 形式**就是**唯一的开关，且选错时静默出错，所以发版走
+# `./scripts/release-cli.sh`（它构造 tag 并校验 notes 来源），别手敲 `git tag`。
+#
+# 原因：dist 的 **announcement 粒度由 tag 决定**，粒度又决定 release notes 取哪份
+# CHANGELOG（两份 dist 都会扫到，选哪份只看粒度）：
+#   cli/v0.1.0                → 剥掉 namespace 只剩版本号 → 判定「整个 workspace 统一
+#                               发布」→ 取 **workspace root** 的 CHANGELOG.md，
+#                               那是**桌面端**的版本线
+#   cli/swarmdrop-cli-v0.1.0  → 带包名 → 包级 announcement → 取 crates/cli/CHANGELOG.md
+# 前者不报错：dist 在根 CHANGELOG.md 里按版本号找到桌面端的同号条目就用了。cli/v0.1.0
+# 因此把桌面 2026-02-14 的「限制 Android 构建目标为 aarch64」发成了 CLI 首版说明。
+# 三条版本线共存放大了它 —— 桌面已到 0.23.x、CLI 从 0.1.0 重起，撞号是必然而非偶然。
+#
+# ⚠️ 也**不要**用连字符裸形式 `cli-v0.1.0`：namespace `cli` ≠ 包名 `swarmdrop-cli`，
+# dist 会把整串当版本号解析并报
+# "Couldn't parse the version ... unexpected character 'c'"。
+# （namespace 与包名相同的项目可以用连字符，这里不成立。）
+tag-namespace = "cli"
+
+# 安装渠道。npm 那条是给 agent harness 用的关键：插件把 CLI 声明为依赖后，
+# optionalDependencies 会按平台拉到对应二进制。
+installers = ["shell", "powershell", "npm", "homebrew"]
+
+# npm 包名 → `swarmdrop`（**无 scope**）。不写 npm-package 的话 dist 会取 cargo 包名
+# `swarmdrop-cli`。
+#
+# 刻意不用 scope（同家族的 SwarmHive 用的是 `@swarm-hive/cli`）：scoped 包要求那个 npm
+# 组织已存在且发布者有权限，而组织是否存在无法从外部查证——发布失败会卡在 CI 的
+# publish 那一步。无 scope 名不依赖任何组织，`npx swarmdrop` 也更短。
+npm-package = "swarmdrop"
+
+# Homebrew 没有 scope，formula 用干净的二进制名：`brew install swarm-apps/tap/swarmdrop`。
+formula = "swarmdrop"
+# 复用组织既有的 tap，不新建。
+tap = "swarm-apps/homebrew-tap"
+
+# 目标平台（Rust target-triple）
+targets = [
+    "aarch64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "x86_64-pc-windows-msvc",
+]
+
+# CI 中运行的发布任务
+publish-jobs = ["npm", "homebrew"]
+# 安装器把二进制放到哪
+install-path = "CARGO_HOME"
+# 只构建需要的包，且逐个构建
+precise-builds = true
+# **不内建自更新**：更新由安装渠道（brew / npm / shell 安装脚本）负责，
+# 内建 updater 会与包管理器争夺「哪个版本是当前版本」的事实源。
+install-updater = false

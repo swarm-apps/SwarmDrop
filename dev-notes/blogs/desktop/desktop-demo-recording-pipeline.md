@@ -280,7 +280,8 @@ e2e/desktop/scripts/record-desktop-demo.mjs
 常用参数：
 
 ```bash
-# 跳过 Tauri debug build，直接用已有 target/debug/swarmdrop
+# 跳过 Tauri debug build，直接用已有 target/debug/swarmdrop-desktop
+# （2026-08-19 前叫 swarmdrop，与 CLI 的 bin 撞名后改的）
 pnpm --dir e2e/desktop record desktop-home --skip-build
 
 # 只跑 WDIO demo 和截图，不连接 OBS

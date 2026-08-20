@@ -292,6 +292,20 @@ pub enum InviteParseError {
 }
 
 impl PairInvite {
+    /// 这张邀请在清单与撤销里的标识：`sha256(capability)` 的小写 hex。
+    ///
+    /// **从邀请自身算出，不查注册表。** 注册表的清单按 `created_at`（Unix **秒**）倒序，
+    /// 而底层是 `HashMap`——同一秒里生成的两张，谁排第一完全任意。生成侧若靠「取清单第一条」
+    /// 反推刚发出的那张，一分钟内发两张就可能拿到**另一张**的标识，而那个值紧接着会被
+    /// 印成「发错了可以撤回：swarmdrop invite revoke {id}」：用户照着撤，撤掉的是无辜的那张，
+    /// 想撤的那张仍然有效——一个已经泄露的一次性凭证于是撤不掉。
+    ///
+    /// 与 [`InviteSummary::capability_hash`] 经 `capability_hash_to_hex` 得到的是同一个串，
+    /// 由 `id_matches_the_registry_listing` 钉住。
+    pub fn id(&self) -> String {
+        crate::store::capability_hash_to_hex(&capability_hash(&self.capability))
+    }
+
     /// 生成一个新邀请。`now` 为 Unix 秒（时间源由调用方注入，便于测试与 wasm）。
     ///
     /// `inviter_addrs` 为空即 [`NoDialableAddrs`] —— 见那里的推导。这条闸让**「地址恒非空」
@@ -827,6 +841,49 @@ mod tests {
             1_700_000_000,
         )
         .expect("夹具带地址")
+    }
+
+    /// [`PairInvite::id`] 与注册表清单里的标识必须是同一个串。
+    ///
+    /// 两者是**两条独立的计算路径**：一条从邀请自身的 capability 现算，另一条来自注册表
+    /// 登记时存下的哈希。生成侧印出的「撤销用这个标识」取自前者，用户敲进 `invite revoke`
+    /// 后由后者匹配——两边不一致的表现是「照着提示撤，却说找不到这张邀请」。
+    #[tokio::test]
+    async fn id_matches_the_registry_listing() {
+        let secret = SecretKey::generate();
+        let invite = test_invite(&secret, TransportPolicy::Auto);
+        let now = 1_700_000_000;
+
+        // **走真路径**：登记进注册表，再从清单里取回来。
+        // 断言 `id()` 等于「用同一个表达式再算一遍」是恒真的，看守不住任何东西——
+        // `register` 换成用别的字节算哈希、或 `InviteSummary` 换成存别的值，那种写法
+        // 照样绿，而用户看到的会是「照着提示撤，却说找不到这张邀请」。
+        let registry = InviteRegistry::new(std::sync::Arc::new(crate::store::NoopInviteStore));
+        registry.register(&invite, now).await;
+
+        let listed = registry.list_active(now);
+        assert_eq!(listed.len(), 1, "刚登记的邀请应当在清单里");
+        assert_eq!(
+            invite.id(),
+            crate::store::capability_hash_to_hex(&listed[0].capability_hash),
+            "生成侧印出的标识与撤销侧匹配用的标识必须是同一个串"
+        );
+    }
+
+    /// 同一时刻生成的两张邀请，标识必须各不相同且各自稳定。
+    ///
+    /// 看守的是「靠清单顺序反推刚发出的那张」这个做法：注册表按 `created_at`（Unix **秒**）
+    /// 排序、底层是 `HashMap`，同秒的顺序任意，于是那个做法会给出另一张的标识——而它紧接着
+    /// 被印成「发错了可以撤回：swarmdrop invite revoke {id}」。`id()` 不看顺序，这条恒成立。
+    #[test]
+    fn ids_are_distinct_for_invites_minted_at_the_same_instant() {
+        let secret = SecretKey::generate();
+        let a = test_invite(&secret, TransportPolicy::Auto);
+        let b = test_invite(&secret, TransportPolicy::Auto);
+
+        // （夹具硬编码同一个 `now`，不再断言它——恒真的断言只会稀释这条测试的意图。）
+        assert_ne!(a.id(), b.id(), "两张邀请的标识不得相同");
+        assert_eq!(a.id(), a.id(), "同一张的标识必须稳定");
     }
 
     /// 前缀匹配必须大小写不敏感 —— **这条曾经是「前缀必须全小写」，被现实推翻**。

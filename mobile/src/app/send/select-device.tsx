@@ -3,11 +3,10 @@
  *
  * 入口：(main) 点击在线设备 → push 到这里（携带 peerId）。
  * 流程：
- *   1. 顶部 device header（不再让用户选设备，已经在主屏选过）
- *   2. 文件/文本紧凑分段控件：文件默认但不预设入口语义
- *   3. 文件模式以「添加文件 / 添加文件夹 / 照片 / 视频」累加；文本模式提供编辑器与剪贴板
- *   4. 底部「取消 / 发送」操作栏；文件发送过程显示 prepareSend 进度条
- *   5. 文件发送成功 → router.replace 到 `/transfer/[sessionId]` 看实时进度
+ *   1. 顶部 device header（不再让用户选设备，已经在主屏选过），文件/文本切换器贴在它右侧
+ *   2. 文件模式以「添加文件 / 添加文件夹 / 照片 / 视频」累加；文本模式提供编辑器与剪贴板
+ *   3. 底部「取消 / 发送」操作栏；文件发送过程显示 prepareSend 进度条
+ *   4. 文件发送成功 → router.replace 到 `/transfer/[sessionId]` 看实时进度
  */
 
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -22,11 +21,11 @@ import {
 } from "@swarmdrop/shared-view";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-  Clipboard as ClipboardIcon,
   FileText,
   Folder,
   Image as ImageIcon,
   type LucideIcon,
+  Type,
   Video,
 } from "lucide-react-native";
 import {
@@ -327,10 +326,8 @@ export default function SendPreparePage() {
                 device={device}
                 displayName={displayName}
                 runtimeState={runtimeState}
-              />
-              <ContentModeSwitch
-                value={contentMode}
-                onChange={setContentMode}
+                contentMode={contentMode}
+                onContentModeChange={setContentMode}
                 disabled={sending}
               />
               <AddSourceButtons disabled={sending} onPick={handlePick} />
@@ -348,10 +345,8 @@ export default function SendPreparePage() {
             device={device}
             displayName={displayName}
             runtimeState={runtimeState}
-          />
-          <ContentModeSwitch
-            value={contentMode}
-            onChange={setContentMode}
+            contentMode={contentMode}
+            onContentModeChange={setContentMode}
             disabled={sending}
           />
           <Surface className="gap-3 p-4">
@@ -610,6 +605,26 @@ function mobileTextStatus(status: MobileTextDeliveryStatus): ReactNode {
   }
 }
 
+/**
+ * 文件 / 文本切换器。**它贴在 `DeviceHeader` 右侧，不再独占一行。**
+ *
+ * 此前是一条 224×44 的分段控件单占一行（连 gap 共 56px）。挪进设备行后高度归零——
+ * 设备行本身 66px，装得下 48px 的切换器，判据见 `DESIGN.md` 的 Content Mode Selector。
+ *
+ * **为什么不是 FileBrowser 的工具栏那一行**（三端里桌面走的是页头、这里本可对齐）：
+ * iPhone SE 可用宽 335，而「切换器 138 + 标题区 ~110 + 视图切换 112」= 360 放不下，
+ * 视图切换那 112 是 44 命中区撑出来的、压不动。设备行右侧则是空的（这一端的计量在
+ * `BottomActionBar`，不像桌面那样占着摘要条右侧），所以移动端落在设备行上。
+ *
+ * ⚠️ 高度 `h-11` 是 44×44 命中区的硬下限（`DESIGN.md` Shapes），紧凑只能靠**缩宽**：
+ * 去掉原来的 `w-28` 固定宽，改按内容自适应。
+ *
+ * **这一端刻意不走 `@/components/ui/tabs`，另两端走。** 桌面与 Web 换用 shadcn 的 Radix
+ * `Tabs` 是为了 roving tabindex、方向键与 Home/End——那些在 RN 上根本不存在，`Tabs` 在
+ * 这里只剩「换一套要处处覆盖的尺寸」（它是 `h-9`，而这里要 44）与「把 `AppScreen` /
+ * `FileBrowser` 的组合改造成 `TabsContent` 的 asChild」这两笔成本。手写的这份用
+ * `accessibilityRole="tablist"` / `"tab"` 表达同一套语义，那才是三端真正要一致的东西。
+ */
 function ContentModeSwitch({
   value,
   onChange,
@@ -619,25 +634,30 @@ function ContentModeSwitch({
   onChange: (value: "files" | "text") => void;
   disabled: boolean;
 }) {
+  // 图标与另两端同一套（`FileText` + `Type`）。这里此前是 `Clipboard`——那说的是
+  // 「从剪贴板来」，而这一档同样接受手打的文本，剪贴板只是面板里那个粘贴按钮。
   const options = [
     { value: "files" as const, label: <Trans>文件</Trans>, icon: FileText },
-    { value: "text" as const, label: <Trans>文本</Trans>, icon: ClipboardIcon },
+    { value: "text" as const, label: <Trans>文本</Trans>, icon: Type },
   ];
   const colors = useThemeColors();
   return (
-    <View className="self-start flex-row rounded-xl bg-muted p-1">
+    <View
+      accessibilityRole="tablist"
+      className="shrink-0 flex-row rounded-lg bg-muted p-0.5"
+    >
       {options.map(({ value: option, label, icon: Icon }) => {
         const active = option === value;
         return (
           <Pressable
             key={option}
-            accessibilityRole="button"
+            accessibilityRole="tab"
             accessibilityState={{ selected: active }}
             disabled={disabled}
             onPress={() => onChange(option)}
             testID={`send-content-mode-${option}`}
             className={cn(
-              "h-11 w-28 flex-row items-center justify-center gap-1.5 rounded-lg",
+              "h-11 flex-row items-center justify-center gap-1.5 rounded-md px-2.5",
               active ? "bg-card" : "",
               "disabled:opacity-50",
             )}
@@ -662,10 +682,16 @@ function DeviceHeader({
   device,
   displayName,
   runtimeState,
+  contentMode,
+  onContentModeChange,
+  disabled,
 }: {
   device: DeviceInfo;
   displayName: string;
   runtimeState: string;
+  contentMode: "files" | "text";
+  onContentModeChange: (value: "files" | "text") => void;
+  disabled: boolean;
 }) {
   const colors = useThemeColors();
   const Icon = devicePlatformIcon(`${device.os} ${device.platform}`);
@@ -677,14 +703,16 @@ function DeviceHeader({
       <View className="size-10 items-center justify-center rounded-full bg-card">
         <Icon color={colors.foreground} size={20} />
       </View>
-      <View className="flex-1 gap-0.5">
+      {/* `min-w-0` 不能省：切换器是 `shrink-0`，没有它时这一列不肯收缩，
+          长设备名会把切换器挤出卡片右边缘而不是自己截断。 */}
+      <View className="min-w-0 flex-1 gap-0.5">
         <Text
           className="text-[14px] font-semibold text-foreground"
           numberOfLines={1}
         >
           {displayName}
         </Text>
-        <Text className="text-[12px] text-muted-foreground">
+        <Text className="text-[12px] text-muted-foreground" numberOfLines={1}>
           {trustLevel === "blocked" ? (
             <Trans>已阻止 · 不可发送</Trans>
           ) : isOnline ? (
@@ -696,6 +724,11 @@ function DeviceHeader({
           )}
         </Text>
       </View>
+      <ContentModeSwitch
+        value={contentMode}
+        onChange={onContentModeChange}
+        disabled={disabled}
+      />
     </View>
   );
 }

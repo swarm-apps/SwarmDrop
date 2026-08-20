@@ -8,8 +8,14 @@
   境内 CDN 也就用不上）。它必须在慢网络下秒开。
 
   Next 的 client component 光 React + framework runtime 的 baseline 就 ~150KB gzip，
-  而这个页面要做的只有「读 hash → 给两个出口」。放在 public/ 下手写，零 JS 框架、零往返，
+  而这个页面要做的只有「读 hash → 给几个出口」。放在 public/ 下手写，零 JS 框架、零往返，
   静态导出会原样复制到 out/p/index.html —— 路径与 canonical 邀请链接的 `/p/` 段天然一致。
+
+  ## 这一页也是命令行宿主的出码处
+
+  `swarmdrop invite create` 不在终端画码（画不下，判据见 `crates/cli/src/render/invite.rs`
+  的 `render_created`），扫码由本页承担。于是访客有两种：被邀请方，与**邀请方自己**
+  （点开只为看那张码）。共用同一组出口，不做区分。
 
   ## 刻意不做的两件事
 
@@ -21,8 +27,10 @@
 
   ## capability 不出这个页面
 
-  payload 在 URL fragment 里，浏览器不会把它发给服务器。本页也**不把它渲染进 DOM**
-  （只用于拼跳转地址与复制），所以既不进日志，也没有 XSS 面。
+  payload 在 URL fragment 里，浏览器不会把它发给服务器。本页也**不把它作为文本渲染进
+  DOM**（只用于拼跳转地址、复制、编成二维码），所以既不进日志，也没有 XSS 面 ——
+  码走 canvas 像素，不经 innerHTML。码会被截图，但那是邀请这个凭证本身的属性
+  （spec: cli-host「邀请不构成可以直接接受」），由「入站配对必须由人确认」兜住。
 
   ## 多语言 · 体积
 
@@ -30,9 +38,12 @@
   这么做是为了**无 JS 也能读**（`#bad` 默认可见是同一条约束的另一半），**不是为了省字节**
   ——补一份完整 zh 字典实测只多 99B gzip，deflate 会把它匹配到正文里同样的中文串上。
 
-  体积上限 10KB gzip，**本文件的注释也算在内**（public/ 下原样下发，不经任何处理），
+  体积上限 12KB gzip，**本文件的注释也算在内**（public/ 下原样下发，不经任何处理），
   所以论证放知识库、这里只留结论。`pnpm check:landing` 把关，它同时核对字典完整性。
   完整论证见 `dev-notes/knowledge/web-app-frontend.md`。
+
+  同目录 `qr.js`（vendored 编码器）**不在这条预算里**：按需注入、第二跳、非阻塞，而
+  12KB 守的是首屏。它另有一条独立上限，同由 `check-landing.mjs` 把关，免得成为逃逸口。
 -->
 <html lang="zh">
   <head>
@@ -140,6 +151,56 @@
       button.secondary:hover {
         background: var(--bg);
       }
+      /* 相邻次要按钮之间要有缝：`a.primary` 自带 margin-bottom，两个 button 之间没有
+         （深链出口默认 hidden，所以这个既有瑕疵一直没显形）。 */
+      button.secondary + button.secondary {
+        margin-top: 10px;
+      }
+      /* 白卡 + 深模块，**不随暗色主题反色**（摄像头对反色 QR 识别明显更差），规范同
+         `crates/invite/src/qr.rs`。padding 同时就是 quiet zone，与 280px 的码面是**一组**：
+         实测满配邀请（583 字符）编成 93 模块，摊上去 3.0px/模块，16px ≈ 5.3 模块
+         （ISO 要求 4，密度下限 2）。动其一必须重算另一个 —— 见 knowledge/web-app-frontend.md。 */
+      #qr {
+        margin-top: 16px;
+        padding: 16px;
+        background: #fff;
+        border-radius: 10px;
+        display: flex;
+        justify-content: center;
+      }
+      /* 出了码之后才分两列：380px 的窄条里堆上标题、三个出口、两段说明再加一张码，
+         在桌面上就是一根很长的柱子、两侧全空。但**没有码时绝不能加宽**（右半边会是空的），
+         所以开关是脚本渲染成功后才加的 `.with-qr`，不是纯媒体查询。
+         断点与自动出码共用 560px —— 两者本来就是同一个判断。 */
+      @media (min-width: 560px) {
+        main.with-qr {
+          max-width: 720px;
+        }
+        main.with-qr #ok {
+          display: grid;
+          grid-template-columns: 1fr 312px;
+          gap: 0 32px;
+          align-items: start;
+        }
+        /* 说明回到左列底部（默认会被排进第二行第一列，写出来是为了防止将来插入元素时飘走）。 */
+        main.with-qr #notes {
+          grid-column: 1;
+        }
+        /* 右列顶端与左列的标题对齐 —— 第一个元素自带的 margin 在这里是多余的。 */
+        main.with-qr #qr {
+          margin-top: 0;
+        }
+      }
+      /* 跟着上方的码居中：这句说的是那张码，左对齐会在两列布局里飘到列的另一头。 */
+      #qr-hint {
+        text-align: center;
+      }
+      /* 编码器按设备像素出图，这里压回 CSS 像素 —— 高 DPI 屏上放大会糊掉模块边缘。 */
+      #qr canvas {
+        width: 100%;
+        max-width: 280px;
+        height: auto;
+      }
       .hint {
         margin: 16px 0 0;
         font-size: 12px;
@@ -163,37 +224,56 @@
     <main>
       <div class="mark" aria-hidden="true">S</div>
 
-      <!-- 有 payload：给出口。默认 hidden，脚本命中后显示 -->
+      <!-- 有 payload：给出口。默认 hidden，脚本命中后显示。 -->
       <div id="ok" hidden>
-        <h1 data-i18n="ok-title">有人邀请你配对</h1>
-        <p data-i18n="ok-body">
-          配对一次即建立长期信任，之后互相传文件不需要再确认。下一步会显示对方的设备名与
-          身份指纹，由你确认。
-        </p>
-        <!-- 两条约束：
-             1. **相对路径**（`../`）而不是 `/app/devices/`。本页是 public/ 下的纯 HTML，
-                不经 Next 处理，所以拿不到 basePath 自动前缀 —— 站点部署在 `/SwarmDrop`
-                子路径下时，根路径写法会 404。相对路径在「子路径」与「将来的自定义域名根」
-                两种部署下都对，且不依赖 JS。
-             2. **尾斜杠是必需的**：站点 trailingSlash: true，产物在 app/devices/index.html。
-                少了它要吃一次 301，而兜底路径的 payload 挂在 fragment 上 —— 正是
-                invite-url-canonical design D4 警告「跳转中容易丢 fragment」的场景。 -->
-        <a class="primary" id="go-web" data-i18n="go-web" href="../app/devices/"
-          >在浏览器中配对</a
-        >
-        <!-- 深链出口。**默认 hidden**，只有脚本确认本平台注册了 swarmdrop: scheme 才显示 ——
-             无 JS 或 iOS（本期不做 iOS 深链）下不该出现一个点了没反应的按钮。 -->
-        <button class="secondary" id="go-app" data-i18n="go-app" type="button" hidden>
-          在 SwarmDrop App 中打开
-        </button>
-        <button class="secondary" id="copy" data-i18n="copy" type="button">
-          复制邀请链接
-        </button>
-        <p class="hint" id="app-hint" data-i18n="app-hint">
-          已装 App？复制链接后打开它，会自动识别剪贴板里的邀请。iPhone 上请进
-          「添加设备 → 粘贴」。
-        </p>
-        <p class="hint" id="copy-status" role="status" aria-live="polite"></p>
+        <div class="col">
+          <h1 data-i18n="ok-title">有人邀请你配对</h1>
+          <p data-i18n="ok-body">
+            配对一次即建立长期信任，之后互相传文件不需要再确认。下一步会显示对方的设备名与
+            身份指纹，由你确认。
+          </p>
+          <!-- 两条约束：
+               1. **相对路径**（`../`）而不是 `/app/devices/`。本页是 public/ 下的纯 HTML，
+                  不经 Next 处理，所以拿不到 basePath 自动前缀 —— 站点部署在 `/SwarmDrop`
+                  子路径下时，根路径写法会 404。相对路径在「子路径」与「将来的自定义域名根」
+                  两种部署下都对，且不依赖 JS。
+               2. **尾斜杠是必需的**：站点 trailingSlash: true，产物在 app/devices/index.html。
+                  少了它要吃一次 301，而兜底路径的 payload 挂在 fragment 上 —— 正是
+                  invite-url-canonical design D4 警告「跳转中容易丢 fragment」的场景。 -->
+          <a class="primary" id="go-web" data-i18n="go-web" href="../app/devices/"
+            >在浏览器中配对</a
+          >
+          <!-- 深链出口。**默认 hidden**，只有脚本确认本平台注册了 swarmdrop: scheme 才显示
+               —— 无 JS 或 iOS（本期不做 iOS 深链）下不该出现一个点了没反应的按钮。 -->
+          <button class="secondary" id="go-app" data-i18n="go-app" type="button" hidden>
+            在 SwarmDrop App 中打开
+          </button>
+          <button class="secondary" id="copy" data-i18n="copy" type="button">
+            复制邀请链接
+          </button>
+          <!-- 二维码入口（编码器 `qr.js` 按需注入，见文件头）。**按钮在这里、码在下面的
+               `#qr-col` 里**：窄屏单列时按钮必须留在按钮组内（挪到说明之后就成了孤儿），
+               而宽屏自动出码、按钮从不显示，码要单独成列。 -->
+          <button class="secondary" id="qr-btn" data-i18n="qr-show" type="button" hidden>
+            显示二维码
+          </button>
+        </div>
+
+        <div class="col" id="qr-col">
+          <div id="qr" hidden></div>
+          <p class="hint" id="qr-hint" data-i18n="qr-hint" hidden>
+            用另一台设备扫这个码，就能配上。
+          </p>
+        </div>
+
+        <!-- 说明收在最后：窄屏下它们跟在码后面，宽屏下靠 `grid-column: 1` 回到左列底部。 -->
+        <div class="col" id="notes">
+          <p class="hint" id="app-hint" data-i18n="app-hint">
+            已装 App？复制链接后打开它，会自动识别剪贴板里的邀请。iPhone 上请进
+            「添加设备 → 粘贴」。
+          </p>
+          <p class="hint" id="copy-status" role="status" aria-live="polite"></p>
+        </div>
       </div>
 
       <!-- 无 payload：链接不完整。**默认可见**（渐进增强反过来）——JS 被禁时页面至少还有
@@ -227,6 +307,9 @@
             "go-web": "Pair in this browser",
             "go-app": "Open in the SwarmDrop app",
             copy: "Copy invite link",
+            "qr-show": "Show QR code",
+            "qr-hint": "Scan this code with another device to pair.",
+            "qr-failed": "Couldn't load the QR code — retry",
             "app-hint":
               "Already have the app? Copy the link and open it — the invite is picked up from your clipboard automatically. On iPhone, go to Add device → Paste.",
             "bad-title": "This link is incomplete",
@@ -250,6 +333,9 @@
             "go-web": "在瀏覽器中配對",
             "go-app": "在 SwarmDrop App 中開啟",
             copy: "複製邀請連結",
+            "qr-show": "顯示 QR 碼",
+            "qr-hint": "用另一台裝置掃這個碼，就能配上。",
+            "qr-failed": "QR 碼載入失敗，重試",
             "app-hint":
               "已安裝 App？複製連結後開啟它，會自動識別剪貼簿裡的邀請。iPhone 上請進「新增裝置 → 貼上」。",
             "bad-title": "這個連結不完整",
@@ -423,6 +509,66 @@
             done(t("copy-unsupported", "这个浏览器不支持一键复制，请长按地址栏手动复制"));
           }
         });
+
+        // ---- 二维码（暴露面见文件头）----------------------------------------
+        // 编 `canonical` 不编 `location.href`：后者带着分享渠道追加的 query，扫出来后端
+        // 不受理，而失败只发生在扫码那一侧。与「复制」共用同一个变量是同一条理由。
+        var qrBox = document.getElementById("qr");
+        var qrBtn = document.getElementById("qr-btn");
+        var qrHint = document.getElementById("qr-hint");
+
+        // 出码失败的唯一处置：把按钮交回去（可重试），并说明失败的只是码。
+        // **两个失败点共用它**：拉不到 qr.js（onerror），以及编码本身抛错（容量、
+        // 参数不合法）。少了后者，按钮已经被 `showQr` 藏起来而码又没出来，
+        // 用户看到的是一块**既没码也没按钮**的空白 —— 连重试都点不着。
+        function qrFailed() {
+          qrBtn.hidden = false;
+          qrBtn.textContent = t("qr-failed", "二维码加载失败，重试");
+        }
+
+        function showQr() {
+          qrBtn.hidden = true;
+          var script = document.createElement("script");
+          // 相对本页解析，故在 Pages 子路径与将来的域名根下都对 —— 与 `../app/devices/`
+          // 那两条相对路径同一条理由（本页不经 Next，拿不到 basePath）。
+          script.src = "./qr.js";
+          script.onload = function () {
+            // ECL::M 与方块（radius 0）同三端规范：圆角会吃掉模块边缘对比度。
+            // size 按设备像素出图、CSS 压回，封顶 2 倍 —— 再高只是徒增画布内存。
+            try {
+              self.QrCreator.render(
+                {
+                  text: canonical,
+                  ecLevel: "M",
+                  radius: 0,
+                  fill: "#0a0a0a",
+                  background: "#ffffff",
+                  size: 280 * Math.min(2, self.devicePixelRatio || 1),
+                },
+                qrBox,
+              );
+            } catch (e) {
+              return qrFailed();
+            }
+            qrBox.hidden = false;
+            qrHint.hidden = false;
+            // 分两列只在**码真的出来之后**（见样式表）：渲染失败时右列是空的，
+            // 那时宽卡片比窄卡片更难看。
+            document.querySelector("main").classList.add("with-qr");
+          };
+          script.onerror = qrFailed;
+          document.head.appendChild(script);
+        }
+
+        qrBtn.addEventListener("click", showQr);
+
+        // 宽屏直接出码，窄屏只给按钮：桌面上最常见的打开方式就是邀请方自己点开、拿手机扫；
+        // 手机上自己扫自己没意义，不该为它拉 5KB 编码器。`matchMedia` 缺失时退到按钮。
+        if (self.matchMedia && self.matchMedia("(min-width: 560px)").matches) {
+          showQr();
+        } else {
+          qrBtn.hidden = false;
+        }
       })();
     </script>
   </body>

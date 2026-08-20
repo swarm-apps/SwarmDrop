@@ -74,7 +74,15 @@ export function TaskContent({
             就从**底部 padding 之外**溢出去 —— 滚到底时卡片直接贴住下方 CommandDock，
             看起来像漏了 padding。`min-h-full` 让盒子随内容长高，同时短内容仍撑满整屏，
             所以 `flex items-center justify-center` 那类居中布局照旧生效
-            （min-height 一样会为 flex-1 产生可分配的剩余空间）。 */}
+            （min-height 一样会为 flex-1 产生可分配的剩余空间）。
+
+            ⚠️ **调用方不要传 `min-h-*`。** 它与这里的 `min-h-full` 是同一个 CSS 属性，
+            `twMerge` 只保留后写的那个 —— 传进来的赢，`min-h-full` 连同上面整段行为一起
+            静默消失，className 里却还留着它，看代码看不出来。四个调用点曾经都传
+            `min-h-0`（flex 布局的肌肉记忆，而这个 wrapper 根本不是 flex item，
+            它的父级是 `overflow-auto` 的块级容器），实测后果：发送页内容面板停在半空、
+            下面空掉 140px；发送进度页的加载 spinner 贴在顶部而不是屏幕中央。
+            2026-08-17 全部清掉，判据记在 knowledge/theme-and-styling.md。 */}
         <div
           {...props}
           className={cn(

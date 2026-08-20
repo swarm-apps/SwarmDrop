@@ -1,0 +1,40 @@
+[package]
+name = "swarmdrop-host-fs"
+version = "0.1.0"
+edition.workspace = true
+
+# 宿主端口的 **native 本地文件系统实现**。
+#
+# 判据（与 crates/host 的分工）：`crates/host` 是纯端口——trait + DTO + error + device
+# 类型，零 IO，要过 wasm 双 target 门禁；本 crate 是那些端口在「有本地文件系统」这个
+# 前提下的实现，多个原生宿主逐行同构的那一份。
+#
+# ⚠️ **core 不依赖本 crate**：core 要过 wasm 门禁，而这里全是 native-only 的实现。
+# 宿主（桌面 / 命令行 / 移动）各自直接依赖它——谁用实现谁声明它。
+#
+# 移动端只用得上其中的设备配置那份：它的文件落点走系统文档提供方，`FileAccess`
+# 自有实现。整 crate 只做 `cfg(not(wasm))` 而不细分到 OS——按 OS 细分会引入一个
+# 需要长期维护的 cfg 矩阵，而多编译出来的那点产物可忽略。
+
+[dependencies]
+swarmdrop-host = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+# 原子写在一次 spawn_blocking 里做同步 IO（rt）；身份文件的读-改-写用 async Mutex（sync）。
+# fs：sink 的 rename / 元数据 / 删除走 tokio::fs（写入本身是 spawn_blocking + pwrite）。
+tokio = { workspace = true, features = ["rt", "sync", "fs"] }
+# 进行中的暂存表：write_sink_chunk 要按 FileSinkId 找回 .part 的句柄。
+dashmap = { workspace = true }
+# 原子写的四条安全属性：随机名 + O_EXCL + unix 0600 + drop 清残留。
+tempfile = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+# 测试里构造 PairedDeviceInfo 需要一个真实 NodeId。
+swarmdrop-net-base = { workspace = true }
+
+[features]
+default = []
+specta = ["swarmdrop-host/specta"]

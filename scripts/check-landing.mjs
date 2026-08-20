@@ -6,11 +6,15 @@
  * （`docs/lingui.config.ts` 的 include 是 `app/app` 与 `../packages/file-browser/src`），
  * bundler 的体积报告也管不到它。这个脚本是它唯一的兜底。
  *
- * **一、体积 ≤ 10KB gzip。** 页面存在的全部理由是「慢网络下秒开」，但那是个形容词，
+ * **一、体积 ≤ 12KB gzip。** 页面存在的全部理由是「慢网络下秒开」，但那是个形容词，
  * 没人会为它跑一次 gzip —— 它已经漂过一次：知识库长期记着「实测 3.2KB」，而页面后来长出
- * 深链出口与复制说明，悄悄涨到 5.9KB 都没被发现。10KB 的依据是 TCP 初始拥塞窗口：多数
- * 服务端 initcwnd = 10，10 × MSS(1460) ≈ 14.6KB，扣掉响应头后 10KB 的正文仍能在**第一个
- * RTT** 内送完，与页面「零额外请求」是同一个目标的两半。
+ * 深链出口与复制说明，悄悄涨到 5.9KB 都没被发现。
+ *
+ * 上限的依据是 TCP 初始拥塞窗口：多数服务端 initcwnd = 10，10 × MSS(1460) ≈ 14.6KB，
+ * 扣掉响应头后正文仍能在**第一个 RTT** 内送完，与页面「零额外请求」是同一个目标的两半。
+ * 2026-08-20 从 10KB 抬到 12KB（加二维码出口时），**判据没变、只是把余量收窄**：
+ * 14.6 − 12 = 2.6KB 留给响应头，而典型响应头 300–600B。再往上抬就要重新算这道减法，
+ * 不能像这次一样只说「差一点」—— 那正是这条门禁存在的理由。
  * ⚠️ `public/` 下的文件原样下发，所以那个文件里的**注释也在预算里**。
  *
  * **二、字典完整性。** 页面的多语言是「HTML 内置源 locale（zh）+ JS 字典只带 en / zh-TW」。
@@ -27,8 +31,22 @@ import { join } from "node:path";
 
 const ROOT = process.cwd();
 const PAGE = join(ROOT, "docs", "public", "p", "index.html");
+const QR = join(ROOT, "docs", "public", "p", "qr.js");
 const APP_I18N = join(ROOT, "docs", "app", "app", "_lib", "i18n.ts");
-const LIMIT = 10 * 1024;
+const LIMIT = 12 * 1024;
+
+/**
+ * 按需注入的二维码编码器（vendored qr-creator）的独立上限。
+ *
+ * **它不进上面那条预算**，因为那条守的是「首屏在第一个 RTT 内送完」，而这个文件是
+ * 第二跳、非阻塞、只有真要看码的人才付。但也正因如此，它天然是首屏预算的逃逸口 ——
+ * 把内容挪进 qr.js 就能让 index.html 一直「过关」。所以它必须自带一条线。
+ *
+ * 8KB 是「当前 5.9KB + 余量」而不是某个推导值：这个文件是原样搬运的第三方产物，
+ * 我们对它的期望是**版本更新时基本不动**。它要是涨到 8KB 以上，说明换了一个明显更大的
+ * 库或者有人往里加了东西，两种情况都该有人看一眼。
+ */
+const QR_LIMIT = 8 * 1024;
 
 /**
  * 字典该有的语言 = 应用区的 `LOCALES` 减源 locale。
@@ -50,6 +68,23 @@ if (gzipped > LIMIT) {
   violations.push(
     `体积 ${kb(gzipped)} gzip 超过 ${kb(LIMIT)} 上限（含注释）。` +
       `把内容挪进知识库，或改 LIMIT 并在提交信息里说明为什么这页值得多一次往返`,
+  );
+}
+
+// 按需注入的编码器：**必须存在**（页面无条件引用它，缺了就是点了没反应），且自带上限。
+let qrGzipped = 0;
+try {
+  qrGzipped = gzipSync(readFileSync(QR), { level: 9 }).byteLength;
+} catch {
+  violations.push(
+    `找不到 docs/public/p/qr.js —— 页面的「显示二维码」会加载失败。` +
+      `重新 vendoring：npm pack qr-creator@<版本> → dist/qr-creator.min.js（见该文件头部注释）`,
+  );
+}
+if (qrGzipped > QR_LIMIT) {
+  violations.push(
+    `qr.js 体积 ${kb(qrGzipped)} gzip 超过 ${kb(QR_LIMIT)} 上限。` +
+      `它是原样搬运的第三方产物，涨这么多说明换了库或有人往里加了东西`,
   );
 }
 
@@ -147,5 +182,6 @@ if (violations.length) {
 
 console.log(
   `落地页检查通过：${kb(gzipped)} gzip / 上限 ${kb(LIMIT)}（raw ${kb(raw)}），` +
+    `按需注入的 qr.js ${kb(qrGzipped)} / 上限 ${kb(QR_LIMIT)}，` +
     `${used.size} 条文案 × ${LANGS.length} 份字典齐全`,
 );

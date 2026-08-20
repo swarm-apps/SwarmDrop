@@ -61,7 +61,7 @@ msgid "{0} 台设备"
 msgstr "{0} 台设备"
 
 #. placeholder {0}: pending.peerName
-#: app/app/_components/receive-panel.tsx
+#: app/app/_components/text-delivery-attention-host.tsx
 msgid "{0} 想向你发送一段文本。"
 msgstr "{0} 想向你发送一段文本。"
 
@@ -684,7 +684,7 @@ msgid "处理中"
 msgstr "处理中"
 
 #: app/app/_components/pairing-request-host.tsx
-#: app/app/_components/receive-panel.tsx
+#: app/app/_components/text-delivery-attention-host.tsx
 #: app/app/_components/transfer-offer-host.tsx
 msgid "处理中…"
 msgstr "处理中…"
@@ -1170,7 +1170,7 @@ msgstr "把这 {0} 个文件发给另一台已配对的设备。"
 
 #: app/app/_components/incoming-offers-panel.tsx
 #: app/app/_components/pairing-request-host.tsx
-#: app/app/_components/receive-panel.tsx
+#: app/app/_components/text-delivery-attention-host.tsx
 #: app/app/_components/transfer-offer-host.tsx
 msgid "拒绝"
 msgstr "拒绝"
@@ -1193,12 +1193,12 @@ msgstr "排查连接问题时把这些贴进 issue"
 msgid "接受"
 msgstr "接受"
 
-#: app/app/_components/receive-panel.tsx
+#: app/app/_components/text-delivery-attention-host.tsx
 #: app/app/_components/transfer-labels.ts
 msgid "接收"
 msgstr "接收"
 
-#: app/app/_components/receive-panel.tsx
+#: app/app/_components/text-delivery-attention-host.tsx
 msgid "接收文本"
 msgstr "接收文本"
 
@@ -1226,8 +1226,8 @@ msgstr "撤销"
 msgid "撤销中…"
 msgstr "撤销中…"
 
-#: app/app/_components/receive-panel.tsx
 #: app/app/_components/send-panel.tsx
+#: app/app/_components/text-delivery-attention-host.tsx
 msgid "操作失败，请重试"
 msgstr "操作失败，请重试"
 

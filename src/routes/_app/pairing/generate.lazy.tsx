@@ -125,7 +125,7 @@ function PairingGeneratePage() {
       />
 
       <TaskContent
-        className="flex min-h-0 flex-col gap-5"
+        className="flex flex-col gap-5"
         footer={
           <CommandDock className="justify-between sm:justify-end">
             <TaskButton variant="outline" onClick={handleBack}>

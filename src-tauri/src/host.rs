@@ -1,15 +1,16 @@
 //! Desktop host adapters —— 实现 [`swarmdrop_core::host`] 中的各个 trait。
 //!
 //! - [`event_bus`] —— [`EventBus`](swarmdrop_core::host::EventBus)：把 CoreEvent 翻成 Tauri emit
-//! - [`identity_store`] —— [`KeychainProvider`](swarmdrop_core::host::KeychainProvider)：
-//!   设备身份文件，同时实现
-//!   [`PairedDeviceStore`](swarmdrop_core::host::PairedDeviceStore)：已配对设备列表
+//! - [`identity_store`] —— [`KeychainProvider`](swarmdrop_core::host::KeychainProvider) 与
+//!   [`PairedDeviceStore`](swarmdrop_core::host::PairedDeviceStore)：设备身份与已配对设备
+//!   列表，实现体是 `swarmdrop-host-fs` 的 [`JsonFileIdentityStore`]，桌面只算路径
 //! - [`device_config`] —— [`DeviceConfig`](swarmdrop_core::host::DeviceConfig)：用户设备名，
-//!   实现体是端口层共享的 [`JsonFileDeviceConfig`]，桌面只算路径
+//!   实现体是 `swarmdrop-host-fs` 的 [`JsonFileDeviceConfig`]，桌面只算路径
 //! - [`notifier`] —— [`Notifier`](swarmdrop_core::host::Notifier)：桌面通知
 //! - [`update_installer`] —— [`UpdateInstaller`](swarmdrop_core::host::UpdateInstaller)：自动更新
-//! - [`file_source`] + [`file_sink`] —— [`FileAccess`](swarmdrop_core::host::FileAccess)：
-//!   读源文件 / 写接收文件，桌面端走本地路径
+//! - [`file_source`] —— **不是端口实现**，是「给用户挑文件」的目录扫描（跨 IPC）。
+//!   [`FileAccess`](swarmdrop_core::host::FileAccess) 的实现是
+//!   `swarmdrop_host_fs::LocalFileAccess`，桌面与命令行宿主共用同一份
 //!
 //! [`paths`] 不是端口，是上面几个 adapter 共用的数据目录解析（含 `SWARMDROP_DATA_DIR`
 //! 的 debug-only fixture 覆盖）。
@@ -20,10 +21,10 @@
 
 use std::sync::Arc;
 
-use swarmdrop_core::host::{JsonFileDeviceConfig, KeychainProvider, PairedDeviceStore};
+use swarmdrop_core::host::{KeychainProvider, PairedDeviceStore};
+use swarmdrop_host_fs::{JsonFileDeviceConfig, JsonFileIdentityStore};
 
 pub mod event_bus;
-pub mod file_sink;
 pub mod file_source;
 pub mod identity_store;
 pub mod notifier;
@@ -37,12 +38,13 @@ pub mod webtransport_cert;
 ///
 /// 此处此前是 `cfg(debug_assertions)` 的编译期二选一（debug 文件 / release 系统 keychain），
 /// 由一个 `DesktopSecretStore` 类型别名承载那个分叉。三平台统一走文件之后别名一对一映射到
-/// 具体类型，不再指代任何抽象，故删除。存储形态、为什么不用 keychain、安全边界——
-/// 判据都在 [`identity_store`] 的模块文档里，此处不复述（复述过的注释只会各自漂移）。
-fn secret_store(
-    app: &tauri::AppHandle,
-) -> crate::AppResult<Arc<identity_store::DesktopIdentityStore>> {
-    Ok(Arc::new(identity_store::DesktopIdentityStore::new(app)?))
+/// 具体类型，不再指代任何抽象，故删除。
+///
+/// 判据分两处，此处都不复述（复述过的注释只会各自漂移）：**为什么不用 keychain** 在
+/// [`identity_store`] 的模块文档（桌面语境），**存储形态与三条不可协商的保证**在
+/// [`JsonFileIdentityStore`] 的模块文档（原生宿主共用）。
+fn secret_store(app: &tauri::AppHandle) -> crate::AppResult<Arc<JsonFileIdentityStore>> {
+    Ok(Arc::new(identity_store::new(app)?))
 }
 
 /// 身份存储端口。
@@ -81,7 +83,7 @@ pub fn webtransport_config(
 
 /// 身份文件的绝对路径，供节点状态诊断展示给用户。
 ///
-/// 与三个端口工厂并列放在这里，而不是让命令层自己 `DesktopIdentityStore::new(&app)` ——
+/// 与三个端口工厂并列放在这里，而不是让命令层自己 `identity_store::new(&app)` ——
 /// `commands/` 是薄壳，「桌面能力从 `host` 的装配面拿」这条规则一旦有第一个例外，
 /// 第二个就不需要理由了。真正会疼的时刻是将来换存储后端：那时改这一处即可，而一个
 /// 直接 new 具体类型的命令会静默地继续指向旧位置。
@@ -90,14 +92,12 @@ pub fn webtransport_config(
 /// IndexedDB，两端都没有「一个用户可见的文件路径」这个概念，加上去只能返回 `None`——
 /// 那是把桌面独有的展示需求推给两个没有该概念的宿主。
 pub fn identity_file_path(app: &tauri::AppHandle) -> crate::AppResult<std::path::PathBuf> {
-    Ok(identity_store::DesktopIdentityStore::new(app)?
-        .identity_path()
-        .to_path_buf())
+    Ok(identity_store::new(app)?.identity_path().to_path_buf())
 }
 
 /// 设备名配置端口：`app_data_dir/device_config.json`。
 ///
-/// 实现体是端口层共享的 [`JsonFileDeviceConfig`] —— 桌面与移动此前是逐行同构的两份
+/// 实现体是 `swarmdrop-host-fs` 的 [`JsonFileDeviceConfig`] —— 桌面与移动此前是逐行同构的两份
 /// （同一个 JSON 结构、同一套容错读、同一条「读出串再过一次 `DeviceName::parse`」的防线），
 /// 真差异只有**路径从哪来**。桌面这侧于是只剩下面这一行。
 ///

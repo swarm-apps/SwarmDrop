@@ -3,7 +3,6 @@
  * 文件拖放区 —— 拖拽文件/文件夹,或通过按钮选择
  */
 
-import { useCallback, useState } from "react";
 import { CloudUpload } from "lucide-react";
 import { Trans } from "@lingui/react/macro";
 import { cn } from "@/lib/utils";
@@ -13,6 +12,13 @@ import type { FileSource } from "@/lib/bindings";
 interface FileDropZoneProps {
   onSourcesSelected: (sources: FileSource[]) => void;
   disabled?: boolean;
+  /**
+   * 是否有文件正拖在窗口上方。
+   *
+   * **拖放订阅归页面所有，这里只画高亮**——`hasFiles` 翻转会让这个组件 remount，
+   * 而触发翻转的正是投放本身，订阅留在这儿会在那一刻退订重订。见 send/index.lazy.tsx。
+   */
+  isDragging?: boolean;
   /** 已有文件时收成补充入口，空态则作为主操作区展开。 */
   compact?: boolean;
   className?: string;
@@ -21,44 +27,10 @@ interface FileDropZoneProps {
 export function FileDropZone({
   onSourcesSelected,
   disabled,
+  isDragging = false,
   compact = false,
   className,
 }: FileDropZoneProps) {
-  const [isDragging, setIsDragging] = useState(false);
-
-  function handleDragOver(e: React.DragEvent) {
-    e.preventDefault();
-    if (!disabled) setIsDragging(true);
-  }
-
-  function handleDragLeave(e: React.DragEvent) {
-    e.preventDefault();
-    setIsDragging(false);
-  }
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragging(false);
-      if (disabled) return;
-
-      const sources: FileSource[] = [];
-      const items = e.dataTransfer.items;
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        // Tauri 环境下 File 对象带有 path 属性(非标准 Web API)
-        const file = item.getAsFile() as (File & { path?: string }) | null;
-        if (file?.path) {
-          sources.push({ type: "path", path: file.path });
-        }
-      }
-      if (sources.length > 0) {
-        onSourcesSelected(sources);
-      }
-    },
-    [disabled, onSourcesSelected],
-  );
-
   const handleSelectFiles = async () => {
     const sources = await pickFiles(true);
     if (sources.length > 0) {
@@ -76,9 +48,6 @@ export function FileDropZone({
   return (
     <div
       data-testid="file-drop-zone"
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
       className={cn(
         "group flex rounded-[20px] border border-dashed p-4 transition-[background-color,border-color,transform,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
         compact

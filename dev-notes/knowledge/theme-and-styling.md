@@ -256,6 +256,19 @@ babel 宏认的是**词法作用域**里的 `const { t } = useLingui()`，`t` �
 
 ## Zustand selector 与派生数组
 
+### `check:zustand-access` 是**文本匹配**，注释里也不能写出那个调用形态
+
+两端的检查脚本（根 `scripts/check-zustand-store-access.mjs` 与 `mobile/` 下同名那份）拿
+`/use[A-Za-z0-9_]*Store\s*\.\s*(getState|setState)\s*\(/` 扫源码，**不解析 AST、不排除注释**。
+所以在解释「为什么这里走 selector」的注释里把反例原样写出来，脚本照样报错，且行号指着注释行
+——看起来像误报，其实是规则如实生效。连 `useXStore.getState(` 这种占位写法也会命中（`X` 落在
+`[A-Za-z0-9_]*` 里）。
+
+**正确做法**：注释用文字描述（「直接读 store 快照」），不要贴调用形态。
+
+**相关文件**：`src/components/inbox/text-delivery-attention-host.tsx`、
+`mobile/src/components/text-delivery-attention-host.tsx`（同一功能的两端实现，同时踩过）
+
 ### filter / map 派生值必须套 useShallow
 
 Zustand 默认用 `Object.is` 比较 selector 返回值。`s.devices.filter(...)` 每次返回新数组引用 → 组件无限 re-render（"Maximum update depth exceeded"）。
@@ -393,6 +406,9 @@ loading 用骨架镜像真实布局）。
 右上角挂 `PairingModeTabs` 互切，不必退回设备页再选另一个入口。两屏右栏都用
 `PairingSteps`（编号步骤）承载「对方要做什么」——编号在这里是真实顺序，不是装饰性分节标记。
 
+> **这不是配对页的特例，是本仓的通用形态**（2026-08-17 起发送页的「文件 / 文本」也是它）。
+> 判据、三端落点与那几个 Radix 坑收在下面的「页面级模式切换」一节。
+
 **相关文件**：`src/components/pairing/pairing-mode-tabs.tsx`、`src/components/pairing/pairing-steps.tsx`
 
 ## 暗色主题背景
@@ -505,6 +521,119 @@ loading 用骨架镜像真实布局）。
 
 **相关文件**：`src/components/layout/section-primitives.tsx`、
 `src/routes/_app/devices/-components/add-device-section.tsx`（`flex-1` 的调用点）
+
+### 同一个 `min-h-full` 的第二种失效：被调用方传进来的 `min-h-0` 静默吃掉（2026-08-17 实测）
+
+上面那条讲的是「烤进原语 → 溢出」。**同一个属性还有个反方向的失效**：写在原语里，
+但调用方一传 `min-h-0` 就没了，谁都不报错。
+
+`TaskContent` 的内层 wrapper 是
+`cn("mx-auto min-h-full w-full max-w-[1180px] p-5 lg:p-7", className)`，
+用意是「短内容也撑满整屏，让 `flex-1` 的面板有剩余空间可分」。而发送页传的 `className`
+是 `"flex min-h-0 flex-col gap-4"`——`min-h-full` 与 `min-h-0` 是同一个 CSS 属性，
+`twMerge` 保留后写的那个，于是 **computed `min-height` 是 `0px`**，那句注释描述的行为
+从来没发生过。
+
+实测（960×720 桌面窗口，发送页文件模式空态）：滚动容器 556px 高，而它里面这个
+`min-h-full` 的 wrapper 只有 416px，面板因此停在半空、下面空掉 140px。
+
+另一个被同一个洞盖住的 bug：发送进度页的加载态传的是
+`"flex min-h-0 flex-col items-center justify-center"`——`justify-center` 要居中，
+**正需要那个被顶掉的高度**，所以 spinner 一直贴在顶部而不是屏幕中央。同一个文件里
+还有一条注释明写着「不写 `min-h-full`——`TaskContent` 的内容 wrapper 本来就带」，
+作者依赖它，却不知道自己在上面几行把它关掉了。
+
+**判据**：容器原语里写的每一个 `min-h-*` / `h-*`，都要假设调用方会传一个同族的类进来。
+排查手法同上一条：量 `getComputedStyle(el).minHeight`，别只读 className
+——**类名在，值可能已经没了**。
+
+**已修（2026-08-17）**：四个调用点的 `min-h-0` 全部删除（那个 wrapper 根本不是 flex
+item，它的父级是 `overflow-auto` 的块级容器，`min-h-0` 纯属 flex 布局的肌肉记忆），
+`TaskContent` 里补了一段「调用方不要传 `min-h-*`」的说明。**没有**改成让原语强制覆盖
+（`cn(base, className, "min-h-full")` 那种写法）——那会把一个显式冲突换成一个静默忽略，
+是同一类问题换个方向再犯一次。
+
+**内容超长的页面不受影响**：`min-height` 只是下限，内容比它高时照常撑高、照常滚动
+（配对生成页实测无变化）。受益的是短内容页：发送页面板从 292 撑到 432、加载态 spinner
+回到屏幕正中。
+
+**相关文件**：`src/components/layout/task-surface.tsx`（`TaskContent`）、
+`src/routes/_app/send/index.lazy.tsx`、`src/routes/_app/send/-components/send-progress-view.tsx`、
+`src/routes/_app/pairing/{generate,input}.lazy.tsx`
+
+### 撑满一个 `flex-1` 的面板：内层用 `flex-1`，**不能用 `h-full`**（2026-08-17 实测）
+
+修好上面那条之后立刻撞上的第二层：面板（`GlassPanel`，一个 `<section>`）被外层
+`flex-1` 拉到 432px，而它内部那个 `h-full` 的 wrapper 只有 292px——**`height: 100%`
+回落成了内容高度**。
+
+原因是 CSS 的百分比高度规则：它相对于 containing block 的 **`height` 属性**解析，而这个
+`<section>` 的 `height` 是 `auto`（432 是 flex 算法拉伸出来的 used height，不是 specified
+value），于是百分比解析不了、回落成 auto。
+
+**这个 bug 平时看不出来**：面板本来就只有内容那么高时，`h-full`（= 内容高）与期望值恰好
+相等。只有当面板真的被撑大，两者才分叉——所以它是跟着上一条修复一起浮出来的，不是新引入的。
+
+**正确形态**是一条不断的 flex 链，每层都 `flex-1`，没有任何一层用百分比：
+
+```tsx
+<GlassPanel className="flex min-h-0 flex-1 flex-col">   {/* 面板自己是 flex 列 */}
+  <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">  {/* 内层顶上去 */}
+```
+
+`min-h-0` 在**这里**是必需的（这几层确实是 flex item），与上一条里那个「传给
+`TaskContent` 的 `min-h-0` 是多余的」不矛盾——区别在于那个 wrapper 的父级是块级滚动容器，
+而这里每一层的父级都是 flex 容器。
+
+**相关文件**：`src/routes/_app/send/index.lazy.tsx`（两块 `GlassPanel`）
+
+## 页面级模式切换：走 shadcn `Tabs`，挂在页头 trailing
+
+「同一个任务的两个方向」（配对的展示/粘贴、发送的文件/文本）在桌面端一律是
+**页头右上角的紧凑分段控件**，不是内容区上方独占一行的大按钮组——后者会横跨整个
+`max-w-[1180px]` 内容带却只用掉 19% 的宽度，且尺寸与 `CommandDock` 的主操作同级。
+三端落点与尺寸判据写在 `DESIGN.md` 的 **Content Mode Selector**。
+
+`TaskToolbar` 的 `trailing` 插槽就是为这个存在的。
+
+### 用 `@/components/ui/tabs`，别自己拼一组按钮
+
+roving tabindex、方向键、Home/End、`aria-controls` / `aria-labelledby` 的自动配对，
+Radix 全都做好了；手写一遍只会得到一个少几种键盘行为的复制品（product register 明确把
+「为口味重新发明标准 affordance」列为禁项）。**桌面与 docs 各有一份 `ui/tabs.tsx`**，
+移动端那份 `@rn-primitives/tabs` 刻意不用——RN 上没有键盘，`Tabs` 在那儿只剩「换一套要
+处处覆盖的尺寸」，手写 + `accessibilityRole="tablist"` / `"tab"` 表达同一套语义即可。
+
+### ⚠️ `TabsList` 的高度**覆盖不掉**，除非改组件（2026-08-17 实测）
+
+上游 shadcn 把水平高度写成 `group-data-[orientation=horizontal]/tabs:h-9`。调用方传
+`h-11` / `h-auto` **没有任何效果，也没有任何报错**，因为：
+
+1. `twMerge` 认为带变体前缀的类与裸类**不冲突**，两个都会留在 class 里（实测确认）；
+2. CSS 特异性上 `.group\/tabs[data-orientation=horizontal] .…` 高于裸 `.h-11`，前者赢。
+
+docs 那份因此把它改成裸 `h-9`（垂直方向的 `group-data-[orientation=vertical]/tabs:h-fit`
+特异性更高、照旧赢，既有行为不变）。**理由是命中区**：应用区移动优先，手机浏览器上这是
+触控目标，要 44 而不是 36。桌面那份保持上游原样——它只待在 48px 的页头里，且只有鼠标。
+
+同一个坑对 `TabsTrigger` 不成立：它的 `h-[calc(100%-1px)]` 是裸类，`h-auto min-h-11`
+正常覆盖得掉。
+
+### `asChild` 会把 Root 的 className 一起带过去
+
+`<Tabs asChild>` 包住既有布局组件（`TaskPageShell` / 卡片 div）是对的——DOM 层级不变，
+Radix 只贡献 context 与键盘行为。但它的 className `"group/tabs flex gap-2 …"` 会合并进去，
+**那个 `gap-2` 会在页头与内容之间凭空插一条 8px 缝**。一律显式传 `className="gap-0"`
+（或该处本来的间距）抵消。`group/tabs` 必须留着——`TabsList` 的变体依赖它。
+
+### Radix 的 trigger 不响应程序化 `element.click()`
+
+它走 `onMouseDown` + focus（automatic 激活），不是 `onClick`。用 `el.click()` 验证会看到
+**界面纹丝不动**，很容易误判成「切换坏了」。自动化验证要发真实指针事件
+（`webview_interact` 的 click）或直接 `focus()`。
+
+**相关文件**：`src/routes/_app/send/-components/content-mode-tabs.tsx`、
+`docs/components/ui/tabs.tsx`（带改动说明）、`src/components/pairing/pairing-mode-tabs.tsx`
 
 ## 设置页（settings）布局与基元
 
@@ -625,6 +754,142 @@ onClick**（局域网协助地址、设备信息 Peer ID），引导节点那两
 timeout，有的只 toast），需先统一语义再抽。
 
 **相关文件**：`src/routes/_app/settings/-bootstrap-nodes-section.tsx`（`handleCopyAddr`）、`src/components/network/lan-helper-address.tsx`（形态样板）
+
+## 文件拖放：桌面端收不到 HTML5 的 drop 事件，必须走 Tauri 窗口级事件（2026-08-17 实测）
+
+`FileDropZone` 从第一版起就写着 `onDragOver` / `onDrop`，UI 也一直画着「拖拽文件或文件夹到这里」——
+**但它从来没生效过**：拖进去既不高亮也不选中文件，且不报任何错。两条独立成立的原因，
+修掉任何一条都还是不工作：
+
+1. **Tauri v2 的 `dragDropEnabled` 默认 `true`**，webview 把 OS 的拖放截走转成原生事件，
+   元素上的 `onDragOver` / `onDrop` **一次都不触发**。
+2. 就算把它关掉退回 DOM 事件，v2 也已移除 webview `File` 对象上的 `path`（那是 v1 的非标准扩展），
+   而后端 `FileSource` 只有 `{ type: "path" }` 一个变体——**拿不到真实路径就没法发送**。
+   原代码 `item.getAsFile().path` 恒为 `undefined`，`sources` 恒为空数组，于是连一条错误都没有。
+
+**正确做法**：用 `src/hooks/use-file-drop.ts`（封装 `getCurrentWebview().onDragDropEvent()`），
+它给的 `paths: string[]` 就是真实文件系统路径，直接喂 `FileSource`。权限走 `core:default`
+里的事件监听，**不需要额外 capability**。
+
+### ⚠️ 事件里的 `position` 三平台单位不一致，类型名在撒谎——别用它做命中测试
+
+事件是**窗口级**的，只带一个 `position`，看起来正好用来把投放归到具体元素上。
+**别这么做。** 读源码核实（wry 0.55.1 / tauri-runtime-wry 2.11.4）：
+
+| 平台 | wry 取值处 | 实际单位 |
+|---|---|---|
+| macOS | `NSDraggingInfo.draggingLocation()` + `NSView.frame()` | AppKit points = **逻辑** |
+| Linux | GTK widget 坐标 | **逻辑** |
+| Windows | `ScreenToClient` | **物理** |
+
+而 `tauri-runtime-wry/src/lib.rs:4872` 一律包成 `PhysicalPosition::new(x, y)`，**不做任何缩放**。
+于是那个字段在 macOS/Linux 上其实是逻辑像素，只有 Windows 名副其实。
+
+本仓第二版正是按字面意思写了 `position.toLogical(devicePixelRatio)`，**在 Retina Mac 上坐标
+直接减半、命中恒为假**——和「根本没修」表现完全一致，而低分屏开发机上正常。**同一个 bug 用
+不同机制复发了一次。**
+
+**这是上游未修的已知 bug，不是本仓的误解。** [tauri#11968](https://github.com/tauri-apps/tauri/issues/11968)
+（2024-12 提，至今 **OPEN + `status: needs triage`**）报的正是同一件事，报告人原话：
+「乘 `devicePixelRatio` 在 Windows 上对了，**但会破坏其它平台**」「拖放在 macOS 和 Linux 上
+本来就工作得很顺畅」「难道要写 `if (platform === 'windows')`？」——他最后还补了一句「现在我
+也不知道上次是不是打错了」。**社区自己都被绕晕过。**
+另有 [tauri#13835](https://github.com/tauri-apps/tauri/issues/13835)（2025-07）在求官方给个
+「窗口事件怎么对应到 webview 元素」的示例：**官方没有内置方案**，大家都在自己拼 `DOMRect` /
+`elementFromPoint` + 手动 DPI 处理。没有可复用的成熟封装。
+
+**现在的做法：投放目标是整个窗口，不看坐标。** hook 只在投放区挂载时订阅（当前只有发送页），
+窗口级事件的本意就是「投给这个窗口」，同类产品（LocalSend 等）也是整窗口接收。代价是失去
+z-order（拖到盖在页面上的对话框上松手也会被收下——后果轻微且可见）与多投放区仲裁。
+依赖一个 OPEN 两年、未 triage 的上游 bug 的具体表现，而本仓只能实测三平台里的一个，不划算。
+
+**将来真要同屏多投放区**，正确的换算是（源码 + #11968 双向印证，但 Windows/Linux 本仓未实测）：
+
+```ts
+// 只有 Windows 的坐标是物理像素，另两个平台直接就是 CSS 像素
+const scale = isWindows ? window.devicePixelRatio : 1;
+const { x, y } = position.toLogical(scale);
+```
+
+命中判定用 `document.elementFromPoint(x, y)` 而不是 `getBoundingClientRect()` 包含判定——
+后者只看矩形不看层级，投放到盖在上方的对话框 / toast 上时文件仍会被静默收下；前者顺带
+白拿 `pointer-events: none` 与「重叠时只有最上层接收」。⚠️ 但它**不支持嵌套投放区**
+（`contains` 对内外两层都为真，一次投放处理两次）。
+
+推论：**e2e 里也不要按 DPR 造坐标**。此前脚本把 CSS 坐标乘 DPR 再由 hook 除回去，是个恒等
+round-trip，生产代码对错都绿，等于没测。
+
+### 另外两条
+
+- **`pointer-events: none` 不挡窗口级事件**，`disabled` 要自己挡。且**高亮不能在事件处理器里
+  算**——指针静止时平台可能一条 `drag-over` 都不再发（Windows 的 `DragOver` 由指针移动驱动），
+  于是两个方向都会卡住：转真时高亮亮在已渲染成禁用态的区域上，转假时区域显示成不可投放、
+  松手却真的会收下。正确形态是把「窗口上方正拖着文件」单独存一份平台事实，对外的 `isOver`
+  取它与 `!disabled` 的合取。
+- **非文件拖拽（选中的文字、链接）两个平台表现相反，都要挡**：macOS 照常触发 `enter` 只是
+  `paths` 为空（wry 的 `dragging_entered` 不按类型过滤）；Windows 的 `DragEnter` 里
+  `iterate_filenames` 拿不到 HDROP 就直接 `return`，**根本不发事件**（文件拖拽正常发）。
+  不挡的话 macOS 上投放区会亮起「可以放」、松手什么也不发生。挡掉空 `paths` 把两边拉齐。
+- **`over` 的 payload 只有 `position` 没有 `paths`**。把 `paths.length` 的判定写在早退之前，
+  拖拽期间每次指针移动都会在 Tauri 的 listener 回调里抛 TypeError——**那里没人接**，
+  控制台一声不响，投放区直接死掉。
+- **订阅要挂在页面上，不要挂在会 remount 的展示组件里**。发送页的 `hasFiles` 一翻转，两个
+  `FileDropZone` 分支的 JSX 结构不同（一个裸挂、一个包 div），React 会 unmount + mount；
+  而触发翻转的正是投放本身，`unlisten` 又是 fire-and-forget 的异步 IPC。紧接着的第二次投放
+  会落进「旧的还没退、新的已经进」的缝里被处理两次，同一批文件进两遍（`addSources` 不去重）。
+- **整窗口接收要自己补模态语义**：没有 z-order 保护，拖到盖在页面上的对话框上松手，文件会被
+  塞进它背后的列表。用 `[data-state="open"][role="dialog"], [role="alertdialog"]` 挡掉即可，
+  不需要坐标。
+
+**订阅是异步的，但失败是同步的**——这条最容易写错：
+
+- `onDragDropEvent()` 返回 Promise，组件可能在 listen 落地前就卸载，必须用 `cancelled` 标志
+  在 `.then` 里补一刀退订，否则每进出一次发送页泄漏一条 listener，且它们都还在往已卸载的
+  组件里 setState。
+- 但 **`getCurrentWebview()` 本身在非 Tauri 宿主下同步抛 TypeError**
+  （`window.__TAURI_INTERNALS__.metadata` 读的是 undefined 的属性），抛在 promise 链建立
+  **之前**——只挂 `.catch()` 抓不到，异常会从 effect 里逃出去掀掉整棵 React 树。必须 `try/catch`
+  包住整段。裸 `pnpm dev`（localhost:1420）和任何没 mock 该模块的 vitest 渲染都会走到这条。
+  ⚠️ 只 mock `@tauri-apps/api/webview` 的测试**证明不了**这条——mock 掉的 `getCurrentWebview`
+  根本不碰 `__TAURI_INTERNALS__`，测试会绿着认证一个不存在的健壮性。
+
+⚠️ **调试时 devtools 会让 `position` 更不准。** Tauri 官方在 `onDragDropEvent` 的文档里写明：
+「When the debugger panel is open, the drop position of this event may be inaccurate due to a
+known limitation.」现在不看坐标了所以不影响功能，但这条**恰好是「别信这个字段」的第三个理由**
+（前两个是三平台单位不一致 + 类型名撒谎）。
+
+**教训**（与上方剪贴板那条同构）：**Tauri 里没有「Web API 默认能用」这回事**。桌面壳里凡是
+碰 OS 能力的 Web API（剪贴板、拖放、文件路径），先查它是不是被 webview 截走或阉割了。
+这条 bug 能活这么久，是因为它的失败**完全静默**——没有异常、没有日志，UI 上的文案还在
+持续承诺一个不存在的功能。
+
+**降级必须留痕。** 订阅失败只 `catch {}` 是上方剪贴板那条明令禁止的反模式——拖放这次
+正是靠「完全静默」活了这么久。`use-file-drop.ts` 的 catch 里有一条 `console.warn`，
+两条测试各钉一个失败路径（同步抛 / promise 拒绝）。
+
+**e2e 录屏脚本连带失效。** `e2e/desktop/test/specs/demo/lan-transfer.demo.ts` 此前用
+`dispatchEvent(new DragEvent("drop"))` + 伪造 `File.path` 驱动投放——那套随 DOM handler 一起
+变成 no-op，且失败形态是 30 秒后「发送按钮没启用」，根因完全不可见。现改为
+`browser.tauri.emitEvent("tauri://drag-drop", { paths, position })`——用 `@wdio/tauri-plugin`
+注入的一等公民 API（经后端真实 `event.emit()` 派发），**不要退回裸 `window.__TAURI__` 探测**，
+同一文件里早就有 `browser.tauri.execute` 的用例。并在投放后就地 `waitUntil` 断言，
+让失败停在这一步。录制脚本还要先发一条 `drag-enter` + `pauseForRecording()`，
+否则投放区点亮的那一拍一帧都不会进片子。
+
+⚠️ **`position` 的值无所谓，但字段不能省。** 生产代码不看坐标，可 `@tauri-apps/api` 的
+`onDragDropEvent` 包装层会无条件 `new PhysicalPosition(payload.position)`，传 `undefined`
+会在 `'Physical' in args[0]` 处抛 TypeError——**抛在包装层里，业务 handler 一次都不会跑**，
+表现又是「投放毫无反应」。给个 `{ x: 0, y: 0 }` 即可。
+⚠️ **也别按 DPR 造坐标**：那会与生产代码里的 `toLogical(DPR)` 抵消成恒等 round-trip，
+生产代码对错都绿，等于没测（本仓踩过）。
+**改窗口级事件的形状时记得同步这个脚本**，它不在 CI 里、没人会替你发现。
+
+**相关文件**：`src/hooks/use-file-drop.ts`、`src/hooks/use-file-drop.test.ts`、
+`src/routes/_app/send/-components/file-drop-zone.tsx`、`src/lib/file-picker.ts`（`pathsToSources`
+是路径 → `FileSource` 的唯一入口）、`e2e/desktop/test/specs/demo/lan-transfer.demo.ts`
+
+> Web 端（`docs/app/app/_components/send-panel.tsx`）**不受影响**——那是真浏览器，
+> 标准 `dataTransfer.files` 照常工作，且它要的就是 `File` 对象不是路径。两端别互相抄。
 
 ## LAN 协助地址展示：数据源是 networkStatus.lanHelperAdvertisedAddrs，需自己拼 /p2p/<peerId>
 

@@ -113,7 +113,10 @@ export function normalizePolicyForTrustLevel(
   level: TrustLevel,
   policy: MobileDeviceReceivePolicy,
 ): MobileDeviceReceivePolicy {
-  if (level === "blocked") return defaultReceivePolicy("blocked");
+  // 递 previous:阻止同样要让内核决定哪些用户设过的东西跟着走(当前是 AI 发件授权——
+  // 它在被阻止期间不管安全,只记偏好,见 `DeviceReceivePolicy::for_trust_level`)。
+  // 不递的话,调用点传进来的 previous 会在这里被静默丢掉,阻止一次就把偏好抹平。
+  if (level === "blocked") return defaultReceivePolicy("blocked", policy);
 
   const defaults = defaultReceivePolicy(level);
   const autoAccept = policy.autoAccept && !policy.requireConfirmation;

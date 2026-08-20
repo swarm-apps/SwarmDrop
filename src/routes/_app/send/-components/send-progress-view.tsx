@@ -47,7 +47,10 @@ export function SendProgressView({
     return (
       <TaskPageShell data-testid="send-progress-view">
         <TaskToolbar title={<Trans>发送文件</Trans>} onBack={onBack} />
-        <TaskContent className="flex min-h-0 flex-col items-center justify-center">
+        {/* 不传 `min-h-0`：它会顶掉 `TaskContent` 自己的 `min-h-full`（同一个 CSS 属性，
+            `twMerge` 保留后写的），而这里的 `justify-center` 正需要那个高度——否则 spinner
+            贴在顶部而不是屏幕中央。见 task-surface.tsx 里的说明。 */}
+        <TaskContent className="flex flex-col items-center justify-center">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </TaskContent>
       </TaskPageShell>

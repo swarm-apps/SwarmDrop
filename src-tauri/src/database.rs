@@ -74,7 +74,8 @@ pub async fn cleanup_stale_sessions(
         for meta in &session.files {
             if let Some(CoreSaveLocation::Path { path }) = &meta.save_dir {
                 let final_path = std::path::Path::new(path).join(&meta.relative_path);
-                let part_path = crate::host::file_sink::compute_part_path(&final_path);
+                let part_path =
+                    swarmdrop_host_fs::local_fs::part_file::compute_part_path(&final_path);
                 if let Err(e) = tokio::fs::remove_file(&part_path).await
                     && e.kind() != std::io::ErrorKind::NotFound
                 {
@@ -212,7 +213,7 @@ mod tests {
             let dir = std::env::temp_dir().join(format!("swarmdrop-cleanup-{session_id}"));
             tokio::fs::create_dir_all(&dir).await.unwrap();
             let final_path = dir.join("old.bin");
-            let part_path = crate::host::file_sink::compute_part_path(&final_path);
+            let part_path = swarmdrop_host_fs::local_fs::part_file::compute_part_path(&final_path);
             tokio::fs::write(&part_path, b"partial").await.unwrap();
 
             seed_receive_session(

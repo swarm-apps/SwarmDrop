@@ -250,49 +250,49 @@ async function waitForPairedSendTarget() {
   );
 }
 
+/**
+ * 把 fixture 投进发送页。
+ *
+ * **拖放走 Tauri 的窗口级事件，DOM 上没有 `onDrop` 可派发**（见
+ * `src/hooks/use-file-drop.ts`）：Tauri v2 的 webview 会把 OS 拖放截走，所以
+ * `dispatchEvent(new DragEvent("drop"))` 是彻底的 no-op——这个脚本此前正是那么写的
+ * （还伪造了 v2 早已移除的 `File.path`），改成窗口级事件后它整段静默失效。
+ *
+ * 这里改为 emit 那条系统事件本身。emit 走 `browser.tauri.emitEvent`（插件的一等公民
+ * API，经后端真实 `event.emit()` 派发），不要退回裸 `window.__TAURI__` 探测。
+ *
+ * `position` 的值**无所谓**（hook 不看坐标——那个字段的单位三平台不一致，见
+ * `use-file-drop.ts`），但**字段本身不能省**：`@tauri-apps/api` 的 `onDragDropEvent`
+ * 包装层会无条件 `new PhysicalPosition(payload.position)`，传 undefined 会在
+ * `'Physical' in args[0]` 处抛 TypeError——抛在包装层里，业务 handler 一次都不会跑，
+ * 表现又是「投放毫无反应」。
+ *
+ * 此前这里按 DPR 把 CSS 坐标乘回「物理」像素，正好抵消 hook 里的 `toLogical(DPR)`
+ * ——一个恒等 round-trip，无论生产代码对错都会绿，等于没测。
+ */
 async function dropFixtureIntoSendPage(fixturePath: string) {
   const dropZone = await $('[data-testid="file-drop-zone"]');
   await expect(dropZone).toBeDisplayed({ wait: 15_000 });
 
-  await browser.execute(
-    (selector: string, path: string, name: string) => {
-      const target = document.querySelector(selector);
-      if (!target) throw new Error(`Missing drop target: ${selector}`);
+  const payload = { paths: [fixturePath], position: { x: 0, y: 0 } };
 
-      const file = new File(["SwarmDrop demo fixture\n"], name, {
-        type: "text/markdown",
-      }) as File & { path?: string };
-      Object.defineProperty(file, "path", {
-        configurable: true,
-        value: path,
-      });
+  // 先 enter 再 drop：这是**录制**脚本，投放区点亮的那一拍要留在片子里。
+  // 只发 drop 的话高亮态一帧都不会出现。
+  await browser.tauri.emitEvent("tauri://drag-enter", payload);
+  await pauseForRecording();
+  await browser.tauri.emitEvent("tauri://drag-drop", payload);
 
-      const item = {
-        kind: "file",
-        type: file.type,
-        getAsFile: () => file,
-      };
-      const dataTransfer = {
-        files: [file],
-        items: [item],
-        types: ["Files"],
-      };
-
-      for (const eventName of ["dragover", "drop"]) {
-        const event = new DragEvent(eventName, {
-          bubbles: true,
-          cancelable: true,
-        });
-        Object.defineProperty(event, "dataTransfer", {
-          configurable: true,
-          value: dataTransfer,
-        });
-        target.dispatchEvent(event);
-      }
+  // 投放是异步链路（emit → 后端广播 → listener → store）。在这里等结果落地，
+  // 失败原因才留在这一步，而不是 30 秒后从「发送按钮没启用」倒推。
+  // 30s 沿用调用点原本的预算：这一步覆盖的东西比那时更多（emit 往返 + 后端广播 +
+  // listener → addSources + scanSources 的 I/O + isScanning 清零），录制机负载高时
+  // 大文件会超过 15s。改的只是把报错信息指向真正的根因。
+  await browser.waitUntil(
+    async () => await (await $('[data-testid="send-confirm-action"]')).isEnabled(),
+    {
+      timeout: 30_000,
+      timeoutMsg: `拖放未生效：${basename(fixturePath)} 没有进入发送选择`,
     },
-    '[data-testid="file-drop-zone"]',
-    fixturePath,
-    basename(fixturePath),
   );
 }
 
@@ -326,12 +326,8 @@ describe("SwarmDrop LAN transfer recording", () => {
     await dropFixtureIntoSendPage(fixturePath);
     await pauseForRecording();
 
+    // 「按钮已启用」由 dropFixtureIntoSendPage 等过了（那里的报错信息指向真正的根因）。
     const sendButton = await $('[data-testid="send-confirm-action"]');
-    await browser.waitUntil(async () => await sendButton.isEnabled(), {
-      timeout: 30_000,
-      timeoutMsg: "Timed out waiting for send button to become enabled",
-    });
-    await pauseForRecording();
     await sendButton.click();
 
     await expect($('[data-testid="send-progress-view"]')).toBeDisplayed({

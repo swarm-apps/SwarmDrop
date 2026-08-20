@@ -218,9 +218,17 @@ export default function DeviceDetailScreen() {
     void savePolicy(draftLevel, draftPolicy, "save");
   }, [draftLevel, draftPolicy, savePolicy]);
 
+  // 这两处都要把当前策略当 previous 递进去,理由与 526 行那次派生相同:内核按 previous 决定
+  // 哪些用户设过的东西跟着走(`DeviceReceivePolicy::for_trust_level`)。漏传就等于让移动端
+  // 对「阻止 / 解除阻止」长出一套自己的保留规则——AI 发件授权会在这条路径上被悄悄重置成
+  // 默认值,而桌面那边保留着用户的选择。
   const handleBlock = useCallback(() => {
-    void savePolicy("blocked", defaultReceivePolicy("blocked"), "block");
-  }, [savePolicy]);
+    void savePolicy(
+      "blocked",
+      defaultReceivePolicy("blocked", draftPolicy),
+      "block",
+    );
+  }, [draftPolicy, savePolicy]);
 
   // 阻止是敏感信任动作(断对方发送 + 关自动接收),与"取消配对"同级,补二次确认。
   const openBlockConfirm = useCallback(() => setBlockOpen(true), []);
@@ -228,10 +236,10 @@ export default function DeviceDetailScreen() {
   const handleUnblock = useCallback(() => {
     void savePolicy(
       "collaborator",
-      defaultReceivePolicy("collaborator"),
+      defaultReceivePolicy("collaborator", draftPolicy),
       "unblock",
     );
-  }, [savePolicy]);
+  }, [draftPolicy, savePolicy]);
 
   const handleUnpair = useCallback(async () => {
     if (!device || savingAction !== null) return;

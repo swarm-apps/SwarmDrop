@@ -1,13 +1,25 @@
-//! 标准文件系统路径操作
+//! 读取侧的本地文件系统操作。
 //!
-//! 所有阻塞 I/O 操作通过 `tokio::task::spawn_blocking` 包装为异步。
+//! 所有阻塞 I/O 通过 `tokio::task::spawn_blocking` 包装为异步。
+//!
+//! **只放 `FileAccess` 契约要求的能力**。目录扫描（把一棵目录树摊平成给用户挑选的列表）
+//! 不在契约里，它是宿主自己的界面能力，各宿主的返回形状也不同——留在各宿主侧。
 
 use std::path::Path;
 
-use crate::host::file_source::{EnumeratedFile, FileSource, FileSourceMetadata};
-use swarmdrop_core::AppResult;
+use swarmdrop_host::AppResult;
 
-// ============ FileSource 分派方法 ============
+/// 本地文件或目录的基本信息。
+///
+/// 刻意不直接返回 `HostFileMetadata`：那个类型带着接收侧才有意义的字段
+/// （`save_dir` / `checksum`），而这里只是一次 stat。转换由调用方按自己的语境做。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalFileStat {
+    pub name: String,
+    /// 文件字节数；目录为 0。
+    pub size: u64,
+    pub is_dir: bool,
+}
 
 /// 精确按 `[offset, offset+length)` 读取，契约与事故背景见 [`read_at_sync`]。
 pub async fn read_at(path: &Path, offset: u64, length: usize) -> AppResult<Vec<u8>> {
@@ -15,32 +27,20 @@ pub async fn read_at(path: &Path, offset: u64, length: usize) -> AppResult<Vec<u
     tokio::task::spawn_blocking(move || read_at_sync(&path, offset, length)).await?
 }
 
-/// 获取文件或目录的元数据
-pub async fn metadata(path: &Path) -> AppResult<FileSourceMetadata> {
+/// 获取文件或目录的元数据。
+pub async fn metadata(path: &Path) -> AppResult<LocalFileStat> {
     let meta = tokio::fs::metadata(path).await?;
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
 
-    Ok(FileSourceMetadata {
+    Ok(LocalFileStat {
         name,
         size: if meta.is_file() { meta.len() } else { 0 },
         is_dir: meta.is_dir(),
     })
 }
-
-/// 递归遍历目录，返回所有文件的扁平化列表
-pub async fn enumerate_dir(
-    path: &Path,
-    parent_relative_path: &str,
-) -> AppResult<Vec<EnumeratedFile>> {
-    let path = path.to_path_buf();
-    let parent = parent_relative_path.to_owned();
-    tokio::task::spawn_blocking(move || enumerate_dir_sync(&path, &parent)).await?
-}
-
-// ============ 接收方使用的独立方法 ============
 
 /// 在指定偏移量写入数据到文件
 pub async fn write_chunk(path: &Path, offset: u64, data: Vec<u8>) -> AppResult<()> {
@@ -78,50 +78,6 @@ fn read_at_sync(path: &Path, offset: u64, length: usize) -> AppResult<Vec<u8>> {
     Ok(buf)
 }
 
-fn enumerate_dir_sync(path: &Path, parent_relative_path: &str) -> AppResult<Vec<EnumeratedFile>> {
-    use path_slash::PathExt as _;
-    use walkdir::WalkDir;
-
-    let mut files = Vec::new();
-
-    for entry in WalkDir::new(path)
-        .follow_links(true)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        if entry.file_type().is_dir() {
-            continue;
-        }
-
-        let entry_path = entry.path();
-        let name = entry_path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-
-        let sub_path =
-            pathdiff::diff_paths(entry_path, path).unwrap_or_else(|| entry_path.to_path_buf());
-        let relative_path = if parent_relative_path.is_empty() {
-            sub_path.to_slash_lossy().into_owned()
-        } else {
-            format!("{}/{}", parent_relative_path, sub_path.to_slash_lossy())
-        };
-
-        let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-
-        files.push(EnumeratedFile {
-            name,
-            relative_path,
-            source: FileSource::Path {
-                path: entry_path.to_path_buf(),
-            },
-            size,
-        });
-    }
-
-    Ok(files)
-}
-
 fn write_chunk_sync(path: &Path, offset: u64, data: &[u8]) -> AppResult<()> {
     use std::io::{Seek, SeekFrom, Write};
 
@@ -134,7 +90,10 @@ fn write_chunk_sync(path: &Path, offset: u64, data: &[u8]) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::host::file_source::CHUNK_SIZE;
+
+    /// 传输层的分块粒度。这里只是测试用的一个「整块」尺寸——本模块的契约与任何块尺寸
+    /// **无关**（不对齐、不取整），所以刻意不从传输层引入这个常量。
+    const CHUNK_SIZE: usize = 256 * 1024;
 
     #[tokio::test]
     async fn test_read_at_exact_offset_and_length() {
@@ -205,29 +164,6 @@ mod tests {
         assert_eq!(meta.name, "swarmdrop_test_meta_dir");
         assert_eq!(meta.size, 0);
         assert!(meta.is_dir);
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[tokio::test]
-    async fn test_enumerate_dir() {
-        let dir = std::env::temp_dir().join("swarmdrop_test_enum");
-        let sub = dir.join("subdir");
-        let _ = std::fs::create_dir_all(&sub);
-        std::fs::write(dir.join("a.txt"), "aaa").unwrap();
-        std::fs::write(sub.join("b.txt"), "bbb").unwrap();
-
-        let files = enumerate_dir(&dir, "root").await.unwrap();
-        assert_eq!(files.len(), 2);
-
-        let names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
-        assert!(names.contains(&"a.txt"));
-        assert!(names.contains(&"b.txt"));
-
-        // 检查相对路径包含前缀
-        for f in &files {
-            assert!(f.relative_path.starts_with("root/"));
-        }
 
         let _ = std::fs::remove_dir_all(&dir);
     }

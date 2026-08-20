@@ -22,9 +22,9 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::device::DeviceName;
-use crate::error::AppResult;
-use crate::ports::DeviceConfig;
+use swarmdrop_host::device::DeviceName;
+use swarmdrop_host::error::AppResult;
+use swarmdrop_host::ports::DeviceConfig;
 
 /// 磁盘上 `device_config.json` 的全量内容（桌面与移动同名同格式）。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

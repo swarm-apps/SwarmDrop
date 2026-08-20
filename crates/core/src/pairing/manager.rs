@@ -8,7 +8,7 @@ use tokio::sync::oneshot;
 
 use crate::device::{DeviceName, OsInfo, PairedDeviceInfo};
 use crate::device_manager::DeviceManager;
-use crate::host::{CoreEvent, EventBus, Notification, Notifier, PairedDeviceStore};
+use crate::host::{CoreEvent, EventBus, Notification, Notifier, PairedDeviceStore, now_secs};
 use crate::paired_devices;
 use crate::protocol::{
     PAIRING, PairingMethod, PairingRefuseReason, PairingRequest, PairingResponse,
@@ -28,11 +28,6 @@ const PAIRING_CALL_TIMEOUT: Duration = Duration::from_secs(180);
 /// `PENDING_OFFER_TIMEOUT_SECS`(170) < `req_resp_timeout`(180) 同款错位：本端 pending 先于
 /// 发起端放弃被回收，保证"本端刚接受、发起端已超时放弃 → 回复通道已关"的边界竞态不发生。
 const PENDING_INBOUND_TIMEOUT: Duration = Duration::from_secs(170);
-
-/// 当前 Unix 秒（邀请 TTL 判定用；chrono 在 wasm 下走 js 时钟）。
-fn now_secs() -> u64 {
-    chrono::Utc::now().timestamp().max(0) as u64
-}
 
 /// 一次配对达成的产物：设备信息 + 它有没有落盘。
 ///

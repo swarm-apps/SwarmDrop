@@ -1,15 +1,14 @@
-//! 桌面端文件写入操作
+//! 写入侧的本地文件系统操作。
 //!
-//! 提供 .part 临时文件的创建和校验/最终化实现。
-//! 分块写入已由 `PartFile::write_chunk()` 统一处理（跨平台 pwrite）。
+//! 提供 `.part` 暂存的创建与发布。分块写入由 [`PartFile::write_at`] 统一处理（跨平台 pwrite）。
 
 use std::path::{Path, PathBuf};
 
-use crate::host::file_sink::{PartFile, compute_part_path};
-use swarmdrop_core::{AppError, AppResult};
+use super::part_file::{PartFile, compute_part_path};
+use swarmdrop_host::{AppError, AppResult};
 
 /// 创建 .part 临时文件：创建目录 → 创建文件 → 预分配大小 → 缓存写入句柄
-pub(crate) async fn create_part_file(
+pub(super) async fn create_part_file(
     save_dir: &Path,
     relative_path: &str,
     file_size: u64,
@@ -32,7 +31,7 @@ pub(crate) async fn create_part_file(
 /// 检查 .part 文件是否存在且大小匹配：
 /// - 匹配：以读写模式打开（不截断），保留已有数据
 /// - 不匹配或不存在：创建新文件并预分配大小
-pub(crate) async fn open_or_create_part_file(
+pub(super) async fn open_or_create_part_file(
     save_dir: &Path,
     relative_path: &str,
     file_size: u64,
@@ -70,7 +69,7 @@ pub(crate) async fn open_or_create_part_file(
 /// # 两道防线，缺一不可
 ///
 /// 1. **词法**：`relative_path` 在领域层就过了
-///    [`is_safe_relative_path`](swarmdrop_core::transfer_protocol::is_safe_relative_path)，
+///    领域层的 `is_safe_relative_path`，
 ///    绝对路径、盘符、`..` 记号进不到这里。
 /// 2. **实地**（本函数）：词法检查**看不见文件系统**。保存目录下若存在一个指向外部的
 ///    符号链接（`~/Downloads/SwarmDrop/sub` → `/etc`），一条完全合法的 `sub/x.txt`
@@ -132,7 +131,7 @@ async fn create_new_part(part_path: &Path, file_size: u64) -> AppResult<tokio::f
 ///
 /// 同盘 rename 是原子的，因此没有「目标已存在但内容不全」的中间态。
 /// 调用前需确保写入句柄已关闭（`PartFile::close_write_handle()`）。
-pub(crate) async fn publish(part_file: &PartFile) -> AppResult<PathBuf> {
+pub(super) async fn publish(part_file: &PartFile) -> AppResult<PathBuf> {
     tokio::fs::rename(&part_file.part_path, &part_file.final_path).await?;
     Ok(part_file.final_path.clone())
 }
@@ -221,7 +220,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
 
-        let chunk_size = crate::host::file_source::CHUNK_SIZE;
+        // 传输层的分块粒度。本模块的契约与任何块尺寸**无关**（不对齐、不取整），
+        // 这里只是取一个「整块」尺寸来构造测试数据，故不从传输层引入该常量。
+        let chunk_size = 256 * 1024;
         let file_size = chunk_size as u64 * 2;
         let part = create_part_file(&dir, "multi.bin", file_size)
             .await

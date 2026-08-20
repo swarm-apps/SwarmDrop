@@ -12,22 +12,28 @@
 //! 引用 network / transfer 域的 DTO（含 transfer wire 类型），下沉到端口层会成环，
 //! 故留在 `swarmdrop-core`。
 //!
-//! 端口的**平台中立默认实现**也放这里，目前只有一个：[`JsonFileDeviceConfig`]（桌面与
-//! 移动共用的 `device_config.json` 读写）。判据是「多个宿主会写出逐行同构的同一份实现，
-//! 且它们的真差异只在构造参数上」——理由与门控见
-//! [`device_config_file`] 的模块文档。
+//! **本 crate 是纯端口：零文件 IO、零平台实现。** 端口的 native 本地文件系统实现住在
+//! `swarmdrop-host-fs`（身份存储 / 设备配置 / 文件读写），由各宿主自行依赖。
+//!
+//! **唯一的例外是 [`time::now_secs`]**，理由是两个 target 的时钟源不一样
+//! （`SystemTime` 在 wasm 上没有可用来源，chrono 走 JS 的 `Date.now()`），而按 Unix 秒
+//! 计时的邀请 TTL 判定是三端共用的——散在各处自取的写法只有编到浏览器时才暴露，
+//! 症状还是「邀请刚生成就判为过期」这种离时钟很远的东西。它取的是**时刻**不是平台能力，
+//! 不构成往端口层塞实现的先例。
+//!
+//! 那次拆分的判据：同一份实现被三个以上宿主逐行同构地各写一遍时，它属于共享实现而非
+//! 端口；而端口层一旦开始承载实现，「本 crate 要过 wasm 双 target 门禁」这条约束就会
+//! 反过来污染实现的写法（同步 IO、target-specific 依赖、cfg 门控）。
 
 pub mod device;
-#[cfg(not(target_family = "wasm"))]
-pub mod device_config_file;
 pub mod error;
 pub mod notification;
 pub mod ports;
+pub mod time;
 
-#[cfg(not(target_family = "wasm"))]
-pub use device_config_file::JsonFileDeviceConfig;
 pub use error::{AppError, AppResult};
 pub use notification::{
     SystemNotification, SystemNotificationPublisher, publish_if_window_unfocused,
 };
 pub use ports::*;
+pub use time::now_secs;

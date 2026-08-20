@@ -24,7 +24,8 @@ import { useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { t } from "@lingui/core/macro";
 import { toast } from "sonner";
-import { commands, events, type FileSource } from "@/lib/bindings";
+import { commands, events } from "@/lib/bindings";
+import { pathsToSources } from "@/lib/file-source";
 import { usePreferencesStore } from "@/stores/preferences-store";
 import { useShareStore } from "@/stores/share-store";
 import { usePairingStore } from "@/stores/pairing-store";
@@ -51,8 +52,7 @@ export function ExternalOpenHandler() {
 
     const handleFiles = (paths: string[]) => {
       if (paths.length === 0 || !readyForIntent()) return;
-      const sources: FileSource[] = paths.map((path) => ({ type: "path", path }));
-      setShareSources(sources);
+      setShareSources(pathsToSources(paths));
       void navigate({ to: "/send/share-target" });
     };
 

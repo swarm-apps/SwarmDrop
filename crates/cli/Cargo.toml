@@ -1,0 +1,77 @@
+[package]
+name = "swarmdrop-cli"
+version = "0.2.0"
+edition.workspace = true
+description = "SwarmDrop 命令行宿主：无账号、无公网 IP 的设备间端到端加密传输"
+license = "MIT"
+repository = "https://github.com/swarm-apps/SwarmDrop"
+homepage = "https://github.com/swarm-apps/SwarmDrop"
+
+# 命令行宿主：第四个宿主（桌面 / 移动 / Web 之外），复用 core 的 start_node 组合根。
+#
+# **package 名与 bin 名刻意不同**：bin 必须是干净的 `swarmdrop`（用户敲的就是它），
+# 而 package 名带 `-cli` 后缀，与将来可能出现的其他分发单元区分。
+# ⚠️ 两者不同影响发布标签的形式：tag 必须是 `cli/swarmdrop-cli-v<版本>`（**带包名**，
+# 否则 release notes 会静默取到桌面版本线的 CHANGELOG——见 dist-workspace.toml 的注释），
+# 且不能用连字符裸形式 `cli-v0.1.0`（tag-namespace `cli` ≠ package 名 `swarmdrop-cli` 时，
+# dist 会把整串当版本号解析并报错）。发版走 `./scripts/release-cli.sh`，别手敲 git tag。
+
+[[bin]]
+name = "swarmdrop"
+path = "src/main.rs"
+
+[dependencies]
+# 依赖体例对齐 crates/bootstrap（同为 workspace 内的独立 bin）：
+# 只有本 crate 用的依赖直接写版本，多个 crate 共用的才提到 workspace.dependencies。
+clap = { version = "4", features = ["derive", "env"] }
+tokio = { workspace = true, features = [
+    "macros",
+    "rt-multi-thread",
+    "signal",
+    "time",
+    "sync",
+] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+# CliError 与退出码一一对应（见 src/exit.rs）。
+thiserror = { workspace = true }
+# 数据目录的平台约定位置。用它的 data_local_dir（非 data_dir）——Windows 上后者是
+# Roaming，会把私钥同步到域服务器。
+directories = "6"
+# 核心与端口
+swarmdrop-core = { workspace = true }
+swarmdrop-host = { workspace = true }
+swarmdrop-host-fs = { workspace = true }
+swarmdrop-net = { workspace = true }
+swarmdrop-storage-sql = { workspace = true }
+migration = { workspace = true }
+async-trait = { workspace = true }
+# 结构化输出（--json）。
+serde_json = { workspace = true }
+interprocess = { version = "2.4.3", features = ["tokio"] }
+serde = { workspace = true, features = ["derive"] }
+swarmdrop-invite = { version = "0.1.0", path = "../invite" }
+uuid = { workspace = true, features = ["v4"] }
+# 交互提示（确认、单选、多选、行输入）。**只在有终端时用**（见 src/prompt/mod.rs）——
+# 命令行宿主同样跑在服务单元与脚本里，那些场景没有 stdin 可读。
+#
+# `completion` 是路径输入要的：交互输入框里 shell 不介入，没有 Tab 补全的话，
+# 用户只能把一条长路径逐字敲进去（见 src/prompt/paths.rs）。它是个空 feature，
+# 只放开 `completion_with`，不引入任何依赖。
+# 默认特性里的 `editor`（拉起 $EDITOR）与 `password`（无回显输入）本 crate 用不上。
+dialoguer = { version = "0.12", default-features = false, features = ["completion"] }
+# 传输进度条。与 dialoguer 共用 `console`（已在依赖树里），增量成本只有它自己。
+# 选它而非自己 `\r` 刷新，是为了拿到三件不好自己做对的事：非终端时自动静默、
+# 速率与剩余时间、重绘清行（stderr 上还有 tracing 的日志）。见 render/send.rs。
+indicatif = "0.18"
+# 跨平台探测「电脑名称」。**不能用 `OsInfo::default().hostname`**——它读的是
+# COMPUTERNAME / HOSTNAME 环境变量，而 macOS 与多数 Linux 上 HOSTNAME 是 shell 变量、
+# 根本没有导出，于是必然落到兜底值 `Device`（见 runtime/boot.rs）。
+# 关掉默认特性：wasm-web / wasi 两条本 crate 用不上，CLI 是纯 native。
+whoami = { version = "2", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+# **只给测试**：护栏测试要断言「render 认识的方向名 == 核心实际序列化出来的名」。
+# 生产代码不碰 entity —— 渲染层吃的是 JSON（两条取数路径统一），不是 typed DTO。
+entity = { workspace = true }

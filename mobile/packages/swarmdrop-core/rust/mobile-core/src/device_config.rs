@@ -10,7 +10,7 @@
 //! `mobile/src/stores/mobile-core-store.ts`）。
 //!
 //! **读写实现不在这里**：它是共享的
-//! [`JsonFileDeviceConfig`](swarmdrop_core::host::JsonFileDeviceConfig)。移动端与桌面
+//! [`JsonFileDeviceConfig`](swarmdrop_host_fs::JsonFileDeviceConfig)。移动端与桌面
 //! 此前各有一份逐行同构的实现（同一个 `{ "device_name": … }` 结构、同一套容错读、同一个
 //! 建目录 + pretty 写、连 load 侧再过一次 `DeviceName::parse` 的防线都一样），两者唯一的
 //! 真差异就是本模块剩下的这件事 —— 路径从哪来。

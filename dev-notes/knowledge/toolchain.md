@@ -785,6 +785,118 @@ cd ../.. && ../../node_modules/.bin/bob build   # ⚠️ 不能省
 `crates/web/tests/specta_export.rs`、`mobile/packages/swarmdrop-core/ubrn.config.yaml`、
 `mobile/dev-notes/knowledge/rust-bridge.md`
 
+## OpenSpec：两条只有踩过才知道的规则（2026-08-19 实证）
+
+### 未归档 capability 的 `MODIFIED` delta 能过 `validate`，但会卡在 `archive`
+
+`openspec validate` 只检查 delta 自身的格式（有 `## MODIFIED Requirements` 头、每条
+Requirement 至少一个 `#### Scenario`），**不检查被修改的 capability 是否存在于
+`openspec/specs/`**。所以对一个仍在别的 change 里、尚未归档的 capability 声明 MODIFIED，
+会得到一句干脆的 `Change 'xxx' is valid`——而它在归档时无处可合并。
+
+判据：写 delta 前先 `ls openspec/specs/<capability>`。不在那里就意味着**从 OpenSpec 的
+视角看这个能力还不存在**，此时正确的做法通常是**就地更新那个未归档 change 的 spec**
+（它还是草稿），而不是造一个永远合并不进去的 delta。
+
+代价要记：就地更新没有 `openspec validate` 兜底，必须落成显式任务，否则漏掉的那处会让
+规格描述一个已经不存在的形态。
+
+### 规格里不要写具体命令名 / 函数名
+
+`standalone-cli-host` 的 `cli-host` spec 通篇写「设备列表命令」「配对生成」这类**角色
+描述**，唯一的字面量是 `start`。于是 2026-08-19 把整个 CLI 命令面从 `pair`/`devices`
+重整成 `invite create`/`device list` 时，那份 17 条 Requirement 的规格**只有一句话需要改**
+（而且那一句改的是行为不是命名：「此时节点是新起的临时节点」这个括号说明，在设备列表
+不再起节点之后失效）。
+
+反过来说：如果规格里写满了命令名，一次改名就会变成一次规格重写，而重写里混进行为变更
+是看不出来的。规格描述**契约**，命令名属于实现。
+
+## `swarmdrop` 这个 bin 名归 CLI 独占，桌面壳的 bin 是 `swarmdrop-desktop`（2026-08-19 修复）
+
+**现状**：`src-tauri/Cargo.toml` 有显式 `[[bin]] name = "swarmdrop-desktop"`。
+**对外产物名一个都没变**（`swarmdrop.app` / `swarmdrop_0.23.0_aarch64.dmg` /
+`swarmdrop.app.tar.gz` —— 它们由 `productName` 决定，与 bin 名无关）；变的是
+`.app` 内部的 `Contents/MacOS/swarmdrop-desktop`（`CFBundleExecutable` 由 Tauri 一并写对）、
+Windows 的 `swarmdrop-desktop.exe`，以及未打包的 cargo 产物。
+
+下面记的是修之前的形态——因为这类冲突极易在「给某个 crate 加个 bin」时再次引入，
+而它的症状与根因离得非常远。
+
+---
+
+修之前，`crates/cli` 的 `[[bin]] name = "swarmdrop"` 与 `src-tauri` 的 package name
+`swarmdrop`（默认 bin 名 = package 名）**输出到同一个 `target/debug/swarmdrop`**。
+Cargo 自己会警告：
+
+```
+warning: output filename collision at target/debug/swarmdrop
+  = note: the bin target `swarmdrop` in package `swarmdrop-cli` has the same output
+          filename as the bin target `swarmdrop` in package `swarmdrop`
+  = note: this may become a hard error in the future; see rust-lang/cargo#6313
+```
+
+**后果一：CLI 的集成测试随机失败。** `crates/cli/tests/without_a_node.rs` 经
+`env!("CARGO_BIN_EXE_swarmdrop")` 跑二进制，而那个环境变量指向的就是被覆盖的路径。
+最后构建的那个赢：桌面壳赢的时候，6 条测试里有 4 条以「退出码 0、stdout 空」失败
+（桌面应用在无窗口环境下启动即退出），报出来的却是
+`["pair"] 仍然可用——旧命令必须彻底消失` 这类**完全指错方向**的断言消息。
+
+判别方法是看文件大小：CLI 约 83 MB，桌面壳约 148 MB。
+`cargo test -p swarmdrop-cli` 单跑必过（只构建 CLI 那个），所以这条只在 workspace 全跑时现形
+——**包括 CI 的 `rust.yml`**。
+
+**后果二：仓库里会凭空多出一个 77 KB 的 `crates/src/lib/bindings.ts`。** 桌面壳在 debug 下
+启动时会自动导出 specta bindings，而那处用的是**相对 cwd** 的
+`"../src/lib/bindings.ts"`（`setup.rs:162`；`setup.rs:341` 那处用
+`concat!(env!("CARGO_MANIFEST_DIR"), …)` 是绝对的，没这个问题）。集成测试的 cwd 是
+`crates/cli/`，于是被误跑的桌面壳把 bindings 写到了 `crates/cli/../src/lib/bindings.ts`。
+它不在 `.gitignore` 里，会直接出现在 `git status` 的未追踪列表里。
+
+**后果三：cargo 说了这将来是硬错误。** 到那天整个 workspace 构建失败。
+
+**修法**：给 `src-tauri` 的 bin 显式改名，用 `tauri.conf.json` 的 `mainBinaryName`
+把打包产物名改回来。Tauri 官方文档正是这么建议的——它明确写着 `mainBinaryName`
+**不用来选择 bin target**，只在 `tauri build` 时重命名产物，并推荐「改 package name
+或设 bin target 的 name field」来解决冲突本身。
+
+```toml
+# src-tauri/Cargo.toml
+[[bin]]
+name = "swarmdrop-desktop"
+path = "src/main.rs"
+```
+
+### ⚠️ 别用 `mainBinaryName` 把产物名改回 `swarmdrop`（2026-08-19 实测的弯路）
+
+直觉上 `tauri.conf.json` 的 `"mainBinaryName": "swarmdrop"` 正好能保住 `.app` 内部的
+可执行文件名，两全其美。**实测下来它把冲突原样带了回来**：那个字段的作用是在
+`tauri build` 阶段**把 cargo 产物重命名**（官方措辞是 "rename that binary in tauri-cli's
+`tauri build` command"），也就是把 `target/debug/swarmdrop-desktop` **move 成**
+`target/debug/swarmdrop`——于是 `swarmdrop-desktop` 消失、`swarmdrop` 又变成桌面壳。
+
+`--no-bundle` 也一样重命名（那步在 bundle 之前）。**这比原来的形态更糟**：产物叫什么
+取决于最后跑的是 `cargo build` 还是 `tauri build`，`e2e/desktop/wdio.conf.ts` 那种写死
+路径的地方于是没有一个正确答案。
+
+代价是 `.app` 内部与 Windows 的可执行文件名变成 `swarmdrop-desktop`。已核实无碍：
+`external_open.rs` 的两处 `current_exe()` 只取**路径**去注册（Windows 注册表右键菜单 /
+Linux `.desktop`），且带幂等比对，升级后首次启动会自动重写；single-instance 与 deep-link
+按 bundle identifier 注册，都不看可执行文件名；`release.yml` 用 glob 交给
+swarmhive-action 自己挑 updater bundle，也不硬编码。
+
+**不能反过来改 CLI 的 bin 名**：用户敲的就是 `swarmdrop`，而且它已经作为
+`cli/swarmdrop-cli-v*` 发到 npm 与 homebrew。
+
+**跟着改的引用点**：`e2e/desktop/wdio.conf.ts` 的 `APP_BINARY_PATH`、
+`.github/ISSUE_TEMPLATE/bug_report.yml` 里给用户的三条日志启动路径。
+
+**验证**（2026-08-19 实跑）：`cargo build --workspace --bins` 无 collision 警告且两个
+二进制并存（CLI 83 MB / 桌面壳 148 MB）；`cargo test --workspace` **837 条全过**
+（此前它在 CLI 集成测试那里红 4 条）；`pnpm tauri build --debug` 产出
+`swarmdrop.app` + `swarmdrop_0.23.0_aarch64.dmg` + `swarmdrop.app.tar.gz`（**名字与改动前
+逐字相同**），内部是 `Contents/MacOS/swarmdrop-desktop` 且 `CFBundleExecutable` 一致。
+
 ## 提交前 checklist
 
 ```bash

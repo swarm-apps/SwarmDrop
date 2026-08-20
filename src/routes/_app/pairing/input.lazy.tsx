@@ -113,7 +113,7 @@ function PairingInputPage() {
       />
 
       <TaskContent
-        className="flex min-h-0 flex-col gap-5"
+        className="flex flex-col gap-5"
         footer={
           <CommandDock>
             <TaskButton variant="outline" onClick={handleBack}>
