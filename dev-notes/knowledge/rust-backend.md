@@ -2121,3 +2121,33 @@ Web 端是 `crates/web/src/lib.rs` 的 `Targets`）。
 
 **相关文件**：`crates/transfer/src/progress.rs`、`crates/transfer/src/actor/receiver.rs`、
 `packages/shared-view/src/transfer/progress.ts`、`DESIGN.md` 的 Transfer Progress Contract
+
+## 续传测试必须**两端都等** `Suspended`，只等本端会 flaky（2026-08-20）
+
+`initiate_resume` 向对端发 `ResumeCommit`，而应答侧的 reduce 受 `is_suspended` 守卫。
+对端若还停在 `Active`（尚未感知中断），它回 `ResumeRejectReason::PeerUnavailable` ——
+那是**设计上正确**的可重试拒绝（`apply_resume_reject` 对它 no-op，会话保持
+suspended/recoverable，等对端也转 suspended 后重试即可），**刻意不归为 FatalError**，
+否则一次时序抖动就会把可恢复会话永久打死。
+
+代价落在测试上：`.expect("resume")` 撞上这个拒绝就是一句 panic，错误串是
+**「对端不可用，请稍后再试」**。`crates/core/tests/e2e_transfer.rs` 里两条注入
+finalize 故障的续传测试原先都只等**接收方**转 suspended 就立刻 resume，发送方是不是
+已经感知到中断纯看调度。
+
+**正确做法**：`initiate_resume` 之前对**两端**各等一次（helper `wait_suspended`）。
+
+**这条复现不出来，别用「多跑几遍」验证它**。实测：单跑那条测试 12/12 过；整份文件连跑
+8 轮过；再叠三个并发进程抢 CPU 也过 —— 本机上发送方每次都已经是 Suspended。只在 CI 的
+ubuntu runner 上挂过一次（run `32354495330`）。核数越少、同进程并行测试越多，窗口越宽。
+
+所以判据要从**代码路径**取而不是从复现取：`PeerUnavailable` 在整条链路上只有一个来源，
+就是对端的 `map_resume_phase` 落在 `Active | Offered | WaitingAccept` 上。看到这个错误串
+就等价于「对端还没转 suspended」，不必再猜别的。
+
+**可推广的那条**：凡是「本端状态就绪 → 立刻发起需要对端也就绪的操作」的 e2e 测试，
+都要等对端。本端的 DB 投影**不能**当作对端进度的代理。
+
+**相关文件**：`crates/transfer/src/flow/resume/validation.rs`（`map_resume_phase` /
+`validate_resume_report`）、`crates/transfer/src/flow/resume/mod.rs:239`、
+`crates/core/tests/e2e_transfer.rs`（`wait_suspended`）

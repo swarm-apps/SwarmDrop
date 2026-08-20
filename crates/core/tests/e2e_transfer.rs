@@ -351,6 +351,34 @@ async fn wait_completed(db: &DatabaseConnection, session_id: Uuid, who: &str) {
     panic!("超时等待: {who} 完成 (Terminal/Completed)");
 }
 
+/// 等某一端进入 `Suspended`。
+///
+/// **`initiate_resume` 之前两端都要等，不能只等本端。** 应答侧的 reduce 受
+/// `is_suspended` 守卫：对端若还停在 Active（尚未感知中断），它回的是
+/// `ResumeRejectReason::PeerUnavailable`——那是设计上「稍后重试即可」的可恢复拒绝
+/// （见 `crates/transfer/src/flow/resume/validation.rs` 的 `ResumePhaseReport::Active`
+/// 分支），但在测试里就是一句 `.expect("resume")` 的 panic。
+///
+/// **本地复现不出来，别指望跑几遍能验证它。** 实测：单跑这条 12/12 过；整份文件连跑
+/// 8 轮过；再叠三个并发进程抢 CPU 也过——发送方每次都已经是 Suspended。只在 CI 的
+/// ubuntu runner 上挂过一次（2026-08-20，run 32354495330）。
+///
+/// 所以这条修复的依据是**代码路径可判定**而不是复现：`PeerUnavailable` 只有一个来源，
+/// 就是对端的 `map_resume_phase` 落在 `Active | Offered | WaitingAccept` 上
+/// （`validation.rs` 的 `map_resume_phase` → `validate_resume_report`），等它转
+/// Suspended 就关掉了这个窗口。
+async fn wait_suspended(db: &DatabaseConnection, session_id: Uuid, who: &str) {
+    for _ in 0..400 {
+        if let Ok(Some(p)) = ops::get_transfer_projection(db, session_id).await
+            && p.phase == TransferPhase::Suspended
+        {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("超时等待: {who} 转入 Suspended");
+}
+
 // ===== tests =====
 
 /// 连通性 smoke：两个真实节点关 mDNS + 显式 dial 能建连。坐实路径 B 的最小前提。
@@ -1430,21 +1458,7 @@ async fn e2e_publish_failure_keeps_checkpoint_and_resumes() {
         .expect("accept");
 
     // 数据全部收下，但发布被注入的故障挡住。
-    let db_b = node_b.db.clone();
-    poll_until(
-        || {
-            futures::executor::block_on(async {
-                ops::get_transfer_projection(db_b.as_ref(), session_id)
-                    .await
-                    .ok()
-                    .flatten()
-                    .is_some_and(|p| p.phase == TransferPhase::Suspended)
-            })
-        },
-        Duration::from_secs(20),
-        "接收方因发布失败转入 suspended",
-    )
-    .await;
+    wait_suspended(node_b.db.as_ref(), session_id, "接收方（发布失败）").await;
 
     let projection = ops::get_transfer_projection(node_b.db.as_ref(), session_id)
         .await
@@ -1477,6 +1491,7 @@ async fn e2e_publish_failure_keeps_checkpoint_and_resumes() {
     );
 
     // 故障解除后原地重试：只需补回末块，不必重传前 10 块。
+    wait_suspended(node_a.db.as_ref(), session_id, "发送方（感知中断）").await;
     node_b.host.clear_finalize_failures();
     node_b
         .transfer
@@ -1593,21 +1608,7 @@ async fn e2e_empty_file_is_published_even_when_interrupted_before_its_block() {
         .await
         .expect("accept");
 
-    let db_b = node_b.db.clone();
-    poll_until(
-        || {
-            futures::executor::block_on(async {
-                ops::get_transfer_projection(db_b.as_ref(), session_id)
-                    .await
-                    .ok()
-                    .flatten()
-                    .is_some_and(|p| p.phase == TransferPhase::Suspended)
-            })
-        },
-        Duration::from_secs(20),
-        "接收方因发布失败转入 suspended",
-    )
-    .await;
+    wait_suspended(node_b.db.as_ref(), session_id, "接收方（发布失败）").await;
 
     // 前提确认：空文件此刻确实一次都没被碰过——否则这条测试就退化成了走过场。
     assert!(
@@ -1619,6 +1620,7 @@ async fn e2e_empty_file_is_published_even_when_interrupted_before_its_block() {
         "构造失败：中断时空文件不应已被处理"
     );
 
+    wait_suspended(node_a.db.as_ref(), session_id, "发送方（感知中断）").await;
     node_b.host.clear_finalize_failures();
     node_b
         .transfer
