@@ -116,3 +116,47 @@
 - [x] 8.4 无节点验证：停掉节点后 `invite list` / `device list` / `transfer list` /
       `device forget` 均可用且不启动节点（用是否出现监听地址日志佐证）
 - [x] 8.5 `openspec validate cli-command-surface --strict` 通过
+
+## 9. 文本投递（2026-08-20 追加）
+
+- [x] 9.1 `send --text [<TEXT>]`：三态 `Option<Option<String>>`（给内容 / 只给开关 /
+      不给），与位置参数 `conflicts_with`。**不新建 `text` 名词**——收到的文本进的是
+      收件箱，只有发件账本在别处，做出来会是一个只有一半的集合
+- [x] 9.2 正文三条来源：命令行 / 标准输入（非终端时读到 EOF，`take(MAX+1)` 后转 UTF-8，
+      两种失败不许混成一种）/ `$EDITOR`（dialoguer `editor` feature，为此打开）
+- [x] 9.3 空与超限在**起节点之前**判定，退出码 2；措辞两处共用一份（`too_long`）
+- [x] 9.4 只削结尾换行，缩进与内部空行原样保留；与 `$EDITOR` 那条路径的结果一致
+- [x] 9.5 通道动词 `SendText`，与 `Send` 分开（服务端骨架没有一步重合）
+- [x] 9.6 终态分类 → 退出码：`delivered` 成功；`peer_unavailable` / `timed_out` →
+      `PeerUnreachable`；其余 → `TransferFailed`。状态名抄自 entity 的 serde 形态，
+      由 `text_status_names_match_the_wire` 看守
+- [x] 9.7 回执说「已送达」不说「已发送」（spec: text-send-experience）
+- [x] 9.8 等待转轮画在**命令层**（两条取数路径都经过），且作用域必须在打印结果之前结束
+- [x] 9.9 **常驻节点自动确认入站文本**：`TextDeliveryAttention{ConfirmationRequired}`
+      → `service.accept`。判据同文件（已配对）。少了它，默认信任档位
+      （`Collaborator` 带 `require_confirmation`）下**一条都收不到**，且失败形态是
+      发送端阻塞 5 分钟后报「已过期」
+- [x] 9.10 收件箱标题压平成一行（`title_line`）：文本条目的标题带正文里的换行，
+      而列表、菜单、详情三处都假定它占一行
+- [x] 9.11 测试：三态解析、互斥、正文边界、只削结尾换行、状态名对齐、退出码分类；
+      管道中 `send --text` 不挂起（`tests/without_a_node.rs`）
+- [x] 9.12 真机验证：两个数据目录起两个节点、配对、行内 / 管道 / `--json` / pty 里的
+      `$EDITOR` 四条路径均送达，对端离线时退 4
+- [x] 9.13 文档：`docs/content/docs/cli.mdx` 新增「发一段文本」，
+      `dev-notes/knowledge/cli-host.md` 记下九条非显见结论
+- [x] 9.14 **顺带修掉 `send` 的一个既有缺陷**：`resolve_target` 用的是
+      `DeviceFilter::All`（本次运行**发现**的对端），无常驻节点时那张表是空的——
+      于是 `send … --to <设备>` 必报「找不到已配对设备」，而 `device list` 明明列着它。
+      改成 `Paired`。文件与文本共用这个函数，所以两支一起修好
+
+## 10. 收到的东西在哪儿（2026-08-20 追加）
+
+- [x] 10.1 `inbox show` 增加**位置**一行：单文件取 `localPath`、多文件取 `rootPath`，
+      优先级与桌面端 `item_target_path` 一致
+- [x] 10.2 `transfer show` 对接收方向增加同一行；发送方向**不呈现**（没有落点，
+      印占位符会让人以为记录坏了）
+- [x] 10.3 文本条目不呈现位置——它没有本地文件
+- [x] 10.4 **不拼接**「根目录 + 相对路径」：各文件 `local_dir` 未必相同，
+      core 的 `content_root_of` 在不一致时回退存储根
+- [x] 10.5 测试：优先级、缺位置时的占位符、标题压平与截断
+- [x] 10.6 真机验证：单文件条目 / 目录条目 / 文本条目 / 发送记录四种形态

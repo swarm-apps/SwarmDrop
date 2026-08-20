@@ -73,6 +73,12 @@ pub fn render_detail(record: &Value, json: bool) {
         bytes(record.get("transferredBytes")),
         bytes(record.get("totalSize"))
     );
+    // **只有接收方向有本地落点**，所以这一行按有没有值出现，而不是恒印一个占位符：
+    // 发送会话没有 `save_path`，`contentRoot` 因此是空的，印一行「位置 —」只会让人
+    // 以为记录坏了。core 已经把它解析成真实容器目录，这里直读，不做任何兜底或拼接。
+    if let Some(root) = record.get("contentRoot").and_then(Value::as_str) {
+        println!("位置      {root}");
+    }
     if let Some(failure) = record.get("failure").and_then(Value::as_str) {
         println!("失败原因  {failure}");
     }

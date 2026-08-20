@@ -58,12 +58,21 @@ uuid = { workspace = true, features = ["v4"] }
 # `completion` 是路径输入要的：交互输入框里 shell 不介入，没有 Tab 补全的话，
 # 用户只能把一条长路径逐字敲进去（见 src/prompt/paths.rs）。它是个空 feature，
 # 只放开 `completion_with`，不引入任何依赖。
-# 默认特性里的 `editor`（拉起 $EDITOR）与 `password`（无回显输入）本 crate 用不上。
-dialoguer = { version = "0.12", default-features = false, features = ["completion"] }
+# `editor`（拉起 $EDITOR）是文本投递的交互撰写路径要的：正文上限 64 KiB 且天然多行，
+# 而 dialoguer 的行输入收不下回车（见 src/prompt/mod.rs 的 `compose`）。
+# 默认特性里的 `password`（无回显输入）本 crate 用不上。
+dialoguer = { version = "0.12", default-features = false, features = [
+    "completion",
+    "editor",
+] }
 # 传输进度条。与 dialoguer 共用 `console`（已在依赖树里），增量成本只有它自己。
 # 选它而非自己 `\r` 刷新，是为了拿到三件不好自己做对的事：非终端时自动静默、
 # 速率与剩余时间、重绘清行（stderr 上还有 tracing 的日志）。见 render/send.rs。
 indicatif = "0.18"
+# 自更新。**必须与 dist 内嵌的那份保持兼容**：dist 会检查本 crate 声明的版本，
+# 低于它自己捆的那版就**拒绝构建**（`AxoupdaterTooOld`）——dist 0.32 捆的是 0.10.0。
+# 默认特性 `github_releases` 就够；不开 `blocking`，本 crate 自带 tokio 运行时，走 async API。
+axoupdater = "0.10.2"
 # 跨平台探测「电脑名称」。**不能用 `OsInfo::default().hostname`**——它读的是
 # COMPUTERNAME / HOSTNAME 环境变量，而 macOS 与多数 Linux 上 HOSTNAME 是 shell 变量、
 # 根本没有导出，于是必然落到兜底值 `Device`（见 runtime/boot.rs）。

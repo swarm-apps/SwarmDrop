@@ -44,7 +44,7 @@
 | 5 | 未装过的机器一条命令装好 | ⏸ | 需先发布。`dist plan` 已确认产出 shell / powershell installer |
 | 6 | npm 包可作为依赖被引入 | ⏸ | 需先发布到 npm 的 `swarmdrop` |
 | 7 | 每个受支持平台都有产物 | ✅（计划层面） | `dist plan` 列出全部六个目标的归档与校验和 |
-| 8 | 通过安装渠道更新 | ✅ | `install-updater = false`，程序自身不提供更新命令 |
+| 8 | 更新按安装渠道分派 | ✅ | 2026-08-20 修订：`install-updater = false` 仍成立（不产出独立 updater），改由内建的 `swarmdrop update` 按 receipt 判定渠道——包管理器装的转交、认不出的只给通用指引 |
 
 ## 复查中发现并修掉的四个缺陷
 

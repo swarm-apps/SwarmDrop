@@ -8,7 +8,7 @@
 //! ## 三层
 //!
 //! ```text
-//! mod.rs    能力判断（can_ask）+ 四种提问原语        不知道自己在问什么
+//! mod.rs    能力判断（can_ask）+ 五种提问原语        不知道自己在问什么
 //! pick.rs   「参数给了 / 问 / 问不了就退出」三态骨架   不知道候选集从哪来
 //! paths.rs  路径这一种回答的输入设施（拆行、补全）      不知道路径要拿来干什么
 //! ```
@@ -100,7 +100,7 @@ fn term() -> dialoguer::console::Term {
 
 /// 此刻问不了人就以用法错误退出。
 ///
-/// 三个提问入口（两处菜单 + 行输入）各写一遍这三行时，漏掉任何一处的表现都是
+/// 四个提问入口（两处菜单 + 行输入 + 撰写）各写一遍这三行时，漏掉任何一处的表现都是
 /// **在管道与 CI 里永久挂起且日志无异常**——`dialoguer` 会去读一个永不到来的 stdin。
 /// 收成一处之后，「该不该问」只有一个答案。
 pub(crate) fn require_can_ask(unavailable: &str) -> CliResult<()> {
@@ -113,7 +113,7 @@ pub(crate) fn require_can_ask(unavailable: &str) -> CliResult<()> {
 
 /// 在阻塞线程上跑一次 dialoguer 交互。
 ///
-/// 两件事收在这里，四个提问原语因此各自只剩 dialoguer 那几行：
+/// 两件事收在这里，其余提问原语因此各自只剩 dialoguer 那几行：
 ///
 /// - **`spawn_blocking`**：dialoguer 是同步阻塞的，直接在异步运行时里调会卡住整个
 ///   worker——而本进程的节点、传输与本地通道全都跑在同一个运行时上。
@@ -248,6 +248,60 @@ pub async fn hotkey() -> Hotkey {
         },
         // 读失败 / 线程没了 = 这个终端已经不能再问了，等同用户走开。
         Ok(Err(_)) | Err(_) => Hotkey::Interrupt,
+    }
+}
+
+/// 让用户在 `$EDITOR` 里**撰写一段多行文本**，返回写下的内容。
+///
+/// 返回 `None` = 没写成（用户没保存就退出、编辑器起不来、缓冲区留空）。
+/// 三者对调用方是同一件事——**没有可发送的正文**，所以不细分。
+///
+/// ## 为什么这一种问题不用 [`Question`]
+///
+/// 那个是**单行**行编辑器：它连回车都收不下，而文本投递的正文上限是 64 KiB 且天然多行
+/// （日志片段、一段配置、一封说明）——用它等于把这条路径的能力砍成「只能发一行」，
+/// 而另外三端给的是一个 textarea。
+///
+/// 也不用「逐行读到空行为止」那种循环（[`crate::cmd::send`] 收路径时用的形态）：
+/// 空行是正文的合法内容，拿它当终止符会**静默截断**用户写的东西。
+///
+/// `$EDITOR` 是终端里撰写多行正文的既有形态（`git commit`、`crontab -e`、`visudo`），
+/// 顺带白送两件这条路径真的需要的事：**改得动**（发出去不可撤销，得能回头改）、
+/// **空缓冲区即放弃**（不必再问一次「确定要发吗」）。
+///
+/// ⚠️ `$EDITOR` 没设时 dialoguer 在类 Unix 上退到 `vi`、Windows 上退到 `notepad`。
+/// 精简容器里两者都可能不存在——那时返回 `None`，调用方据此指路到 `--text <内容>`，
+/// 而不是让用户对着一句 `No such file or directory` 猜。
+pub async fn compose(unavailable: &str) -> CliResult<Option<String>> {
+    require_can_ask(unavailable)?;
+
+    // **「编辑器起不来」与「用户没保存」必须分开。** 压成同一个 `None` 的话，前者会被
+    // 调用方翻成 `Aborted`（退出码 **130** = `128 + SIGINT`，脚本按惯例读作「人按了
+    // Ctrl-C，别重试」）——而真实原因是这台机器上没有 `vi`、或 `$EDITOR` 指向一个装不上
+    // 的命令。屏幕上只有一句「已中止」，指路一个字都没有，正好与本函数文档承诺的相反。
+    //
+    // `Ok(None)` = 用户看过了但没写（空缓冲区 / 没保存就退出）——那是一个明确的放弃。
+    // `Err(())` = 这台机器根本跑不起编辑器。
+    let outcome = on_terminal(|| {
+        Some(
+            dialoguer::Editor::new()
+                // 正文是纯文本；扩展名只影响编辑器的语法高亮与换行策略。
+                .extension(".txt")
+                .edit("")
+                .map_err(|_| ()),
+        )
+    })
+    .await;
+
+    match outcome {
+        Some(Ok(body)) => Ok(body),
+        // 起不来：给用法错误（退出码 2）并指路，而不是伪装成用户中止。
+        Some(Err(())) => Err(CliError::Usage(format!(
+            "无法启动文本编辑器（$EDITOR / $VISUAL）。\n{unavailable}"
+        ))),
+        // `on_terminal` 自己返回 `None` 只发生在阻塞任务 panic 时——那与「读不到回答」
+        // 同一类，保持既有语义。
+        None => Ok(None),
     }
 }
 

@@ -74,9 +74,10 @@ works on iOS Safari.
 
 Downloads and automatic updates are served by
 [SwarmHive](https://github.com/swarm-apps/SwarmHive) — our own open-source, self-hostable
-release server. No proprietary update SaaS in the loop. The CLI is the exception: it has
-no built-in updater, because whichever package manager installed it already owns the
-question of which version is current.
+release server. No proprietary update SaaS in the loop. The CLI is the exception: it ships
+its own `swarmdrop update`, which updates in place only when the shell installer put it
+there — installed via Homebrew or npm, it recognises that and hands you back to the
+package manager rather than fighting it over which version is current.
 
 ## Getting started
 

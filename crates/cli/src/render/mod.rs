@@ -20,6 +20,7 @@ pub mod invite;
 pub mod send;
 pub mod status;
 pub mod transfer;
+pub mod update;
 pub mod watch;
 
 /// 把结构化结果写到 stdout。

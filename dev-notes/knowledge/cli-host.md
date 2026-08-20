@@ -332,6 +332,16 @@ circuit 地址必然超长，一次十几条），`rtc` / `webrtc` 对每个不�
 
 它是用户确认「到底配上没有」的唯一手段，答错等于配对功能不存在。
 
+⚠️ **同一个坑有第二处：`runtime::transfer::resolve_target`**（2026-08-20 才发现）。
+它把 `--to` 解析成一台已配对设备，却也用了 `Default::default()`——于是**没有常驻节点时
+`swarmdrop send … --to <设备>` 必然报「找不到已配对设备」**，而 `swarmdrop device list`
+明明列着它：一次性命令每次新起临时节点，那张发现表在发出请求的这一刻还是空的。
+`send` 从落地起就带着这个缺陷，直到加 `--text` 时才被撞见（两者共用这个函数）。
+
+**新加任何「按名字或标识找一台已配对设备」的地方，先看这一条。** 判据是一句话：
+要的是「配过对的」还是「这次跑起来看见过的」——`Paired` 与 `All` 是两个集合，
+不是同一个集合的宽窄。
+
 ## 默认日志过滤要写 `swarmdrop` 而不是 `swarmdrop_cli`
 
 tracing 的 target 取 `module_path!()`，而 **bin target 的 crate 根是 bin 名**
@@ -942,6 +952,219 @@ npm 包里的 `artifactDownloadUrls` 是 `releases/download/v0.1.1`，**少了 n
 （0.1.0 的 assets 挂在旧形式的 `cli/v0.1.0` 下，那个 tag 保持原样——已发出的 installer
 与 npm 包里的 URL 都指向它。）
 
+## 发送进度：两段，且两段都可能画不出来
+
+### 订阅必须早于 `prepare`，不只是早于 `send_offer`
+
+`prepare`（校验和 + bao 验签树）是一次**长阻塞调用**，几个 GB 的文件要算几十秒，而它的
+进度只在事件流里。订阅建在它之后的话，那段时间用户面对的是一个既不动也不报错的终端
+——而事件早已发完、无处可订。表现就是用户报的「输入完文件后卡住」。
+
+`prepared_id` 由**调用方**生成正是为了这件事：事件带着它，好让宿主在准备开始之前就认领
+得到（桌面端同理，见 `src/stores/transfer-store.ts` 的 `activePrepare`）。
+
+⚠️ **准备期间 drain 掉的事件不会再传给 `wait_for_terminal`。** 可以吞是因为本会话此刻
+**还不存在**（`session_id` 要到 `send_offer` 之后才有）。这条前提一旦变了，就必须改成
+转发而非丢弃，否则一次极快的传输会把终态事件丢在这儿，命令永远等不到。
+
+### 准备与传输**必须视觉可区分**
+
+跨端契约，不是措辞偏好：准备是本机在算、一个字节都还没上网，传输是字节真的在动。
+两者共用同一个视觉原语，正是那次「用户把 1.99 GB 的准备读成传输、进而把新会话读成
+『续传从 0% 重来』」的直接原因。桌面与移动端用颜色（灰 / teal），终端这一份用**动词**
+（「准备中」/「传输中」），并且准备段**不显示速率与剩余时间**——那两个数在这里量的是
+磁盘而非网络。
+
+判据的事实源是 `DESIGN.md` 的 **`### Transfer Progress Contract (cross-platform)`**
+（`crates/transfer/src/flow/prepare.rs` 的注释指的就是它），那一节已在 2026-08-20
+补入命令行宿主这个第四端。
+
+> 这段一度写着「那一节并不存在」——当时是真的：`e7d9caee` 在重新生成 `DESIGN.md` 时把
+> 整个 `## Cross-platform Contracts` 冲掉了（1274 → 186 行、10 个 Contract → 0 个），
+> 六天后才被发现并恢复。**同一个 `/impeccable` 重新生成随时可能再来一次**，所以校验方式
+> 记在这里：`grep -c '^### .*Contract' DESIGN.md` 应当 ≥ 10。
+
+### 交给常驻节点做时，进度要经通道推回客户端
+
+`send` 有常驻节点时走本地通道，于是准备与传输的事件全在**服务端进程**里，客户端从敲下
+回车到传完一个字都没有。这一侧曾经什么都不画，依据是「文件那支自己有真进度条」——
+**那句话只对本地临时节点成立**。
+
+中间有过一版是「画个转轮 + 指路 `swarmdrop transfer watch`」。**那是妥协不是答案**：
+进度就该在用户此刻看着的这个终端里，让他另开一个终端敲命令是把实现的形状暴露给了用户。
+
+现在通道从严格的一问一答放宽成「一问、**若干条进度**、一答」（`Frame::Progress`）：
+
+- **服务端**经 `ProgressSink` 往同一条连接推进度帧（`ProgressOut::Ipc`）
+- **客户端**用 `request_watching` 边读边画（`render::send::RemoteProgress`）
+- **渲染只有客户端一份**——服务端画进度等于画进它自己的日志流。两条路径因此长得一模一样
+
+四条不变量：
+
+1. **`Frame` 与 `Response` 必须是两个类型。** 合并（给 `Response` 加个 `Progress` 变体）会让
+   每一个调用方的 `match` 都被迫处理一种它那里不可能出现的情况——`request` 早把进度跳掉了。
+   那种 `unreachable!()` 分支是纯噪声，而且下一个人会认真去想「这里该怎么办」。
+   分成两层之后「拿得到的一定是终态」由类型保证，**既有 match 一处都不用改**。
+2. **`Frame` 的三个终态变体逐字抄 `Response`，不许「去重」。** 上面那条只否掉了
+   「给 `Response` 加 `Progress`」，没有否掉「收进一个 `Frame::Terminal { #[serde(flatten)] .. }`」
+   ——那个更短且编译期保证一样强。不这么写的理由是**线格式**：现在 `Frame` 序列化出来的字节
+   与**旧版** `Response` 逐字相同，于是「新客户端 × 旧常驻节点」这个真实窗口里
+   （升级 CLI 不会重启常驻节点，`swarmdrop update` 之后尤其如此）旧节点的应答仍然解析得动。
+   套一层 `Terminal` 会多一层 JSON 嵌套，兼容性当场消失，**且不报错**。
+   由 `a_terminal_frame_is_byte_identical_to_a_bare_response` 钉住。
+3. **进度帧与终态帧共用同一个写端锁。** 两边各持一个写端会让两种帧交错成半行，
+   客户端的按行解析当场失败。
+4. **切换进度条必须先收掉上一个**（`Option` 置空触发 `Drop`）。两条 indicatif 同时活着会
+   互相擦掉对方的行——只在真终端里显形，管道与 CI 全绿。
+
+### 推进度**绝不能阻塞调用方**（2026-08-20 修）
+
+`ProgressSink::send` 最初是 `writer.lock().await.write_all(..).await` ——全阻塞。
+而它的调用方是 `prepare_with_progress` 那个 `select!` 的**分支体**：分支体挂住时
+`prepare` 那条 future 得不到轮询，于是**常驻节点上真正的哈希计算停下来**。
+一个客户端的终端流控（Ctrl-S / SIGSTOP / stderr 管道对面停了）因此能卡住服务端上
+**别人的**传输，而事件通道是无界的，期间还持续涨内存。
+
+现在三道闸，任何一道都只丢这一帧：`try_lock`（拿不到说明上一帧还在写，进度可以丢、
+排队不行）→ 500ms 写超时 → **一次失败即封口**。封口之后连终态帧都不再写：超时的
+`write_all` 可能已经写进去半行，再追加一条合法 JSON 只会让客户端读到
+`{"kind":"progr{"kind":"data",…}`，解析失败退 3 —— **而那次传输其实是成功的**。
+什么都不写让它读到 EOF，得到一个诚实的「节点没有应答」。
+
+⚠️ 「进度是可以丢的、连接不是」这句话此前只覆盖了写**失败**，没覆盖写**慢**。
+
+### 通道的看守测试要往返 `Frame`，不是 `Response`
+
+上线的是 `Frame`（服务端写 `Frame::from(response)`，客户端解析 `Frame` 再 `into_terminal`），
+`Response` 一个字节都不过通道。只往返 `Response` 的测试挡不住任何真实漂移——给
+`Frame::Error` 的 `code` 加个 `serde(skip)`，测试照样绿，而所有经通道的失败会在客户端解析
+失败、一律压成 `NodeUnavailable`(3)，于是同一件事的退出码取决于「此刻有没有常驻节点」。
+
+真正的看守是 `progress_frames_precede_the_terminal_and_do_not_break_plain_requests`：
+handler 先推两条进度再返回终态，断言 ① `request` 拿到的是终态而不是第一帧进度；
+② `request_watching` 按序收到进度且终态在最后。**把 `request_watching` 的读循环退回单次
+`read_line`，它会红**（已实测），而此前那批测试全绿。
+
+### `select!` 里「关掉一条分支」不能靠在分支体里挂起
+
+事件通道关闭后 `recv()` 每次都**立刻**返回 `None`，照着继续循环就是烧满一个核的忙循环。
+但在分支体里 `std::future::pending().await` **更糟**：`select!` 的分支体是在**选中之后**
+执行的，那时另一条分支（`prepare`）已经被丢弃，于是它再也得不到轮询，**整条命令挂死**。
+
+正解是 `event = events.recv(), if events_open` 这样的**分支前置条件**，`None` 时把标志置
+false，让后续迭代只轮询另一条。另一条分支必须永远开着，否则 `select!` 会因「所有分支
+都被禁用」而 panic。
+
+由 `a_closed_event_channel_does_not_spin` 看守——它第一次跑就抓到了上面那个挂死版本，
+而那个缺陷在正常路径（节点不关停）下**永远不显形**。
+
+## 自更新（`swarmdrop update`）
+
+axoupdater 作**库**用，不用 dist 的独立 updater 二进制（`install-updater` 保持 `false`，
+理由写在 `dist-workspace.toml`：那个文件按**包名**叫 `swarmdrop-cli-update`，而 clap 的
+外部子命令机制查的是 `swarmdrop-update`，于是「`swarmdrop update` 直接可用」在本仓不成立）。
+
+### 应用名是**包名**，与日志过滤那条方向相反
+
+| 用途 | 取哪个名字 | 为什么 |
+|---|---|---|
+| install receipt / axoupdater | **包名** `swarmdrop-cli` | receipt 由 dist 按包名写在 `~/.config/<包名>/<包名>-receipt.json` |
+| `EnvFilter` 默认过滤 | **bin 名** `swarmdrop` | tracing 的 target 取 `module_path!()`，bin target 的 crate 根是 bin 名 |
+
+两处都对，**别为了「统一」把其中一个改成另一个**。写错 receipt 名不报错——每个用户都会被
+判成「不是安装脚本装的」，自更新静默失效，而它看起来只是一句「请用当初安装的方式升级」。
+两边各有一条断言测试看守。
+
+### 渠道判据：receipt **且**它指向本可执行文件
+
+只看「receipt 在不在」是错的。失败场景很具体：用户先用安装脚本装过，后来改用 Homebrew
+——旧 receipt 还躺在 `~/.config/` 里，跑起来的却是 brew 那份。自更新于是去改写另一个位置
+的文件，而用户实际执行的那份纹丝不动。
+
+判据借 axoupdater 自己的 `check_receipt_is_for_this_executable()`（它正是为这个场景写的），
+**不要自己推导 receipt 路径**——那要认 `AXOUPDATER_CONFIG_PATH` /
+`AXOUPDATER_CONFIG_WORKING_DIR` / `XDG_CONFIG_HOME` / `%LOCALAPPDATA%` 四套规则。
+
+⚠️ **这道校验不能留给 axoupdater 内部那次调用**：它在 `is_update_needed()` 里，不匹配时
+返回的是 `false`（「不需要更新」）——于是 brew 用户看到的是「已是最新版本」，哪怕真有新版本。
+同一个事实，在渠道判定处能翻成「该用 brew 升级」，在那里只能翻成一句错话。
+
+⚠️ **receipt 必须先判，路径启发式（`/cellar/`、`/node_modules/`）只在 receipt 对不上时才看。**
+本仓 `install-path = "CARGO_HOME"`，安装脚本装出来的二进制就躺在 `~/.cargo/bin` 里；
+先按路径判会把正常安装认成 `cargo install` 而**永远拒绝自更新**。顺序反了不报错，只是不工作。
+
+### `query_new_version()` 不做比较
+
+名字有误导性：它只是把最新 release 的版本号取回来，**一次比较都不做**，fetch 成功时永远是
+`Some`。做比较的是 `is_update_needed()`。只用前者的话，已经是最新的用户会被告知
+「有新版本可用：0.2.0 → 0.2.0」。
+
+### 比较基准要换成**编译进二进制**的版本
+
+axoupdater 默认拿 receipt 里记的版本去比，那是「上次 installer 装了什么」而非「此刻跑的是
+什么」。二进制被换掉（`cargo install`、手动覆盖）而 receipt 没跟上时，用户会看到自相矛盾
+的一屏。`set_current_version()` 必须在 `load_receipt()` **之后**调——前者会被后者覆写。
+
+### 三条版本线混住不影响查找，但会多花请求
+
+axoupdater 按资产名前缀 `swarmdrop-cli-installer*` 过滤，桌面 Tauri 产物不带这类资产，
+不会被误认。**但 `cli-release-polish.yml` 主动把 latest 交还给桌面 release**，于是
+`/releases/latest` 永远命不中 CLI，每次检查都退回去**分页枚举全部 release**（实测请求打到
+`?page=4`）。匿名 GitHub API 限速 60 次/小时，几次调试就能耗尽——这正是启动检查节流到
+一天一次的理由。限速时的失败形态是 `403 rate limit exceeded`，原文照带给用户。
+
+### 更新前必须停节点
+
+Windows 根本不让覆盖运行中的可执行文件，installer 会在搬文件那步失败——而那时归档已下载、
+旧文件可能已被改名，半途失败比不做更糟。Unix 让覆盖（换的是目录项），失败形态反而更隐蔽：
+命令报「已更新」，还在跑的节点仍是旧代码，直到某天有人重启它。
+
+拦截放在**任何网络请求之前**（实测 0.014s 返回），用 `UpdateFailed` 而非 `NodeUnavailable`
+——节点没有不可用，恰恰是太可用。
+
+### `start -d` 的子进程要抑制检查
+
+父进程拉起子进程后自己等就绪、打印、退出，所以检查由**父进程**做（子进程的 stderr 是
+`Stdio::null()`，提示没人看得到）。子进程用 `SWARMDROP_NO_UPDATE_CHECK=1` 抑制——**不加的话
+它会抢先记下时间戳**，把父进程那次挤进节流窗口，于是提示既没显示、又要等满一天才有下次机会。
+复用现成的环境变量开关，不新增隐藏参数。
+
+前台与后台两条路径的写法**不同且不能统一**：前台 `tokio::spawn`（紧接着是服务循环，
+等一次网络往返等于让节点晚几百毫秒开始接受连接），后台 `await` 带 3 秒超时（父进程马上退出，
+spawn 出去的任务会随它消失）。
+
+### 本地怎么验证
+
+造一份假 receipt + `XDG_CONFIG_HOME` 指向临时目录即可，不必真发版：
+
+```bash
+mkdir -p "$TMP/xdg/swarmdrop-cli"
+cat > "$TMP/xdg/swarmdrop-cli/swarmdrop-cli-receipt.json" <<EOF
+{"binaries":["swarmdrop"],"binary_aliases":{},"cdylibs":[],"cstaticlibs":[],
+"install_layout":"flat","install_prefix":"<本可执行文件所在目录>","modify_path":false,
+"provider":{"source":"cargo-dist","version":"0.32.0"},
+"source":{"app_name":"swarmdrop-cli","name":"SwarmDrop","owner":"swarm-apps","release_type":"github"},
+"version":"0.1.0"}
+EOF
+XDG_CONFIG_HOME="$TMP/xdg" swarmdrop update --check
+```
+
+⚠️ **`source.name` 是仓库名（`SwarmDrop`）而不是应用名**——写成 `swarmdrop-cli` 会得到
+`404 Not Found for url .../repos/swarm-apps/swarmdrop-cli/releases`。
+`install_prefix` 要指向**本可执行文件的所在目录**，否则 `check_receipt_is_for_this_executable`
+判否，渠道被认成 `Unknown`。
+
+⚠️ 测「真有新版本」要把 `crates/cli/Cargo.toml` 的版本临时降到低于线上版本——比较基准取的是
+编译期版本，改 receipt 里的版本号没用。
+
+⚠️ 跑过一次真更新之后，`target/debug/swarmdrop` **已被换成下载来的 release 二进制**，
+而 **cargo 的 fingerprint 察觉不到**（`cargo build` 会说 `Finished` 却不重建）。
+下一次构建前先 `rm` 掉它，否则你以为在测自己的代码，实际跑的是线上那份。
+
+⚠️ 数据目录放在深路径下（比如各种沙箱 scratchpad）会让 `start` **静默超时**：Unix 域套接字
+路径上限 108 字节，超了就绑不上。表现是「已在后台拉起节点，但等待就绪超时」而 `status`
+显示 stopped。测这块用 `/tmp/xxx` 这样的短路径。
+
 ## 接收落点
 
 默认 `<下载目录>/SwarmDrop`，`SWARMDROP_RECEIVE_DIR` 覆盖。
@@ -1061,3 +1284,178 @@ raw 模式关掉了 `ISIG`，所以 ^C 多半是作为字符 `\u{3}` 读到的�
 
 SQL 侧的判据写 `ne(Terminal)` 而不是列举其余四个 phase：新增一个非终态 phase 时，
 列举法会把它静默排除在「未完成」之外。
+
+## 发文本 `send --text`（2026-08-20）
+
+文本投递（`crates/transfer/src/text_delivery`）在命令行宿主上此前只有一半：接收侧
+（收件箱的 `InboxItemContent::Text`、`inbox show` 打印正文、`inbox export` 写 `.txt`）
+早就接好了，**发送侧一条没有**，而接收侧在默认配置下其实也走不通（见下）。
+
+### 它是 `send` 的一个内容开关，不是一个新名词
+
+命令面那三条规则（本文档「命令面」小节）里，「发一段文本」的操作对象是用户敲的一串字，
+**不归本程序管理** → 规则 3 → 平铺动词，而那个动词已经存在：`send`。
+所以是 `send --text`，不是 `text send`。
+
+`--text` **不违反「同一集合上的动作不得做成开关」**：那条禁的是把*动作*写成选项
+（`invite --list` / `--revoke`），而 `send` 的动作只有一个，`--text` 换的是被发送的**东西**。
+与位置参数 `conflicts_with`——一次 `send` 只送一样。
+
+反过来说，**不要**为「已发出的文本」建一个 `text` 名词：收到的文本进的是**收件箱**
+（与文件同一张表），只有发件账本在别处，做出来会是一个只有一半的集合。
+
+### 正文三态：`Option<Option<String>>`
+
+| 写法 | clap 解析成 | 正文来自 |
+|---|---|---|
+| `--text 内容` | `Some(Some(..))` | 命令行 |
+| `--text` | `Some(None)` | 标准输入是管道 → 读到 EOF；是终端 → `$EDITOR` |
+| 不给 | `None` | 文件模式 |
+
+⚠️ **塌成 `Option<String>` 会让 `swarmdrop send --text` 变成解析错误**，管道那条路径
+就此消失，而这是命令行宿主相对图形三端唯一多出来的能力
+（`tail -50 error.log | swarmdrop send --text --to laptop`）。
+由 `text_flag_keeps_its_three_states` 看守。
+
+**没有 `-` 这个写法**（`kubectl -f -` 那个惯例）：管道那条已经由「只给 `--text`」表达，
+再给一个等价写法只会让「发一条只有一个减号的消息」无法表达。
+
+### 交互撰写用 `$EDITOR`，不是行输入也不是「空行结束」
+
+`prompt::compose`（dialoguer 的 `editor` feature，为此打开）。两条都不能用：
+
+- **`Question`（dialoguer 的 `Input`）是单行的**，连回车都收不下。而正文上限 64 KiB
+  且天然多行——用它等于把这条路径砍成「只能发一行」，另外三端给的是 textarea。
+- **「逐行读到空行为止」**（`ask_for_files` 那个形态）**会静默截断**：空行是正文的
+  合法内容。
+
+`$EDITOR` 顺带白送两件真的需要的事：改得动（发出去不可撤销），空缓冲区即放弃
+（不必再问一次「确定要发吗」）。`$EDITOR` 没设时 dialoguer 退到 `vi` / `notepad`，
+精简容器里可能都没有——那时返回 `None`，调用方指路到 `--text <内容>`。
+
+### 结尾换行削掉，其余空白一律保留
+
+`trim_trailing_newlines`：只削 `\n` / `\r`。缩进是内容（发一段代码或配置时尤其），
+整体 trim 会把它吃掉；而结尾的换行几乎必然是噪声（`echo` 加的那个、编辑器保存时补的
+那个）。这也让管道与 `$EDITOR` 两条路径结果一致——dialoguer 的编辑器自带 `trim_newlines`。
+
+### 标准输入要读成 `Vec<u8>` 再转 UTF-8，不能直接 `read_to_string`
+
+读到 `MAX_TEXT_DELIVERY_BYTES + 1` 就停（`Read::take`，多读一个字节才分得清
+「正好压线」与「超了」）。**直接 `read_to_string` 会把两种失败混成一种**：超长输入在
+64 KiB 处截断时多半正好切在一个多字节字符中间，于是「文本太长」被报成「不是合法 UTF-8」
+——而用户只是 `cat` 错了一个文件。
+
+### 常驻节点必须**自己确认**入站文本，否则默认配置下一条都收不到
+
+这条是本次改动里最容易漏、且漏了最难查的一条。
+
+新配对设备的默认信任档位是 `Collaborator`，它的接收策略带 `require_confirmation`
+（`crates/host/src/device.rs`）。于是 `evaluate_text_receive_policy` 对**每一条**发给
+命令行宿主的文本都返回 `RequireConfirmation`，投递进入待确认队列等人应答。
+命令行宿主没有界面可以弹确认框——
+
+**失败形态**：发送端那条命令阻塞满整个确认窗口（`TEXT_DELIVERY_CONFIRMATION_TIMEOUT`
+= 5 分钟），然后拿到一句「对端未在确认窗口内接收」。接收端什么都不会说。
+看起来完全像网络问题，而两台机器就在同一个局域网里。
+
+解法与文件那支是同一条规则、同一个理由：`runtime::receive::spawn_auto_accept` 里多接一支
+`CoreEvent::TextDeliveryAttention { kind: ConfirmationRequired }` → `service.accept(id)`。
+判据仍是**已配对**——能发起投递的对端必然过了配对握手。
+
+⚠️ `Received` 那一种 attention **不能**也拿去 accept：它是「已经收下了」的事后通知，
+没有待办。
+
+⚠️ 正文**不进日志**：`TextDeliveryAttention` 刻意不携带它，而 CLI 的日志直接落在用户
+终端上、也常被服务管理器收走。
+
+### 状态名同样是抄来的，而抄错的后果比 phase 那边重
+
+`runtime::transfer` 的 `TEXT_DELIVERED` / `TEXT_REJECTED` / `TEXT_RETRYABLE` /
+`TEXT_EXPIRED` 与两个失败名（`peer_unavailable` / `timed_out`），是
+`entity::TextDeliveryStatus` / `TextDeliveryFailure` 的 serde 形态。生产代码不依赖
+`entity`（两条取数路径里只有本地那条拿得到 typed 值）。
+
+phase 抄错的后果是「报没有正在传输的会话」；**这里抄错的后果是把一次成功送达报成失败**
+并给出非零退出码——脚本据此重发，对端于是收到两份（重发会新建 delivery_id，幂等键不同）。
+由 `text_status_names_match_the_wire` 看守。
+
+退出码分两类，不能合并：`peer_unavailable` / `timed_out` → `PeerUnreachable`（4，
+重试或等对方上线可能就好），其余 → `TransferFailed`（5，对端看见了但没收下）。
+合成一个码，脚本就只能一律退避重试——而「对端拒绝」重试多少次都还是拒绝。
+
+⚠️ **`Expired` 不要建议「重试同一条」**：接收端已把该投递标为过期，同一个 delivery_id
+再来一次会被直接判 `Expired`（`text_delivery/service.rs` 的 `existing.status` 分支）。
+文案说的是「请重新发送」。
+
+### 「已送达」不是「已发送」
+
+RPC 的成功应答代表**接收端已经把正文落库**（`TextDeliveryResponse::Delivered` 带
+`inbox_item_id`）。说「已发送」是把一个确定的事实降级成不确定的，而失败那几支恰恰都
+长着「发出去了但没到」的样子。spec: `text-send-experience`。
+
+### 等待转轮画在**命令层**，不是 runtime 层
+
+与 `send_files` 的进度条相反，且理由是**屏幕在谁那一侧**：文件的进度是一串只有节点收得到
+的事件，只能由持节点的进程画；而文本从头到尾只是一次阻塞调用，客户端自己就知道「开始等
+了」。画在 runtime 里的话，常驻节点在跑时那个转轮会出现在**服务端**的日志流里，
+用户的终端一片空白——而那正是要等五分钟的场合。
+
+⚠️ **转轮的作用域必须在打印结果之前结束**。让它活到函数末尾，indicatif 的定时重绘会盖在
+结果行上，收尾时的清行还会把结果一起擦掉。这件事**只在真终端里显形**，管道与 CI 全绿。
+`cmd::send` 用「做」与「说」分成两段（`run_delivery` → `Delivered::render`）来结构性地
+保证它，不靠在每个返回点记得手动收——`render::send::Progress` 的 `Drop` 注释里是同一条
+理由的另一半。
+
+### 收件箱标题会带换行，三处渲染都得压平
+
+文本条目的 `title` 是 `text_preview(body)`——正文前 160 字节，**换行原样保留**。
+而 `render::inbox` 的三个消费方都假定标题占一行：列表把标识与来源打在下一行、菜单一项
+就是一行、详情是对齐的两列。原样打出来的结果是列表看起来散架，菜单更糟——dialoguer
+**按项计数、按行绘制**，选中高亮会错位。
+
+`title_line` 压平并截断（48 字符）。**只在真有换行时才压空白**：否则文件名里的连续空格
+会被悄悄改写，而那是记录的真实内容。
+
+## 数据目录路径太长会让本地通道 bind 失败（2026-08-20）
+
+`--data-dir` 指向一条很深的路径时，`swarmdrop start` 以
+`监听本地通道失败: local socket name length exceeds capacity of sun_path of sockaddr_un`
+退出——类 Unix 的 `sockaddr_un.sun_path` 是定长数组（macOS 104 字节、Linux 108），
+而套接字文件就建在数据目录下。
+
+**表现容易误判**：`start -d` 那条只会说「等待就绪超时」，节点其实是起了又立刻退出的；
+要看到真正的原因得跑前台的 `start`。临时目录（尤其是带会话 UUID 的那种）很容易超。
+
+目前没有兜底，记在这里是为了下次不必再查一遍。真要修的话，可选项是把套接字放到
+`/tmp` 下一个由数据目录路径哈希出来的短名字——但那会把「同一个数据目录 = 同一个节点」
+这条判据从路径相等改成哈希相等，得连同单实例仲裁一起想。
+
+## 收件箱与传输详情要给出**本地位置**（2026-08-20）
+
+`inbox show` 与 `transfer show` 此前都不打印东西落在哪儿——前者只列相对路径，后者连文件
+都不列。图形三端有「在文件管理器中显示」「复制路径」「保存位置」，**命令行端一个都没有，
+路径本身就是那个答案**；而接收落点可被 `SWARMDROP_RECEIVE_DIR` 改掉、只在
+`swarmdrop start` 启动那一刻打印过一次，事后无从查起。
+
+### 优先级必须与桌面端的 `item_target_path` 一致
+
+单文件条目 → 那个文件自身的 `localPath`（用户接着要 `cat` / `cp` 它）；
+多文件条目 → `rootPath`。两端各写各的会长成「同一条记录，桌面复制出来的路径与命令行打印
+的不是同一个」，而两者都看起来完全正常——只有用户拿命令行给的路径去桌面那边找不到时才显形。
+`render::inbox` 的 `single_file_shows_itself_and_a_bundle_shows_its_root` 看守它。
+
+### **绝不拼接**「根目录 + 相对路径」
+
+`rootPath` 由 core 的 `content_root_of` 解析：各文件 `local_dir` 全部一致时是那个目录，
+否则**回退存储根**。所以拼接出来的路径可能根本不存在，而它看起来完全正常。
+
+实测就撞得到：发一个 `bundle/`（内含 `a.txt` 与 `sub/b.txt`）过去，两个文件的 `local_dir`
+分别是 `<落点>/bundle` 与 `<落点>/bundle/sub`——不一致，于是 `rootPath` 是落点根。
+相对路径 `bundle/sub/b.txt` 恰好能拼对是巧合，不是契约。
+
+### 传输详情的位置行**按有没有值出现**，不印占位符
+
+发送会话没有 `save_path`，`contentRoot` 因此为空。恒印一行「位置 —」只会让人以为记录坏了。
+接收方向即使还没传完也有值（`local_dir` 未写时 `content_root_of` 回退到 `save_path`，
+那正是「会落到这里」）。

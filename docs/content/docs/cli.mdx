@@ -20,9 +20,14 @@ npm install -g swarmdrop                  # 有 Node 的地方都行
 [最新 CLI release](https://github.com/swarm-apps/SwarmDrop/releases?q=swarmdrop-cli)
 页面里。安装后 `swarmdrop --version` 应能打印版本号。
 
+升级用 `swarmdrop update`。
+
 <Callout type="info">
-命令行端**不内建自更新**：升级走装它的那个包管理器（`brew upgrade`、`npm update -g`、
-或重跑一次安装脚本）。内建 updater 会与包管理器争夺「当前版本是哪个」的事实源。
+它**认得出自己是怎么被装的**：安装脚本装的那份就地更新，用 Homebrew 或 npm 装的会转交给
+对应的包管理器（`brew upgrade swarmdrop` / `npm install -g swarmdrop@latest`）而不是硬更新
+——不去和它们争「当前版本是哪个」。`swarmdrop update --check` 只查不装。
+
+更新前需要先 `swarmdrop stop`：正在跑的节点占着这个可执行文件。
 </Callout>
 
 ## 第一次传输
@@ -87,6 +92,42 @@ swarmdrop send ./photos ./report.pdf --to laptop
 
 </Steps>
 
+## 发一段文本
+
+同一条命令也能发文本，加 `--text` 即可。对端在**收件箱**里收到它，不是文件。
+
+```bash
+swarmdrop send --text "构建挂在第 3 步了" --to laptop
+```
+
+只给 `--text` 不给内容时，正文从别处取——取决于标准输入是不是终端：
+
+```bash
+pbpaste | swarmdrop send --text --to laptop        # 管道：读到 EOF
+tail -50 /var/log/nginx/error.log | swarmdrop send --text --to laptop
+swarmdrop send --text --to laptop                  # 终端：拉起 $EDITOR 写
+```
+
+编辑器那条是给多行正文准备的：上限 64 KiB，而一个单行输入框连回车都收不下。
+留空缓冲区退出即放弃发送。
+
+<Callout type="info">
+成功时命令说的是**「已送达」**而不是「已发送」——它一直等到对端确实把正文存下来才返回。
+对端的设备策略要求人工确认时（新配对设备的默认档位就要求），这条命令会等在那儿，
+最长五分钟；期间屏幕上有一个转轮说明它还活着。
+
+命令行端**自己不需要确认**：节点在线时它自动收下已配对设备发来的文本，与文件同一条规则。
+</Callout>
+
+正文原样送达——缩进、空行都保留，只有**结尾的换行**会被削掉（`echo` 加的那个）。
+读回来用：
+
+```bash
+swarmdrop inbox list
+swarmdrop inbox show <条目>          # 打印完整正文
+swarmdrop inbox export <条目> ./out  # 写成 <条目>.txt
+```
+
 ## 接收不需要命令
 
 节点在线期间，**已配对设备**发来的传输会被自动接受并落盘。这与图形三端不同：那边有收件箱
@@ -112,6 +153,11 @@ swarmdrop inbox show <条目>
 swarmdrop inbox export <条目> ./somewhere
 ```
 
+`inbox show` 的**位置**一行就是东西落在哪儿——单文件条目给文件自身的完整路径，
+多文件条目给容器目录。`transfer show` 对**接收方向**也给位置，但粒度恒为**容器目录**
+（它手上只有会话级的信息，没有逐文件的路径）；发送方向不给这一项，因为本机没有落点。
+落点被 `SWARMDROP_RECEIVE_DIR` 改过、或忘了当初启动时打印的那一行时，从这里查。
+
 ## 命令一览
 
 | 命令 | 做什么 |
@@ -119,16 +165,20 @@ swarmdrop inbox export <条目> ./somewhere
 | `start` · `stop` · `status` | 节点生命周期；`status` 还报 NAT 与中继可达性 |
 | `invite create` · `use` · `list` · `revoke` | 配对邀请：生成并守着、消费、清点、撤销 |
 | `device list` · `forget` | 已配对设备 |
-| `send` | 向一台已配对设备发文件或目录 |
+| `send` | 向一台已配对设备发文件或目录；`--text` 改发一段文本 |
 | `inbox list` · `show` · `export` | 收件箱 |
 | `transfer list` · `show` | 传输记录 |
 | `transfer watch` | 实时进度面板，`p` / `r` / `c` 就地暂停、恢复、取消 |
 | `transfer pause` · `resume` · `cancel` | 同样三个动作，也可以直接下命令 |
+| `update` | 更新到最新版本；`--check` 只查不装 |
 
 **每条命令都能不带参数运行**，缺什么问什么——不必先读 `--help` 才敢试。给了参数就按参数走，
 不再打断你。
 
 ## 实时盯着传输
+
+`send` 自己就会显示进度（准备与传输两段，无论节点是常驻的还是临时起的）。这个命令盯的是
+**别的**传输——后台收到的、以及之前发起还没结束的。
 
 ```bash
 swarmdrop transfer watch
@@ -192,3 +242,8 @@ swarmdrop transfer watch
 - **入站配对只在 `invite create` 运行期间可能发生。** 这是刻意的，见上文。
 - **命令行端不参与图形端的收件箱决策流程**：已配对设备发来的东西直接落盘。
   不想要这个行为，就别让那台设备保持配对。
+- **发出去的文本没有重发入口。** 一条文本以「未能确认送达」收尾时（退出码 **4 或 5**——4 是没送到对端、可稍后重发，
+  5 是对端收到了但没保存），
+  它的确切去向是不确定的——对端可能已经存下、只是回执没回来。重跑一次命令会**新建**
+  一条投递，因此对端有可能收到两份。图形三端在这种情况下提供按原记录重试的入口，
+  命令行端还没有。

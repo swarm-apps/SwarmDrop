@@ -72,6 +72,19 @@ publish-jobs = ["npm", "homebrew"]
 install-path = "CARGO_HOME"
 # 只构建需要的包，且逐个构建
 precise-builds = true
-# **不内建自更新**：更新由安装渠道（brew / npm / shell 安装脚本）负责，
-# 内建 updater 会与包管理器争夺「哪个版本是当前版本」的事实源。
+# **不产出独立的 updater 可执行文件**——但本 CLI **有**自更新，它是
+# `swarmdrop update` 子命令（`crates/cli/src/runtime/update.rs`，axoupdater 作库用）。
+#
+# 这一项开着会多装一个二进制，本仓不要它，两条理由：
+#
+# 1. **它按包名命名，在本仓叫 `swarmdrop-cli-update`**，而 bin 名是 `swarmdrop`。于是
+#    dist 文档宣传的「支持外部子命令的程序可以直接 `yourpackage update`」在这里不成立
+#    ——clap 查的是 `swarmdrop-update`，那个文件不叫这个名字。用户得记住一个与主命令
+#    不同名的二进制。
+# 2. 它只随 shell / powershell 两条渠道分发，而子命令编进二进制、**每条渠道都在**
+#    ——用 brew / npm 装的那些正是最需要一句「请用 brew upgrade」的。
+#
+# 「内建 updater 会与包管理器争夺『哪个版本是当前版本』的事实源」这条顾虑仍然成立，
+# 解法是**先认渠道再决定**：有 install receipt 且它指向正在运行的这个可执行文件才自更新，
+# 否则转交给对应的包管理器。判据与踩坑见 `dev-notes/knowledge/cli-host.md`。
 install-updater = false

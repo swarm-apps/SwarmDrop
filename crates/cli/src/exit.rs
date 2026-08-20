@@ -9,7 +9,7 @@ use std::process::ExitCode;
 /// 退出码。
 ///
 /// `0` 与 `2` 沿用既有惯例（POSIX 成功、clap 的用法错误），`130` 是 shell 的
-/// `128 + SIGINT`。中间三个是本程序自有的分类，取值只要求稳定且互不相同。
+/// `128 + SIGINT`。中间几个是本程序自有的分类，取值只要求稳定且互不相同。
 /// `Serialize` 是为了让分类能过本地通道：服务端把失败的类别一并回给客户端，
 /// 否则通道那侧的失败只能一律按「节点不可用」处理（见 [`crate::runtime::ipc::Response`]）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -34,6 +34,12 @@ pub enum Code {
     /// 说了不——重试同一条邀请只会再被拒一次。调用方该做的是换一张邀请或让对方主动发起，
     /// 而不是像对待「没连上」那样退避重试。
     PairingRefused = 6,
+    /// 更新失败。
+    ///
+    /// **与 [`Self::NodeUnavailable`] 分开**：更新不碰节点，两者共用一个码会让脚本把
+    /// 「装不上新版本」误当成「节点起不来」而去重启节点——那既没用，还会让真正的原因
+    /// （网络、权限、渠道不对）被掩盖。
+    UpdateFailed = 7,
     /// 被用户中止。
     Aborted = 130,
 }
@@ -57,6 +63,8 @@ pub enum CliError {
     TransferFailed(String),
     #[error("{0}")]
     PairingRefused(String),
+    #[error("{0}")]
+    UpdateFailed(String),
     #[error("已中止")]
     Aborted,
 }
@@ -76,6 +84,7 @@ impl CliError {
             Code::PeerUnreachable => Self::PeerUnreachable(message),
             Code::TransferFailed => Self::TransferFailed(message),
             Code::PairingRefused => Self::PairingRefused(message),
+            Code::UpdateFailed => Self::UpdateFailed(message),
             // `Aborted` 的 Display 是固定的「已中止」，**消息会被丢掉**。
             // 这可以接受的前提是「服务端不产出 Aborted」——中止是本地的用户动作
             // （Ctrl-C），通道对面没有立场替用户宣布中止。由
@@ -93,6 +102,7 @@ impl CliError {
             Self::PeerUnreachable(_) => Code::PeerUnreachable,
             Self::TransferFailed(_) => Code::TransferFailed,
             Self::PairingRefused(_) => Code::PairingRefused,
+            Self::UpdateFailed(_) => Code::UpdateFailed,
             Self::Aborted => Code::Aborted,
         }
     }
@@ -113,6 +123,7 @@ mod tests {
             CliError::PeerUnreachable(String::new()).code(),
             CliError::TransferFailed(String::new()).code(),
             CliError::PairingRefused(String::new()).code(),
+            CliError::UpdateFailed(String::new()).code(),
             CliError::Aborted.code(),
         ];
         let mut seen = std::collections::HashSet::new();
