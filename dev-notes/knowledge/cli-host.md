@@ -911,6 +911,22 @@ parse_changelog 认不出版本号，title 退化成 tag 本身、notes 变空�
 
 参照实现：`../SwarmHive/dist-workspace.toml`（同家族项目，配置与踩坑注释可直接对照）。
 
+⚠️ **这个 workflow 必须躺在默认分支（`main`）上才会触发，只在 `develop` 上等于不存在。**
+`release`（以及 `issues` / `schedule` 等除 `push` / `pull_request` 之外的仓库事件）一律
+只从**默认分支**取 workflow 定义——它们没有「事件发生在哪个 commit 上」这回事，GitHub
+不知道该拿哪一版。而 `cli-release.yml` 之所以在 develop 上就能跑，是因为它由 `push: tags`
+触发，那种事件带着 commit，workflow 就从 tag 指向的那个 commit 上读。
+
+**失败形态是彻底静默的**：release 正常发出、六平台产物齐全，只是标题仍是裸的
+`0.2.0 - 2026-08-20` 且 latest 被它拿走——也就是这个 workflow 存在的全部理由都没兑现，
+而 Actions 页面上**没有任何一条运行记录**可看（`gh run list --workflow=cli-release-polish.yml`
+报的是 404 而不是「零次运行」，那句 404 就是唯一的线索）。`cli/swarmdrop-cli-v0.2.0`
+就是这么发出去的，事后按 workflow 的两步手工补的。
+
+所以：**新增任何按 `release` / `issues` / `schedule` 触发的 workflow，都要确认它已经合进
+`main`**，别只看 develop 上有这个文件。develop → main 的合并是常规节奏的一部分，
+但「写完就以为它在跑」这一步差着一整个合并周期。
+
 ### 本地能验证到哪一步
 
 装上 zig + cargo-zigbuild + cargo-xwin 之后，`dist build --artifacts=all` 能在 macOS 上

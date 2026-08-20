@@ -24,6 +24,15 @@ name: CLI release polish
 # `cli-release.yml`（那个文件由 `dist generate` 产出，手改会被覆盖）。只在
 # `release: published` 上触发 —— 本 workflow 自己的 `gh release edit` 只发 `edited`
 # 事件，不会自触发成环。
+#
+# ⚠️ **它只有躺在默认分支（`main`）上才会跑。** `release` 事件（同 `issues` / `schedule`
+# 等除 `push` / `pull_request` 之外的仓库事件）一律只从默认分支读 workflow 定义——这类
+# 事件不附带 commit，GitHub 无从知道该拿哪一版。旁边的 `cli-release.yml` 在 develop 上
+# 就能跑，是因为它由 `push: tags` 触发，那种事件带着 commit。
+#
+# 失败形态彻底静默：release 照常发出、产物齐全，只是标题没改、latest 也没交还，而
+# Actions 页面上连一条运行记录都没有。`cli/swarmdrop-cli-v0.2.0` 就是这么发出去的
+# （事后手工补的两步）。**改完这个文件记得确认它进了 `main`**，别只看 develop。
 
 on:
   release:
