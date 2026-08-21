@@ -141,6 +141,9 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             events::TransferDbError,
             events::TransferProjectionUpdate,
             events::FilePublish,
+            events::InboxItemAdded,
+            events::InboxItemArchived,
+            events::InboxItemRemoved,
             events::ReceivingPausedChanged,
             events::ExternalFileOpen,
             events::ExternalPairInvite,
@@ -298,8 +301,20 @@ fn register_setup(builder: Builder<Wry>, specta: SpectaBuilder<Wry>) -> Builder<
         let cleanup_event_bus: Arc<dyn swarmdrop_core::host::EventBus> = Arc::new(event_bus);
         tauri::async_runtime::block_on(crate::database::cleanup_stale_sessions(
             &transfer_store,
-            cleanup_event_bus,
+            cleanup_event_bus.clone(),
         ))?;
+
+        // 传输域事件端口：收件箱的归档与删除是**编排函数**，要往它发领域事件
+        // （spec: `inbox-domain-events`）。
+        //
+        // 与 `file_access` 同一条纪律：**组装点建一次**，且刻意**不经 `TransferManager`**
+        // ——收件箱命令不依赖节点启动，而 manager 只在 `start()` 之后才存在。这里包的是
+        // 同一个 `TauriEventBus`，所以节点在不在跑，事件都到得了前端。
+        let transfer_events: Arc<dyn swarmdrop_core::transfer::events::TransferEventSink> =
+            Arc::new(swarmdrop_core::event_adapter::CoreTransferEvents(
+                cleanup_event_bus,
+            ));
+        app.manage(transfer_events);
         app.manage(transfer_store);
         app.manage(db);
 

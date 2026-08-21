@@ -10,6 +10,7 @@ use std::sync::Arc;
 use swarmdrop_core::transfer::inbox::LocalLocation;
 
 use swarmdrop_core::host::FileAccess;
+use swarmdrop_core::transfer::events::TransferEventSink;
 use swarmdrop_core::transfer::inbox::{
     InboxItemContent, InboxItemDetail, InboxItemSummary, InboxSearchHit,
 };
@@ -67,10 +68,15 @@ pub async fn search_inbox(
 #[specta::specta]
 pub async fn repair_missing_inbox_items(
     store: State<'_, TransferStoreState>,
+    events: State<'_, Arc<dyn TransferEventSink>>,
 ) -> crate::AppResult<Vec<InboxItemDetail>> {
-    Ok(store
-        .repair_missing_inbox_items_for_completed_receives()
-        .await?)
+    // 经编排层而不是直调端口：这条一次能凭空补出几十条记录，而直调时三端界面与
+    // 订阅面全都看不见它们，用户只有手动刷新才发现多出一堆东西。
+    Ok(swarmdrop_core::transfer::inbox::repair_missing_inbox_items(
+        store.inner().as_ref(),
+        events.inner().as_ref(),
+    )
+    .await?)
 }
 
 #[tauri::command]
@@ -140,10 +146,19 @@ pub async fn export_inbox_item(
 #[specta::specta]
 pub async fn archive_inbox_item(
     store: State<'_, TransferStoreState>,
+    events: State<'_, Arc<dyn TransferEventSink>>,
     item_id: Uuid,
     archived: bool,
 ) -> crate::AppResult<()> {
-    Ok(store.archive_inbox_item(item_id, archived).await?)
+    // 经编排层而不是直调端口：事件要在一个所有调用方都必经的地方发。此前这里与桌面 MCP
+    // 的 `archive_inbox_item` 各自直调端口，于是「MCP 归档了一条」对本窗口完全不可见。
+    Ok(swarmdrop_core::transfer::inbox::archive_inbox_item(
+        store.inner().as_ref(),
+        events.inner().as_ref(),
+        item_id,
+        archived,
+    )
+    .await?)
 }
 
 /// 删除收件箱条目；`delete_local_files` 为真时连已落盘的文件一起删。
@@ -161,12 +176,14 @@ pub async fn archive_inbox_item(
 pub async fn delete_inbox_item(
     store: State<'_, TransferStoreState>,
     file_access: State<'_, Arc<dyn FileAccess>>,
+    events: State<'_, Arc<dyn TransferEventSink>>,
     item_id: Uuid,
     delete_local_files: bool,
 ) -> crate::AppResult<()> {
     Ok(swarmdrop_core::transfer::inbox::delete_inbox_item(
         store.inner().as_ref(),
         file_access.inner().as_ref(),
+        events.inner().as_ref(),
         item_id,
         delete_local_files,
     )

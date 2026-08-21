@@ -98,6 +98,39 @@ impl From<FilePublishPhase> for MobileFilePublishPhase {
 /// 没有这条事件，用户看到的就是「满了之后凭空多等一段」。
 ///
 /// 拷贝中的字节数**不在这里**——那个循环在 JS 侧的 `ForeignFileAccess` 里，由它直接上报。
+/// 收件箱多了一条。
+///
+/// **JS 侧订阅它刷新收件箱，不要再从 `TransferCompleted` 推导。** 此前那份推导漏判了
+/// `direction`，于是**发送**完成也会白刷一次收件箱；而 direction 根本没进这个镜像
+/// （`MobileCoreEvent::TransferCompleted` 只有 session_id），JS 也就无从判断。
+///
+/// 载荷**不含正文**：文本条目的标题就是正文前 160 字节，事件会流经日志。
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MobileInboxItemAdded {
+    pub item_id: String,
+    /// "files" 或 "text"。
+    pub content_kind: String,
+    pub source_peer_id: String,
+    pub source_name: String,
+    pub item_count: i32,
+    pub total_size: i64,
+    pub received_at: i64,
+    pub transfer_session_id: Option<String>,
+}
+
+/// 收件箱条目的归档状态变了（归档与取消归档共用）。
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MobileInboxItemArchived {
+    pub item_id: String,
+    pub archived: bool,
+}
+
+/// 收件箱条目被删除。
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MobileInboxItemRemoved {
+    pub item_id: String,
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct MobileFilePublish {
     pub session_id: String,
@@ -223,6 +256,15 @@ pub enum MobileCoreEvent {
     },
     FilePublish {
         event: MobileFilePublish,
+    },
+    InboxItemAdded {
+        event: MobileInboxItemAdded,
+    },
+    InboxItemArchived {
+        event: MobileInboxItemArchived,
+    },
+    InboxItemRemoved {
+        event: MobileInboxItemRemoved,
     },
     Error {
         message: String,
@@ -392,6 +434,33 @@ fn map_event(event: CoreEvent) -> Option<MobileCoreEvent> {
                 phase: event.phase.into(),
             },
         },
+        CoreEvent::InboxItemAdded { event } => MobileCoreEvent::InboxItemAdded {
+            event: MobileInboxItemAdded {
+                item_id: event.item_id.to_string(),
+                // **不手写 match**：`InboxContentKind` 是 `DeriveActiveEnum`，`to_value()`
+                // 给出的正是它的数据库列值与三端 serde 表示（`rename_all = "snake_case"`）。
+                // 手写映射会成为第二份实现，且新增变体时**不会**编译失败——只会在 JS 侧
+                // 变成一个谁也不认识的字符串。
+                content_kind: sea_orm::ActiveEnum::to_value(&event.content_kind),
+                source_peer_id: event.source_peer_id,
+                source_name: event.source_name,
+                item_count: event.item_count,
+                total_size: event.total_size,
+                received_at: event.received_at,
+                transfer_session_id: event.transfer_session_id.map(|id| id.to_string()),
+            },
+        },
+        CoreEvent::InboxItemArchived { event } => MobileCoreEvent::InboxItemArchived {
+            event: MobileInboxItemArchived {
+                item_id: event.item_id.to_string(),
+                archived: event.archived,
+            },
+        },
+        CoreEvent::InboxItemRemoved { event } => MobileCoreEvent::InboxItemRemoved {
+            event: MobileInboxItemRemoved {
+                item_id: event.item_id.to_string(),
+            },
+        },
         CoreEvent::Error { message } => MobileCoreEvent::Error { message },
         // `CoreEvent` 是 `#[non_exhaustive]`，所以漏接一个变体**不会**编译失败——这条兜底
         // 是移动端唯一会被静默吞掉的路径。**必须留日志**：否则症状是「功能在桌面好用、
@@ -407,6 +476,58 @@ fn map_event(event: CoreEvent) -> Option<MobileCoreEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 收件箱事件必须真的过得了镜像这一关。
+    ///
+    /// 与 [`file_publish_should_survive_the_mobile_mirror`] 同一个理由：`map_event` 的兜底
+    /// 分支会把漏接的变体**静默吞掉**（`CoreEvent` 是 `#[non_exhaustive]`，编译器管不着），
+    /// 而症状是「收到文件后收件箱不刷新」——看起来像 JS 的 bug。
+    ///
+    /// 这条尤其要钉住：接上它正是为了**替换掉**旧的「从 TransferCompleted 推导」，
+    /// 旧路径删掉之后，它一旦被吞，收件箱就再也不会自动刷新了。
+    #[test]
+    fn inbox_events_should_survive_the_mobile_mirror() {
+        let item_id = uuid::Uuid::new_v4();
+        let mapped = map_event(CoreEvent::InboxItemAdded {
+            event: swarmdrop_core::transfer::inbox::InboxItemAddedEvent {
+                item_id,
+                content_kind: entity::InboxContentKind::Text,
+                source_peer_id: "peer".to_string(),
+                source_name: "iPhone".to_string(),
+                item_count: 1,
+                total_size: 12,
+                received_at: 1,
+                transfer_session_id: None,
+            },
+        })
+        .expect("收件箱新增事件必须有镜像");
+
+        let MobileCoreEvent::InboxItemAdded { event } = mapped else {
+            panic!("映射到了错误的变体");
+        };
+        assert_eq!(event.item_id, item_id.to_string());
+        // 由 `ActiveEnum::to_value()` 给出，与数据库列值同源。
+        assert_eq!(event.content_kind, "text");
+        assert_eq!(event.source_name, "iPhone");
+
+        let archived = map_event(CoreEvent::InboxItemArchived {
+            event: swarmdrop_core::transfer::inbox::InboxItemArchivedEvent {
+                item_id,
+                archived: true,
+            },
+        })
+        .expect("归档事件必须有镜像");
+        assert!(matches!(
+            archived,
+            MobileCoreEvent::InboxItemArchived { .. }
+        ));
+
+        let removed = map_event(CoreEvent::InboxItemRemoved {
+            event: swarmdrop_core::transfer::inbox::InboxItemRemovedEvent { item_id },
+        })
+        .expect("删除事件必须有镜像");
+        assert!(matches!(removed, MobileCoreEvent::InboxItemRemoved { .. }));
+    }
 
     /// 发布事件必须真的过得了镜像这一关。
     ///

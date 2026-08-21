@@ -7,6 +7,9 @@
 use serde::Serialize;
 use swarmdrop_core::device::{Device, PairedDeviceInfo};
 use swarmdrop_core::network::NetworkStatus;
+use swarmdrop_core::transfer::inbox::{
+    InboxItemAddedEvent, InboxItemArchivedEvent, InboxItemRemovedEvent,
+};
 use swarmdrop_core::transfer::incoming::TransferOfferEvent;
 use swarmdrop_core::transfer::progress::{
     FilePublishEvent, PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent,
@@ -143,6 +146,27 @@ pub struct TransferProjectionUpdate(pub TransferProjection);
 #[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
 #[serde(transparent)]
 pub struct FilePublish(pub FilePublishEvent);
+
+// === 收件箱 ===
+
+/// 收件箱多了一条。
+///
+/// **前端订阅它刷新收件箱，不要自己从 `TransferComplete` 推导。** 那种推导依赖
+/// 「先建条目、再发完成事件」这条只以行内注释存在的顺序；本仓补这条事件之前，桌面收件箱
+/// 页**根本没有**反应式刷新（文件到达时列表不动），而移动端那份推导漏判了 direction。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct InboxItemAdded(pub InboxItemAddedEvent);
+
+/// 收件箱条目的归档状态变了。任一来源发起都会到达（含本进程的 MCP server）。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct InboxItemArchived(pub InboxItemArchivedEvent);
+
+/// 收件箱条目被删除。
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct InboxItemRemoved(pub InboxItemRemovedEvent);
 
 // === 接收暂停 ===
 

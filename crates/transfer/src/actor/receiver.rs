@@ -24,6 +24,7 @@ use crate::coordinator::{ActorReport, CoordinatorInput, TransferCoordinator};
 use crate::epoch::EpochGuard;
 use crate::events::{TransferEvent, TransferEventSink};
 use crate::host::{CoreSaveLocation, FileAccess, FileSinkId, HostFileMetadata};
+use crate::inbox::InboxItemAddedEvent;
 use crate::probe::{
     DIGEST_CKPT, DIGEST_LABELS, DIGEST_PUBLISH, DIGEST_QUEUE, DIGEST_REST, DIGEST_VERIFY,
     DIGEST_WRITE, DigestProbe, FRAME_ENQUEUE, FRAME_LABELS, FRAME_WAIT, FrameProbe,
@@ -1027,28 +1028,63 @@ impl ReceiverActor {
         }
     }
 
-    /// 接收完成后创建收件箱索引；失败只作为 DB 附加错误上报，不回滚已完成传输。
+    /// 接收完成后创建收件箱索引，并发出「收件箱多了一条」。失败只作为 DB 附加错误上报，
+    /// 不回滚已完成传输。
     ///
-    /// 端口返回的 `Option<InboxItemDetail>` 在这条路径上刻意不消费（它是给
-    /// `repair_missing_inbox_items_for_completed_receives` 复用 `ensure_*` 用的）：
-    /// 接收侧只关心成功与否。
+    /// 端口返回的 `Option<InboxItemDetail>` **就是**事件载荷的来源。它此前被刻意丢弃，
+    /// 于是四个宿主只能各自从 `TransferCompleted` 反推「所以收件箱多了一条」——三份推导、
+    /// 两份带缺陷、一份根本没接。判据见 spec `inbox-domain-events`。
+    ///
+    /// ⚠️ **不能靠 `ensure_*` 的返回值分辨「新建」与「本来就有」**：端口对两者都返回
+    /// `Ok(Some(detail))`（`Ok(None)` 的含义是「这个会话不算已完成接收」，见
+    /// `InboxStore::ensure_inbox_item_for_completed_receive_session` 与 SQL 实现里那段
+    /// 同样的说明）。所以这里**先问一句条目在不在**，再决定发不发事件——不问的话，
+    /// 一次重复的收尾就会让消费方以为又收到了一份。
+    ///
+    /// 那次多出来的查询发生在整条传输的最后一步，一次会话一次，与传输量无关。
     async fn ensure_inbox_item_after_completion(&self) {
-        if let Err(e) = self
+        // 先看这一刻它在不在。查询失败当作「不在」——那只会让事件多发一条，
+        // 而漏发一条的代价是收件箱里凭空多出一样东西却没有任何界面知道。
+        let existed = self
+            .store
+            .get_inbox_item_by_transfer_session_id(self.session_id)
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+
+        match self
             .store
             .ensure_inbox_item_for_completed_receive_session(self.session_id)
             .await
         {
-            warn!("创建收件箱条目失败: session={}, {}", self.session_id, e);
-            self.emit_best_effort(
-                TransferEvent::TransferDbError {
-                    event: TransferDbErrorEvent {
-                        session_id: self.session_id,
-                        message: format!("创建收件箱条目失败: {e}"),
+            Ok(Some(detail)) if !existed => {
+                self.emit_best_effort(
+                    TransferEvent::InboxItemAdded {
+                        event: InboxItemAddedEvent::from_detail(&detail),
                     },
-                },
-                "上报收件箱数据库错误",
-            )
-            .await;
+                    "通知收件箱新增",
+                )
+                .await;
+            }
+            // 本来就有：条目不是这一刻新增的，重复通知会让消费方以为又收到了一份。
+            Ok(Some(_)) => {}
+            // 这个会话不算「已完成接收」（方向不对、未完成、失败/暂停/取消）。
+            // **不是错误**，也没有条目要通知。
+            Ok(None) => {}
+            Err(e) => {
+                warn!("创建收件箱条目失败: session={}, {}", self.session_id, e);
+                self.emit_best_effort(
+                    TransferEvent::TransferDbError {
+                        event: TransferDbErrorEvent {
+                            session_id: self.session_id,
+                            message: format!("创建收件箱条目失败: {e}"),
+                        },
+                    },
+                    "上报收件箱数据库错误",
+                )
+                .await;
+            }
         }
     }
 

@@ -17,6 +17,9 @@ use swarmdrop_net::NodeId;
 pub use swarmdrop_host::*;
 
 use swarmdrop_host::device::{Device, DeviceName, PairedDeviceInfo};
+use swarmdrop_transfer::inbox::{
+    InboxItemAddedEvent, InboxItemArchivedEvent, InboxItemRemovedEvent,
+};
 use swarmdrop_transfer::incoming::TransferOfferEvent;
 use swarmdrop_transfer::progress::{
     FilePublishEvent, PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent,
@@ -90,6 +93,29 @@ pub enum CoreEvent {
     DeviceRenamed {
         name: Option<String>,
         display_name: String,
+    },
+    /// 收件箱多了一条。
+    ///
+    /// ⚠️ **宿主订阅这条，不要自己从 [`Self::TransferCompleted`] 推导「收件箱变了」。**
+    /// 那种推导依赖「先建条目、再发完成事件」这条只以行内注释存在的顺序；本仓在补这条
+    /// 事件之前已经有三份推导、两份带缺陷（移动端漏判 direction，发送完成也白刷）、
+    /// 一份根本没接（桌面收件箱页零事件监听）。判据见 spec `inbox-domain-events`。
+    ///
+    /// **只在接收方向发**：发送完成不产生收件箱条目。
+    InboxItemAdded {
+        event: InboxItemAddedEvent,
+    },
+    /// 收件箱条目的归档状态变了（归档与取消归档共用）。
+    ///
+    /// 任一宿主（含各自的 MCP server）发起的变更都会到达这里——在此之前
+    /// `archive_inbox_item` 是被直调的端口方法，「桌面 MCP 归档了一条」对桌面界面
+    /// 完全不可见。
+    InboxItemArchived {
+        event: InboxItemArchivedEvent,
+    },
+    /// 收件箱条目被删除。
+    InboxItemRemoved {
+        event: InboxItemRemovedEvent,
     },
     TransferOfferReceived {
         offer: TransferOfferEvent,

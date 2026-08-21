@@ -30,7 +30,9 @@ const uniffiIsDebug =
  * 「切级别时保留哪些字段」规则，而内核那一份一个都不保留——同一个产品动作三种行为。
  * 现在规则只在 [`DeviceReceivePolicy::for_trust_level`] 一处。
  *
- * `previous` 传该设备**当前**的策略，用户显式设过的保存位置会被带过去（`blocked` 除外）。
+ * `previous` 传该设备**当前**的策略，用户显式设过的保存位置与 AI 发件授权会被带过去
+ * （`temporary` 会收走发件授权；`blocked` 只清保存位置，发件授权照常带走——判据全在
+ * [`DeviceReceivePolicy::for_trust_level`]，别在 TS 侧另立一套）。
  *
  * ⚠️ 代收授权（`allow_mcp_accept_from_device`）**不在** [`MobileDeviceReceivePolicy`] 里
  * （见下面 `From` 的注释：移动端不管理该策略，回写恒 fail-closed 为 false）。所以内核为它
@@ -576,7 +578,7 @@ export const MobileSaveLocation = (() => {
 
     type Path__interface = {
         tag: MobileSaveLocation_Tags.Path;
-        inner:
+        inner: 
 Readonly<{path: string}>
     };
     /**
@@ -589,7 +591,7 @@ Readonly<{path: string}>
          */
         readonly [uniffiTypeNameSymbol] = "MobileSaveLocation";
         readonly tag = MobileSaveLocation_Tags.Path;
-        readonly inner:
+        readonly inner: 
 Readonly<{path: string}>;
         constructor(
 inner: {path: string }) {
@@ -822,14 +824,6 @@ const FfiConverterTypeMobileFilePublishPhase = (() => {
     return new FFIConverter();
 })();
 
-/**
- * 单个文件的发布阶段（暂存 → 用户可见位置）。
- *
- * **Android 上这一段是全量字节拷贝，几十秒起步**，而此时字节已收完、进度条已满——
- * 没有这条事件，用户看到的就是「满了之后凭空多等一段」。
- *
- * 拷贝中的字节数**不在这里**——那个循环在 JS 侧的 `ForeignFileAccess` 里，由它直接上报。
- */
 export type MobileFilePublish = {
     sessionId: string,
     fileId: number,
@@ -1089,6 +1083,137 @@ const FfiConverterTypeMobileInboxHitFile = (() => {
         allocationSize(value: TypeName): number {
             return FfiConverterString.allocationSize(value.name) +
              FfiConverterString.allocationSize(value.relativePath);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+/**
+ * 单个文件的发布阶段（暂存 → 用户可见位置）。
+ *
+ * **Android 上这一段是全量字节拷贝，几十秒起步**，而此时字节已收完、进度条已满——
+ * 没有这条事件，用户看到的就是「满了之后凭空多等一段」。
+ *
+ * 拷贝中的字节数**不在这里**——那个循环在 JS 侧的 `ForeignFileAccess` 里，由它直接上报。
+ * 收件箱多了一条。
+ *
+ * **JS 侧订阅它刷新收件箱，不要再从 `TransferCompleted` 推导。** 此前那份推导漏判了
+ * `direction`，于是**发送**完成也会白刷一次收件箱；而 direction 根本没进这个镜像
+ * （`MobileCoreEvent::TransferCompleted` 只有 session_id），JS 也就无从判断。
+ *
+ * 载荷**不含正文**：文本条目的标题就是正文前 160 字节，事件会流经日志。
+ */
+export type MobileInboxItemAdded = {
+    itemId: string,
+    /**
+     * "files" 或 "text"。
+     */
+    contentKind: string,
+    sourcePeerId: string,
+    sourceName: string,
+    itemCount: number,
+    totalSize: bigint,
+    receivedAt: bigint,
+    transferSessionId?: string
+}
+
+/**
+ * Generated factory for {@link MobileInboxItemAdded} record objects.
+ */
+export const MobileInboxItemAdded = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileInboxItemAdded, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileInboxItemAdded>,
+    });
+})();
+
+const FfiConverterTypeMobileInboxItemAdded = (() => {
+    type TypeName = MobileInboxItemAdded;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                itemId: FfiConverterString.read(from), 
+                contentKind: FfiConverterString.read(from), 
+                sourcePeerId: FfiConverterString.read(from), 
+                sourceName: FfiConverterString.read(from), 
+                itemCount: FfiConverterInt32.read(from), 
+                totalSize: FfiConverterInt64.read(from), 
+                receivedAt: FfiConverterInt64.read(from), 
+                transferSessionId: FfiConverterOptionalString.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.itemId, into);
+            FfiConverterString.write(value.contentKind, into);
+            FfiConverterString.write(value.sourcePeerId, into);
+            FfiConverterString.write(value.sourceName, into);
+            FfiConverterInt32.write(value.itemCount, into);
+            FfiConverterInt64.write(value.totalSize, into);
+            FfiConverterInt64.write(value.receivedAt, into);
+            FfiConverterOptionalString.write(value.transferSessionId, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.itemId) +
+             FfiConverterString.allocationSize(value.contentKind) +
+             FfiConverterString.allocationSize(value.sourcePeerId) +
+             FfiConverterString.allocationSize(value.sourceName) +
+             FfiConverterInt32.allocationSize(value.itemCount) +
+             FfiConverterInt64.allocationSize(value.totalSize) +
+             FfiConverterInt64.allocationSize(value.receivedAt) +
+             FfiConverterOptionalString.allocationSize(value.transferSessionId);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+/**
+ * 收件箱条目的归档状态变了（归档与取消归档共用）。
+ */
+export type MobileInboxItemArchived = {
+    itemId: string,
+    archived: boolean
+}
+
+/**
+ * Generated factory for {@link MobileInboxItemArchived} record objects.
+ */
+export const MobileInboxItemArchived = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileInboxItemArchived, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileInboxItemArchived>,
+    });
+})();
+
+const FfiConverterTypeMobileInboxItemArchived = (() => {
+    type TypeName = MobileInboxItemArchived;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                itemId: FfiConverterString.read(from), 
+                archived: FfiConverterBool.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.itemId, into);
+            FfiConverterBool.write(value.archived, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.itemId) +
+             FfiConverterBool.allocationSize(value.archived);
             
         }
     };
@@ -1488,7 +1613,7 @@ Readonly<{retentionDays: number}>
          */
         readonly [uniffiTypeNameSymbol] = "MobileFailureCode";
         readonly tag = MobileFailureCode_Tags.SessionExpired;
-        readonly inner:
+        readonly inner: 
 Readonly<{retentionDays: number}>;
         constructor(
 inner: {retentionDays: number }) {
@@ -2079,6 +2204,48 @@ const FfiConverterTypeMobileInboxItemDetail = (() => {
         allocationSize(value: TypeName): number {
             return FfiConverterTypeMobileInboxItemSummary.allocationSize(value.item) +
              FfiConverterTypeMobileInboxItemContent.allocationSize(value.content);
+            
+        }
+    };
+    return new FFIConverter();
+})();
+
+/**
+ * 收件箱条目被删除。
+ */
+export type MobileInboxItemRemoved = {
+    itemId: string
+}
+
+/**
+ * Generated factory for {@link MobileInboxItemRemoved} record objects.
+ */
+export const MobileInboxItemRemoved = (() => {
+    const defaults = () => ({
+    });
+    const create = (() => {
+        return uniffiCreateRecord<MobileInboxItemRemoved, ReturnType<typeof defaults>>(defaults);
+    })();
+    return Object.freeze({
+        create,
+        new: create,
+        defaults: () => Object.freeze(defaults()) as Partial<MobileInboxItemRemoved>,
+    });
+})();
+
+const FfiConverterTypeMobileInboxItemRemoved = (() => {
+    type TypeName = MobileInboxItemRemoved;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            return {
+                itemId: FfiConverterString.read(from)
+            };
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            FfiConverterString.write(value.itemId, into);
+        }
+        allocationSize(value: TypeName): number {
+            return FfiConverterString.allocationSize(value.itemId);
             
         }
     };
@@ -3286,10 +3453,10 @@ const FfiConverterTypeMobileTextDeliveryAttention = (() => {
     class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
         read(from: RustBuffer): TypeName {
             return {
-                deliveryId: FfiConverterString.read(from),
-                peerId: FfiConverterString.read(from),
-                peerName: FfiConverterString.read(from),
-                kind: FfiConverterString.read(from),
+                deliveryId: FfiConverterString.read(from), 
+                peerId: FfiConverterString.read(from), 
+                peerName: FfiConverterString.read(from), 
+                kind: FfiConverterString.read(from), 
                 createdAt: FfiConverterInt64.read(from)
             };
         }
@@ -3306,7 +3473,7 @@ const FfiConverterTypeMobileTextDeliveryAttention = (() => {
              FfiConverterString.allocationSize(value.peerName) +
              FfiConverterString.allocationSize(value.kind) +
              FfiConverterInt64.allocationSize(value.createdAt);
-
+            
         }
     };
     return new FFIConverter();
@@ -3659,7 +3826,7 @@ export const MobileTransferOrigin = (() => {
 
     type Mcp__interface = {
         tag: MobileTransferOrigin_Tags.Mcp;
-        inner:
+        inner: 
 Readonly<{client?: string}>
     };
     class Mcp_ extends UniffiEnum implements Mcp__interface {
@@ -3669,7 +3836,7 @@ Readonly<{client?: string}>
          */
         readonly [uniffiTypeNameSymbol] = "MobileTransferOrigin";
         readonly tag = MobileTransferOrigin_Tags.Mcp;
-        readonly inner:
+        readonly inner: 
 Readonly<{client?: string}>;
         constructor(
 inner: {client?: string }) {
@@ -4858,13 +5025,16 @@ export enum MobileCoreEvent_Tags {
     TransferDbError = "TransferDbError",
     PrepareProgress = "PrepareProgress",
     FilePublish = "FilePublish",
+    InboxItemAdded = "InboxItemAdded",
+    InboxItemArchived = "InboxItemArchived",
+    InboxItemRemoved = "InboxItemRemoved",
     Error = "Error"
 }
 export const MobileCoreEvent = (() => {
 
     type TextDeliveryAttention__interface = {
         tag: MobileCoreEvent_Tags.TextDeliveryAttention;
-        inner:
+        inner: 
 Readonly<{attention: MobileTextDeliveryAttention}>
     };
     class TextDeliveryAttention_ extends UniffiEnum implements TextDeliveryAttention__interface {
@@ -4874,7 +5044,7 @@ Readonly<{attention: MobileTextDeliveryAttention}>
          */
         readonly [uniffiTypeNameSymbol] = "MobileCoreEvent";
         readonly tag = MobileCoreEvent_Tags.TextDeliveryAttention;
-        readonly inner:
+        readonly inner: 
 Readonly<{attention: MobileTextDeliveryAttention}>;
         constructor(
 inner: {attention: MobileTextDeliveryAttention }) {
@@ -5479,6 +5649,99 @@ inner: {event: MobileFilePublish }): FilePublish_ {
 
     }
 
+    type InboxItemAdded__interface = {
+        tag: MobileCoreEvent_Tags.InboxItemAdded;
+        inner: 
+Readonly<{event: MobileInboxItemAdded}>
+    };
+    class InboxItemAdded_ extends UniffiEnum implements InboxItemAdded__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileCoreEvent";
+        readonly tag = MobileCoreEvent_Tags.InboxItemAdded;
+        readonly inner: 
+Readonly<{event: MobileInboxItemAdded}>;
+        constructor(
+inner: {event: MobileInboxItemAdded }) {
+            super("MobileCoreEvent", "InboxItemAdded");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {event: MobileInboxItemAdded }): InboxItemAdded_ {
+            return new InboxItemAdded_(inner);
+        }
+
+        static instanceOf(obj: any): obj is InboxItemAdded_ {
+            return obj.tag === MobileCoreEvent_Tags.InboxItemAdded;
+        }
+
+    }
+
+    type InboxItemArchived__interface = {
+        tag: MobileCoreEvent_Tags.InboxItemArchived;
+        inner: 
+Readonly<{event: MobileInboxItemArchived}>
+    };
+    class InboxItemArchived_ extends UniffiEnum implements InboxItemArchived__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileCoreEvent";
+        readonly tag = MobileCoreEvent_Tags.InboxItemArchived;
+        readonly inner: 
+Readonly<{event: MobileInboxItemArchived}>;
+        constructor(
+inner: {event: MobileInboxItemArchived }) {
+            super("MobileCoreEvent", "InboxItemArchived");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {event: MobileInboxItemArchived }): InboxItemArchived_ {
+            return new InboxItemArchived_(inner);
+        }
+
+        static instanceOf(obj: any): obj is InboxItemArchived_ {
+            return obj.tag === MobileCoreEvent_Tags.InboxItemArchived;
+        }
+
+    }
+
+    type InboxItemRemoved__interface = {
+        tag: MobileCoreEvent_Tags.InboxItemRemoved;
+        inner: 
+Readonly<{event: MobileInboxItemRemoved}>
+    };
+    class InboxItemRemoved_ extends UniffiEnum implements InboxItemRemoved__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileCoreEvent";
+        readonly tag = MobileCoreEvent_Tags.InboxItemRemoved;
+        readonly inner: 
+Readonly<{event: MobileInboxItemRemoved}>;
+        constructor(
+inner: {event: MobileInboxItemRemoved }) {
+            super("MobileCoreEvent", "InboxItemRemoved");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {event: MobileInboxItemRemoved }): InboxItemRemoved_ {
+            return new InboxItemRemoved_(inner);
+        }
+
+        static instanceOf(obj: any): obj is InboxItemRemoved_ {
+            return obj.tag === MobileCoreEvent_Tags.InboxItemRemoved;
+        }
+
+    }
+
     type Error__interface = {
         tag: MobileCoreEvent_Tags.Error;
         inner: 
@@ -5516,7 +5779,7 @@ inner: {message: string }): Error_ {
 
     return Object.freeze({
         instanceOf,
-  TextDeliveryAttention: TextDeliveryAttention_,
+  TextDeliveryAttention: TextDeliveryAttention_, 
   NetworkStatusChanged: NetworkStatusChanged_, 
   DevicesChanged: DevicesChanged_, 
   PairingRequestReceived: PairingRequestReceived_, 
@@ -5536,12 +5799,15 @@ inner: {message: string }): Error_ {
   TransferDbError: TransferDbError_, 
   PrepareProgress: PrepareProgress_, 
   FilePublish: FilePublish_, 
+  InboxItemAdded: InboxItemAdded_, 
+  InboxItemArchived: InboxItemArchived_, 
+  InboxItemRemoved: InboxItemRemoved_, 
   Error: Error_
     });
 
 })();
 export type MobileCoreEvent = InstanceType<
-    typeof MobileCoreEvent['TextDeliveryAttention' | 'NetworkStatusChanged' | 'DevicesChanged' | 'PairingRequestReceived' | 'PairingCompleted' | 'PairedDeviceAdded' | 'PairedDeviceRemoved' | 'DeviceRenamed' | 'TransferOfferReceived' | 'TransferProgress' | 'TransferAccepted' | 'TransferRejected' | 'TransferCompleted' | 'TransferFailed' | 'TransferPaused' | 'TransferResumed' | 'TransferProjectionUpdate' | 'TransferDbError' | 'PrepareProgress' | 'FilePublish' | 'Error']
+    typeof MobileCoreEvent['TextDeliveryAttention' | 'NetworkStatusChanged' | 'DevicesChanged' | 'PairingRequestReceived' | 'PairingCompleted' | 'PairedDeviceAdded' | 'PairedDeviceRemoved' | 'DeviceRenamed' | 'TransferOfferReceived' | 'TransferProgress' | 'TransferAccepted' | 'TransferRejected' | 'TransferCompleted' | 'TransferFailed' | 'TransferPaused' | 'TransferResumed' | 'TransferProjectionUpdate' | 'TransferDbError' | 'PrepareProgress' | 'FilePublish' | 'InboxItemAdded' | 'InboxItemArchived' | 'InboxItemRemoved' | 'Error']
 >;
 
 // FfiConverter for enum MobileCoreEvent
@@ -5571,7 +5837,10 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                 case 18: return new MobileCoreEvent.TransferDbError({sessionId: FfiConverterString.read(from), message: FfiConverterString.read(from) });
                 case 19: return new MobileCoreEvent.PrepareProgress({event: FfiConverterTypeMobilePrepareProgress.read(from) });
                 case 20: return new MobileCoreEvent.FilePublish({event: FfiConverterTypeMobileFilePublish.read(from) });
-                case 21: return new MobileCoreEvent.Error({message: FfiConverterString.read(from) });
+                case 21: return new MobileCoreEvent.InboxItemAdded({event: FfiConverterTypeMobileInboxItemAdded.read(from) });
+                case 22: return new MobileCoreEvent.InboxItemArchived({event: FfiConverterTypeMobileInboxItemArchived.read(from) });
+                case 23: return new MobileCoreEvent.InboxItemRemoved({event: FfiConverterTypeMobileInboxItemRemoved.read(from) });
+                case 24: return new MobileCoreEvent.Error({message: FfiConverterString.read(from) });
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
@@ -5701,8 +5970,26 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                     FfiConverterTypeMobileFilePublish.write(inner.event, into);
                     return;
                 }
-                case MobileCoreEvent_Tags.Error: {
+                case MobileCoreEvent_Tags.InboxItemAdded: {
                     ordinalConverter.write(21, into);
+                    const inner = value.inner;
+                    FfiConverterTypeMobileInboxItemAdded.write(inner.event, into);
+                    return;
+                }
+                case MobileCoreEvent_Tags.InboxItemArchived: {
+                    ordinalConverter.write(22, into);
+                    const inner = value.inner;
+                    FfiConverterTypeMobileInboxItemArchived.write(inner.event, into);
+                    return;
+                }
+                case MobileCoreEvent_Tags.InboxItemRemoved: {
+                    ordinalConverter.write(23, into);
+                    const inner = value.inner;
+                    FfiConverterTypeMobileInboxItemRemoved.write(inner.event, into);
+                    return;
+                }
+                case MobileCoreEvent_Tags.Error: {
+                    ordinalConverter.write(24, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.message, into);
                     return;
@@ -5837,9 +6124,27 @@ const FfiConverterTypeMobileCoreEvent = (() => {
                     size += FfiConverterTypeMobileFilePublish.allocationSize(inner.event);
                     return size;
                 }
-                case MobileCoreEvent_Tags.Error: {
+                case MobileCoreEvent_Tags.InboxItemAdded: {
                     const inner = value.inner;
                     let size = ordinalConverter.allocationSize(21);
+                    size += FfiConverterTypeMobileInboxItemAdded.allocationSize(inner.event);
+                    return size;
+                }
+                case MobileCoreEvent_Tags.InboxItemArchived: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(22);
+                    size += FfiConverterTypeMobileInboxItemArchived.allocationSize(inner.event);
+                    return size;
+                }
+                case MobileCoreEvent_Tags.InboxItemRemoved: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(23);
+                    size += FfiConverterTypeMobileInboxItemRemoved.allocationSize(inner.event);
+                    return size;
+                }
+                case MobileCoreEvent_Tags.Error: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(24);
                     size += FfiConverterString.allocationSize(inner.message);
                     return size;
                 }
@@ -9956,7 +10261,7 @@ function uniffiEnsureInitialized() {
     if (bindingsContractVersion !== scaffoldingContractVersion) {
         throw new UniffiInternalError.ContractVersionMismatch(scaffoldingContractVersion, bindingsContractVersion);
     }
-    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_func_default_receive_policy() !== 62186) {
+    if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_func_default_receive_policy() !== 48618) {
         throw new UniffiInternalError.ApiChecksumMismatch("uniffi_swarmdrop_mobile_core_checksum_func_default_receive_policy");
     }
     if (nativeModule().ubrn_uniffi_swarmdrop_mobile_core_checksum_func_init_logging() !== 7941) {
@@ -10211,8 +10516,11 @@ export default Object.freeze({
     FfiConverterTypeMobileInboxContentKind,
     FfiConverterTypeMobileInboxFileEntry,
     FfiConverterTypeMobileInboxHitFile,
+    FfiConverterTypeMobileInboxItemAdded,
+    FfiConverterTypeMobileInboxItemArchived,
     FfiConverterTypeMobileInboxItemContent,
     FfiConverterTypeMobileInboxItemDetail,
+    FfiConverterTypeMobileInboxItemRemoved,
     FfiConverterTypeMobileInboxItemSummary,
     FfiConverterTypeMobileInboxSearchHit,
     FfiConverterTypeMobileInboxSourceKind,

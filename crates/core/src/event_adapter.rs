@@ -44,6 +44,9 @@ impl From<TransferEvent> for CoreEvent {
             }
             TransferEvent::PrepareProgress { event } => CoreEvent::PrepareProgress { event },
             TransferEvent::FilePublish { event } => CoreEvent::FilePublish { event },
+            TransferEvent::InboxItemAdded { event } => CoreEvent::InboxItemAdded { event },
+            TransferEvent::InboxItemArchived { event } => CoreEvent::InboxItemArchived { event },
+            TransferEvent::InboxItemRemoved { event } => CoreEvent::InboxItemRemoved { event },
         }
     }
 }

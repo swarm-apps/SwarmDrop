@@ -327,20 +327,31 @@ impl MobileCore {
     pub async fn archive_inbox_item(&self, item_id: String, archived: bool) -> FfiResult<()> {
         let item_uuid = parse_item_id(&item_id)?;
         let store = self.ensure_store().await?;
-        store
-            .archive_inbox_item(item_uuid, archived)
-            .await
-            .map_err(FfiError::from)
+        // 经编排层而不是直调端口：事件要在一个所有调用方都必经的地方发
+        // （spec: `inbox-domain-events`）。
+        swarmdrop_core::transfer::inbox::archive_inbox_item(
+            store.as_ref(),
+            self.transfer_events().as_ref(),
+            item_uuid,
+            archived,
+        )
+        .await
+        .map_err(FfiError::from)
     }
 
     /// **只删账本**，不碰文件。要连文件一起删走 [`Self::delete_inbox_item`]。
     pub async fn delete_inbox_item_record(&self, item_id: String) -> FfiResult<()> {
         let item_uuid = parse_item_id(&item_id)?;
         let store = self.ensure_store().await?;
-        store
-            .delete_inbox_item_record(item_uuid)
-            .await
-            .map_err(FfiError::from)
+        // 经编排层而不是直调端口：本端的收件箱刚改成只认领域事件，直调会在列表里
+        // 留下一行已经不存在的记录，且没有任何东西会纠正它。
+        swarmdrop_core::transfer::inbox::delete_inbox_item_record(
+            store.as_ref(),
+            self.transfer_events().as_ref(),
+            item_uuid,
+        )
+        .await
+        .map_err(FfiError::from)
     }
 
     /// 删除收件箱条目；`delete_local_files` 为真时连已落盘的文件一起删。
@@ -363,6 +374,7 @@ impl MobileCore {
         swarmdrop_core::transfer::inbox::delete_inbox_item(
             store.as_ref(),
             file_access.as_ref(),
+            self.transfer_events().as_ref(),
             item_uuid,
             delete_local_files,
         )
@@ -389,10 +401,14 @@ impl MobileCore {
 
     pub async fn repair_missing_inbox_items(&self) -> FfiResult<Vec<MobileInboxItemDetail>> {
         let store = self.ensure_store().await?;
-        let repaired = store
-            .repair_missing_inbox_items_for_completed_receives()
-            .await
-            .map_err(FfiError::from)?;
+        // 经编排层而不是直调端口：这条一次能凭空补出几十条记录，而收件箱界面刚改成
+        // 只认领域事件——直调的话那几十条对它完全不可见（spec: `inbox-domain-events`）。
+        let repaired = swarmdrop_core::transfer::inbox::repair_missing_inbox_items(
+            store.as_ref(),
+            self.transfer_events().as_ref(),
+        )
+        .await
+        .map_err(FfiError::from)?;
         Ok(repaired.into_iter().map(Into::into).collect())
     }
 

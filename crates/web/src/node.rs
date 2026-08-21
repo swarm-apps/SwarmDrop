@@ -1381,10 +1381,16 @@ impl WebNode {
     /// 归档 / 取消归档收件箱条目。条目不存在时静默成功。
     pub async fn archive_inbox_item(&self, item_id: String, archived: bool) -> Result<(), JsValue> {
         let id = parse_uuid(&item_id, "item_id")?;
-        self.session_store
-            .archive_inbox_item(id, archived)
-            .await
-            .map_err(WebError::from)?;
+        // 经编排层而不是直调端口：事件要在一个所有调用方都必经的地方发，否则
+        // 「另一个宿主归档了一条」对本端不可见（spec: `inbox-domain-events`）。
+        swarmdrop_transfer::inbox::archive_inbox_item(
+            self.session_store.as_ref(),
+            self.manager.events().as_ref(),
+            id,
+            archived,
+        )
+        .await
+        .map_err(WebError::from)?;
         Ok(())
     }
 
@@ -1410,6 +1416,7 @@ impl WebNode {
         swarmdrop_transfer::inbox::delete_inbox_item(
             self.session_store.as_ref(),
             self.file_access.as_ref(),
+            self.manager.events().as_ref(),
             id,
             delete_local_files,
         )

@@ -7,6 +7,7 @@
 use async_trait::async_trait;
 
 use crate::AppResult;
+use crate::inbox::{InboxItemAddedEvent, InboxItemArchivedEvent, InboxItemRemovedEvent};
 use crate::incoming::TransferOfferEvent;
 use crate::progress::{
     FilePublishEvent, PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent,
@@ -60,6 +61,27 @@ pub enum TransferEvent {
     /// 单个文件正在从暂存位置发布到用户可见位置（收齐即发布，一个会话里会发生多次）。
     FilePublish {
         event: FilePublishEvent,
+    },
+
+    /// 收件箱多了一条。
+    ///
+    /// ⚠️ **宿主订阅这条，不要自己从 [`Self::TransferCompleted`] 推导。** 推导要依赖
+    /// 「先建条目、再发完成事件」这条顺序，而它只以行内注释存在；调换它——例如为了让
+    /// 完成事件更快到达 UI——会让所有推导方同时开始拿不到条目，且各自看起来都像自己的
+    /// 竞态缺陷。本仓在补这条事件之前已经有三份推导、两份带缺陷、一份根本没接
+    /// （spec: `inbox-domain-events`）。
+    ///
+    /// **只在接收方向发**：发送完成不产生收件箱条目。
+    InboxItemAdded {
+        event: InboxItemAddedEvent,
+    },
+    /// 收件箱条目的归档状态变了（两个方向共用）。
+    InboxItemArchived {
+        event: InboxItemArchivedEvent,
+    },
+    /// 收件箱条目被删除。
+    InboxItemRemoved {
+        event: InboxItemRemovedEvent,
     },
 }
 

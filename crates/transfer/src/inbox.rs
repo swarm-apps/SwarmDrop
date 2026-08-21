@@ -91,6 +91,75 @@ pub struct InboxItemDetail {
     pub content: InboxItemContent,
 }
 
+/// 收件箱条目新增事件的载荷。
+///
+/// ## 为什么不复用 [`InboxItemSummary`]
+///
+/// **因为文本条目的 `title` 就是正文的前 160 字节**（`text_preview` 的产物）。事件会流经
+/// 宿主的日志——CLI 常驻模式把整个事件打进 tracing，落到终端与 journald——还会被订阅面
+/// 转出去、被外部消费方持久化进跨月留存的记录。本仓已有两条同源不变量白纸黑字写着
+/// 「事件不含正文，避免系统通知或日志泄露敏感内容」，这里是同一条规则的延伸。
+///
+/// 所以载荷是**窄的**：只带标识与足够让消费方决定「要不要去查详情」的元信息。
+/// 三端现有的消费形态本来就是「收到信号就重新拉列表」，并不需要事件把详情捎上。
+#[derive(Debug, Clone, serde::Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct InboxItemAddedEvent {
+    pub item_id: Uuid,
+    /// 文件还是文本。消费方据此决定展示形态，不必先查详情。
+    pub content_kind: entity::InboxContentKind,
+    pub source_peer_id: String,
+    pub source_name: String,
+    /// 文件条目的文件数；文本条目为 1。
+    pub item_count: i32,
+    pub total_size: i64,
+    pub received_at: i64,
+    /// 文件条目关联的传输会话；文本条目为空。
+    pub transfer_session_id: Option<Uuid>,
+}
+
+/// 收件箱条目归档状态变化事件的载荷。
+///
+/// `archived` 为假表示取消归档——两个方向共用一条事件而不是分成两个变体，因为消费方
+/// 对它们的处理完全一致（更新那一条的状态），拆开只会让每个 match 多一个分支。
+#[derive(Debug, Clone, serde::Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct InboxItemArchivedEvent {
+    pub item_id: Uuid,
+    pub archived: bool,
+}
+
+/// 收件箱条目被删除事件的载荷。
+#[derive(Debug, Clone, serde::Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct InboxItemRemovedEvent {
+    pub item_id: Uuid,
+}
+
+impl InboxItemAddedEvent {
+    /// 从刚创建出来的条目详情投影出事件载荷。
+    ///
+    /// **入口只有这一个**：两个创建点（文件到达、文本到达）都已经握着 `InboxItemDetail`，
+    /// 让它们各自挑字段就会长出两份「哪些字段可以进事件」的判断，而那正是本载荷要防的
+    /// 那件事——挑错一次就是一次正文泄露。
+    pub fn from_detail(detail: &InboxItemDetail) -> Self {
+        let item = &detail.item;
+        Self {
+            item_id: item.id,
+            content_kind: item.content_kind.clone(),
+            source_peer_id: item.source_peer_id.clone(),
+            source_name: item.source_name.clone(),
+            item_count: item.item_count,
+            total_size: item.total_size,
+            received_at: item.received_at,
+            transfer_session_id: item.transfer_session_id,
+        }
+    }
+}
+
 /// 收件箱搜索命中（item 粒度）。
 #[derive(Debug, Clone, serde::Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -523,15 +592,19 @@ fn snippet_window(text: &str, needle_lower: &str) -> Option<String> {
 pub async fn delete_inbox_item(
     store: &dyn crate::store::InboxStore,
     files: &dyn FileAccess,
+    events: &dyn crate::events::TransferEventSink,
     item_id: Uuid,
     delete_local_files: bool,
 ) -> AppResult<()> {
+    // **先取一次详情，两件事都要它**：删文件要文件清单，发事件要「这条真的存在过」。
+    // 取一次而不是两次——删文件那条分支此前自己取过一遍。
+    let detail = store.get_inbox_item_detail(item_id).await?;
+
     if delete_local_files {
-        let detail = store
-            .get_inbox_item_detail(item_id)
-            .await?
+        let detail = detail
+            .as_ref()
             .ok_or_else(|| AppError::SessionNotFound("收件箱记录不存在".into()))?;
-        if let InboxItemContent::Files { entries, .. } = detail.content {
+        if let InboxItemContent::Files { entries, .. } = &detail.content {
             for file in entries {
                 if let Err(e) = files.delete_finalized_file(&file.local_path).await {
                     tracing::warn!(
@@ -543,7 +616,133 @@ pub async fn delete_inbox_item(
             }
         }
     }
-    store.delete_inbox_item_record(item_id).await
+    store.delete_inbox_item_record(item_id).await?;
+    // 本来就不在时不发事件。端口对此**静默成功**，所以「做完了」不等于「有东西变了」
+    // ——见 [`archive_inbox_item`] 里的同一条判据。
+    publish_removed(events, item_id, detail.is_some()).await;
+    Ok(())
+}
+
+/// **只删账本记录**，不碰文件。
+///
+/// 与 [`delete_inbox_item`] 分成两个入口而不是一个带布尔的：那边要读详情、要逐文件删、
+/// 要处理「读不到详情就不知道该删哪些文件」，这边一件都不需要。合成一个的代价是那个
+/// 布尔为假时整段文件逻辑都是死代码，而调用方得去读它才知道自己没触发。
+///
+/// ⚠️ **宿主不得直调 `InboxStore::delete_inbox_item_record`**，理由同
+/// [`archive_inbox_item`]：那次删除会对别人不可见。移动端此前就是直调的，
+/// 而它的收件箱刚好改成了只认这几条事件——于是列表里会留下一行已经不存在的记录，
+/// 且没有任何东西会纠正它。
+pub async fn delete_inbox_item_record(
+    store: &dyn crate::store::InboxStore,
+    events: &dyn crate::events::TransferEventSink,
+    item_id: Uuid,
+) -> AppResult<()> {
+    let existed = store.get_inbox_item_detail(item_id).await?.is_some();
+    store.delete_inbox_item_record(item_id).await?;
+    publish_removed(events, item_id, existed).await;
+    Ok(())
+}
+
+/// 通知「这条没了」——`existed` 为假时什么都不做。
+async fn publish_removed(
+    events: &dyn crate::events::TransferEventSink,
+    item_id: Uuid,
+    existed: bool,
+) {
+    if !existed {
+        return;
+    }
+    publish_inbox_change(
+        events,
+        crate::events::TransferEvent::InboxItemRemoved {
+            event: InboxItemRemovedEvent { item_id },
+        },
+        "收件箱删除",
+    )
+    .await;
+}
+
+/// 归档 / 取消归档一个收件箱条目。
+///
+/// ## 为什么它必须是编排函数而不是让宿主直调端口
+///
+/// 在此之前 `archive_inbox_item` 是纯端口方法，被 4 个宿主 + 2 个 MCP server 各自直调，
+/// 于是「桌面 MCP 归档了一条」对同一台机器上的桌面界面**完全不可见**——同一份数据，
+/// 一个进程里的两个部分看到不同的事实。事件只能在一个所有调用方都必经的地方发，
+/// 那个地方就是这里（spec: `inbox-domain-events` 的「归档与删除经共享编排」）。
+///
+/// ⚠️ **宿主不得再直调 `InboxStore::archive_inbox_item`**，否则那次变更又会对别人不可见。
+pub async fn archive_inbox_item(
+    store: &dyn crate::store::InboxStore,
+    events: &dyn crate::events::TransferEventSink,
+    item_id: Uuid,
+    archived: bool,
+) -> AppResult<()> {
+    // ⚠️ **端口对不存在的条目静默成功**（`WebNode::archive_inbox_item` 的文档明写着
+    // 「条目不存在时静默成功」），所以「做完了」并不等于「有东西变了」。不先问一句，
+    // 一个陈旧的界面或一次手误的 MCP 调用就会让整条流上出现一条**指向不存在实体**的
+    // 变更事件——而消费方被要求「收到不认识的取消归档就去查一次详情」，那次查询必然扑空，
+    // 且它无从分辨是自己漏了还是这条本来就不存在。
+    let existed = store.get_inbox_item_detail(item_id).await?.is_some();
+    store.archive_inbox_item(item_id, archived).await?;
+    if !existed {
+        return Ok(());
+    }
+    publish_inbox_change(
+        events,
+        crate::events::TransferEvent::InboxItemArchived {
+            event: InboxItemArchivedEvent { item_id, archived },
+        },
+        "收件箱归档状态变化",
+    )
+    .await;
+    Ok(())
+}
+
+/// 补建所有已完成接收会话缺失的收件箱条目，并为**每一条真正补出来的**发事件。
+///
+/// ## 它为什么也必须是编排函数
+///
+/// 与归档、软删同一条理由，只是更隐蔽：这条路径一次能凭空变出几十条记录，而在此之前
+/// 它是宿主直调端口——三端的收件箱界面、订阅面的 `inboxAdded` 流全都看不见那几十条，
+/// 用户只有手动刷新才发现多出一堆东西。
+///
+/// 端口返回的**已经只是本次补出的那些**（实现里先按 `transfer_session_id` 预筛过一遍，
+/// 因为 `ensure_*` 对「新建」与「本来就有」都返回 `Some`，只靠它分不出来）。
+/// 所以这里逐条发事件是安全的，不会为存量条目补发一遍。
+pub async fn repair_missing_inbox_items(
+    store: &dyn crate::store::InboxStore,
+    events: &dyn crate::events::TransferEventSink,
+) -> AppResult<Vec<InboxItemDetail>> {
+    let repaired = store
+        .repair_missing_inbox_items_for_completed_receives()
+        .await?;
+    for detail in &repaired {
+        publish_inbox_change(
+            events,
+            crate::events::TransferEvent::InboxItemAdded {
+                event: InboxItemAddedEvent::from_detail(detail),
+            },
+            "收件箱补建",
+        )
+        .await;
+    }
+    Ok(repaired)
+}
+
+/// 发一条收件箱变更事件；失败只告警。
+///
+/// **绝不因为事件发不出去就回滚已经落库的变更**——那会把一次成功的删除变成一次失败，
+/// 而用户看到的是「删不掉」。事件是通知，不是事务的一部分。
+async fn publish_inbox_change(
+    events: &dyn crate::events::TransferEventSink,
+    event: crate::events::TransferEvent,
+    what: &str,
+) {
+    if let Err(error) = events.emit(event).await {
+        tracing::warn!(%error, "{what}事件发送失败，已持久化的变更不回滚");
+    }
 }
 
 #[cfg(test)]
@@ -582,6 +781,19 @@ mod tests {
         fail_file_delete: bool,
     }
 
+    #[async_trait::async_trait]
+    impl crate::events::TransferEventSink for DeleteSpy {
+        async fn emit(&self, event: crate::events::TransferEvent) -> AppResult<()> {
+            let name = match event {
+                crate::events::TransferEvent::InboxItemRemoved { .. } => "event:removed",
+                crate::events::TransferEvent::InboxItemArchived { .. } => "event:archived",
+                _ => "event:other",
+            };
+            self.log.lock().unwrap().push(name.to_string());
+            Ok(())
+        }
+    }
+
     impl DeleteSpy {
         fn with_files(paths: &[&str]) -> Self {
             let files = paths
@@ -598,11 +810,28 @@ mod tests {
                     missing: false,
                 })
                 .collect();
-            let spy = Self::default();
+            let spy = Self::existing();
             *spy.detail.lock().unwrap() = Some(InboxItemDetail {
                 item: summary_stub(),
                 content: InboxItemContent::Files {
                     entries: files,
+                    transfer: Box::new(None),
+                },
+            });
+            spy
+        }
+
+        /// 条目存在，但不带文件。
+        ///
+        /// **默认的 `Self::default()` 表示「这个条目不存在」**——编排层会据此不发事件
+        /// （端口对不存在的条目静默成功，见 `archive_inbox_item`）。归档类用例要的是
+        /// 「它在」，所以得显式造一个。
+        fn existing() -> Self {
+            let spy = Self::default();
+            *spy.detail.lock().unwrap() = Some(InboxItemDetail {
+                item: summary_stub(),
+                content: InboxItemContent::Files {
+                    entries: Vec::new(),
                     transfer: Box::new(None),
                 },
             });
@@ -734,8 +963,9 @@ mod tests {
         async fn mark_inbox_item_opened(&self, _id: Uuid) -> AppResult<()> {
             unimplemented!("编排不碰它")
         }
-        async fn archive_inbox_item(&self, _id: Uuid, _a: bool) -> AppResult<()> {
-            unimplemented!("编排不碰它")
+        async fn archive_inbox_item(&self, _id: Uuid, archived: bool) -> AppResult<()> {
+            self.log.lock().unwrap().push(format!("archive:{archived}"));
+            Ok(())
         }
         async fn delete_inbox_item_record(&self, _id: Uuid) -> AppResult<()> {
             self.log.lock().unwrap().push("record".to_string());
@@ -750,14 +980,86 @@ mod tests {
     #[tokio::test]
     async fn delete_removes_files_before_record() {
         let spy = DeleteSpy::with_files(&["a.bin", "b.bin"]);
-        delete_inbox_item(&spy, &spy, Uuid::nil(), true)
+        delete_inbox_item(&spy, &spy, &spy, Uuid::nil(), true)
             .await
             .unwrap();
         assert_eq!(
             spy.calls(),
-            vec!["file:/store/a.bin", "file:/store/b.bin", "record"],
-            "文件必须全部先删，记录最后删"
+            vec![
+                "file:/store/a.bin",
+                "file:/store/b.bin",
+                "record",
+                "event:removed"
+            ],
+            "文件必须全部先删、记录次之，事件最后——事件是落库之后的通知，不是事务的一部分"
         );
+    }
+
+    /// 归档经编排层，且**事件在落库之后**。
+    ///
+    /// 它此前是被 4 个宿主 + 2 个 MCP server 直调的端口方法，于是「桌面 MCP 归档了一条」
+    /// 对同一台机器上的桌面界面完全不可见。收进编排层是为了让事件有一个所有调用方都必经
+    /// 的发射点。
+    #[tokio::test]
+    async fn archiving_publishes_after_the_record_is_written() {
+        let spy = DeleteSpy::existing();
+        archive_inbox_item(&spy, &spy, Uuid::nil(), true)
+            .await
+            .unwrap();
+        assert_eq!(
+            spy.calls(),
+            vec!["archive:true", "event:archived"],
+            "先落库、后发事件"
+        );
+    }
+
+    /// 取消归档走同一条编排，不是另一个动词。
+    #[tokio::test]
+    async fn unarchiving_uses_the_same_path() {
+        let spy = DeleteSpy::existing();
+        archive_inbox_item(&spy, &spy, Uuid::nil(), false)
+            .await
+            .unwrap();
+        assert_eq!(spy.calls(), vec!["archive:false", "event:archived"]);
+    }
+
+    /// **不存在的条目不得产出变更事件。**
+    ///
+    /// 端口对不存在的 id **静默成功**，所以「做完了」不等于「有东西变了」。不挡的话，
+    /// 一个陈旧的界面或一次手误的 MCP 调用就会让整条订阅流上出现一条指向不存在实体的
+    /// 变更——而消费方被要求「收到不认识的取消归档就去查一次详情」，那次查询必然扑空，
+    /// 且它无从分辨是自己漏了还是这条本来就不存在。
+    #[tokio::test]
+    async fn a_change_to_a_missing_item_publishes_nothing() {
+        // `default()` = 详情查不到 = 条目不存在。
+        let spy = DeleteSpy::default();
+        archive_inbox_item(&spy, &spy, Uuid::nil(), true)
+            .await
+            .unwrap();
+        assert_eq!(
+            spy.calls(),
+            vec!["archive:true"],
+            "端口照调（幂等），但不得广播一条什么都没变的变化"
+        );
+
+        let spy = DeleteSpy::default();
+        delete_inbox_item_record(&spy, &spy, Uuid::nil())
+            .await
+            .unwrap();
+        assert_eq!(spy.calls(), vec!["record"]);
+    }
+
+    /// **只删账本也要发事件。**
+    ///
+    /// 移动端此前直调端口绕过了这里，而它的收件箱刚好改成只认这几条事件——列表里会留下
+    /// 一行已经不存在的记录，且没有任何东西会纠正它。
+    #[tokio::test]
+    async fn deleting_only_the_record_still_announces_it() {
+        let spy = DeleteSpy::existing();
+        delete_inbox_item_record(&spy, &spy, Uuid::nil())
+            .await
+            .unwrap();
+        assert_eq!(spy.calls(), vec!["record", "event:removed"]);
     }
 
     /// 不变量 2：删文件失败**不阻断**删记录——宿主可能根本不给「保留文件」选项，
@@ -766,29 +1068,36 @@ mod tests {
     async fn delete_keeps_removing_record_when_file_delete_fails() {
         let mut spy = DeleteSpy::with_files(&["a.bin"]);
         spy.fail_file_delete = true;
-        delete_inbox_item(&spy, &spy, Uuid::nil(), true)
+        delete_inbox_item(&spy, &spy, &spy, Uuid::nil(), true)
             .await
             .expect("删文件失败不该让整个操作失败");
-        assert_eq!(spy.calls(), vec!["file:/store/a.bin", "record"]);
+        assert_eq!(
+            spy.calls(),
+            vec!["file:/store/a.bin", "record", "event:removed"]
+        );
     }
 
     /// 不变量 3：`delete_local_files = false` 时**一个文件都不碰**，只删账本。
     #[tokio::test]
     async fn delete_record_only_never_touches_files() {
         let spy = DeleteSpy::with_files(&["a.bin"]);
-        delete_inbox_item(&spy, &spy, Uuid::nil(), false)
+        delete_inbox_item(&spy, &spy, &spy, Uuid::nil(), false)
             .await
             .unwrap();
-        assert_eq!(spy.calls(), vec!["record"], "不该读 detail，也不该删文件");
+        assert_eq!(
+            spy.calls(),
+            vec!["record", "event:removed"],
+            "不该读 detail，也不该删文件"
+        );
     }
 
     #[tokio::test]
     async fn deleting_text_never_attempts_file_io() {
         let spy = DeleteSpy::with_text();
-        delete_inbox_item(&spy, &spy, Uuid::nil(), true)
+        delete_inbox_item(&spy, &spy, &spy, Uuid::nil(), true)
             .await
             .expect("文本记录不应要求虚构文件");
-        assert_eq!(spy.calls(), vec!["record"]);
+        assert_eq!(spy.calls(), vec!["record", "event:removed"]);
     }
 
     /// 条目不存在 → 报错而不是静默成功。拿不到 detail 就等于不知道该删哪些文件，
@@ -796,7 +1105,7 @@ mod tests {
     #[tokio::test]
     async fn delete_errors_when_item_missing() {
         let spy = DeleteSpy::default();
-        let err = delete_inbox_item(&spy, &spy, Uuid::nil(), true)
+        let err = delete_inbox_item(&spy, &spy, &spy, Uuid::nil(), true)
             .await
             .expect_err("条目不存在应报错");
         assert!(err.to_string().contains("收件箱记录不存在"));

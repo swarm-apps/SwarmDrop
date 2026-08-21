@@ -23,6 +23,9 @@ use swarmdrop_transfer::events::TransferEvent;
 pub use swarmdrop_transfer::inbox::{
     InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary, InboxSearchHit,
 };
+use swarmdrop_transfer::inbox::{
+    InboxItemAddedEvent, InboxItemArchivedEvent, InboxItemRemovedEvent,
+};
 use swarmdrop_transfer::incoming::TransferOfferEvent;
 use swarmdrop_transfer::progress::{
     FilePublishEvent, PrepareProgressEvent, TransferAcceptedEvent, TransferCompleteEvent,
@@ -54,6 +57,9 @@ pub enum WebTransferEvent {
     TransferProjection { projection: TransferProjection },
     PrepareProgress { event: PrepareProgressEvent },
     FilePublish { event: FilePublishEvent },
+    InboxItemAdded { event: InboxItemAddedEvent },
+    InboxItemArchived { event: InboxItemArchivedEvent },
+    InboxItemRemoved { event: InboxItemRemovedEvent },
 }
 
 impl WebTransferEvent {
@@ -73,6 +79,9 @@ impl WebTransferEvent {
             Self::TransferProjection { .. } => "transferProjection",
             Self::PrepareProgress { .. } => "prepareProgress",
             Self::FilePublish { .. } => "filePublish",
+            Self::InboxItemAdded { .. } => "inboxItemAdded",
+            Self::InboxItemArchived { .. } => "inboxItemArchived",
+            Self::InboxItemRemoved { .. } => "inboxItemRemoved",
         }
     }
 }
@@ -97,6 +106,9 @@ impl From<TransferEvent> for WebTransferEvent {
             }
             TransferEvent::PrepareProgress { event } => Self::PrepareProgress { event },
             TransferEvent::FilePublish { event } => Self::FilePublish { event },
+            TransferEvent::InboxItemAdded { event } => Self::InboxItemAdded { event },
+            TransferEvent::InboxItemArchived { event } => Self::InboxItemArchived { event },
+            TransferEvent::InboxItemRemoved { event } => Self::InboxItemRemoved { event },
         }
     }
 }

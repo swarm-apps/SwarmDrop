@@ -151,6 +151,19 @@ impl MobileCore {
         self.event_bus.as_ref()
     }
 
+    /// 传输域事件端口。
+    ///
+    /// 收件箱的归档与删除是**编排函数**，要往它发领域事件（spec: `inbox-domain-events`）。
+    /// 包的是同一个 `event_bus`，所以节点在不在跑都到得了 JS 侧——收件箱命令刻意不依赖
+    /// 节点启动。
+    pub(crate) fn transfer_events(
+        &self,
+    ) -> Arc<dyn swarmdrop_core::transfer::events::TransferEventSink> {
+        Arc::new(swarmdrop_core::event_adapter::CoreTransferEvents(
+            self.event_bus_arc(),
+        ))
+    }
+
     pub(crate) fn event_bus_arc(&self) -> Arc<MobileEventBusAdapter> {
         self.event_bus.clone()
     }

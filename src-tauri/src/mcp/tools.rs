@@ -871,7 +871,22 @@ impl McpHandler {
         let Ok(item_id) = Uuid::parse_str(&params.item_id) else {
             return mcp_error(format!("无效的条目 id: {}", params.item_id));
         };
-        match store.archive_inbox_item(item_id, params.archived).await {
+        let Some(events) = self
+            .app
+            .try_state::<std::sync::Arc<dyn swarmdrop_core::transfer::events::TransferEventSink>>()
+        else {
+            return mcp_error("事件端口尚未就绪，暂不可用");
+        };
+        // **经编排层**：此前这里直调端口，于是 agent 归档一条之后，同一个进程里的桌面
+        // 界面完全看不见那次变更（spec: `inbox-domain-events`）。
+        match swarmdrop_core::transfer::inbox::archive_inbox_item(
+            store.inner().as_ref(),
+            events.inner().as_ref(),
+            item_id,
+            params.archived,
+        )
+        .await
+        {
             Ok(()) => mcp_ok(format!(
                 "已{}收件箱条目 {item_id}",
                 if params.archived {

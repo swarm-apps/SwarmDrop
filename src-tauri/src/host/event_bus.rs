@@ -5,11 +5,11 @@ use tauri::AppHandle;
 use tauri_specta::Event as _;
 
 use crate::events::{
-    DeviceRenamed, DevicesChanged, FilePublish, NetworkStatusChanged, PairedDeviceAdded,
-    PairedDeviceRemoved, PairingRequestPayload, PairingRequestReceived, PrepareProgress,
-    TextDeliveryAttentionReceived, TransferAccepted, TransferComplete, TransferDbError,
-    TransferFailed, TransferOffer, TransferPaused, TransferProgress, TransferProjectionUpdate,
-    TransferRejected, TransferResumed,
+    DeviceRenamed, DevicesChanged, FilePublish, InboxItemAdded, InboxItemArchived,
+    InboxItemRemoved, NetworkStatusChanged, PairedDeviceAdded, PairedDeviceRemoved,
+    PairingRequestPayload, PairingRequestReceived, PrepareProgress, TextDeliveryAttentionReceived,
+    TransferAccepted, TransferComplete, TransferDbError, TransferFailed, TransferOffer,
+    TransferPaused, TransferProgress, TransferProjectionUpdate, TransferRejected, TransferResumed,
 };
 
 /// 把 core 的 [`CoreEvent`] 翻译成 tauri-specta 的 typed event 广播。
@@ -128,6 +128,15 @@ impl EventBus for TauriEventBus {
             CoreEvent::FilePublish { event } => {
                 FilePublish(event).emit(&self.app).map_err(map_err)?;
             }
+            CoreEvent::InboxItemAdded { event } => {
+                InboxItemAdded(event).emit(&self.app).map_err(map_err)?;
+            }
+            CoreEvent::InboxItemArchived { event } => {
+                InboxItemArchived(event).emit(&self.app).map_err(map_err)?;
+            }
+            CoreEvent::InboxItemRemoved { event } => {
+                InboxItemRemoved(event).emit(&self.app).map_err(map_err)?;
+            }
             CoreEvent::Error { .. } => {}
             // `CoreEvent` 是 `#[non_exhaustive]`，所以漏接一个变体**不会**编译失败。
             // **必须留日志**：否则症状是「事件发了、前端没反应」，而两边代码都看着正常。
@@ -137,5 +146,32 @@ impl EventBus for TauriEventBus {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// **收件箱事件必须真的接在这个镜像上。**
+    ///
+    /// 这是本文件里唯一无法靠类型保证的接线点，且两条路都堵死：`publish` 要 `AppHandle`
+    /// 才能跑，而 `CoreEvent` 是 `#[non_exhaustive]`——跨 crate 的 match **必须**带兜底分支，
+    /// 编译器因此永远不会因为漏接而报错。漏接的症状是「文件收到了、收件箱页不动」，
+    /// 而两边代码都看着正常。
+    ///
+    /// 这条尤其要钉住：接上它正是为了替换掉旧的推导路径，而桌面此前**根本没有**推导
+    /// （`inbox-store.ts` 零事件监听）。一旦被吞，收件箱就回到「永远要手动刷新」。
+    ///
+    /// 只能做到源码级断言——但它锁住的是「有人把这几行删了或改了名」这件事，
+    /// 那正是真实会发生的破坏方式。
+    #[test]
+    fn inbox_events_are_wired_into_the_desktop_mirror() {
+        let src = include_str!("event_bus.rs");
+        for variant in ["InboxItemAdded", "InboxItemArchived", "InboxItemRemoved"] {
+            let arm = format!("CoreEvent::{variant}");
+            assert!(
+                src.contains(&arm),
+                "{variant} 没有接在桌面事件镜像上，它会落进兜底分支被静默丢弃——见本测试的文档注释"
+            );
+        }
     }
 }

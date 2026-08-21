@@ -16,6 +16,7 @@ use super::{
 };
 use crate::events::{TransferEvent, TransferEventSink};
 use crate::host::{Notification, Notifier};
+use crate::inbox::{InboxItemAddedEvent, InboxItemDetail};
 use crate::manager::TransferManager;
 use crate::peer::PeerDirectory;
 use crate::policy::{ReceivePolicyAction, evaluate_text_receive_policy};
@@ -85,6 +86,7 @@ impl TextDeliveryService {
                 return Err(error);
             }
         };
+        publish_inbox_added(manager.events.as_ref(), &detail).await;
         let response = TextDeliveryResponse::Delivered {
             inbox_item_id: detail.item.id,
         };
@@ -303,6 +305,7 @@ impl RpcService<TextDeliveryRequest, TextDeliveryResponse> for TextDeliveryServi
             .await
             {
                 Ok(detail) => {
+                    publish_inbox_added(manager.events.as_ref(), &detail).await;
                     self.notify_background(&attention_record.peer_name).await;
                     Ok(TextDeliveryResponse::Delivered {
                         inbox_item_id: detail.item.id,
@@ -417,6 +420,25 @@ async fn publish_attention_summary(
         .await
     {
         tracing::warn!(%error, "文本投递注意力事件发送失败，待确认状态不回滚");
+    }
+}
+
+/// 文本条目落库后通知「收件箱多了一条」。
+///
+/// 与 [`publish_attention`] 是两件事，不要合并：注意力信号回答的是「有人给你发了东西，
+/// 要不要看一眼」（带去重，且在**待确认**阶段就会发），而这条回答的是「收件箱的内容变了」
+/// ——只在条目真的落库之后发。宿主的收件箱视图订阅后者，通知栏订阅前者。
+///
+/// 载荷经 [`InboxItemAddedEvent::from_detail`] 投影，**不含正文**：详情里的
+/// `InboxItemContent::Text { body }` 与摘要里的 `title`（正文前 160 字节）都不能进事件。
+async fn publish_inbox_added(events: &dyn TransferEventSink, detail: &InboxItemDetail) {
+    if let Err(error) = events
+        .emit(TransferEvent::InboxItemAdded {
+            event: InboxItemAddedEvent::from_detail(detail),
+        })
+        .await
+    {
+        tracing::warn!(%error, "收件箱新增事件发送失败，已持久化数据不回滚");
     }
 }
 

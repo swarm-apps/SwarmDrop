@@ -453,6 +453,9 @@ export const events = {
 	externalFileOpen: makeEvent<ExternalFileOpen>("external-file-open"),
 	externalPairInvite: makeEvent<ExternalPairInvite>("external-pair-invite"),
 	filePublish: makeEvent<FilePublish>("file-publish"),
+	inboxItemAdded: makeEvent<InboxItemAdded>("inbox-item-added"),
+	inboxItemArchived: makeEvent<InboxItemArchived>("inbox-item-archived"),
+	inboxItemRemoved: makeEvent<InboxItemRemoved>("inbox-item-removed"),
 	networkStatusChanged: makeEvent<NetworkStatusChanged>("network-status-changed"),
 	pairedDeviceAdded: makeEvent<PairedDeviceAdded>("paired-device-added"),
 	pairedDeviceRemoved: makeEvent<PairedDeviceRemoved>("paired-device-removed"),
@@ -845,6 +848,56 @@ export type InboxHitFile = {
 };
 
 /**
+ *  收件箱多了一条。
+ * 
+ *  **前端订阅它刷新收件箱，不要自己从 `TransferComplete` 推导。** 那种推导依赖
+ *  「先建条目、再发完成事件」这条只以行内注释存在的顺序；本仓补这条事件之前，桌面收件箱
+ *  页**根本没有**反应式刷新（文件到达时列表不动），而移动端那份推导漏判了 direction。
+ */
+export type InboxItemAdded = InboxItemAddedEvent;
+
+/**
+ *  收件箱条目新增事件的载荷。
+ * 
+ *  ## 为什么不复用 [`InboxItemSummary`]
+ * 
+ *  **因为文本条目的 `title` 就是正文的前 160 字节**（`text_preview` 的产物）。事件会流经
+ *  宿主的日志——CLI 常驻模式把整个事件打进 tracing，落到终端与 journald——还会被订阅面
+ *  转出去、被外部消费方持久化进跨月留存的记录。本仓已有两条同源不变量白纸黑字写着
+ *  「事件不含正文，避免系统通知或日志泄露敏感内容」，这里是同一条规则的延伸。
+ * 
+ *  所以载荷是**窄的**：只带标识与足够让消费方决定「要不要去查详情」的元信息。
+ *  三端现有的消费形态本来就是「收到信号就重新拉列表」，并不需要事件把详情捎上。
+ */
+export type InboxItemAddedEvent = {
+	itemId: string,
+	/**  文件还是文本。消费方据此决定展示形态，不必先查详情。 */
+	contentKind: InboxContentKind,
+	sourcePeerId: string,
+	sourceName: string,
+	/**  文件条目的文件数；文本条目为 1。 */
+	itemCount: number,
+	totalSize: number,
+	receivedAt: number,
+	/**  文件条目关联的传输会话；文本条目为空。 */
+	transferSessionId: string | null,
+};
+
+/**  收件箱条目的归档状态变了。任一来源发起都会到达（含本进程的 MCP server）。 */
+export type InboxItemArchived = InboxItemArchivedEvent;
+
+/**
+ *  收件箱条目归档状态变化事件的载荷。
+ * 
+ *  `archived` 为假表示取消归档——两个方向共用一条事件而不是分成两个变体，因为消费方
+ *  对它们的处理完全一致（更新那一条的状态），拆开只会让每个 match 多一个分支。
+ */
+export type InboxItemArchivedEvent = {
+	itemId: string,
+	archived: boolean,
+};
+
+/**
  *  收件箱详情的显式内容联合体。
  * 
  *  文件与文本不以空数组或空正文互相伪装；调用方必须穷尽处理，避免把文本展示成文件操作。
@@ -901,6 +954,14 @@ export type InboxItemFileEntry = {
 	 */
 	localPath: string,
 	missing: boolean,
+};
+
+/**  收件箱条目被删除。 */
+export type InboxItemRemoved = InboxItemRemovedEvent;
+
+/**  收件箱条目被删除事件的载荷。 */
+export type InboxItemRemovedEvent = {
+	itemId: string,
 };
 
 /**  收件箱列表条目 DTO。 */
