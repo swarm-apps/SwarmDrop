@@ -134,15 +134,21 @@ swarmdrop inbox export <条目> ./out  # 写成 <条目>.txt
 让人逐条决策，而命令行端没有界面可以弹确认框，等一个不会到来的人工确认只会让对端一直卡在
 「等待接受」。判据是**已配对**——能发起传输的对端必然已经过配对握手，那一步才是信任边界。
 
-落点默认是 `<系统下载目录>/SwarmDrop`，用环境变量覆盖：
+落点默认是 `<系统下载目录>/SwarmDrop`。改它有两个办法，**环境变量优先**：
 
 ```bash
-export SWARMDROP_RECEIVE_DIR=/srv/incoming
+swarmdrop config set receive-dir /srv/incoming   # 持久化，跨重启有效
+export SWARMDROP_RECEIVE_DIR=/srv/incoming       # 只影响这个进程，但优先级更高
 ```
 
+环境变量排在前面是刻意的：命令行端常跑在脚本与服务单元里，那些地方设一个变量比维护一份
+配置自然得多。两者同时存在时 `config list` 会明说哪个在生效、以及被压住的那个是什么。
+
+有常驻节点在跑时改落点**当场生效**，不必重启它；已经收下的文件留在原处不动。
+
 <Callout type="warn">
-这个变量**不经 shell 展开**（`~` 除外，那个会展开）。别写通配符，路径里的空格就是路径的
-一部分，不必也不要加引号转义。
+`SWARMDROP_RECEIVE_DIR` **不经 shell 展开**（`~` 除外，那个会展开）。别写通配符，路径里的
+空格就是路径的一部分，不必也不要加引号转义。`config set receive-dir` 同样把整串当一个路径。
 </Callout>
 
 收到的东西同时进本机收件箱：
@@ -170,10 +176,54 @@ swarmdrop inbox export <条目> ./somewhere
 | `transfer list` · `show` | 传输记录 |
 | `transfer watch` | 实时进度面板，`p` / `r` / `c` 就地暂停、恢复、取消 |
 | `transfer pause` · `resume` · `cancel` | 同样三个动作，也可以直接下命令 |
+| `config list` · `get` · `set` · `unset` | 本机设置：设备名、接收落点 |
+| `bootstrap list` · `add` · `remove` | 引导 / 中继节点 |
 | `update` | 更新到最新版本；`--check` 只查不装 |
 
 **每条命令都能不带参数运行**，缺什么问什么——不必先读 `--help` 才敢试。给了参数就按参数走，
 不再打断你。
+
+## 设置
+
+两组，按被配置的东西是**一个值**还是**一份清单**分开。
+
+### 一个值：`config`
+
+```bash
+swarmdrop config list                          # 全部设置项 + 每项的值从哪来
+swarmdrop config set device-name "书房 Mac"     # 对端看到的名字
+swarmdrop config get receive-dir               # 只打印值，来源说明走 stderr
+swarmdrop config unset receive-dir             # 回落到默认
+```
+
+一个值可能有三个来源，优先级由高到低是**环境变量 → 你设的 → 内置默认**。
+`--json` 下每一项都带 `source`，被环境变量压住时还带上 `configured`（你设的那个值）与
+`overriddenBy`（压住它的变量名）——所以界面能说清「你改的这个现在还不算数，因为 …」，
+而不是让你对着一个不生效的输入框反复改。
+
+被压住时写入**仍然成功**：那是对未来的声明，取消掉那个变量就会用上。
+
+**两项都不要求重启节点。** 节点在跑时改名当场生效，对端不必重连就看到新名字。
+
+### 一份清单：`bootstrap`
+
+引导 / 中继节点是跨网互通的入口。内置几条自建的，你可以加自己的、也可以撤掉内置的：
+
+```bash
+swarmdrop bootstrap list
+swarmdrop bootstrap add /ip4/203.0.113.9/udp/4001/quic-v1/p2p/12D3KooW...
+swarmdrop bootstrap remove /ip4/203.0.113.9   # 前缀够唯一就行；不给则列出来让你挑
+```
+
+记下来的是**你做了什么**（加了哪几条、撤了哪几条），不是合并后的清单——所以将来版本更新
+换掉内置地址时，你照样拿得到新的。
+
+添加只做零网络成本的检查（地址能不能解析、有没有 `/p2p/`、这个传输本端拨不拨得动、
+是不是重复了）。**「能不能连上」不在提交时回答**——加完用 `bootstrap list` 看，每条会显示
+连接与中继状态，连不上时带着错误原文。节点在跑时增删当场生效。
+
+清单可以清空到零条（只在局域网内用是合理的），那之后 `list` 与 `status` 都会提醒你此刻
+跨网不可达。
 
 ## 实时盯着传输
 
