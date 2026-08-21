@@ -717,6 +717,46 @@ json 分支会持续往 stdout 追加对象，破坏「结构化模式下 stdout
 ⚠️ 用 `interaction_declined()`（= `NO_INPUT || STRUCTURED`）一把抓就会丢掉这个区分——
 2026-08-19 这么写过一次，两个开关合流后 `--json` 落进了「照常运行」那条路。
 
+### 把 stdin 交给 tokio 的命令**必须**硬退出，不能靠 `return`（2026-08-21）
+
+踩过两次，第二次是新加的 `invite create --decide-from-stdin`：
+
+`tokio::io::stdin()` 背后是**阻塞**读，跑在 blocking pool 的线程上。`main` 返回时运行时
+析构调 `BlockingPool::shutdown`，**等每一个 blocking worker 退出**——而那个线程正卡在
+`read()` 里，只有 EOF 能唤醒它。对面（宿主）还握着写端不放时，EOF 永远不来。
+
+于是：SIGTERM → 中止分支胜出 → 命令返回 `Err(Aborted)` → 清理跑完 → **进程挂在运行时
+析构上，再也退不掉**。`ps` 上看是「杀不死」，服务管理器等到自己的超时，agent harness
+留下一个僵尸子进程。
+
+⚠️ **`Lines::next_line` 的 cancel-safety 不解决这件事。** 它保证的是「future 被丢弃时
+缓冲区不丢字节」，与「底层那次 `read()` 还在不在跑」是两回事——它还在。
+
+解法收在 [`crate::exit::exit_now`]：清理做完之后 `process::exit`，跳过析构。**两个用例**
+——`swarmdrop mcp`（stdin 是宿主的请求流）与 `invite create --decide-from-stdin`
+（stdin 是决策通道），后者只在**中止**路径走它（正常配对成功时对面多半已关掉 stdin，
+EOF 到了，析构等得到）。
+
+`prompt::hotkey` 是同一条判据的第三种解法：它用 detached `std::thread` 读键盘，因为
+detached 的 OS 线程随进程退出消失、不进 blocking pool。加新的 stdin 消费者时，
+**三选一，不要什么都不做**。
+
+实测：修之前 SIGTERM 后进程永久存活；修之后 0 秒退出、退出码 130、零残留。
+
+### 长驻的 stdout 流不能用 `println!`（2026-08-21 扩到第二条流）
+
+Rust 启动时把 `SIGPIPE` 设成忽略，于是往已关闭的管道写返回 `EPIPE`，而 `println!` 对此
+**panic**（退出码 101）。宿主结束订阅时先关读端是它的常规动作，101 会被读成「它崩了」
+并触发自动重启。
+
+判据原本只有 `watch --json` 一条流知道（`render::stream::write` 的文档）。
+`--decide-from-stdin` 把 `invite create --json` 也变成了长驻流，于是写出器提到
+[`crate::render::emit_line`]，两条共用。
+
+⚠️ **一次性命令仍走 `emit_json`（内部是 `println!`），那是既有负债。** 判据同样成立
+（`invite list --json | head -1` 一样会让读端提前走掉），只是后果小得多：命令本来就要
+退出，一次 panic 与一次正常退出的区别只有退出码。**新加长驻流时用 `emit_line`。**
+
 ### 程序驱动的配对：`--decide-from-stdin`（2026-08-21）
 
 第四种「谁来核对对端身份」，给托管本命令的图形前端用（本仓的 dsh 插件是第一个消费者：
