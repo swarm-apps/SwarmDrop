@@ -21,6 +21,10 @@ import {
   cleanupTransferListeners,
 } from "@/stores/transfer-store";
 import {
+  cleanupInboxListeners,
+  setupInboxListeners,
+} from "@/stores/inbox-store";
+import {
   cleanupSecretListeners,
   setupSecretListeners,
 } from "@/stores/secret-store";
@@ -39,6 +43,15 @@ function AppLayout() {
     setupTransferListeners();
     return () => {
       cleanupTransferListeners();
+    };
+  }, []);
+
+  // 收件箱事件监听。挂应用生命周期而不是收件箱页：条目可能在用户待在别的页面时到达，
+  // 而下次进收件箱页时那次 `loadItems` 才会看到它——那正是这条订阅要消掉的延迟。
+  useEffect(() => {
+    setupInboxListeners();
+    return () => {
+      cleanupInboxListeners();
     };
   }, []);
 

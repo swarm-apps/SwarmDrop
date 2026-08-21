@@ -42,11 +42,21 @@ export class EventBus implements EventBusContract {
 function routeEventToStores(event: MobileCoreEvent): void {
   switch (event.tag) {
     case MobileCoreEvent_Tags.TextDeliveryAttention: {
-      // 接收方向已送达时，收件箱真表已写完；只发刷新信号，不把正文复制进全局运行态。
+      // 只负责“有人发文本过来了”这个提示。**收件箱的刷新由 InboxItemAdded 负责**——
+      // 两者是不同的问题，此前合在这里是因为没有后者。
       if (event.inner.attention.kind === "received") {
-        void refreshInbox();
         toast.info(t`收到来自 ${event.inner.attention.peerName} 的文本`);
       }
+      break;
+    }
+
+    // 收件箱领域事件：三端订阅同一个信号，不再各自从 TransferCompleted 推导
+    // （spec: `inbox-domain-events`）。此前那份推导**漏判了 direction**，于是发送完成
+    // 也会白刷一次收件箱——而 direction 根本没进移动端的事件镜像，JS 也无从判断。
+    case MobileCoreEvent_Tags.InboxItemAdded:
+    case MobileCoreEvent_Tags.InboxItemArchived:
+    case MobileCoreEvent_Tags.InboxItemRemoved: {
+      void refreshInbox();
       break;
     }
 
@@ -170,8 +180,9 @@ function routeEventToStores(event: MobileCoreEvent): void {
     }
 
     case MobileCoreEvent_Tags.TransferCompleted: {
-      // 传输状态由 TransferProjectionUpdate 接管；这里只刷新收件箱。
-      void refreshInbox();
+      // 传输状态由 TransferProjectionUpdate 接管。
+      // **收件箱不在这里刷**——那份推导漏判 direction，发送完成也会白刷一次；
+      // 现在由 InboxItemAdded 负责（见上）。
       // 传输结束 → 前台服务通知回到 idle 保活文案
       void clearTransferProgress();
       break;

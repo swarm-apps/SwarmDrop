@@ -115,21 +115,72 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("文本注意力的恢复失效票据", () => {
-  it("每次注意力事件都会促使根级宿主重新读取，已接收事件还会失效收件箱", () => {
+function inboxEvent(
+  type: "inboxItemAdded" | "inboxItemArchived" | "inboxItemRemoved",
+): WebTransferEvent {
+  return {
+    type,
+    event: { itemId: "item-1", contentKind: "files" },
+  } as unknown as WebTransferEvent;
+}
+
+describe("失效票据的两条来源互不相干", () => {
+  /**
+   * **注意力信号不再顺手失效收件箱。**
+   *
+   * 它此前那么做，是因为当时没有别的信号可用——而它只覆盖文本，文件到达一条都推不出来。
+   * 现在收件箱的变化由一等的 `inboxItemAdded` 系列发（spec: `inbox-domain-events`），
+   * 两者回答的是不同的问题：注意力问「有人发了东西过来，要不要提示」，失效票据问
+   * 「收件箱那张表还准不准」。
+   */
+  it("注意力信号只顶注意力的计数器，不动收件箱", () => {
     const before = webNodeStore.getState();
 
-    webNodeActions.applyEvent(textAttentionEvent("confirmation_required"));
-    expect(webNodeStore.getState().textDeliveryRevision).toBe(
-      before.textDeliveryRevision + 1,
-    );
-    expect(webNodeStore.getState().inboxRevision).toBe(before.inboxRevision);
+    for (const kind of ["confirmation_required", "received"] as const) {
+      webNodeActions.applyEvent(textAttentionEvent(kind));
+    }
 
-    webNodeActions.applyEvent(textAttentionEvent("received"));
     expect(webNodeStore.getState().textDeliveryRevision).toBe(
       before.textDeliveryRevision + 2,
     );
-    expect(webNodeStore.getState().inboxRevision).toBe(before.inboxRevision + 1);
+    expect(webNodeStore.getState().inboxRevision).toBe(before.inboxRevision);
+  });
+
+  /**
+   * **三条收件箱事件都要顶失效票据。**
+   *
+   * 载荷刻意很窄（不含标题——文本条目的标题就是正文前 160 字节，而事件会流经日志），
+   * 所以它们能做的只有「让面板重拉一次真表」。漏掉其中任何一条，那类变化在界面上就
+   * 完全不可见，且不报错。
+   */
+  it("每条收件箱事件都失效收件箱", () => {
+    const types = [
+      "inboxItemAdded",
+      "inboxItemArchived",
+      "inboxItemRemoved",
+    ] as const;
+
+    for (const type of types) {
+      const before = webNodeStore.getState().inboxRevision;
+      webNodeActions.applyEvent(inboxEvent(type));
+      expect(webNodeStore.getState().inboxRevision).toBe(before + 1);
+    }
+  });
+
+  /**
+   * **传输完成不再推导收件箱变化。**
+   *
+   * 那条推导依赖「先建条目、再发完成事件」这条只以行内注释存在的顺序，而生产里终态
+   * projection 比条目创建更早发出——重拉到的是一张还没有那条记录的表。
+   */
+  it("传输完成不再顶收件箱的失效票据", () => {
+    const before = webNodeStore.getState().inboxRevision;
+    webNodeActions.applyEvent({
+      type: "transferCompleted",
+      event: { sessionId: "s-1", direction: "receive" },
+    } as unknown as WebTransferEvent);
+
+    expect(webNodeStore.getState().inboxRevision).toBe(before);
   });
 });
 

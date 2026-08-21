@@ -775,19 +775,23 @@ function reduceEvent(s: WebNodeState, ev: WebTransferEvent): Partial<WebNodeStat
       return canClaim ? { activePrepare: ev.event, eventLog } : { eventLog };
     }
     case "transferCompleted":
-      // 只有**接收**方向会新增收件箱条目（发送完成不进这本账）。自增计数器让收件箱面板
-      // 重拉一次真表——收件箱不再由 projections 派生，projection 事件不足以让它更新。
-      return ev.event.direction === "receive"
-        ? { inboxRevision: s.inboxRevision + 1, eventLog }
-        : { eventLog };
+      // **不再从这里推导收件箱变化。** 那需要依赖「先建条目、再发完成事件」这条只以行内
+      // 注释存在的顺序，而后端现在发一等的 `inboxItemAdded`（spec: `inbox-domain-events`）。
+      // 传输状态本身由 projection 事件接管，这里只留日志。
+      return { eventLog };
     case "textDeliveryAttention":
-      // 事件来自“已持久化之后”的边界，故只发失效票据而不把正文塞进运行时 store。
+      // 注意力信号只管“有人发了东西过来”这件事的提示；收件箱的失效票据由
+      // `inboxItemAdded` 发——两者是不同的问题，此前合在这里是因为没有后者。
       return {
         textDeliveryRevision: s.textDeliveryRevision + 1,
-        inboxRevision:
-          ev.attention.kind === "received" ? s.inboxRevision + 1 : s.inboxRevision,
         eventLog,
       };
+    case "inboxItemAdded":
+    case "inboxItemArchived":
+    case "inboxItemRemoved":
+      // 三条都只发失效票据：事件载荷**刻意很窄**（不含标题——文本条目的标题就是正文前
+      // 160 字节，而事件会流经日志），要展示就得重拉一次真表。
+      return { inboxRevision: s.inboxRevision + 1, eventLog };
     case "transferRejected":
       // TransferProjection 的 terminalReason 只到 "rejected" 粒度，不含 reason.type（区分
       // not_paired / user_declined / policy_rejected / receiving_paused）——发送侧要给出精确

@@ -61,6 +61,11 @@ const allowlist = [
     reason: "Tauri transfer event bridge",
   },
   {
+    file: "src/stores/inbox-store.ts",
+    pattern: /useInboxStore\s*\.\s*getState\s*\(/,
+    reason: "Tauri inbox event bridge",
+  },
+  {
     file: "src/stores/network-store.ts",
     pattern:
       /use(Network|Pairing|Secret|Preferences)Store\s*\.\s*(getState|setState)\s*\(/,
