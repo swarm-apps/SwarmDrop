@@ -90,6 +90,35 @@ pub fn validate_against(
     supported: &[TransportKind],
     existing: &[BootstrapCandidate],
 ) -> InfraAddrResult {
+    let peer = validate_shape(input, Some(self_id), supported)?;
+    // 形状规则产出的地址恒为一条（见 [`validate_shape`] 的返回值）。
+    let addr = &peer.addrs[0];
+    if is_exact_duplicate(peer.id, addr, existing) {
+        return Err(InfraAddrError::Duplicate);
+    }
+    Ok(peer)
+}
+
+/// 只与**地址本身**有关的那四条规则：可解析 → 含合法 peer id → 不是本机 → 含本端装配了
+/// 的可拨传输。
+///
+/// 与 [`validate_against`] 分开，是因为第五条（重复）问的是「与**哪一份清单**重复」，
+/// 而那份清单不止一种：运行中的节点比对候选表（含 mDNS / identify 学来的），没有节点的
+/// 宿主只能比对自己持久化的那份配置清单。两者的答案本来就不同——命令行宿主的
+/// `bootstrap add` 要判的是「你自己的清单里已经有了吗」，一条 identify 学来的候选不该
+/// 让用户加不进自己的清单。
+///
+/// `self_id = None` 表示**本机还没有身份**（全新机器上尚未启动过节点）。那时「指向本机」
+/// 是个空命题：节点下次启动才随机生成身份，它不可能与用户此刻粘的地址相同。给这个参数
+/// 一个 `Option` 而不是让调用方现造一个身份，是因为「造」这个动作有副作用——命令行宿主
+/// 那侧会因此写出一个身份文件，而那正是它用来判断「有没有起过节点」的标志。
+///
+/// 返回的 [`NodeAddr`] 的 `addrs` 恒为一条：就是 `input` 解析出来的那条。
+pub fn validate_shape(
+    input: &str,
+    self_id: Option<NodeId>,
+    supported: &[TransportKind],
+) -> InfraAddrResult {
     let addr: Addr = input
         .trim()
         .parse()
@@ -100,7 +129,7 @@ pub fn validate_against(
         )?;
 
     let peer_id = addr.p2p_node_id().ok_or(InfraAddrError::MissingPeerId)?;
-    if peer_id == self_id {
+    if self_id == Some(peer_id) {
         return Err(InfraAddrError::SelfAddr);
     }
 
@@ -113,10 +142,6 @@ pub fn validate_against(
                 .map(|k| TransportKind::wire_name(*k).to_owned())
                 .collect(),
         });
-    }
-
-    if is_exact_duplicate(peer_id, &addr, existing) {
-        return Err(InfraAddrError::Duplicate);
     }
 
     Ok(NodeAddr {

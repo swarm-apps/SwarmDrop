@@ -7,8 +7,8 @@
 use std::sync::Arc;
 
 use swarmdrop_net::{
-    AddressLookup, DhtConfig, Endpoint, Events, InfraRoles, LookupBuilderFn, RelayServerConfig,
-    Router, SecretKey, WebRtcP2pConfig, WebTransportConfig, presets,
+    AddressLookup, Builder, DhtConfig, Endpoint, Events, InfraRoles, LookupBuilderFn,
+    RelayServerConfig, Router, SecretKey, WebRtcP2pConfig, WebTransportConfig, presets,
 };
 
 use crate::device::{DeviceName, OsInfo};
@@ -338,31 +338,7 @@ async fn build_endpoint(
         EndpointProfile::Browser => builder.preset(presets::Browser),
     };
 
-    // WebRTC 打洞：**两端都开**。
-    //
-    // 浏览器非开不可——它没有 DCUtR（那需要直连 socket，wasm 编译期就不存在），经 relay
-    // 换信令是它把中转升级成直连的唯一途径。而原生端也必须开，因为**打洞要两端都支持**：
-    // 只有浏览器开着，`web ↔ NAT 后的桌面/手机` 这一格照样是全程中转，而那恰恰是自研这个
-    // 传输最想拿下的场景。
-    //
-    // 对原生端不是冗余：dcutr 走 TCP/QUIC 直连，ICE 走 UDP + STUN 候选，两者覆盖的 NAT
-    // 类型不同，互为补充。
-    builder = builder.webrtc_p2p(WebRtcP2pConfig {
-        stun_servers: STUN_SERVERS.iter().map(|s| s.to_string()).collect(),
-        ..WebRtcP2pConfig::default()
-    });
-
-    // WebTransport：**拨号能力无条件开**，否则 `/quic-v1/webtransport` 地址会以
-    // `MultiaddrNotSupported` 直接失败，本端连 bootstrap 的 4004 都拨不了。
-    //
-    // 要不要**监听**由宿主决定 —— 它给了带证书端口的配置就监听，`bind` 会自动补那条
-    // 监听地址（见 `ensure_webtransport_listen`）。core 因此既不认识证书、也不判断平台：
-    // 浏览器构造不出带 store 的配置（`with_store` 是 native-only），天然只拨号。
-    builder = builder.webtransport(
-        credentials
-            .webtransport
-            .unwrap_or_else(WebTransportConfig::client_only),
-    );
+    builder = with_transports(builder, credentials.webtransport);
 
     // relay server 仅 Native + LanHelper（Browser 是纯 relay client，永不当 server）。
     // 这里判据是「端点形态是否 Native」，与 `registers_infra()`（是否注册引导设施）语义无关，
@@ -374,6 +350,56 @@ async fn build_endpoint(
         .bind()
         .await
         .map_err(|e| AppError::Network(e.to_string()))
+}
+
+/// 传输侧的装配。
+///
+/// **两条路径共用它**：真 bind（[`build_endpoint`]）与「不 bind，只问会装配出什么」
+/// （[`planned_transports`]）。分出来是为了让后者不可能给出与前者不同的答案——那个答案
+/// 是「用户粘的这条引导节点地址本端拨不拨得动」的唯一判据，多报一种会让用户配下一条
+/// 永远连不上的地址且没有任何提示。
+fn with_transports(builder: Builder, webtransport: Option<WebTransportConfig>) -> Builder {
+    // WebRTC 打洞：**两端都开**。
+    //
+    // 浏览器非开不可——它没有 DCUtR（那需要直连 socket，wasm 编译期就不存在），经 relay
+    // 换信令是它把中转升级成直连的唯一途径。而原生端也必须开，因为**打洞要两端都支持**：
+    // 只有浏览器开着，`web ↔ NAT 后的桌面/手机` 这一格照样是全程中转，而那恰恰是自研这个
+    // 传输最想拿下的场景。
+    //
+    // 对原生端不是冗余：dcutr 走 TCP/QUIC 直连，ICE 走 UDP + STUN 候选，两者覆盖的 NAT
+    // 类型不同，互为补充。
+    let builder = builder.webrtc_p2p(WebRtcP2pConfig {
+        stun_servers: STUN_SERVERS.iter().map(|s| s.to_string()).collect(),
+        ..WebRtcP2pConfig::default()
+    });
+
+    // WebTransport：**拨号能力无条件开**，否则 `/quic-v1/webtransport` 地址会以
+    // `MultiaddrNotSupported` 直接失败，本端连 bootstrap 的 4004 都拨不了。
+    //
+    // 要不要**监听**由宿主决定 —— 它给了带证书端口的配置就监听，`bind` 会自动补那条
+    // 监听地址（见 `ensure_webtransport_listen`）。core 因此既不认识证书、也不判断平台：
+    // 浏览器构造不出带 store 的配置（`with_store` 是 native-only），天然只拨号。
+    //
+    // 因此 `webtransport = None` 与 `Some(带证书的配置)` 在**可拨传输**上是同一个答案，
+    // [`planned_transports`] 不必知道宿主给没给证书端口。
+    builder.webtransport(webtransport.unwrap_or_else(WebTransportConfig::client_only))
+}
+
+/// 该 profile 下会装配出哪些可拨传输，**不 bind**。
+///
+/// 用途是「没有节点在跑时也要校验引导节点地址」：那条校验的第三条规则问的是本端点装配
+/// 了哪些传输（见 [`crate::infra::validate_shape`]），而为了回答它去 bind 一次，等于让
+/// 一条只读本机记录的命令连引导节点、做 NAT 探测。命令行宿主的 `bootstrap add` 是第一个
+/// 消费者。
+///
+/// 答案与真 bind 出来的端点逐字相同，由 [`with_transports`] 的共用与
+/// `planned_transports_match_a_real_endpoint` 那条护栏测试共同保证。
+pub fn planned_transports(profile: EndpointProfile) -> Vec<swarmdrop_net::TransportKind> {
+    let builder = match profile {
+        EndpointProfile::Native => Endpoint::builder().preset(presets::Native),
+        EndpointProfile::Browser => Endpoint::builder().preset(presets::Browser),
+    };
+    with_transports(builder, None).supported_transports()
 }
 
 #[cfg(test)]
@@ -416,6 +442,30 @@ mod tests {
         .await
         .expect("browser profile bind");
         browser.close().await;
+    }
+
+    /// **不 bind 算出来的可拨传输，必须与真 bind 出来的逐字相同。**
+    ///
+    /// 这条看守的是一处静默失效：[`planned_transports`] 多报一种，用户就能在没有节点在跑
+    /// 时配下一条本端永远拨不动的引导节点地址，而校验会放行、UI 也说得出「本端支持它」；
+    /// 少报一种则当场拒掉一条合法地址。两种都不会有任何错误信息。
+    #[tokio::test]
+    async fn planned_transports_match_a_real_endpoint() {
+        let native = build_endpoint(
+            credentials(None),
+            "swarmdrop/test".to_string(),
+            &NetworkRuntimeConfig::default(),
+            EndpointProfile::Native,
+        )
+        .await
+        .expect("native profile bind");
+
+        assert_eq!(
+            planned_transports(EndpointProfile::Native),
+            native.supported_transports(),
+            "不 bind 的传输清单与真端点不一致"
+        );
+        native.close().await;
     }
 
     /// 轮询直到 `native` 的 dialable 地址集出现 webrtc-direct 地址，返回其 certhash 段。

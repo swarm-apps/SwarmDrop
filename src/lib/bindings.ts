@@ -1061,6 +1061,8 @@ export type InfraExclusion =
  *  字段分三段，**并置但不融合**：上半段只由意图路径写，下半段只由观测源现算。
  *  两者共享同一身份（`peer_id`），而用户唯一关心的正是两者的差——「我要它连上，
  *  它连上了吗」。拆成两个类型再让三端各自 join，只会把 join 做三遍。
+ * 
+ *  `Deserialize` 的理由见 [`RelayLinkState`]。
  */
 export type InfraLink = {
 	peerId: string,
@@ -1410,6 +1412,10 @@ export type ReceivingPausedChanged = boolean;
  * 
  *  `last_error` **原样保留内核下发的字符串**——这是三端唯一能说清「为什么连不上」
  *  的东西，排查时用户要贴的就是这一句，不翻译、不改写。
+ * 
+ *  `Deserialize` 是给**第二道边界**用的：命令行宿主的本地通道要把这份读模型从常驻节点
+ *  搬回发起命令的那个进程（图形三端只有一道 IPC，出去了就到 UI 了）。没有它，命令行那侧
+ *  就得为同一份东西再造一个 DTO——而 `cli-host` 的分层判据明确否掉了 DTO 层。
  */
 export type RelayLinkState = 
 /**  正在拨号或等待 reservation 应答。 */

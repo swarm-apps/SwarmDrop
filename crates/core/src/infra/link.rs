@@ -20,7 +20,7 @@
 //! 本机在公共 DHT 上发布失效的 relay hint，日志无痕。
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use swarmdrop_net::{Addr, NodeId, RelayState};
 
 use crate::network::SharedNetRefs;
@@ -30,7 +30,11 @@ use crate::network::candidates::{BootstrapCandidateSource, CandidateRoles, Candi
 ///
 /// `last_error` **原样保留内核下发的字符串**——这是三端唯一能说清「为什么连不上」
 /// 的东西，排查时用户要贴的就是这一句，不翻译、不改写。
-#[derive(Debug, Clone, Serialize)]
+///
+/// `Deserialize` 是给**第二道边界**用的：命令行宿主的本地通道要把这份读模型从常驻节点
+/// 搬回发起命令的那个进程（图形三端只有一道 IPC，出去了就到 UI 了）。没有它，命令行那侧
+/// 就得为同一份东西再造一个 DTO——而 `cli-host` 的分层判据明确否掉了 DTO 层。
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum RelayLinkState {
@@ -64,7 +68,7 @@ pub enum RelayLinkState {
 ///   「不承担该角色」不是「承担但被拦下」，给它一个判别码只会让三端多一个渲染不出
 ///   差异的分支——而且它要过 specta / uniffi / wasm 三条 codegen。判据见
 ///   [`exclusion_for`](crate::infra::InfraSupervisor::exclusion_for)。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum InfraExclusion {
@@ -77,7 +81,9 @@ pub enum InfraExclusion {
 /// 字段分三段，**并置但不融合**：上半段只由意图路径写，下半段只由观测源现算。
 /// 两者共享同一身份（`peer_id`），而用户唯一关心的正是两者的差——「我要它连上，
 /// 它连上了吗」。拆成两个类型再让三端各自 join，只会把 join 做三遍。
-#[derive(Debug, Clone, Serialize)]
+///
+/// `Deserialize` 的理由见 [`RelayLinkState`]。
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct InfraLink {

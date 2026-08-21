@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use swarmdrop_net_base::{Addr, NatStatus, SecretKey};
+use swarmdrop_net_base::{Addr, NatStatus, SecretKey, TransportKind};
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -218,6 +218,19 @@ impl Builder {
     pub fn connect_timeout(mut self, timeout: Duration) -> Self {
         self.config.connect_timeout = timeout;
         self
+    }
+
+    /// 本配置下会装配哪些可拨传输——**不 bind**。
+    ///
+    /// 与 [`Endpoint::supported_transports`](super::Endpoint::supported_transports) 同一个
+    /// 判据（同一个函数、同一份配置），差别只有「有没有真的起监听」。
+    ///
+    /// 存在的理由是**没有节点在跑时也要校验引导节点地址**：那条校验的第三条规则是
+    /// 「本端点装配了这个传输吗」，而为了回答它去 bind 一次，等于让一条只读本机记录的
+    /// 命令连引导节点、做 NAT 探测（见 `cli-command-surface` 的「只有需要联网的命令才
+    /// 启动节点」）。
+    pub fn supported_transports(&self) -> Vec<TransportKind> {
+        crate::transport::supported_transports(&self.config)
     }
 
     /// 装配并启动内核：建 Swarm → 起监听 → spawn 中枢 actor → 回填 lookup。
