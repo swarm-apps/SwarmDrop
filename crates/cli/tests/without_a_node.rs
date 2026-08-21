@@ -44,6 +44,9 @@ fn record_commands_never_start_a_node() {
         ["device", "list"].as_slice(),
         ["transfer", "list"].as_slice(),
         ["inbox", "list"].as_slice(),
+        ["config", "list"].as_slice(),
+        ["config", "get", "device-name"].as_slice(),
+        ["bootstrap", "list"].as_slice(),
         // 带参数的两条：解析失败会走另一条返回路径，同样不该起节点。
         ["transfer", "show", "00000000-0000-4000-8000-000000000000"].as_slice(),
         ["inbox", "show", "00000000-0000-4000-8000-000000000000"].as_slice(),
@@ -99,6 +102,8 @@ fn missing_argument_in_a_pipe_exits_with_usage() {
         ["inbox", "show"].as_slice(),
         ["inbox", "export"].as_slice(),
         ["transfer", "show"].as_slice(),
+        ["bootstrap", "add"].as_slice(),
+        ["bootstrap", "remove"].as_slice(),
         ["send"].as_slice(),
         ["send", "--to", "phone"].as_slice(),
         // 文本那支缺目标时同样要立刻退出。
@@ -168,6 +173,108 @@ fn status_without_a_node_reports_stopped() {
         !started_a_node(tmp.path()),
         "status 启动了节点——那样它报告的 Running 是这次提问自己造成的"
     );
+}
+
+/// **写配置同样不得启动节点**，而且写完读得回来。
+///
+/// 与只读那条分开是因为失败形态不同：只读走错档只是慢，而**写**走错档会先花几秒起一个
+/// 临时节点、改完再把它关掉——那期间本机会真的上线，一条本该完全本地的操作产生了网络
+/// 流量（spec: `cli-config-surface` 的「读写配置不启动节点」）。
+#[test]
+fn writing_settings_never_starts_a_node() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+
+    let set = run(tmp.path(), &["config", "set", "device-name", "书房 Mac"]);
+    assert!(
+        set.status.success(),
+        "写入失败: {}",
+        String::from_utf8_lossy(&set.stderr)
+    );
+    assert!(!started_a_node(tmp.path()), "config set 启动了节点");
+
+    let get = run(tmp.path(), &["config", "get", "device-name"]);
+    assert_eq!(String::from_utf8_lossy(&get.stdout).trim(), "书房 Mac");
+    assert!(!started_a_node(tmp.path()), "config get 启动了节点");
+
+    let add = run(
+        tmp.path(),
+        &[
+            "bootstrap",
+            "add",
+            "/ip4/198.51.100.7/tcp/4001/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+        ],
+    );
+    assert!(
+        add.status.success(),
+        "添加失败: {}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+    assert!(!started_a_node(tmp.path()), "bootstrap add 启动了节点");
+}
+
+/// 不认识的配置项以**用法错误**退出，并把可用的那些列出来。
+///
+/// 静默收下一个没人读的键是最坏的形态：用户以为自己配好了。
+#[test]
+fn an_unknown_setting_is_a_usage_error_that_lists_the_valid_ones() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let output = run(tmp.path(), &["config", "set", "nonesuch", "x"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("device-name"), "没列出可用的键: {stderr}");
+    assert!(stderr.contains("receive-dir"), "没列出可用的键: {stderr}");
+}
+
+/// **环境变量压住持久化配置，而被压住的那个值仍要给出来。**
+///
+/// 从进程外测是唯一可靠的做法：环境变量是进程级的，在并行跑的单测里改它会互相踩。
+/// 少了 `configured` 那一半，设置界面只能显示一个用户改不动的值，于是用户会反复修改
+/// 一个不生效的输入框。
+#[test]
+fn an_environment_override_hides_the_configured_value_but_still_reports_it() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let configured = tmp.path().join("configured-drop");
+    let overriding = tmp.path().join("env-drop");
+
+    let set = run(
+        tmp.path(),
+        &[
+            "config",
+            "set",
+            "receive-dir",
+            &configured.to_string_lossy(),
+        ],
+    );
+    assert!(set.status.success());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_swarmdrop"))
+        .args(["config", "list", "--json"])
+        .arg("--data-dir")
+        .arg(tmp.path())
+        .env("SWARMDROP_RECEIVE_DIR", &overriding)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("执行 swarmdrop");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let rows: Vec<serde_json::Value> =
+        serde_json::from_str(stdout.trim()).expect("stdout 应当是合法 JSON");
+    let row = rows
+        .iter()
+        .find(|row| row["key"] == "receive-dir")
+        .expect("清单里应当有接收落点");
+
+    assert_eq!(row["source"], "env");
+    assert_eq!(row["value"], overriding.to_string_lossy().as_ref());
+    assert_eq!(
+        row["configured"],
+        configured.to_string_lossy().as_ref(),
+        "被压住的那个值必须给出来"
+    );
+    assert_eq!(row["overriddenBy"], "SWARMDROP_RECEIVE_DIR");
 }
 
 /// `pair` / `devices` / `inbox get` 必须不存在，**连别名都没有**。

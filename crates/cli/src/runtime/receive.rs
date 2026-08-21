@@ -16,15 +16,82 @@
 //! 发文本」这句话在默认配置下**一次都不成立**，且失败得像是网络问题。
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use swarmdrop_core::host::{CoreEvent, CoreSaveLocation};
 use swarmdrop_core::transfer::text_delivery::TextDeliveryAttentionKind;
 
+use crate::exit::{CliError, CliResult};
+
 use super::boot::RunningNode;
+use super::settings::StoredSettings;
+use super::settings::scalar::receive_dir_view;
+
+/// 常驻节点此刻的接收落点。
+///
+/// **必须是一个可换的句柄而不是一个 `PathBuf`**：`swarmdrop config set receive-dir` 要在
+/// 不重启节点的前提下改掉它（spec: `cli-config-surface` 的「生效时机」）。把值直接交给
+/// 接收任务的话，改落点就只能靠重启节点——而重启节点会断掉正在进行的传输。
+///
+/// 只对**此后**收下的内容生效：已开始的会话继续用它开始时的落点，避免一次传输的文件
+/// 散在两个目录。这条由「每收到一条 offer 才读一次 [`Self::current`]」自然给出。
+#[derive(Debug)]
+pub struct ReceiveDir {
+    current: RwLock<PathBuf>,
+}
+
+impl ReceiveDir {
+    /// 按三层来源解析出此刻的落点，并确保它可用。
+    pub fn resolve(stored: &StoredSettings) -> CliResult<Self> {
+        Ok(Self {
+            current: RwLock::new(effective(stored)?),
+        })
+    }
+
+    /// 此刻的落点。
+    pub fn current(&self) -> PathBuf {
+        self.read().clone()
+    }
+
+    /// 配置变了之后重算。
+    ///
+    /// **按三层来源重算而不是直接用刚写进去的值**：环境变量还压着的时候，那次写入只是
+    /// 「对未来的声明」，此刻的落点一个字都不该动。
+    ///
+    /// 重算失败（新落点建不出来）时**不改动当前值**：宁可继续用旧落点，也不要让节点
+    /// 落进一个「没有落点」的状态——那会让此后每一次接收都失败。
+    pub fn refresh(&self, stored: &StoredSettings) -> CliResult<()> {
+        let next = effective(stored)?;
+        let mut guard = self.current.write().expect("接收落点锁中毒");
+        *guard = next;
+        Ok(())
+    }
+
+    fn read(&self) -> std::sync::RwLockReadGuard<'_, PathBuf> {
+        self.current.read().expect("接收落点锁中毒")
+    }
+}
+
+/// 三层来源解析 + 确保可用。
+///
+/// 三层的判定**复用配置读面那一份**（[`receive_dir_view`]），不在这里再写一遍：两份
+/// 迟早会分歧，而分歧的形态是「`config list` 说落点是 A，文件却收进了 B」。
+fn effective(stored: &StoredSettings) -> CliResult<PathBuf> {
+    let dir = receive_dir_view(stored.receive_dir.clone())
+        .value
+        .ok_or_else(|| {
+            CliError::NodeUnavailable(
+                "无法确定接收落点：本机给不出下载目录。\n\
+                 用 swarmdrop config set receive-dir <目录> 指定一个，\
+                 或设置 SWARMDROP_RECEIVE_DIR。"
+                    .into(),
+            )
+        })?;
+    crate::adapter::receive::ensure_writable(PathBuf::from(dir))
+}
 
 /// 起一个后台任务，自动接受入站的文件与文本。
-pub fn spawn_auto_accept(node: Arc<RunningNode>, save_dir: PathBuf) {
+pub fn spawn_auto_accept(node: Arc<RunningNode>, save_dir: Arc<ReceiveDir>) {
     let mut events = node.events.subscribe();
 
     tokio::spawn(async move {
@@ -32,7 +99,8 @@ pub fn spawn_auto_accept(node: Arc<RunningNode>, save_dir: PathBuf) {
             // 单条应答失败**不终止这个循环**：下一次入站请求仍应被处理。
             match event {
                 CoreEvent::TransferOfferReceived { offer } => {
-                    accept_files(&node, &offer.session_id, &save_dir).await;
+                    // **每条 offer 现读一次**：落点可能刚被 `config set` 换掉。
+                    accept_files(&node, &offer.session_id, &save_dir.current()).await;
                 }
                 // `Received` 那一种是「已经收下了」的事后通知，没有待办；
                 // 只有 `ConfirmationRequired` 那一种有人在等应答。

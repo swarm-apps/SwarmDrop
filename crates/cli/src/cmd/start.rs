@@ -39,7 +39,7 @@ pub async fn run(data_dir: &DataDir, json: bool, detach: bool, auto_accept: bool
 
     crate::render::status::render_started(&node.node_id, json);
     if !json {
-        println!("接收落点  {}", daemon.save_dir.display());
+        println!("接收落点  {}", daemon.save_dir().display());
         // 把配对的门开在哪儿说清楚。不说的话，用户在别处扫码被拒时无从判断
         // 是网络不通还是被本机挡了。
         if auto_accept {

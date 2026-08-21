@@ -14,6 +14,8 @@
 //! 结构化模式下 stdout 只能有最终结果：混入任何一行进度都会破坏调用方的解析
 //! （spec: cli-host「结构化输出模式」）。
 
+pub mod bootstrap;
+pub mod config;
 pub mod device;
 pub mod inbox;
 pub mod invite;

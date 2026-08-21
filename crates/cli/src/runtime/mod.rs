@@ -18,6 +18,7 @@ pub mod ipc;
 pub mod pairing;
 pub mod progress;
 pub mod receive;
+pub mod settings;
 pub mod signal;
 pub mod single;
 pub mod transfer;

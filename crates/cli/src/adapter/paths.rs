@@ -20,6 +20,13 @@ const SOCKET_FILE: &str = "swarmdrop.sock";
 const LOCK_FILE: &str = "swarmdrop.lock";
 /// 设备名等用户配置。
 const DEVICE_CONFIG_FILE: &str = "device_config.json";
+/// 命令行宿主私有的配置（接收落点、引导节点增删）。
+///
+/// **与 [`DEVICE_CONFIG_FILE`] 分开是刻意的**：那一份是 `DeviceConfig` 端口的磁盘格式，
+/// 四个宿主共用同一个实现（`JsonFileDeviceConfig`）；这一份装的两项 core 根本不认识
+/// （接收落点是宿主部署配置，引导清单是各端各一份）。混进去等于让另外三端的端口实现
+/// 去解析两个它们永远不写的字段。
+const SETTINGS_FILE: &str = "settings.json";
 /// 上次检查更新的时刻。**只是节流状态，不是配置**——删掉它最多让下次启动多查一次网络。
 const UPDATE_CHECK_FILE: &str = "update_check.json";
 
@@ -118,6 +125,11 @@ impl DataDir {
 
     pub fn device_config(&self) -> PathBuf {
         self.0.join(DEVICE_CONFIG_FILE)
+    }
+
+    /// 命令行宿主私有的配置。见 [`crate::runtime::settings`]。
+    pub fn settings(&self) -> PathBuf {
+        self.0.join(SETTINGS_FILE)
     }
 
     /// 启动时更新检查的节流状态。见 [`crate::runtime::update`]。

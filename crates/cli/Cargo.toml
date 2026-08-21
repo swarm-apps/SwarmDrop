@@ -86,9 +86,12 @@ axoupdater = "0.10.2"
 # 根本没有导出，于是必然落到兜底值 `Device`（见 runtime/boot.rs）。
 # 关掉默认特性：wasm-web / wasi 两条本 crate 用不上，CLI 是纯 native。
 whoami = { version = "2", default-features = false, features = ["std"] }
+# 配置文件的原子写（同目录临时文件 → rename）。四条安全属性交给它而不是自己搓：
+# 随机文件名、`O_EXCL` 创建、unix 0600、任何提前返回都在 drop 时清掉残留。
+# 已在依赖树里（`swarmdrop-host-fs` 的身份存储用的就是它），增量成本为零。
+tempfile = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 # **只给测试**：护栏测试要断言「render 认识的方向名 == 核心实际序列化出来的名」。
 # 生产代码不碰 entity —— 渲染层吃的是 JSON（两条取数路径统一），不是 typed DTO。
 entity = { workspace = true }

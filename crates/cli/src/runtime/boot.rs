@@ -20,7 +20,8 @@ use crate::adapter::events::CliEventBus;
 use crate::adapter::paths::DataDir;
 use crate::exit::{CliError, CliResult};
 
-use super::bootstrap_nodes::default_network_config;
+use super::bootstrap_nodes::network_config;
+use super::settings::SettingsStore;
 
 /// 命令行宿主的网络管理器类型。
 ///
@@ -51,6 +52,10 @@ const WEBTRANSPORT_CERT_FILE: &str = "webtransport-cert.pem";
 ///
 /// `json` 决定事件渲染方式——它属于装配参数而非用户文案，故在这里接。
 pub async fn boot(data_dir: &DataDir, json: bool) -> CliResult<RunningNode> {
+    // **先读配置再动别的**：引导清单要交给组合根，而配置文件读坏时节点必须起不来。
+    // 静默回落到内置清单等于让用户自己加的那条中继无声消失，故障形态是「跨网突然连不上」。
+    let settings = SettingsStore::new(data_dir.settings()).read()?;
+
     let identity_store = Arc::new(JsonFileIdentityStore::new(data_dir.path()));
 
     let identity = swarmdrop_core::identity::load_or_create_identity(&*identity_store)
@@ -94,7 +99,7 @@ pub async fn boot(data_dir: &DataDir, json: bool) -> CliResult<RunningNode> {
             webtransport: Some(webtransport),
         },
         OsInfo::default(),
-        default_network_config(),
+        network_config(&settings.bootstrap),
         EndpointProfile::Native,
         HostPorts {
             device_config,
@@ -168,6 +173,21 @@ fn detect_device_label() -> String {
         .unwrap_or_else(|_| "Device".to_string())
 }
 
+/// 用户没设过名字时用的那个：本机名 + `(cli)` 后缀。
+///
+/// **不只在首启时用**：`swarmdrop config list` 要在用户从未设过名字时给出「内置默认」
+/// 那一档的值，而那必须与本函数是同一个答案——两份的话，`config list` 说的名字与节点
+/// 启动后真正用的名字会不一样。
+///
+/// `None` 只在归一化失败时出现（本机名全是空白之类），那时退回核心自己的 hostname 回退。
+pub fn default_device_name() -> Option<DeviceName> {
+    // **先给后缀留出位置再截断**：`DeviceName::parse` 自己也会截到 `MAX_CHARS`，
+    // 但它砍的是尾巴——那样长名字会把 ` (cli)` 整个砍掉，标识就没了。
+    let budget = DeviceName::MAX_CHARS.saturating_sub(CLI_SUFFIX.chars().count());
+    let label: String = detect_device_label().chars().take(budget).collect();
+    DeviceName::parse(&format!("{label}{CLI_SUFFIX}"))
+}
+
 /// 首次启动时落一个能与同机图形界面宿主区分开的默认设备名。
 ///
 /// 已有名字则原样保留——用户改过的名字不该被每次启动覆盖。
@@ -177,12 +197,7 @@ async fn ensure_device_name(config: &dyn DeviceConfig) {
         return;
     }
 
-    // **先给后缀留出位置再截断**：`DeviceName::parse` 自己也会截到 `MAX_CHARS`，
-    // 但它砍的是尾巴——那样长名字会把 ` (cli)` 整个砍掉，标识就没了。
-    let budget = DeviceName::MAX_CHARS.saturating_sub(CLI_SUFFIX.chars().count());
-    let label: String = detect_device_label().chars().take(budget).collect();
-
-    let Some(name) = DeviceName::parse(&format!("{label}{CLI_SUFFIX}")) else {
+    let Some(name) = default_device_name() else {
         return;
     };
     if let Err(err) = config.save_device_name(Some(name)).await {

@@ -27,6 +27,8 @@ use crate::exit::{CliError, CliResult};
 use crate::runtime::boot::RunningNode;
 use crate::runtime::ipc::{FrameSink, IpcServer, Request, RequestHandler, Response};
 use crate::runtime::pairing::ConfirmationDesk;
+use crate::runtime::receive::ReceiveDir;
+use crate::runtime::settings::SettingsStore;
 
 /// 一个已经摆成常驻形态的自持节点。
 ///
@@ -35,9 +37,10 @@ pub struct Daemon {
     server: IpcServer,
     handler: Arc<dyn RequestHandler>,
     shutdown: Arc<Notify>,
-    /// 接收落点。`start` 要把它打印出来——用户没有别的地方看得到它，
-    /// 而它可被 `SWARMDROP_RECEIVE_DIR` 改掉。
-    pub save_dir: PathBuf,
+    /// 接收落点。`start` 要把它打印出来——用户没有别的地方看得到它。
+    ///
+    /// **是句柄不是值**：`swarmdrop config set receive-dir` 要在不重启节点的前提下换掉它。
+    receive: Arc<ReceiveDir>,
 }
 
 impl Daemon {
@@ -52,8 +55,9 @@ impl Daemon {
     pub fn start(data_dir: &DataDir, node: Arc<RunningNode>, auto_accept: bool) -> CliResult<Self> {
         let server = IpcServer::bind(&data_dir.socket())?;
 
-        let save_dir = crate::adapter::receive::resolve()?;
-        crate::runtime::receive::spawn_auto_accept(node.clone(), save_dir.clone());
+        let settings = SettingsStore::new(data_dir.settings()).read()?;
+        let receive = Arc::new(ReceiveDir::resolve(&settings)?);
+        crate::runtime::receive::spawn_auto_accept(node.clone(), receive.clone());
 
         let desk = Arc::new(ConfirmationDesk::default());
         crate::runtime::pairing::spawn_desk_service(node.clone(), desk.clone(), auto_accept);
@@ -71,9 +75,15 @@ impl Daemon {
                 node,
                 desk,
                 data_dir: data_dir.clone(),
+                receive: receive.clone(),
             }),
-            save_dir,
+            receive,
         })
+    }
+
+    /// 此刻的接收落点。`start` 打印它——用户没有别的地方看得到。
+    pub fn save_dir(&self) -> PathBuf {
+        self.receive.current()
     }
 
     /// 服务到收到 `stop` 或中断信号。
@@ -131,6 +141,8 @@ struct NodeHandler {
     data_dir: DataDir,
     /// 正在传的那几条的实时进度（库里那份在传输期间是陈旧的）。
     progress: Arc<crate::runtime::progress::ProgressCache>,
+    /// 接收落点。`config set receive-dir` 要连它一起换，否则盘上与内存分叉。
+    receive: Arc<ReceiveDir>,
 }
 
 #[async_trait::async_trait]
@@ -361,6 +373,50 @@ impl RequestHandler for NodeHandler {
                     inbox_limit.unwrap_or(crate::runtime::watch::baseline::DEFAULT_INBOX_LIMIT),
                 )
                 .await
+            }
+            Request::ConfigList => {
+                let records = crate::runtime::access::Records::new(self.data_dir.clone());
+                match crate::runtime::settings::scalar::views(&records).await {
+                    Ok(views) => json_or_error(serde_json::to_value(views), "配置"),
+                    Err(err) => Response::err(err),
+                }
+            }
+            Request::ConfigSet { key, value } => {
+                let records = crate::runtime::access::Records::new(self.data_dir.clone());
+                let live = crate::runtime::settings::scalar::Live {
+                    node: &self.node,
+                    receive: &self.receive,
+                };
+                match crate::runtime::settings::scalar::apply(&records, Some(live), key, value)
+                    .await
+                {
+                    Ok(written) => json_or_error(serde_json::to_value(written), "写入结果"),
+                    Err(err) => Response::err(err),
+                }
+            }
+            Request::BootstrapList => {
+                let records = crate::runtime::access::Records::new(self.data_dir.clone());
+                match crate::runtime::bootstrap_nodes::list(&records, Some(&self.node)).await {
+                    Ok(rows) => json_or_error(serde_json::to_value(rows), "引导节点清单"),
+                    Err(err) => Response::err(err),
+                }
+            }
+            Request::BootstrapAdd { addr } => {
+                let records = crate::runtime::access::Records::new(self.data_dir.clone());
+                match crate::runtime::bootstrap_nodes::add(&records, Some(&self.node), &addr).await
+                {
+                    Ok(changed) => json_or_error(serde_json::to_value(changed), "添加结果"),
+                    Err(err) => Response::err(err),
+                }
+            }
+            Request::BootstrapRemove { addr } => {
+                let records = crate::runtime::access::Records::new(self.data_dir.clone());
+                match crate::runtime::bootstrap_nodes::remove(&records, Some(&self.node), &addr)
+                    .await
+                {
+                    Ok(changed) => json_or_error(serde_json::to_value(changed), "撤销结果"),
+                    Err(err) => Response::err(err),
+                }
             }
             Request::Stop => {
                 // 只发信号、不在这里关停：关停要发生在**应答写回之后**，否则客户端读到的

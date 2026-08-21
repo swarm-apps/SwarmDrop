@@ -37,7 +37,7 @@ use std::sync::Arc;
 use serde_json::Value;
 use swarmdrop_core::transfer::store::TransferStore;
 use swarmdrop_host::device::PairedDeviceInfo;
-use swarmdrop_host_fs::JsonFileIdentityStore;
+use swarmdrop_host_fs::{JsonFileDeviceConfig, JsonFileIdentityStore};
 use swarmdrop_invite::{InviteRegistry, InviteStore};
 
 use crate::adapter::paths::DataDir;
@@ -56,9 +56,28 @@ pub(crate) fn unpack(response: Option<Response>) -> CliResult<Option<Value>> {
         Some(Response::Data { payload }) => Ok(Some(payload)),
         // **按服务端给的分类重建**，不要一律压成「节点不可用」——那会让「没有这条记录」
         // 在有常驻节点时退 3、无节点时退 2。
-        Some(Response::Error { code, message }) => Err(CliError::from_code(code, message)),
+        Some(Response::Error { code, message }) => {
+            Err(CliError::from_code(code, hint_version_skew(message)))
+        }
         Some(Response::Ok) | None => Ok(None),
     }
+}
+
+/// 给「常驻节点认不得这条请求」补一句可行动的话。
+///
+/// 服务端那侧也有一句（见 `ipc` 的请求解析分支），但它兜不住真正会发生的那种错配：
+/// **升级 CLI 不会重启常驻节点**，于是新命令撞上的是**旧节点**，而那句改进过的措辞
+/// 恰恰住在旧代码里。所以客户端再认一次。
+///
+/// 判据是 serde 的 `unknown variant`——两端都是本 crate，别的请求根本构造不出来，
+/// 所以这个形态只有一种成因。认不出来时原样返回，不编。
+fn hint_version_skew(message: String) -> String {
+    if !message.contains("unknown variant") {
+        return message;
+    }
+    format!(
+        "{message}\n多半是常驻节点比这条命令旧——先 swarmdrop stop 再 swarmdrop start，让它用上当前版本。"
+    )
 }
 
 /// 本机持久化记录的访问器。
@@ -130,6 +149,40 @@ impl Records {
     /// 已配对设备表的存储端口。
     pub fn device_store(&self) -> Arc<JsonFileIdentityStore> {
         Arc::new(JsonFileIdentityStore::new(self.data_dir.path()))
+    }
+
+    /// 设备名的存储端口。
+    ///
+    /// 与 [`Self::device_store`] 是两份不同的东西（前者是身份 + 已配对设备），
+    /// 只是名字接近——端口的划分见 `crates/host` 的 `DeviceConfig` / `PairedDeviceStore`。
+    pub fn device_config(&self) -> JsonFileDeviceConfig {
+        JsonFileDeviceConfig::new(self.data_dir.device_config())
+    }
+
+    /// 命令行宿主私有的配置（接收落点、引导节点增删）。
+    pub fn settings(&self) -> super::settings::SettingsStore {
+        super::settings::SettingsStore::new(self.data_dir.settings())
+    }
+
+    /// 本机节点标识，**读不出就是 `None`，绝不现场生成一个**。
+    ///
+    /// 用 `load_identity` 而不是 `load_or_create_identity`：后者会在全新机器上写出
+    /// `identity.json`，而那正是 `tests/without_a_node.rs` 用来判断「这条命令起没起过
+    /// 节点」的标志——一条只读本机记录的命令产出它，那条护栏就永远绿了。
+    pub async fn local_node_id(&self) -> CliResult<Option<swarmdrop_net::NodeId>> {
+        use swarmdrop_core::host::KeychainProvider;
+
+        let identity = self
+            .device_store()
+            .load_identity()
+            .await
+            .map_err(|err| CliError::NodeUnavailable(format!("读取设备身份失败: {err}")))?;
+
+        Ok(identity.and_then(|bytes| {
+            swarmdrop_net::SecretKey::from_protobuf(&bytes.keypair)
+                .ok()
+                .map(|key| key.node_id())
+        }))
     }
 
     /// 已配对设备。
@@ -506,6 +559,25 @@ mod tests {
             records.paired_devices().await.expect("读取").is_empty(),
             "解除配对没有落到本机记录上"
         );
+    }
+
+    /// **旧常驻节点认不得新动词时，要给一句可行动的话。**
+    ///
+    /// 这条兜的是真实存在的那种错配：升级 CLI 不会重启常驻节点，于是新命令撞上旧节点，
+    /// 而服务端那侧改进过的措辞恰恰住在旧代码里、改不到。少了客户端这一半，用户看到的
+    /// 是一句关于 serde 变体的话，指向的是他没写过的东西。
+    #[test]
+    fn an_unknown_verb_hints_at_a_stale_daemon() {
+        let hinted = hint_version_skew("无法解析请求: unknown variant `config_list`".into());
+        assert!(hinted.contains("swarmdrop stop"), "没给出处置: {hinted}");
+        assert!(hinted.contains("unknown variant"), "原文丢了: {hinted}");
+    }
+
+    /// 其余失败原样返回——把「这条记录不存在」也说成版本错配，会把人指向错的方向。
+    #[test]
+    fn other_failures_are_not_dressed_up_as_version_skew() {
+        let plain = "没有这条传输记录".to_owned();
+        assert_eq!(hint_version_skew(plain.clone()), plain);
     }
 
     /// 空库上的传输记录查询要给空列表，不是报错——新机器上 `transfer list` 是常见操作。

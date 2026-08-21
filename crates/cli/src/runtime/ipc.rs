@@ -190,6 +190,31 @@ pub enum Request {
     /// 帧格式复用 [`Frame::Progress`]，客户端复用 [`request_watching`]，
     /// 对端走人由 [`peer_gone`] 那条 select 分支连同整个任务一起取消。
     /// 唯一不能复用的是 [`FrameSink::try_send`] 的三道闸，理由见 [`FrameSink::send`]。
+    /// 全部标量配置项的当前状态（含来源）。
+    ///
+    /// **读也走通道**，不只是写：常驻节点的环境与本条命令的环境可能不同
+    /// （`SWARMDROP_RECEIVE_DIR=… swarmdrop start` 之后，另一个 shell 里的
+    /// `config list` 读不到那个变量）。生效的是节点那份，所以答案必须由它给。
+    ConfigList,
+    /// 写一个标量配置项。`value = None` 表示清除。
+    ///
+    /// **有节点时必须经这里，客户端不得直写**：常驻节点内存里持有设备名（identify 的
+    /// `agent_version`）与接收落点。绕过它直写文件，磁盘与内存会分叉——用户改完名字，
+    /// 对端看到的还是旧的，而文件里已经是新的，重启之后才「莫名其妙地」生效。
+    ConfigSet {
+        key: crate::runtime::settings::scalar::ScalarKey,
+        value: Option<String>,
+    },
+    /// 生效的引导节点清单（含来源与链路状态）。
+    BootstrapList,
+    /// 添加一条引导节点：校验 + 持久化 + 即时登记运行时意图。
+    BootstrapAdd {
+        addr: String,
+    },
+    /// 撤销一条引导节点。
+    BootstrapRemove {
+        addr: String,
+    },
     Subscribe {
         /// 基线里最多带几条收件箱记录。
         ///
@@ -614,7 +639,17 @@ impl IpcServer {
                     }
                 }
                 // 请求解析失败 = 客户端发来的东西不对，那是用法错误。
-                Err(err) => Response::usage(format!("无法解析请求: {err}")),
+                //
+                // **措辞要指向最可能的成因**：两端都是本 crate 的代码，所以「发来的东西
+                // 不对」现实中几乎只有一种来源——**常驻节点比这条命令旧**，认不得新加的
+                // 动词（升级 CLI 不会重启常驻节点，`swarmdrop update` 之后尤其如此）。
+                // 只说「无法解析请求」的话，用户看到的是一句指向自己输入的用法错误，
+                // 而他的输入完全正确。
+                Err(err) => Response::usage(format!(
+                    "常驻节点无法解析这条请求: {err}\n\
+                     多半是它比这条命令旧——先 swarmdrop stop 再 swarmdrop start，\
+                     让它用上当前版本。"
+                )),
             };
 
             let mut out = serde_json::to_string(&Frame::from(response)).unwrap_or_else(|err| {

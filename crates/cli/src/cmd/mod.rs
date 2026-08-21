@@ -8,7 +8,11 @@
 //! 1. 操作对象是**程序自身且为单例** → 平铺动词。`start` / `stop` / `status`
 //!    （节点没有集合，无从列举）。
 //! 2. 操作对象是**本程序管理的一个集合** → 「名词 + 动词」两级。
-//!    `invite` / `device` / `inbox` / `transfer`。
+//!    `invite` / `device` / `inbox` / `transfer` / `config` / `bootstrap`。
+//!    后两者的集合分别是「可配置项」与「引导节点」——**它们各占一个名词而不是合并**，
+//!    因为形状不同：前者的动作是「换一个值」，后者的是「加一条 / 撤一条」。
+//!    用整值写入表达后者，会迫使调用方读出整份清单再写回，那正是
+//!    `bootstrap-node-settings` 明令禁止的「持久化合并后的最终清单」。
 //! 3. 操作对象**不归本程序管理** → 平铺动词。`send`（对象是文件系统里的文件）。
 //!
 //! 规则 3 是 `send` 唯一的豁免依据，写下来是为了防止它被读成「高频所以平放」——
@@ -33,6 +37,8 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+pub mod bootstrap;
+pub mod config;
 pub mod device;
 pub mod inbox;
 pub mod invite;
@@ -262,6 +268,97 @@ pub enum Command {
         #[command(subcommand)]
         action: TransferAction,
     },
+
+    /// 本机设置：设备名、接收落点。
+    ///
+    /// 只读写本机记录，**不启动节点**。有常驻节点在跑时改动当场生效，不必重启它。
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+
+    /// 引导 / 中继节点。
+    ///
+    /// 内置那几条随版本更新；你的增删是**叠加**在它之上的，所以升级换了内置地址时你
+    /// 照样拿得到新的。
+    Bootstrap {
+        #[command(subcommand)]
+        action: BootstrapAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ConfigAction {
+    /// 列出全部设置项、它们此刻的值，以及值从哪来。
+    List,
+
+    /// 读一项。值走标准输出，来源说明走标准错误——`$(...)` 取到的是干净的一行。
+    Get {
+        #[arg(value_name = "KEY")]
+        key: crate::runtime::settings::scalar::ScalarKey,
+    },
+
+    /// 写一项。
+    ///
+    /// **两个参数都必填**：少给值时的意图不明确（是想清除，还是敲漏了？），
+    /// 而清除有自己的动作。
+    Set {
+        #[arg(value_name = "KEY")]
+        key: crate::runtime::settings::scalar::ScalarKey,
+        #[arg(value_name = "VALUE")]
+        value: String,
+    },
+
+    /// 清除一项，使它回落到默认值。
+    Unset {
+        #[arg(value_name = "KEY")]
+        key: crate::runtime::settings::scalar::ScalarKey,
+    },
+}
+
+impl ConfigAction {
+    /// 四条都不问人：键是封闭集合（缺了就是用法错误，clap 会列出可用的那些），
+    /// 值也没有候选集可列。
+    fn is_interactive(&self) -> bool {
+        match self {
+            Self::List | Self::Get { .. } | Self::Set { .. } | Self::Unset { .. } => false,
+        }
+    }
+}
+
+#[derive(Debug, Subcommand)]
+pub enum BootstrapAction {
+    /// 列出生效的引导节点（内置 + 你加的，减去你撤掉的）。
+    List,
+
+    /// 添加一条。
+    ///
+    /// 提交前只做**零网络成本**的形状校验（可解析、含节点标识、传输本端拨得动、不重复）。
+    /// 「能不能连上」由收敛环回答——加完用 `swarmdrop bootstrap list` 看它的状态。
+    Add {
+        /// multiaddr，需含 `/p2p/<节点标识>`。不给则询问（需要可交互的终端）。
+        #[arg(value_name = "ADDR")]
+        addr: Option<String>,
+    },
+
+    /// 撤销一条。
+    ///
+    /// 内置项也撤得掉——撤销被记下来，而不是把内置清单复制一份出来编辑，
+    /// 所以其余内置项仍随版本更新。不给地址时会列出清单让你挑。
+    Remove {
+        /// 地址，接受唯一前缀。不给则列出清单让你选（需要可交互的终端）。
+        #[arg(value_name = "ADDR")]
+        addr: Option<String>,
+    },
+}
+
+impl BootstrapAction {
+    fn is_interactive(&self) -> bool {
+        match self {
+            Self::Add { addr } | Self::Remove { addr } => addr.is_none(),
+            Self::List => false,
+        }
+    }
 }
 
 /// 按标识去重，保留首次出现的顺序。
@@ -312,6 +409,8 @@ impl Command {
             Self::Device { action } => action.is_interactive(),
             Self::Inbox { action } => action.is_interactive(),
             Self::Transfer { action } => action.is_interactive(),
+            Self::Config { action } => action.is_interactive(),
+            Self::Bootstrap { action } => action.is_interactive(),
             Self::Send { files, to, text } => to.is_none() || send_body_is_interactive(files, text),
             // `Mcp` 的调用方**一定**是程序（宿主经 stdio 说话），比其余几条更强：
             // 那几条只是「不需要有人看屏幕」，而它连屏幕都没有——stdout 归 MCP 协议，
@@ -366,7 +465,9 @@ impl Command {
             | Self::Invite { .. }
             | Self::Device { .. }
             | Self::Inbox { .. }
-            | Self::Transfer { .. } => false,
+            | Self::Transfer { .. }
+            | Self::Config { .. }
+            | Self::Bootstrap { .. } => false,
         }
     }
 }
@@ -632,6 +733,8 @@ async fn run(cli: Cli) -> CliResult<()> {
         Command::Device { action } => device::run(&data_dir, json, action).await,
         Command::Inbox { action } => inbox::run(&data_dir, json, action).await,
         Command::Transfer { action } => transfer::run(&data_dir, json, action).await,
+        Command::Config { action } => config::run(&data_dir, json, action).await,
+        Command::Bootstrap { action } => bootstrap::run(&data_dir, json, action).await,
     }
 }
 

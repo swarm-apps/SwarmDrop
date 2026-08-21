@@ -23,6 +23,8 @@ pub fn render(status: &Value, json: bool) {
         println!("公网地址  {addr}");
     }
 
+    render_infra(status);
+
     let addrs = status
         .get("listenAddrs")
         .and_then(Value::as_array)
@@ -38,6 +40,45 @@ pub fn render(status: &Value, json: bool) {
             }
         }
     }
+}
+
+/// 引导 / 中继一行。
+///
+/// **节点没跑时什么都不说**：那时 `infraLinks` 恒空，而「没有引导节点」与「节点没起、
+/// 所以还没有任何关系」是两回事，把后者渲染成前者会让用户去改一份根本没问题的配置。
+///
+/// 节点在跑而清单是空的，则**必须说出后果**：清空到零条是允许的（用户可能只在局域网内
+/// 用），所以写入路径不拦它——那就只剩这里有机会告诉用户他现在跨网不可达。
+fn render_infra(status: &Value) {
+    if status.get("status").and_then(Value::as_str) != Some("running") {
+        return;
+    }
+
+    let links = super::array_or_empty(status, "infraLinks");
+    if links.is_empty() {
+        println!("引导节点  （无）");
+        eprintln!("没有引导 / 中继节点，本机只能在局域网内发现设备。");
+        eprintln!("用 swarmdrop bootstrap add <multiaddr> 加一条。");
+        return;
+    }
+
+    let connected = links
+        .iter()
+        .filter(|link| super::flag(link, "connected"))
+        .count();
+    let relay_ready = links
+        .iter()
+        .filter(|link| {
+            link.get("relay")
+                .and_then(|relay| relay.get("kind"))
+                .and_then(Value::as_str)
+                == Some("active")
+        })
+        .count();
+    println!(
+        "引导节点  {} 条（{connected} 已连接 · {relay_ready} 条中继就绪）",
+        links.len()
+    );
 }
 
 /// 前台启动就绪。
