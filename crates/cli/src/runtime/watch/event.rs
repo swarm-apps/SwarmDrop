@@ -100,6 +100,14 @@ pub enum WatchEvent {
     ///
     /// 载荷是**变化后的全量设备表**而不是逐条 diff：设备是十几条的量级，全量让消费方
     /// 不必自己维护一份可能与真相分叉的镜像。
+    ///
+    /// ⚠️ **「全量」指的是全量_已配对_设备**，与 [`Baseline::devices`] 同一口径
+    /// （`DeviceFilter::Paired`）。它**只能**由 [`super::serve`] 向节点现取产出，
+    /// 不能由某条内核事件的载荷直接转发——内核的 `CoreEvent::DevicesChanged` 带的是
+    /// `DeviceFilter::All`，那是**被观测到的 peer 表**，一台已配对但本次运行还没上过线的
+    /// 设备根本不在里面。桌面端消费它是对的（它把已配对清单另存一份，只从这里取在线
+    /// 状态），照搬到这条以配对表为契约的流上就成了 bug：基线报 1 台、下一条网络事件
+    /// 一到就变 0 台，看起来跟「刚刚被解除配对」一模一样。见 [`affects_devices`]。
     DevicesChanged { devices: Vec<DeviceEntry> },
 
     /// 常驻节点不在了。订阅**不因此结束**，会继续等它回来。
@@ -365,10 +373,10 @@ pub fn translate(event: &CoreEvent) -> Option<WatchEvent> {
             }))
         }
 
-        CoreEvent::DevicesChanged { devices } => Some(WatchEvent::DevicesChanged {
-            devices: paired_entries(devices),
-        }),
-
+        // ⚠️ `CoreEvent::DevicesChanged` **刻意不在这里翻译**——它只是「设备表可能变了」
+        // 的信号，载荷的口径不对（判据见 [`WatchEvent::DevicesChanged`] 与
+        // [`affects_devices`]）。它由 [`super::serve::forward`] 现取全表产出。
+        //
         // 其余与订阅面无关：网络状态、准备进度、配对请求、文本注意力（收件箱事件已覆盖
         // 「收件箱变了」这件事，注意力信号是另一个问题）等。
         _ => None,
@@ -388,26 +396,41 @@ pub fn translate(event: &CoreEvent) -> Option<WatchEvent> {
 ///    留存的记录标记成不完整。发一个大目录时 `PrepareProgress` 就能刷满队列，那正是
 ///    最容易撞上的场景。
 ///
-/// 判据直接问 [`translate`]，**不另列一张变体表**：两张表迟早分叉，而分叉的表现正是
+/// 判据问 [`produces_frame`]，**不另列一张变体表**：两张表迟早分叉，而分叉的表现正是
 /// 上面那条凭空的截断。代价是队列满时多跑一次翻译，那只发生在丢弃的那一刻。
 pub fn report_loss(event: &CoreEvent) -> bool {
-    !matches!(event, CoreEvent::TransferProgress { .. }) && translate(event).is_some()
+    !matches!(event, CoreEvent::TransferProgress { .. }) && produces_frame(event)
 }
 
-/// 这条事件是否意味着「已配对设备表可能变了，但事件本身没带新表」。
+/// 这条事件会不会在订阅上产出一帧。
 ///
-/// 配对成功与解除配对走的是 `PairedDeviceAdded` / `PairedDeviceRemoved`，
-/// 它们只带一个 `peer_id`；全量设备表要向节点现取。
+/// 产帧的路径有两条——[`translate`] 直接翻译，[`affects_devices`] 触发现取全表——
+/// 所以「会不会产帧」必须两条都问。少问一条，[`report_loss`] 就会把一次真实的丢失
+/// 判成路过，消费方的设备表从此静悄悄地停在旧值上。
+pub fn produces_frame(event: &CoreEvent) -> bool {
+    translate(event).is_some() || affects_devices(event)
+}
+
+/// 这条事件是否意味着「已配对设备表可能变了」——**新表一律现取，不用事件载荷**。
 ///
-/// **不能指望下一条 `DevicesChanged` 兜住**：那条由网络事件驱动（ping 成功、连接变化），
-/// 而解除一台**离线**设备的配对不产生任何网络事件——不补这一下，那次解除会在订阅上
-/// 无限期不可见。
-pub fn invalidates_devices(event: &CoreEvent) -> bool {
+/// 三类事件在这里同等对待，理由各不相同：
+///
+/// - `PairedDeviceAdded` / `PairedDeviceRemoved` / `DeviceRenamed` **没带新表**，
+///   只带一个 `peer_id`。
+/// - `CoreEvent::DevicesChanged` **带了表，但口径不对**：它是 `DeviceFilter::All`，
+///   即被观测到的 peer；一台已配对而本次运行没上过线的设备不在其中。直接转发它，
+///   订阅上就会出现「基线 1 台 → 一条网络事件之后 0 台」。
+///
+/// **不能指望内核的 `DevicesChanged` 兜住前三条**：那条由网络事件驱动（ping 成功、
+/// 连接变化），而解除一台**离线**设备的配对不产生任何网络事件——不补这一下，那次解除
+/// 会在订阅上无限期不可见。
+pub fn affects_devices(event: &CoreEvent) -> bool {
     matches!(
         event,
         CoreEvent::PairedDeviceAdded { .. }
             | CoreEvent::PairedDeviceRemoved { .. }
             | CoreEvent::DeviceRenamed { .. }
+            | CoreEvent::DevicesChanged { .. }
     )
 }
 
@@ -516,6 +539,34 @@ mod tests {
     #[test]
     fn a_dropped_progress_frame_is_not_reported() {
         assert!(!report_loss(&progress_event()));
+    }
+
+    /// 内核的 `DevicesChanged` **不得被直接翻译成订阅面的同名事件**。
+    ///
+    /// 它带的是 `DeviceFilter::All`——被观测到的 peer 表。一台已配对但本次运行还没
+    /// 上过线的设备不在其中，于是转发它就等于把那台设备从订阅上抹掉：基线刚报过 1 台，
+    /// 下一条 ping 成功事件一到就变 0 台。实测踩过（`dsh-swarmdrop` 的设备面板整片
+    /// 消失），修法是让 [`super::serve::forward`] 现取全表，判据落在
+    /// [`affects_devices`] 上。
+    #[test]
+    fn the_kernel_device_event_carries_no_table_of_its_own() {
+        let event = CoreEvent::DevicesChanged {
+            devices: Vec::new(),
+        };
+        assert!(translate(&event).is_none(), "载荷口径不对，不能直接翻译");
+        assert!(affects_devices(&event), "但它仍要触发一次现取");
+    }
+
+    /// 现取那条路径产出的帧也是帧，丢了要如实上报。
+    ///
+    /// [`report_loss`] 早先只问 [`translate`]；`DevicesChanged` 从那条路搬走之后，
+    /// 只问一条就会把一次真实的设备表丢失判成「路过」，消费方的设备表从此停在旧值上
+    /// 而没有任何人被告知。
+    #[test]
+    fn a_dropped_device_event_is_reported() {
+        assert!(report_loss(&CoreEvent::DevicesChanged {
+            devices: Vec::new(),
+        }));
     }
 
     /// **与订阅面无关的事件丢了也不上报。**

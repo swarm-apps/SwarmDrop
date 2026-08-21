@@ -113,9 +113,10 @@ async fn forward(
     fold: &mut Coalescer,
     core: &swarmdrop_core::host::CoreEvent,
 ) -> bool {
-    // 配对成功 / 解除配对只带一个 `peer_id`，全量设备表要向节点现取——
-    // 判据与「为什么不能等下一条 `DevicesChanged`」见 [`event::invalidates_devices`]。
-    if event::invalidates_devices(core) {
+    // 设备表**只有这一个产出点**：向节点现取 `DeviceFilter::Paired`，与基线同一口径。
+    // 内核那条 `DevicesChanged` 自己带的表口径不对（是被观测到的 peer），照搬会把离线
+    // 的已配对设备从订阅上抹掉。判据见 [`event::affects_devices`]。
+    if event::affects_devices(core) {
         let refreshed = WatchEvent::DevicesChanged {
             devices: devices_now(node),
         };
