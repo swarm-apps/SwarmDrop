@@ -10,6 +10,7 @@
 pub mod access;
 pub mod boot;
 pub mod bootstrap_nodes;
+pub mod daemon;
 pub mod devices;
 pub mod inbox;
 pub mod invites;
@@ -17,7 +18,9 @@ pub mod ipc;
 pub mod pairing;
 pub mod progress;
 pub mod receive;
+pub mod signal;
 pub mod single;
 pub mod transfer;
 pub mod transfers;
 pub mod update;
+pub mod watch;

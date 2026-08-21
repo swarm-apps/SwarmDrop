@@ -28,7 +28,7 @@ pub enum ProgressOut<'a> {
     /// 就画在这个终端上。`enabled` 为假 = 结构化输出模式，什么都不画。
     Bars { enabled: bool },
     /// 推给通道对面的客户端。
-    Ipc(&'a crate::runtime::ipc::ProgressSink),
+    Ipc(&'a crate::runtime::ipc::FrameSink),
 }
 
 /// 进度帧的 `phase` 取值。**客户端按它分发到两种进度条**，改了要两边一起改。
@@ -75,7 +75,7 @@ enum Stage<'a, B> {
     /// 画在本地终端。
     Local(B),
     /// 推给通道对面的客户端。
-    Remote(&'a crate::runtime::ipc::ProgressSink),
+    Remote(&'a crate::runtime::ipc::FrameSink),
 }
 
 impl Stage<'_, crate::render::send::Preparing> {
@@ -89,7 +89,7 @@ impl Stage<'_, crate::render::send::Preparing> {
                 event.total_files,
             ),
             Self::Remote(sink) => {
-                sink.send(serde_json::json!({
+                sink.try_send(serde_json::json!({
                     "phase": PHASE_PREPARING,
                     "done": event.done,
                     "total": event.total,
@@ -108,7 +108,7 @@ impl Stage<'_, crate::render::send::Progress> {
         match self {
             Self::Local(bar) => bar.update(done, total),
             Self::Remote(sink) => {
-                sink.send(serde_json::json!({
+                sink.try_send(serde_json::json!({
                     "phase": PHASE_TRANSFERRING,
                     "done": done,
                     "total": total,
@@ -133,6 +133,20 @@ pub struct SendOutcome {
     pub session_id: uuid::Uuid,
     pub file_count: usize,
     pub total_bytes: u64,
+}
+
+/// 一次文件发送的结果在**三条对外路径**上的共同形状：`--json` 的 stdout、本地通道的
+/// 负载、MCP 工具的返回值。
+///
+/// ⚠️ **它归 runtime 而不是 render。** 它不是「怎么把结果显示给人看」，而是「这次发送
+/// 的结果是什么」——一份契约。放在 render 会让另外两条路径为了拿到同一份 JSON 反向
+/// 依赖表现层（通道服务端就曾经这么调），而工具面本来是要能整体搬到共享 crate 的。
+pub fn file_payload(outcome: &SendOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "sessionId": outcome.session_id.to_string(),
+        "fileCount": outcome.file_count,
+        "totalBytes": outcome.total_bytes,
+    })
 }
 
 /// 把文件或目录发给一台已配对设备，**阻塞到传输终态**。
@@ -224,6 +238,16 @@ pub struct TextOutcome {
     pub peer_name: String,
     /// 正文的 UTF-8 字节数（**不是字符数**）——64 KiB 上限量的就是它。
     pub bytes: usize,
+}
+
+/// 一次文本发送的结果在三条对外路径上的共同形状——**必须只有这一份**，
+/// 否则 `--json` 的字段名会因「此刻有没有常驻节点」而不同。判据同 [`file_payload`]。
+pub fn text_payload(outcome: &TextOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "deliveryId": outcome.delivery_id.to_string(),
+        "peerName": outcome.peer_name,
+        "bytes": outcome.bytes,
+    })
 }
 
 /// 把一段文本发给一台已配对设备，**阻塞到拿得出确定结论**。

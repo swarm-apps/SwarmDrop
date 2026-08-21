@@ -9573,6 +9573,7 @@ dependencies = [
  "indicatif",
  "interprocess",
  "migration",
+ "rmcp",
  "serde",
  "serde_json",
  "swarmdrop-core",

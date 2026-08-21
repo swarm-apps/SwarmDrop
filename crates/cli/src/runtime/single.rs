@@ -20,7 +20,6 @@
 //! 文件锁用**标准库**的 [`std::fs::File::try_lock`]（1.89 起稳定），不引第三方 crate：
 //! 这里要的就是它提供的那点语义——非阻塞地拿一把随进程退出自动释放的独占锁。
 
-use std::path::PathBuf;
 use std::time::Duration;
 
 use std::fs::TryLockError;
@@ -47,12 +46,6 @@ pub struct NodeLock {
     /// 持有整个数据目录而不只是通道路径：清理残留是**它**的方法
     /// （见 [`DataDir::clear_stale_channel`]），那条平台差异不该在这一层再写一遍。
     data_dir: DataDir,
-}
-
-impl NodeLock {
-    pub fn socket_path(&self) -> PathBuf {
-        self.data_dir.socket()
-    }
 }
 
 impl Drop for NodeLock {

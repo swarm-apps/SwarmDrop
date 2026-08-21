@@ -51,6 +51,10 @@ serde_json = { workspace = true }
 interprocess = { version = "2.4.3", features = ["tokio"] }
 serde = { workspace = true, features = ["derive"] }
 swarmdrop-invite = { version = "0.1.0", path = "../invite" }
+# MCP 宿主（`swarmdrop mcp`）。与桌面壳同主版本，但 transport 不同：那边是 Tauri 进程内的
+# streamable-http（要 axum 与端口），这里是 stdio —— 不占端口、生命周期跟随宿主进程、
+# 也就不需要任何 loopback 授权面。
+rmcp = { version = "2", features = ["server", "transport-io"] }
 uuid = { workspace = true, features = ["v4"] }
 # 交互提示（确认、单选、多选、行输入）。**只在有终端时用**（见 src/prompt/mod.rs）——
 # 命令行宿主同样跑在服务单元与脚本里，那些场景没有 stdin 可读。

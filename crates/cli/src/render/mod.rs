@@ -17,11 +17,12 @@
 pub mod device;
 pub mod inbox;
 pub mod invite;
+pub mod panel;
 pub mod send;
 pub mod status;
+pub mod stream;
 pub mod transfer;
 pub mod update;
-pub mod watch;
 
 /// 把结构化结果写到 stdout。
 ///
@@ -85,6 +86,18 @@ pub fn int_or_zero(value: &serde_json::Value, key: &str) -> i64 {
         .get(key)
         .and_then(serde_json::Value::as_i64)
         .unwrap_or(0)
+}
+
+/// 从一段 JSON 里取一个数组字段；缺失或不是数组时当空。
+///
+/// 与 [`text_or`] 同一条理由：**取值与降级的规则不该有第二种**。返回切片而不是
+/// `Option<&Vec<_>>`，是为了让调用点直接 `.len()` / 迭代，不必各自决定「没有算几条」。
+pub fn array_or_empty<'a>(value: &'a serde_json::Value, key: &str) -> &'a [serde_json::Value] {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
 }
 
 /// 标识的短形式。

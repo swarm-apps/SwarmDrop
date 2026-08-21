@@ -167,7 +167,7 @@ async fn run_delivery(
     let response = access
         .ask_watching(&payload.request(peer_id), |frame| {
             if let Some(remote) = remote.as_mut() {
-                remote.on_frame(frame);
+                remote.on_frame(&frame);
             }
         })
         .await?;

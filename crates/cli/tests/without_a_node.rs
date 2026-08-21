@@ -1,10 +1,13 @@
-//! 真实进程下的两条承诺：**不该起节点的命令不起节点**，**问不了人的命令不挂起**。
+//! 真实进程下的三条承诺：**不该起节点的命令不起节点**，**问不了人的命令不挂起**，
+//! **长驻命令收到终止信号时干净地成功退出**。
 //!
-//! 这两条单元测试都覆盖不到。前者的失败形态是「命令能用，只是慢了几秒」，后者是
-//! 「在管道里永久挂住且日志无异常」——都要真的把二进制跑起来才看得见。
+//! 三条单元测试都覆盖不到。第一条的失败形态是「命令能用，只是慢了几秒」，第二条是
+//! 「在管道里永久挂住且日志无异常」，第三条要有一个真的能收信号的进程——
+//! 都要把二进制跑起来才看得见。
 
+use std::io::BufRead;
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 
 /// 跑一条命令，stdin 接空（模拟管道 / CI：**不是终端**）。
 fn run(dir: &Path, args: &[&str]) -> Output {
@@ -229,4 +232,94 @@ fn reading_the_body_from_a_pipe_never_hangs() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(!started_a_node(tmp.path()), "正文校验之前就把节点起了");
+}
+
+/// 拉起一条**长驻**命令，stdout 接管道以便读它的输出。
+///
+/// 与 [`run`] 的区别是它**不等进程结束**——长驻命令永远不结束，用 `.output()` 等于
+/// 让测试永久挂住。这也是 `watch` 不能加进 [`record_commands_never_start_a_node`]
+/// 那张表的原因：那里用的正是 `.output()`。
+fn spawn(dir: &Path, args: &[&str]) -> Child {
+    Command::new(env!("CARGO_BIN_EXE_swarmdrop"))
+        .args(args)
+        .arg("--data-dir")
+        .arg(dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("执行 swarmdrop")
+}
+
+/// **`watch` 不得启动节点，且没有节点时也要照常给出基线。**
+///
+/// 两件事一起测是因为它们是同一条承诺的两半：订阅只观察本机发生的事，所以既不该起
+/// 节点，也不该因为没有节点就报错退出——调用方（agent harness 的插件）完全可能先拉起
+/// 订阅再拉起节点。少了后半条，宿主就得自己写一套重试与竞态处理。
+#[test]
+fn watch_without_a_node_emits_a_baseline_and_starts_nothing() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let mut child = spawn(tmp.path(), &["watch", "--json"]);
+
+    // 读到第一行就说明它已经做完了启动时该做的一切。**不用计时判据**：
+    // 耗时随机器波动，而「基线出来了没有」是确定的。
+    let stdout = child.stdout.take().expect("stdout");
+    let mut line = String::new();
+    std::io::BufReader::new(stdout)
+        .read_line(&mut line)
+        .expect("读取基线");
+
+    let _ = child.kill();
+    let _ = child.wait();
+
+    let event: serde_json::Value = serde_json::from_str(line.trim()).expect("基线应当是合法 JSON");
+    assert_eq!(event["kind"], "baseline", "第一帧必须是基线: {line}");
+    assert_eq!(event["seq"], 0, "序号从 0 起: {line}");
+    assert_eq!(event["v"], 1, "每条都要带 schema 版本: {line}");
+    assert_eq!(
+        event["nodeRunning"], false,
+        "没有常驻节点时基线必须如实说: {line}"
+    );
+
+    assert!(
+        !started_a_node(tmp.path()),
+        "watch 启动了节点——它只观察，不该有任何数据包因它离开本机"
+    );
+}
+
+/// **`SIGTERM` 必须以成功退出。**
+///
+/// 这是本命令最常见的收摊路径，不是补充场景：agent harness 结束子进程与服务管理器停止
+/// 服务用的都是它。而 `tokio::signal::ctrl_c()` 在 Unix 上**只接 `SIGINT`**——不额外接
+/// `SIGTERM` 的话，最常见的那条正常停止会走不到清理、退出码非零，而调用方把非零读作
+/// 失败并触发重启或告警。
+///
+/// 拿 `watch` 当代表：三条长驻命令（`watch` / `mcp` / `start` 前台）共用同一个
+/// [`crate::runtime::signal::shutdown`]，而只有它不需要真的起一个节点。
+#[cfg(unix)]
+#[test]
+fn a_long_running_command_exits_successfully_on_sigterm() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let mut child = spawn(tmp.path(), &["watch", "--json"]);
+
+    // 等第一帧——它同时证明信号监听已经注册好了（注册发生在拼基线之前的那次 select）。
+    let stdout = child.stdout.take().expect("stdout");
+    let mut line = String::new();
+    std::io::BufReader::new(stdout)
+        .read_line(&mut line)
+        .expect("读取基线");
+
+    let killed = Command::new("kill")
+        .arg("-TERM")
+        .arg(child.id().to_string())
+        .status()
+        .expect("发送 SIGTERM");
+    assert!(killed.success(), "kill 本身失败了");
+
+    let status = child.wait().expect("等待退出");
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "SIGTERM 之后退出码必须是 0——用户主动结束一次订阅不是失败"
+    );
 }

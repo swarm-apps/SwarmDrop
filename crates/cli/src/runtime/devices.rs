@@ -39,6 +39,16 @@ pub struct DeviceRow {
     pub paired_at: Option<i64>,
 }
 
+/// 一台设备算不算在线。**判据只有这一份**：内核给的 `Device.status`。
+///
+/// 单独成函数是因为它有第二个消费者（订阅面的 `DeviceEntry`），而抄一份的代价是隐性的
+/// ——两处对「在线」的定义分叉时谁都不报错，只是同一台设备在设备列表里是绿的、在事件流
+/// 里是灰的。**尤其不要改用 `PeerConnected`/`PeerDisconnected` 推**：那是第二套在线语义，
+/// GUI 的「在线」含 15s presence 宽限期。
+pub fn is_online(device: &Device) -> bool {
+    matches!(device.status, DeviceStatus::Online)
+}
+
 impl From<Device> for DeviceRow {
     fn from(device: Device) -> Self {
         Self {
@@ -46,7 +56,7 @@ impl From<Device> for DeviceRow {
             name: device.os_info.display_name(),
             os: device.os_info.os.clone(),
             arch: device.os_info.arch.clone(),
-            online: Some(matches!(device.status, DeviceStatus::Online)),
+            online: Some(is_online(&device)),
             connection: device.connection,
             paired_at: None,
         }
@@ -75,12 +85,19 @@ impl From<PairedDeviceInfo> for DeviceRow {
 /// 同时局域网里路过的陌生设备反而列了出来。用户唯一能确认「配上没有」的手段就是这条命令，
 /// 它答错等于配对功能不存在。
 pub fn from_node(node: &RunningNode) -> Vec<DeviceRow> {
-    node.manager
-        .devices()
-        .get_devices(DeviceFilter::Paired)
+    paired_on_node(node)
         .into_iter()
         .map(DeviceRow::from)
         .collect()
+}
+
+/// 活节点上的已配对设备，**原始形态**。
+///
+/// 给需要 `Device` 全部字段的消费者用（订阅面按 `is_paired` 与 `status` 做差分）。
+/// 它与 [`from_node`] 共用同一个 `DeviceFilter::Paired` 决定——那个决定的理由写在
+/// [`from_node`] 上，抄第二遍等于给「订阅面列出了局域网里路过的陌生设备」留一个入口。
+pub fn paired_on_node(node: &RunningNode) -> Vec<Device> {
+    node.manager.devices().get_devices(DeviceFilter::Paired)
 }
 
 /// 取一次设备清单，走哪条路径由 [`RecordAccess`] 决定。

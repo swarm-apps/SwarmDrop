@@ -11,18 +11,45 @@
 //! **会话**标识」，而这里的对象是收件箱**条目**。借用过一次，`inbox show 乱码` 就报出了
 //! 会话的名词，而常驻路径仍说条目——同一条命令、同一个输入、两个名词。
 
-use swarmdrop_core::transfer::inbox::{InboxItemDetail, InboxItemSummary};
+use swarmdrop_core::transfer::inbox::{InboxItemDetail, InboxItemSummary, InboxSearchHit};
 use swarmdrop_core::transfer::store::TransferStore;
 use uuid::Uuid;
 
 use crate::exit::{CliError, CliResult};
 
-/// 收件箱条目清单。
-pub async fn list(store: &dyn TransferStore) -> CliResult<Vec<InboxItemSummary>> {
+/// 收件箱条目清单，按接收时间倒序。
+///
+/// `include_archived` **必须一路传到端口**，不能取回全量之后在上层按字段筛：
+/// `InboxItemSummary` 上的字段是 `archived_at`（`Option<i64>`）而不是 `archived`，
+/// 按后者筛的谓词恒真——归档项要么全在、要么全不在，取决于这里传了什么。
+/// MCP 那侧的 `include_archived` 就是这么静默失效过一次的。
+pub async fn list(
+    store: &dyn TransferStore,
+    include_archived: bool,
+) -> CliResult<Vec<InboxItemSummary>> {
     store
-        .list_inbox_items(false)
+        .list_inbox_items(include_archived)
         .await
         .map_err(|err| CliError::NodeUnavailable(format!("读取收件箱失败: {err}")))
+}
+
+/// 子串检索收件箱。
+///
+/// ⚠️ **走 `search_inbox_capped` 而不是 `search_inbox`**：后者收的是确定的 `usize`，
+/// 于是每个宿主都得自己想「不传时用几」——#111 之前四个宿主想出了四个答案（Tauri 20、
+/// MCP 20、移动 100、Web 50），而内核的截断是「按 `received_at` 倒序之后截断」，掉的
+/// 永远是最早收到的那批：同一批数据、同一个词，老条目在一端搜不到、在另一端搜得到。
+/// 端口把兜底放在自己那儿，正是为了让 `Option` 成为宿主面对的类型。
+pub async fn search(
+    store: &dyn TransferStore,
+    query: &str,
+    limit: Option<u32>,
+    include_archived: bool,
+) -> CliResult<Vec<InboxSearchHit>> {
+    store
+        .search_inbox_capped(query, limit, include_archived)
+        .await
+        .map_err(|err| CliError::NodeUnavailable(format!("检索收件箱失败: {err}")))
 }
 
 /// 一个条目的详情。

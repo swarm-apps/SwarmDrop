@@ -17,18 +17,21 @@ use crate::cmd::TransferAction;
 use crate::exit::{CliError, CliResult};
 use crate::prompt::pick::Picker;
 use crate::prompt::{self, Hotkey};
-use crate::render::watch::Panel;
+use crate::render::panel::Panel;
 use crate::runtime::access::{DaemonAccess, RecordAccess, rows, to_value};
 use crate::runtime::ipc::Request;
 use crate::runtime::transfers::{self, Control};
 
 /// 面板重取一次事实的间隔。
 ///
-/// **不是靠事件推送**：进度发生在常驻节点进程里，而本地通道是一问一答的（理由见
-/// [`crate::runtime::ipc`]）——把它升级成流式会话，要连带引入超时、心跳与半关闭语义，
-/// 那是把一条内部调试通道变成一套协议。一秒一次的代价是一次本地套接字往返加一条
-/// 窄查询（`list_unfinished_projections`，只读没传完的那几条），而人眼分辨不出
-/// 一秒的滞后。
+/// **这个面板靠轮询而不是事件推送**——尽管通道上如今确实有一条推送式的订阅
+/// （`Request::Subscribe`，见 [`crate::runtime::watch`]）。两者的差别不是能力而是形态：
+/// 面板每帧要的是**全量快照**（一屏进度条要对齐、要按阶段分组），而订阅给的是增量，
+/// 用它就得在这里再维护一份由事件折叠出来的镜像——那份镜像与真相分叉时，
+/// 屏幕上会显示一条其实已经结束的传输，而没有任何东西会纠正它。
+///
+/// 一秒一次的代价是一次本地套接字往返加一条窄查询（`list_unfinished_projections`，
+/// 只读没传完的那几条），而人眼分辨不出一秒的滞后。
 const REFRESH: Duration = Duration::from_secs(1);
 
 pub async fn run(data_dir: &DataDir, json: bool, action: TransferAction) -> CliResult<()> {
@@ -222,6 +225,9 @@ async fn watch(data_dir: &DataDir, json: bool) -> CliResult<()> {
     // 方向键会被面板的读者截走，用户看到的是一个动不了的选择框。
     let mut pending = hotkeys.then(|| Box::pin(prompt::hotkey()));
 
+    // **监听器建在循环外**：写在 `select!` 里就是每转一圈重建一次，
+    // 落在缝隙里的信号会被静默吞掉（判据见 `runtime::signal`）。
+    let mut signals = crate::runtime::signal::Shutdown::listen();
     loop {
         tokio::select! {
             // 先看键：用户按了 q 却因为这一轮取数失败而看到一句报错，是最没道理的。
@@ -258,7 +264,7 @@ async fn watch(data_dir: &DataDir, json: bool) -> CliResult<()> {
             //
             // **必须显式接住而不是让默认信号处理器杀掉进程**：那样面板不会收尾，
             // 半屏进度条会留在用户的 shell 提示符上面。
-            _ = tokio::signal::ctrl_c() => return Ok(()),
+            _ = signals.recv() => return Ok(()),
 
             _ = ticker.tick() => match unfinished(&access).await {
                 Ok(records) => panel.sync(&records),
@@ -281,11 +287,13 @@ async fn watch(data_dir: &DataDir, json: bool) -> CliResult<()> {
 async fn stream_snapshots(access: &RecordAccess) -> CliResult<()> {
     let mut ticker = tokio::time::interval(REFRESH);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // 建在循环外，理由同上。
+    let mut signals = crate::runtime::signal::Shutdown::listen();
     loop {
         tokio::select! {
             // 这个模式下没有热键可按，Ctrl-C 是唯一的出口——而它必须是**正常退出**，
             // 否则消费方（脚本）会把一次正常的结束读成失败。
-            _ = tokio::signal::ctrl_c() => return Ok(()),
+            _ = signals.recv() => return Ok(()),
             _ = ticker.tick() => {
                 let records = unfinished(access).await?;
                 println!("{}", Value::Array(records));

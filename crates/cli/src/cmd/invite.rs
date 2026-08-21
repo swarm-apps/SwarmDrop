@@ -405,9 +405,11 @@ async fn serve(
 
 /// 起一个只注册一次的中止监听。
 ///
-/// ⚠️ **不能在循环里反复 `tokio::signal::ctrl_c()`**。`select!` 每轮新建一个，另一分支
-/// 胜出时它连同注册一起被丢弃；而 tokio 的信号驱动在没有监听者时会无条件清掉 pending
-/// 标志——那一刻到达的 Ctrl-C 就此蒸发。
+/// ⚠️ **不能在循环里反复新建信号监听器**。`select!` 每轮新建一个，另一分支胜出时它连同
+/// 注册一起被丢弃；而 tokio 的信号接收端是个 `watch` 订阅，新订阅从当前版本起算，
+/// 看不到自己出生前的那一次通知——那一刻到达的信号就此蒸发。这条判据现在由
+/// [`crate::runtime::signal::Shutdown`] 承载（建一次、反复 `recv`），这里是它最早的
+/// 那个用例。
 ///
 /// 确认提示期间尤其致命：`dialoguer` 在 raw 模式下关掉了 `ISIG`、自己读到 `\x03` 之后
 /// 补发一个 SIGINT，而那正好是没有监听者的时候。表现是用户按了 Ctrl-C 只等到一句
@@ -418,7 +420,8 @@ fn spawn_abort_watch() -> std::sync::Arc<tokio::sync::Notify> {
 
     tokio::spawn(async move {
         // 一直挂着、不重建：注册那一刻起就不再有空档。
-        if tokio::signal::ctrl_c().await.is_ok() {
+        {
+            crate::runtime::signal::Shutdown::listen().recv().await;
             // `notify_one` 会存下 permit，所以即使此刻没人在等（正卡在确认提示里），
             // 下一次 `notified()` 也会立刻完成。
             signal.notify_one();

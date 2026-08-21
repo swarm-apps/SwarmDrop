@@ -51,7 +51,7 @@ use super::single::{Acquisition, NodeLock, acquire};
 ///
 /// `Ok(None)` = 这条通道给不出答案（连不上、或服务端回了无负载的 `Ok`），调用方应回落到
 /// 本地路径。**「连不上」不是错误**：它是「没有常驻节点」这一事实。
-fn unpack(response: Option<Response>) -> CliResult<Option<Value>> {
+pub(crate) fn unpack(response: Option<Response>) -> CliResult<Option<Value>> {
     match response {
         Some(Response::Data { payload }) => Ok(Some(payload)),
         // **按服务端给的分类重建**，不要一律压成「节点不可用」——那会让「没有这条记录」
@@ -252,11 +252,18 @@ impl DaemonAccess {
 pub enum NodeAccess {
     /// 复用正在运行的常驻节点。
     Daemon { socket: PathBuf },
-    /// 本进程持有的临时节点。
+    /// 本进程自持的节点。
     Owned {
-        /// 装箱：两个变体的体量差得远，不装箱会让每个值都按大的那个占位。
-        node: Box<RunningNode>,
+        /// `Arc` 而不是 `Box`：两个变体的体量差得远，都得包一层指针才不会让每个值按大的
+        /// 那个占位；而**共享**是必须的——长驻的消费者要把同一个节点交给
+        /// [`super::daemon::Daemon`]（本地通道 + 被动接收都要拿着它）。
+        node: Arc<RunningNode>,
         /// 持有权。**必须活到节点关停之后**才 drop，否则下一个进程会在旧节点还在时拿到锁。
+        ///
+        /// 它只为 `Drop` 而存在，没有读取点——`#[expect]` 而不是 `_lock`，是为了让
+        /// 「将来真的读它了」这件事把这条标注变成一处编译警告，而不是让一个下划线名字
+        /// 一直挂在那里。
+        #[expect(dead_code, reason = "只为 Drop 而持有：锁在它析构时才释放")]
         lock: NodeLock,
     },
 }
@@ -268,7 +275,7 @@ impl NodeAccess {
                 socket: data_dir.socket(),
             }),
             Acquisition::Owner(lock) => Ok(Self::Owned {
-                node: Box::new(boot(data_dir, json).await?),
+                node: Arc::new(boot(data_dir, json).await?),
                 lock,
             }),
         }
@@ -276,6 +283,14 @@ impl NodeAccess {
 
     /// 本进程自持的节点（复用常驻节点时为 `None`）。
     pub fn local(&self) -> Option<&RunningNode> {
+        self.local_arc().map(Arc::as_ref)
+    }
+
+    /// 同上，但给得出一份**共享**句柄。
+    ///
+    /// 长驻的消费者要用它：[`super::daemon::Daemon`] 会把节点交给若干个后台任务
+    /// （被动接收、配对确认台、请求处理器），那些任务的生命周期与本命令一样长。
+    pub fn local_arc(&self) -> Option<&Arc<RunningNode>> {
         match self {
             Self::Owned { node, .. } => Some(node),
             Self::Daemon { .. } => None,
@@ -303,7 +318,7 @@ impl NodeAccess {
     pub async fn ask_watching(
         &self,
         request: &Request,
-        on_progress: impl FnMut(&Value),
+        on_progress: impl FnMut(Value),
     ) -> CliResult<Option<Response>> {
         match self {
             Self::Owned { .. } => Ok(None),
@@ -315,9 +330,20 @@ impl NodeAccess {
     ///
     /// 临时节点在此关停；复用常驻节点时什么都不做——**绝不能顺手把别人的节点关了**。
     pub async fn close(self) {
-        if let Self::Owned { node, lock } = self {
+        self.shutdown().await;
+        drop(self); // 显式：锁必须在关停之后释放
+    }
+
+    /// 关停自持节点，但**不交出所有权**。
+    ///
+    /// 给长驻命令的收尾路径用：那里的 `NodeAccess` 被包在 `Arc` 里交给了协议栈，
+    /// 而协议栈的后台任务可能仍持着一份克隆，拿不到所有权。要求「拿得到所有权才清理」
+    /// 会让最需要清理的那条路径（被信号打断）一步都不做。
+    ///
+    /// 锁的释放仍靠 `Drop`——它与关停的先后由调用方保证（[`Self::close`] 显式排了序）。
+    pub async fn shutdown(&self) {
+        if let Self::Owned { node, .. } = self {
             node.manager.shutdown().await;
-            drop(lock); // 显式：锁必须在关停之后释放
         }
     }
 }

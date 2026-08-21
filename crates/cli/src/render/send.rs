@@ -6,12 +6,12 @@ use crate::runtime::transfer::{SendOutcome, TextOutcome};
 
 /// 文件发送结果。
 ///
-/// **走 `file_payload` 转成 JSON 再交给 [`render_from_json`]，不另写一份文案。**
+/// **走 [`crate::runtime::transfer::file_payload`] 转成 JSON 再交给 [`render_from_json`]，不另写一份文案。**
 /// 两条取数路径（自持临时节点 / 常驻节点）此前各拼一遍同一句话——改了一处另一处会静默
 /// 保持旧的，**而用户看到哪一句取决于此刻有没有常驻节点在跑**。文本那支从一开始就是
-/// 一份共用的（见 [`text_payload`] 的注释），这里补齐。
+/// 一份共用的（见 [`crate::runtime::transfer::text_payload`] 的注释），这里补齐。
 pub fn render(outcome: &SendOutcome, json: bool) {
-    render_from_json(&file_payload(outcome), json);
+    render_from_json(&crate::runtime::transfer::file_payload(outcome), json);
 }
 
 /// 结果来自通道对面的常驻节点时，它已经是 JSON。
@@ -38,7 +38,7 @@ pub fn render_from_json(payload: &serde_json::Value, json: bool) {
 /// 已经把正文落库，说「已发送」会把一个确定的事实降级成一个不确定的事实，而失败那几支
 /// 恰恰都长着「发出去了但没到」的样子（spec: text-send-experience）。
 pub fn render_text(outcome: &TextOutcome, json: bool) {
-    render_text_from_json(&text_payload(outcome), json);
+    render_text_from_json(&crate::runtime::transfer::text_payload(outcome), json);
 }
 
 /// 结果来自通道对面的常驻节点时，它已经是 JSON。
@@ -54,25 +54,6 @@ pub fn render_text_from_json(payload: &serde_json::Value, json: bool) {
         super::text_or(payload, "peerName", "对端"),
         human_bytes(payload.get("bytes").and_then(|v| v.as_u64()).unwrap_or(0))
     );
-}
-
-/// 文件发送结果在 `--json` 与通道上的形状。**两处必须是同一份**，理由见 [`text_payload`]。
-pub fn file_payload(outcome: &SendOutcome) -> serde_json::Value {
-    serde_json::json!({
-        "sessionId": outcome.session_id.to_string(),
-        "fileCount": outcome.file_count,
-        "totalBytes": outcome.total_bytes,
-    })
-}
-
-/// 结构化输出与通道负载共用的形状——**两处必须是同一份**，否则 `--json` 的字段名
-/// 会因「此刻有没有常驻节点」而不同。
-pub fn text_payload(outcome: &TextOutcome) -> serde_json::Value {
-    serde_json::json!({
-        "deliveryId": outcome.delivery_id.to_string(),
-        "peerName": outcome.peer_name,
-        "bytes": outcome.bytes,
-    })
 }
 
 /// 等待对端接收文本时的转轮。

@@ -98,11 +98,37 @@ pub enum Request {
         pending_id: u64,
         accept: bool,
     },
-    /// 列出收件箱条目。
-    InboxList,
+    /// 列出收件箱条目，按接收时间倒序。
+    ///
+    /// `include_archived` 是**服务端修饰**而不是客户端过滤：`InboxItemSummary` 上的字段
+    /// 是 `archived_at` 不是 `archived`，在客户端按 JSON 筛的谓词恒真，而两条取数路径
+    /// 本来就只请求未归档项——于是这个开关静默无效。判据同
+    /// [`crate::runtime::inbox::list`]。
+    ///
+    /// ⚠️ 带 `#[serde(default)]`：旧客户端发的 `{"verb":"inbox_list"}` 仍要解析得动
+    /// （升级 CLI 不会重启常驻节点）。反方向的代价照实说——新客户端 × 旧常驻节点时
+    /// 这个字段会被对面忽略，`include_archived: true` 退化成「只有未归档」。
+    InboxList {
+        #[serde(default)]
+        include_archived: bool,
+    },
     /// 取一个收件箱条目的详情。
     InboxShow {
         id: String,
+    },
+    /// 子串检索收件箱。
+    ///
+    /// **与 [`Self::InboxList`] 是两条而不是一条带可选查询词的**：命中判据、片段生成与
+    /// 截断规则都归内核的 `search_inbox_capped`，而 `InboxList` 走的是
+    /// `list_inbox_items`——两者返回的甚至不是同一个类型（`InboxSearchHit` 多出命中片段）。
+    /// 合成一条只会得到一个两半互不相干的分支。
+    ///
+    /// `limit` 是 `Option` 而不是带默认值的 `u32`：默认值归内核，宿主自带一个就会长出
+    /// 第五个答案（见 [`crate::runtime::inbox::search`]）。
+    InboxSearch {
+        query: String,
+        limit: Option<u32>,
+        include_archived: bool,
     },
     /// 传输记录清单。
     TransferList,
@@ -154,6 +180,24 @@ pub enum Request {
         /// 目标设备（名称或节点标识）。
         to: String,
     },
+    /// 订阅本机发生的事件，**长驻**：一直发非终态帧，直到客户端走开或节点关停。
+    ///
+    /// 第一帧是基线（整值快照），其后是增量。载荷是订阅面自己定义的窄结构
+    /// （[`crate::runtime::watch::event`]），**不是** `CoreEvent`——那个会泄露配对凭证
+    /// 与文本正文，而这条流的终点是消费方跨月留存的日志。
+    ///
+    /// ⚠️ 它是这条通道上唯一**不会很快给出终态**的动词。既有机制刚好都兜得住：
+    /// 帧格式复用 [`Frame::Progress`]，客户端复用 [`request_watching`]，
+    /// 对端走人由 [`peer_gone`] 那条 select 分支连同整个任务一起取消。
+    /// 唯一不能复用的是 [`FrameSink::try_send`] 的三道闸，理由见 [`FrameSink::send`]。
+    Subscribe {
+        /// 基线里最多带几条收件箱记录。
+        ///
+        /// `None` = 用订阅面的默认值（`watch::baseline::DEFAULT_INBOX_LIMIT`）。
+        /// 默认值归订阅面而不是通道：通道只是搬运，让它也持有一个默认值就会长出第二个
+        /// 答案（判据与 [`Self::InboxSearch`] 的 `limit` 同源）。
+        inbox_limit: Option<u32>,
+    },
     Stop,
 }
 
@@ -181,6 +225,10 @@ pub enum Request {
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Frame {
     /// **非终态**：处理还在继续。后面**必然**还会有一条终态帧。
+    ///
+    /// 订阅（[`Request::Subscribe`]）也走它，只是那条的「处理还在继续」可以持续几天——
+    /// 终态在节点关停时才来。名字保留 `progress` 是**线格式约束**：它与旧版逐字相同，
+    /// 换名字会让「新客户端 × 旧常驻节点」这个真实窗口里的帧解析不动（见本枚举的文档）。
     Progress {
         payload: serde_json::Value,
     },
@@ -277,12 +325,16 @@ pub async fn request(socket_path: &Path, req: &Request) -> CliResult<Option<Resp
 
 /// 同上，但每条进度消息都回调一次。
 ///
-/// 回调是同步的：它只负责把一帧画出去（更新一个进度条），不该做任何会 await 的事
-/// ——那会拖慢读循环，而进度是可以丢的、连接不是。
+/// 回调是同步的。两类调用方对它的期望正好相反，都是对的：
+///
+/// - **进度条**（`send`）：只画一帧，不该做任何会 await 的事——那会拖慢读循环，
+///   而进度是可以丢的、连接不是。
+/// - **订阅**（`watch`）：把这一帧写到 stdout，**慢就该慢**。那次阻塞正是背压，
+///   它会顶回服务端的有界队列并在那里变成一次如实上报的截断；偷偷跑掉一帧才是错的。
 pub async fn request_watching(
     socket_path: &Path,
     req: &Request,
-    mut on_progress: impl FnMut(&serde_json::Value),
+    mut on_progress: impl FnMut(serde_json::Value),
 ) -> CliResult<Option<Response>> {
     let name = socket_name(socket_path)?;
     let Ok(stream) = LocalSocketStream::connect(name).await else {
@@ -321,7 +373,10 @@ pub async fn request_watching(
         // 不认识它的调用方（`request`）传一个空回调，于是自然地跳过。
         match frame.into_terminal() {
             Ok(terminal) => return Ok(Some(terminal)),
-            Err(payload) => on_progress(&payload),
+            // **按值交出去**：这一帧已经是本函数解析出来的、没有别人再要的值。
+            // 收 `&Value` 会逼订阅那侧为每一条事件克隆一遍，而它是这条通道上唯一的高频
+            // 消费者（进度条那侧只读几个字段，按值同样够用）。
+            Err(payload) => on_progress(payload),
         }
     }
 }
@@ -355,15 +410,27 @@ async fn peer_gone<R: tokio::io::AsyncRead + Unpin>(reader: &mut R) {
     }
 }
 
-/// 处理期间往客户端推送进度的出口。
+/// 处理期间往客户端推送**非终态帧**的出口。
 ///
-/// **写失败一律吞掉**：客户端可能已经 Ctrl-C 走人，而一条推不出去的进度不该让正在进行的
-/// 传输失败。真正处理「对端走了」的是 `peer_gone` 那条 select 分支，它会连同整个任务一起
-/// 取消——那才是该中止的时机，不是某一帧写不出去的时候。
-pub struct ProgressSink {
+/// ## 两个方法，两种投递策略，判据是「调用方是谁」
+///
+/// | 方法 | 阻塞调用方？ | 丢帧？ | 调用方 |
+/// |---|---|---|---|
+/// | [`try_send`](Self::try_send) | 绝不 | 会，静默 | `select!` 的**分支体**（传输准备） |
+/// | [`send`](Self::send) | 会 | 不会 | 一条订阅**专属**的任务 |
+///
+/// 这不是「一个安全一个不安全」，是同一件事在两种调用位置上的正确答案各不相同：
+///
+/// - 分支体挂住 ⇒ 同一个 `select!` 里真正干活的那条 future 得不到轮询，**常驻节点上
+///   别人的传输就停在那儿**。所以宁可丢一帧进度——下一帧会纠正它。
+/// - 订阅任务挂住 ⇒ 什么都不影响，它本来就只干这一件事；而阻塞正是背压信号，
+///   它会一路顶回订阅的有界队列，在那里变成一次**如实上报**的截断
+///   （spec: `cli-event-stream` 的「边沿事件不得静默丢失」）。用 `try_send` 反而错：
+///   边沿事件会在这里无声消失，而消费方把这段记录跨月留存。
+pub struct FrameSink {
     /// 与终态帧**共用**的写端。见 [`IpcServer::accept_one`] 里那段注释。
     writer: std::sync::Arc<tokio::sync::Mutex<DynWriter>>,
-    /// 这条流上是否发生过写超时或写失败。见 [`ProgressSink::send`] 的第 3 道闸。
+    /// 这条流上是否发生过写超时或写失败。见 [`FrameSink::try_send`] 的第 3 道闸。
     poisoned: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -376,8 +443,8 @@ type DynWriter = Box<dyn tokio::io::AsyncWrite + Send + Unpin>;
 /// 那时套接字发送缓冲会填满、写永久 Pending。
 const PROGRESS_WRITE_BUDGET: std::time::Duration = std::time::Duration::from_millis(500);
 
-impl ProgressSink {
-    /// 推一帧进度。**永不长时间阻塞调用方。**
+impl FrameSink {
+    /// 尽力推一帧，**永不长时间阻塞调用方**；推不出去就丢掉，不留痕迹。
     ///
     /// ⚠️ 这条约束不是防御性编程，它是正确性要求。调用方是
     /// [`crate::runtime::transfer::prepare_with_progress`] 的 `select!` **分支体**——
@@ -393,14 +460,13 @@ impl ProgressSink {
     ///    都会拼在那半行后面，客户端按行解析当场失败——**而那次传输其实是成功的**。
     ///    封口之后连终态帧都不再由本类型写（终态走 `accept_one` 自己那条路径），
     ///    客户端读到 EOF，得到一个诚实的「节点没有应答」，而不是一行拼接出来的乱码。
-    pub async fn send(&self, payload: serde_json::Value) {
-        if self.poisoned.load(std::sync::atomic::Ordering::Relaxed) {
+    pub async fn try_send(&self, payload: serde_json::Value) {
+        if self.is_poisoned() {
             return;
         }
-        let Ok(mut line) = serde_json::to_string(&Frame::Progress { payload }) else {
-            return; // 进度帧序列化失败：丢掉这一帧，不影响传输
+        let Some(line) = Self::encode(payload) else {
+            return; // 帧序列化失败：丢掉这一帧，不影响传输
         };
-        line.push('\n');
 
         // 拿不到锁 = 上一帧还在写。丢掉这一帧，绝不排队。
         let Ok(mut writer) = self.writer.try_lock() else {
@@ -409,10 +475,58 @@ impl ProgressSink {
         match tokio::time::timeout(PROGRESS_WRITE_BUDGET, writer.write_all(line.as_bytes())).await {
             Ok(Ok(())) => {}
             // 超时的那次可能写进去了半行；失败的那次同理。两者都只能封口。
-            Ok(Err(_)) | Err(_) => self
-                .poisoned
-                .store(true, std::sync::atomic::Ordering::Relaxed),
+            Ok(Err(_)) | Err(_) => self.poison(),
         }
+    }
+
+    /// 推一帧并**等它写完**；返回 `false` 表示这条连接已经不能再写了。
+    ///
+    /// 给订阅（[`Request::Subscribe`]）用——它的调用方是一条只干这件事的任务，
+    /// 判据见本类型的文档。三处与 [`try_send`](Self::try_send) 相反：
+    ///
+    /// - **等锁**而不是 `try_lock`：订阅连接上只有这一个写者，等不到锁是不可能的；
+    ///   真等到了也说明该等。
+    /// - **不设写超时**：慢就是背压，它要一路顶回订阅的有界队列变成一次如实的截断，
+    ///   在这里偷偷丢掉等于把那条链路的终点挪到一个不上报的地方。
+    /// - **写失败要告诉调用方**：订阅是长驻的，不告诉它就会一直往一条死掉的连接上写。
+    ///
+    /// 封口仍然做：写到一半失败时，后面那条终态帧也不能再写了（同 `try_send` 第 3 道闸）。
+    pub async fn send(&self, payload: serde_json::Value) -> bool {
+        if self.is_poisoned() {
+            return false;
+        }
+        let Some(line) = Self::encode(payload) else {
+            // 序列化失败只可能来自本端的 bug，与连接无关——连接还好着，继续。
+            return true;
+        };
+        if self
+            .writer
+            .lock()
+            .await
+            .write_all(line.as_bytes())
+            .await
+            .is_err()
+        {
+            self.poison();
+            return false;
+        }
+        true
+    }
+
+    /// 编码成一行（含换行）。`None` = 序列化失败。
+    fn encode(payload: serde_json::Value) -> Option<String> {
+        let mut line = serde_json::to_string(&Frame::Progress { payload }).ok()?;
+        line.push('\n');
+        Some(line)
+    }
+
+    fn is_poisoned(&self) -> bool {
+        self.poisoned.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn poison(&self) {
+        self.poisoned
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -423,7 +537,7 @@ impl ProgressSink {
 #[async_trait::async_trait]
 pub trait RequestHandler: Send + Sync {
     /// `progress` 是处理期间推送非终态消息的出口；不需要就不用它。
-    async fn handle(&self, req: Request, progress: &ProgressSink) -> Response;
+    async fn handle(&self, req: Request, progress: &FrameSink) -> Response;
 }
 
 /// 服务端：监听通道并应答。
@@ -450,8 +564,12 @@ impl IpcServer {
     /// 并发而非串行是必须的：`send` 会阻塞到传输终态（可能是几分钟），串行处理时
     /// 那期间连 `stop` 都递不进来——用户唯一的办法是杀进程。
     ///
-    /// 每个连接一问一答后关闭：客户端是「连上、问一句、退出」的形态，
-    /// 保持长连接只会多一套超时与心跳逻辑。
+    /// 每个连接一问一答后关闭：绝大多数客户端是「连上、问一句、退出」的形态。
+    ///
+    /// ⚠️ **「一问一答」说的是每条连接上只有一次请求，不是「应答很快」**：
+    /// [`Request::Subscribe`] 的应答会持续几天（若干条 [`Frame::Progress`] + 最后一条
+    /// 终态）。这里没有超时也没有心跳，也不需要——本地套接字上「对端还在不在」由内核
+    /// 直接给出（[`peer_gone`] 读到 EOF），那正是心跳要用一层协议去模拟的东西。
     pub async fn accept_one(&self, handler: std::sync::Arc<dyn RequestHandler>) -> CliResult<()> {
         let stream = self
             .listener
@@ -462,17 +580,22 @@ impl IpcServer {
         tokio::spawn(async move {
             // 读写分开：处理期间要一边算一边盯着对端有没有走。
             let (read_half, write_half) = tokio::io::split(stream);
-            // 写端共享给 [`ProgressSink`]：处理期间要往同一条连接推进度，
+            // 写端共享给 [`FrameSink`]：处理期间要往同一条连接推进度，
             // 处理完再往它写终态。**必须是同一个锁**——两边各持一个写端会让
             // 进度帧和终态帧交错成半行，客户端的按行解析当场失败。
             let writer: std::sync::Arc<tokio::sync::Mutex<DynWriter>> =
                 std::sync::Arc::new(tokio::sync::Mutex::new(Box::new(write_half)));
-            // 进度流被半行污染时终态帧就不写了，理由见 [`ProgressSink::send`]。
+            // 进度流被半行污染时终态帧就不写了，理由见 [`FrameSink::send`]。
             let poisoned = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let mut reader = BufReader::new(read_half);
             let mut line = String::new();
-            if reader.read_line(&mut line).await.is_err() {
-                return; // 对端提前断开，不是本端的错误
+            match reader.read_line(&mut line).await {
+                // 一个字节都没读到就 EOF：探活连接（[`is_alive`]）就长这样——连上、
+                // 立刻断开。**不能落到下面去解析空串**，那会为每一次探活凭空造出一条
+                // 「无法解析请求」的用法错误，再往一条已经关掉的套接字上写它。
+                // `watch` 无节点时每秒探一次，一天就是几万条。
+                Ok(0) | Err(_) => return,
+                Ok(_) => {}
             }
 
             let response = match serde_json::from_str::<Request>(&line) {
@@ -481,7 +604,7 @@ impl IpcServer {
                 // 东西（确认台的名额、接收锁）一直占着——期间到达的配对请求会被交给一条
                 // 已经没人接的连接、就此消失，而下一个客户端还得排在它后面等。
                 Ok(req) => {
-                    let progress = ProgressSink {
+                    let progress = FrameSink {
                         writer: writer.clone(),
                         poisoned: poisoned.clone(),
                     };
@@ -668,7 +791,7 @@ mod tests {
 
         #[async_trait::async_trait]
         impl RequestHandler for Blocking {
-            async fn handle(&self, _req: Request, _progress: &ProgressSink) -> Response {
+            async fn handle(&self, _req: Request, _progress: &FrameSink) -> Response {
                 let _held = self.canary.clone();
                 // 挂到天荒地老：真实场景里这是 `desk.take()` 的长轮询。
                 std::future::pending::<()>().await;
@@ -726,7 +849,7 @@ mod tests {
         struct Echo;
         #[async_trait::async_trait]
         impl RequestHandler for Echo {
-            async fn handle(&self, req: Request, _progress: &ProgressSink) -> Response {
+            async fn handle(&self, req: Request, _progress: &FrameSink) -> Response {
                 match req {
                     Request::Status => Response::Data {
                         payload: serde_json::json!({"ok": true}),
@@ -794,9 +917,9 @@ mod tests {
         struct Chatty;
         #[async_trait::async_trait]
         impl RequestHandler for Chatty {
-            async fn handle(&self, _req: Request, progress: &ProgressSink) -> Response {
+            async fn handle(&self, _req: Request, progress: &FrameSink) -> Response {
                 for step in 0..3u64 {
-                    progress.send(serde_json::json!({ "step": step })).await;
+                    progress.try_send(serde_json::json!({ "step": step })).await;
                 }
                 Response::Data {
                     payload: serde_json::json!({ "done": true }),
@@ -832,5 +955,112 @@ mod tests {
             other => panic!("终态不对: {other:?}"),
         }
         serving.await.unwrap().unwrap();
+    }
+    /// **一条长驻订阅：很多非终态帧，终态仍在最后。**
+    ///
+    /// 与上一条不是重复：那条只发三帧，验的是「`request` 会继续读」；这条验的是
+    /// 数量级——订阅在一次连接里可能推成千上万条，而客户端那侧的读循环、服务端那侧的
+    /// 共享写端与封口标志都要在这个量级上仍然正确。三帧过不了的形状（比如某处只
+    /// 处理首帧、或缓冲区在几 KB 之后错位）在三帧下全都是绿的。
+    #[tokio::test]
+    async fn a_subscription_streams_many_frames_before_its_terminal() {
+        const FRAMES: u64 = 1_000;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("stream.sock");
+        let server = IpcServer::bind(&path).unwrap();
+
+        struct Streamer;
+        #[async_trait::async_trait]
+        impl RequestHandler for Streamer {
+            async fn handle(&self, _req: Request, sink: &FrameSink) -> Response {
+                for n in 0..FRAMES {
+                    // 订阅走 `send` 而不是 `try_send`：边沿事件不得静默丢失，
+                    // 慢就该慢（判据见 [`FrameSink`]）。
+                    if !sink.send(serde_json::json!({ "n": n })).await {
+                        return Response::Ok;
+                    }
+                }
+                Response::Ok
+            }
+        }
+
+        let serving =
+            tokio::spawn(async move { server.accept_one(std::sync::Arc::new(Streamer)).await });
+
+        let mut seen = Vec::new();
+        let response = request_watching(&path, &Request::Status, |frame| {
+            seen.push(frame["n"].as_u64().expect("帧缺 n"));
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(seen.len(), FRAMES as usize, "帧数不对");
+        assert_eq!(seen.first(), Some(&0));
+        assert_eq!(seen.last(), Some(&(FRAMES - 1)), "顺序错了或丢了尾部");
+        assert!(
+            matches!(response, Some(Response::Ok)),
+            "终态不对: {response:?}"
+        );
+        serving.await.unwrap().unwrap();
+    }
+
+    /// **客户端走开之后，服务端那条订阅必须停下来。**
+    ///
+    /// 订阅没有「处理完了」这个自然终点，唯一的终点就是对端不在了。不停的表现是常驻
+    /// 节点里留下一个永远往死连接上写的任务——而这条流的调用方是会反复重启的宿主进程，
+    /// 每重启一次留一个。
+    ///
+    /// 判据是**任务真的结束了**（哨兵析构），不是「计数不再增长」：后者要靠 sleep 猜，
+    /// 在忙碌的机器上会假红。
+    #[tokio::test]
+    async fn a_subscription_stops_when_the_client_walks_away() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gone.sock");
+        let server = IpcServer::bind(&path).unwrap();
+
+        /// 析构即「这条订阅停了」——正常返回与被取消都会走到。
+        struct Sentinel(std::sync::Arc<tokio::sync::Notify>);
+        impl Drop for Sentinel {
+            fn drop(&mut self) {
+                self.0.notify_one();
+            }
+        }
+
+        struct Forever {
+            stopped: std::sync::Arc<tokio::sync::Notify>,
+        }
+        #[async_trait::async_trait]
+        impl RequestHandler for Forever {
+            async fn handle(&self, _req: Request, sink: &FrameSink) -> Response {
+                let _sentinel = Sentinel(self.stopped.clone());
+                loop {
+                    if !sink.send(serde_json::json!({ "tick": true })).await {
+                        return Response::Ok;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+            }
+        }
+
+        let stopped = std::sync::Arc::new(tokio::sync::Notify::new());
+        let handler = std::sync::Arc::new(Forever {
+            stopped: stopped.clone(),
+        });
+        let serving = tokio::spawn(async move { server.accept_one(handler).await });
+
+        // 连上、收到至少一帧，然后**走人**（超时取消 → future 析构 → 连接关闭）。
+        let mut seen = 0usize;
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_millis(300),
+            request_watching(&path, &Request::Status, |_| seen += 1),
+        )
+        .await;
+        assert!(seen > 0, "一帧都没收到，这条测试没测到该测的东西");
+        serving.await.unwrap().unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(5), stopped.notified())
+            .await
+            .expect("客户端已经走了，服务端那条订阅还在跑");
     }
 }

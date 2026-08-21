@@ -61,10 +61,15 @@ pub async fn run(data_dir: &DataDir, json: bool, action: InboxAction) -> CliResu
 /// 取一次收件箱清单（整段 JSON）。
 async fn list(access: &RecordAccess) -> CliResult<Value> {
     access
-        .query(Request::InboxList, |records| async move {
-            let store = records.transfers().await?;
-            to_value(&records_inbox::list(&*store).await?, "收件箱")
-        })
+        .query(
+            Request::InboxList {
+                include_archived: false,
+            },
+            |records| async move {
+                let store = records.transfers().await?;
+                to_value(&records_inbox::list(&*store, false).await?, "收件箱")
+            },
+        )
         .await
 }
 

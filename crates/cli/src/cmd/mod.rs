@@ -18,6 +18,16 @@
 //! **同一集合上的动作不得做成开关**（`invite --list` / `--revoke`）：开关表达修饰而非
 //! 动作，且两个动作开关的互斥关系在 `--help` 里看不出来，只能运行时报错。
 //! **层级不超过两级**——三层只在「资源的子资源」上才成立，本仓没有那种嵌套。
+//!
+//! ### 规则 1 下的名词形态：运行形态
+//!
+//! `mcp` 是个名词，却平铺在一级。它落在规则 1（对象是程序自身且为单例），只是那条规则
+//! 写的是「平铺动词」，而这里命名的东西没有对应的常用动词——它是**本程序的一种运行形态**，
+//! 与 `start` 平级：`start` 是「以常驻节点形态运行」，`mcp` 是「以 MCP server 形态运行」。
+//!
+//! **判据（防止它变成拉平一切的先例）**：这个名词命名的必须是**本程序的一种运行形态**，
+//! 而不是一个可列举的集合。`device` / `invite` / `inbox` / `transfer` 都是集合——集合上
+//! 的动作必须带动词，规则 2 一步不让。
 
 use std::path::PathBuf;
 
@@ -26,12 +36,14 @@ use clap::{Parser, Subcommand};
 pub mod device;
 pub mod inbox;
 pub mod invite;
+pub mod mcp;
 pub mod send;
 pub mod start;
 pub mod status;
 pub mod stop;
 pub mod transfer;
 pub mod update;
+pub mod watch;
 
 use crate::exit::{CliResult, Code};
 
@@ -118,7 +130,7 @@ impl Cli {
     /// （`webrtc`/`rtc*`/`wtransport`/`quinn` 都不以 `swarmdrop` 开头）。桌面与移动端
     /// 各有一条同样的常量与断言测试看守这件事，漏掉哪条那一层的日志在生产里就一条都不出现。
     pub fn default_log_filter(&self) -> &'static str {
-        if self.json || self.command.is_interactive() {
+        if self.json || self.command.is_interactive() || self.command.speaks_a_protocol() {
             concat!("warn,", third_party_noise!())
         } else {
             concat!("warn,swarmdrop=info,", third_party_noise!())
@@ -164,6 +176,39 @@ pub enum Command {
         /// 只检查有没有新版本，不安装。
         #[arg(long)]
         check: bool,
+    },
+
+    /// 以 MCP server 形态运行，让 agent 经标准输入输出调用 SwarmDrop。
+    ///
+    /// 面向 agent harness（DeepSeek Harness、Claude Code、Codex …）——它们各自的扩展机制
+    /// 互不相同，唯一的公约数是「能执行一条命令」。
+    ///
+    /// **stdout 只承载 MCP 协议帧**，日志与诊断一律走 stderr。混入一个字节的非协议内容，
+    /// 宿主的解析器就会失败，而失败形态是「server 起来了但一个工具都不可见」——与
+    /// 「没装 SwarmDrop」无法区分。
+    ///
+    /// 节点按「有常驻就复用、没有就自持」接入，且**持有到 server 退出**：每次工具调用
+    /// 现起现关的话，每一次发送都要重连引导节点并做 NAT 探测，秒级调用会被拖成数秒。
+    Mcp,
+
+    /// 订阅本机发生的事件（收件箱 / 传输 / 设备），推给调用它的程序。
+    ///
+    /// 落在「操作对象是程序自身且为单例」那条规则下——对象是**本程序自己的事件流**，
+    /// 与 `start` / `status` 并列。
+    ///
+    /// ⚠️ 与 `swarmdrop transfer watch` 不是一件事，两者并存是刻意的：那条是给人看的
+    /// 传输面板（每秒重绘全量快照、带热键、画在 stderr），这条是给程序用的三类事件
+    /// **增量推送**（NDJSON、写在 stdout、跨节点起落存活）。
+    ///
+    /// **不启动节点**：它只观察本机发生的事，不会有任何数据包因它离开本机。没有常驻
+    /// 节点时也不报错——先给一条直读本机记录的基线，然后等节点出现，节点关停后继续等。
+    Watch {
+        /// 基线里最多带几条收件箱记录。
+        ///
+        /// 基线刻意不发全量：条目会累积到数千条，而消费方每次订阅都搬一次既昂贵又无用。
+        /// 更早的条目按需检索（`swarmdrop inbox list` / MCP 工具）。
+        #[arg(long, value_name = "N", default_value_t = crate::runtime::watch::baseline::DEFAULT_INBOX_LIMIT)]
+        inbox_limit: u32,
     },
 
     /// 向一台已配对设备发送文件、目录或一段文本。
@@ -268,7 +313,54 @@ impl Command {
             Self::Inbox { action } => action.is_interactive(),
             Self::Transfer { action } => action.is_interactive(),
             Self::Send { files, to, text } => to.is_none() || send_body_is_interactive(files, text),
-            Self::Start { .. } | Self::Stop | Self::Status | Self::Update { .. } => false,
+            // `Mcp` 的调用方**一定**是程序（宿主经 stdio 说话），比其余几条更强：
+            // 那几条只是「不需要有人看屏幕」，而它连屏幕都没有——stdout 归 MCP 协议，
+            // stdin 是宿主的请求流。它在 `run` 里另有一道 `prompt::configure` 硬关交互。
+            // `Watch` 与 `Mcp` 同类：调用方是程序。它虽然长驻，却从不停下来等人——
+            // 没有任何参数需要靠提问补出来，也没有需要用户看清的那一屏。
+            Self::Start { .. }
+            | Self::Stop
+            | Self::Status
+            | Self::Update { .. }
+            | Self::Mcp
+            | Self::Watch { .. } => false,
+        }
+    }
+
+    /// 这条命令的标准输入输出是不是被某个协议独占了。
+    ///
+    /// **两条流一起独占，不只是 stdout。** 各自的后果不同，但都是静默的：
+    ///
+    /// - 写 stdout：宿主的解析器读到一个非协议字节就失败，形态是「server 起来了但一个
+    ///   工具都不可见」——与「没装 SwarmDrop」无法区分。
+    /// - 读 stdin：交互提示会**吃掉一帧协议消息**。在终端里手动跑 `swarmdrop mcp` 调试
+    ///   时尤其显形——那时 stdin 是终端，`prompt::can_ask` 的 TTY 判据拦不住它。
+    ///
+    /// 因此它同时决定两件事：日志压到 `warn`（见 [`Cli::default_log_filter`]），
+    /// 以及**强制禁止交互**（见 [`run`]）。后者不能指望 TTY 检测偶然成立——
+    /// spec `cli-mcp-host` 的「调用方是程序」是一条契约，不是一个概率。
+    ///
+    /// 与 `--json` 的关系是「同一件事的两个来源」：那边由用户显式声明「调用方是程序」，
+    /// 这边由命令自身的性质决定。
+    ///
+    /// 穷尽 match 而非 `matches!`：将来再有协议形态的命令时这里会编译失败，
+    /// 而不是让它带着一串 info 日志、外加一个会吃掉协议帧的提示上线。
+    fn speaks_a_protocol(&self) -> bool {
+        match self {
+            Self::Mcp => true,
+            // ⚠️ `Watch` **不在其列**，尽管它的 stdout 也是一条机器读的流。判据是
+            // 「两条流一起被独占」：它不读 stdin（没有请求要收），也就没有「提示吃掉
+            // 一帧协议消息」这回事。它的 stdout 由 `--json` 决定形态，与本判据无关。
+            Self::Start { .. }
+            | Self::Stop
+            | Self::Status
+            | Self::Update { .. }
+            | Self::Watch { .. }
+            | Self::Send { .. }
+            | Self::Invite { .. }
+            | Self::Device { .. }
+            | Self::Inbox { .. }
+            | Self::Transfer { .. } => false,
         }
     }
 }
@@ -470,7 +562,16 @@ impl TransferAction {
 /// 错误在这里统一渲染到 stderr —— 各子命令只负责返回 [`crate::exit::CliError`]，
 /// 不各自打印，否则同一类失败会长出多种措辞。
 pub async fn dispatch(cli: Cli) -> Code {
-    match run(cli).await {
+    finish(run(cli).await)
+}
+
+/// 把一次执行的结果翻成退出码，失败时渲染到 stderr。
+///
+/// 单独成函数是因为它有第二个调用点：`mcp` 在经通道/信号收摊那条路径上**不能靠 `return`**
+/// 走到这里（理由见 [`mcp::run`]），只能自己算出退出码再硬退。共用这一份，是为了让
+/// 「同一类失败长出两种措辞」这件事没有发生的余地。
+pub(crate) fn finish(result: CliResult<()>) -> Code {
+    match result {
         Ok(()) => Code::Success,
         Err(err) => {
             eprintln!("错误: {err}");
@@ -481,7 +582,11 @@ pub async fn dispatch(cli: Cli) -> Code {
 
 async fn run(cli: Cli) -> CliResult<()> {
     // 交互能力是**环境事实**，在分派之前记一次；此后 `prompt::can_ask` 是唯一的判据。
-    crate::prompt::configure(cli.no_input, cli.json);
+    //
+    // 协议形态的命令**强制**禁止交互：它的 stdin 归协议，一个提示就会吃掉一帧消息。
+    // 不靠 `can_ask` 的 TTY 判据兜——那条在「终端里手动跑 `swarmdrop mcp` 调试」时
+    // 恰好不成立，而那正是最容易撞上的场景。
+    crate::prompt::configure(cli.no_input || cli.command.speaks_a_protocol(), cli.json);
 
     // 数据目录对每条命令都是前置条件（身份、数据库、通道、锁都在它下面），
     // 因此在分派之前解析一次，而不是让每个命令各自解析。
@@ -496,6 +601,8 @@ async fn run(cli: Cli) -> CliResult<()> {
         Command::Stop => stop::run(&data_dir, json).await,
         Command::Status => status::run(&data_dir, json).await,
         Command::Update { check } => update::run(&data_dir, json, check).await,
+        Command::Mcp => mcp::run(&data_dir).await,
+        Command::Watch { inbox_limit } => watch::run(&data_dir, json, inbox_limit).await,
         Command::Send { files, to, text } => send::run(&data_dir, json, files, to, text).await,
         Command::Invite { action } => invite::run(&data_dir, json, action).await,
         Command::Device { action } => device::run(&data_dir, json, action).await,
@@ -828,7 +935,12 @@ mod tests {
                 // ⚠️ 判据用 `get_action()` 而**不是** `get_num_args()`：后者只在显式
                 // 设过 `num_args` 时才是 `Some`，而本 crate 一处都没设——用它会让这条
                 // 测试只扫到三条命令、其余静默放行。
-                arg.get_action().takes_values() && !arg.is_required_set() && !arg.is_global_set()
+                arg.get_action().takes_values()
+                    && !arg.is_required_set()
+                    && !arg.is_global_set()
+                    // 有默认值的不算「不给就得问」：缺了它用默认值，没有可补的东西。
+                    // `watch --inbox-limit` 是第一个这样的参数。
+                    && arg.get_default_values().is_empty()
             })
         }
 

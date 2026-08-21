@@ -25,6 +25,7 @@
 mod adapter;
 mod cmd;
 mod exit;
+mod mcp;
 mod prompt;
 mod render;
 mod runtime;
