@@ -44,7 +44,7 @@ Web 端（wasm）随文档站部署到 GitHub Pages（Phase 5 仍在收敛，见
 > ⚠️ 本文档里其余的「三端」几乎都指**图形三端**（桌面 / 移动 / Web），那些断言仍然成立：
 > CLI 不吃 Lingui catalog、不吃 `packages/shared-view`、没有设备卡与节点状态弹窗。
 > 只有「同一套节点语义」「同一份内核」这类说法才涵盖四端。
-Current desktop release: **v0.23.0**（bootstrap 独立版本线，当前 `bootstrap-v0.8.0`；移动 `mobile-v0.23.0`；CLI `cli/swarmdrop-cli-v0.5.0`）。
+Current desktop release: **v0.23.0**（bootstrap 独立版本线，当前 `bootstrap-v0.8.0`；移动 `mobile-v0.23.0`；CLI `cli/swarmdrop-cli-v0.6.0`）。
 
 ## Build and Development Commands
 

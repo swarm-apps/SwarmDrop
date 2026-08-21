@@ -6,6 +6,38 @@
 > `cli/swarmdrop-cli-v0.1.1`（0.1.0 用的是旧形式 `cli/v0.1.0`，见 dist-workspace.toml）。
 > 仓库根目录的 `CHANGELOG.md` 记的是桌面端，与本文件无关。
 
+## [0.6.0] - 2026-08-21
+
+### 新增
+
+- `swarmdrop config`：读写本机设置。子命令 `list` / `get <键>` / `set <键> <值>` /
+  `unset <键>`；可配项为封闭集合 `device-name`、`receive-dir`。
+- `swarmdrop bootstrap`：管理引导 / 中继节点。子命令 `list` / `add <地址>` /
+  `remove <地址>`，地址接受唯一前缀，缺省时进入交互选择。
+- 接收落点支持持久化配置。优先级为 `SWARMDROP_RECEIVE_DIR` → 持久化配置 → 内置默认。
+- `config` 的 `--json` 读面按项给出 `value` / `source` / `configured` / `overriddenBy`，
+  写入结果给出生效状态（`applied` / `pendingStart` / `overridden`）。
+- 引导节点清单由编译期常量改为「内置清单 + 用户增删」。持久化 `custom` 与 `removed`
+  两个集合，未做过增删的用户随版本更新获得新的内置地址。
+- 添加引导节点前执行同步校验：Multiaddr 可解析、含 `/p2p/`、传输为本端点所装配、
+  与既有条目不重复；全程无网络往返。
+- `swarmdrop status` 增加引导节点一行（总数 / 已连接数 / 中继就绪数）。
+
+### 变更
+
+- 常驻节点运行期间，改设备名与增删引导节点即时生效，无需重启节点。改设备名复用
+  `swarmdrop-core` 的改名编排，同步更新 identify 的 `agent_version`。
+- 常驻节点无法解析请求时的提示改为指向版本错配（升级 CLI 不会重启常驻节点），
+  并给出 `swarmdrop stop` / `swarmdrop start` 的处置。
+- 配置读写不启动节点；存在常驻节点时经本地通道复用它，不另起临时节点。
+
+### 修复
+
+- `swarmdrop watch` 不再将离线的已配对设备从设备表中移除。此前订阅面直接转发内核
+  `DevicesChanged` 事件的载荷，而该载荷是本次运行被观测到的 peer 集合，与订阅面契约的
+  「全量已配对设备」不同口径；现设备表仅由「向节点现取已配对名册」这一处产出。
+- 丢弃判据覆盖全部产帧路径：触发设备表现取的内核事件被丢弃时同样上报截断。
+
 ## [0.5.0] - 2026-08-21
 
 ### 新增
