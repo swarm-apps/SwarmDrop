@@ -2151,3 +2151,69 @@ ubuntu runner 上挂过一次（run `32354495330`）。核数越少、同进程�
 **相关文件**：`crates/transfer/src/flow/resume/validation.rs`（`map_resume_phase` /
 `validate_resume_report`）、`crates/transfer/src/flow/resume/mod.rs:239`、
 `crates/core/tests/e2e_transfer.rs`（`wait_suspended`）
+
+## 收件箱变化是**领域事件**，宿主不得从传输事件推导（2026-08-21）
+
+`crates/transfer/src/inbox.rs` 发三条一等事件：`InboxItemAdded` / `InboxItemArchived` /
+`InboxItemRemoved`，一路经 `CoreEvent` 到四个宿主。行为契约在
+`openspec/specs/inbox-domain-events`。
+
+### 补它之前的现状：三份推导、两份有缺陷、一份根本不存在
+
+| 端 | 「收件箱变了」怎么知道的 | 状态 |
+|---|---|---|
+| 桌面 | **不知道** | `inbox-store.ts` 零事件监听，收件箱页只在挂载与用户动作时刷新 |
+| 移动 | `TransferCompleted` → `refreshInbox()` | **漏判 direction**，发送完成也白刷一次 |
+| Web | `TransferCompleted` 且 `direction === "receive"` | 正确 |
+| 文本到达 | 三端各按 `kind === "received"` 字符串约定推一遍 | 桌面那份只刷待确认队列、不刷收件箱 |
+
+### 判据：**宿主不得从传输事件推导收件箱变化**
+
+那种推导依赖一条**只以行内注释存在、零护栏测试**的顺序不变量（先建条目 → 再发
+`TransferCompleted`）。而那条不变量在生产里已经显形过：终态 projection 比条目创建**更早**
+发出（projection 在 coordinator reduce 成功即发，条目在 receiver 收尾才建），于是桌面 UI
+被迫向用户道歉——`session-panel.tsx` 那句「收件箱记录还在生成，请稍后再试」就是一次竞态的
+用户可见残留。
+
+文本那条还有实缺口：按 `delivery_id` 反查条目不在端口上，只能全表扫。
+
+⚠️ 那个竞态窗口**至今仍在**（本次没有改 projection 与条目创建的先后）。删掉那句提示只会
+把一次可解释的等待变成静默失败——要真正消除它得改两者的顺序，那是独立的一次改动。
+
+### 三条实现约束
+
+1. **载荷不含正文、不含凭证。** `InboxItemAddedEvent` 刻意**不复用** `InboxItemSummary`：
+   后者的 `title` 就是正文的前 160 字节（`text_preview` 的产物），而事件会经宿主的
+   tracing 落进系统日志。
+2. **发送方向不产生收件箱事件。** 有测试钉住——移动端此前的缺陷正是漏了这个判断。
+3. **发事件失败不回滚已完成的变更。** 事件是「这件事发生了」的广播，不是提交的一部分；
+   写已经落盘了，因为广播失败就回滚等于用一次可恢复的失败换一次数据丢失。
+
+### 归档与软删收进共享编排层
+
+`archive_inbox_item` 此前**连编排层都没有**——它是端口方法，被 4 个宿主 + 2 个 MCP server
+直调，于是「桌面 MCP 归档了一条」对桌面界面完全不可见。现在两者都是
+`crates/transfer/src/inbox.rs` 里的编排函数，成功之后发事件。
+
+### 三个**只有读过端口契约才知道**的坑
+
+1. **`ensure_inbox_item_for_completed_receive_session` 的 `Option` 语义是反直觉的。**
+   `Ok(None)` 的意思是「这个会话不算已完成接收」，**不是**「条目已存在」；条目本来就有时
+   它返回的是 `Ok(Some(已有的那条))`。照直觉写事件，每一次重复收尾都会再广播一条「新收到
+   一个文件」。分辨「新建」与「本来就有」只能**另问一句**（按 `transfer_session_id` 查），
+   SQL 实现里的 `repair_*` 就是这么做的，它的注释也明写着这一点。
+
+2. **端口对不存在的条目一律静默成功**（归档、软删都是）。所以「做完了」不等于「有东西
+   变了」——编排层要先确认它在，再决定发不发事件。不挡的话，一个陈旧界面或一次手误的
+   MCP 调用就会让订阅流上出现一条**指向不存在实体**的变更，而消费方被要求「收到不认识的
+   条目就去查详情」，那次查询必然扑空。
+
+3. **补建（`repair_*`）与只删账本（`delete_inbox_item_record`）也要经编排。**
+   前者一次能凭空变出几十条记录，后者移动端此前直调——两者绕过去的表现相同：界面上多出
+   或残留一批记录，而没有任何东西会纠正它。
+
+### `CoreEvent` 是 `#[non_exhaustive]`，编译器只护得住一段
+
+`transfer → core/web` 那两段是穷尽 match，漏了编不过；而**桌面 `event_bus.rs` 与移动
+`events.rs` 都有 catch-all**，新变体会被**静默吞掉**。两处各有一条护栏测试
+（`inbox_events_should_survive_the_mobile_mirror` 是现成体例）——加事件变体时必须一起改。
