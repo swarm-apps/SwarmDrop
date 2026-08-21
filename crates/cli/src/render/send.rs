@@ -201,7 +201,12 @@ impl RemoteProgress {
                 let bar = self
                     .transferring
                     .get_or_insert_with(|| Progress::new(self.enabled));
-                bar.update(field(payload, "done"), field(payload, "total"));
+                bar.update(
+                    field(payload, "done"),
+                    field(payload, "total"),
+                    super::rate_of(payload),
+                    super::eta_of(payload),
+                );
             }
             _ => {}
         }
@@ -265,13 +270,17 @@ pub fn human_bytes(bytes: u64) -> String {
     }
 }
 
-/// 给一套样式接上 `{done}` / `{total}` / `{rate}` 三个 key，全部经 [`human_bytes`]。
+/// 给一套样式接上 `{done}` / `{total}` 两个 key，全部经 [`human_bytes`]。
 ///
 /// **不用 indicatif 自带的 `{binary_bytes}`**：它给两位小数（`1.00 MiB`），而同一屏里
 /// 的结果行走 [`human_bytes`]（一位小数，`1.0 MiB`）——同一个数在同一屏里两种写法。
 ///
 /// 抽出来是因为有两个消费者：`send` 的单条进度条与 `transfer watch` 的面板。
 /// 各注册一遍的话，改了其中一处的单位写法，另一处会**静默**保持旧样子。
+///
+/// **速率与剩余时间刻意不在这里**：`ProgressState` 里只有位置和时间，从它算速率就只能
+/// 用 indicatif 自己的估算器，而那个估算器在本程序的驱动方式下会高出一个数量级
+/// （判据见 [`rate_and_eta`]）。两个消费者都改成把**核心算好的**那个数排版进 `{msg}`。
 pub fn with_byte_keys(style: indicatif::ProgressStyle) -> indicatif::ProgressStyle {
     style
         .with_key(
@@ -286,12 +295,64 @@ pub fn with_byte_keys(style: indicatif::ProgressStyle) -> indicatif::ProgressSty
                 let _ = write!(w, "{}", human_bytes(state.len().unwrap_or(0)));
             },
         )
-        .with_key(
-            "rate",
-            |state: &indicatif::ProgressState, w: &mut dyn std::fmt::Write| {
-                let _ = write!(w, "{}/s", human_bytes(state.per_sec() as u64));
-            },
-        )
+}
+
+/// 速率与剩余时间那一段文本，也就是传输进度条 `{msg}` 的内容。
+///
+/// 两个数都**由核心给**：`TransferProgressEvent` 的 `speed`（3 秒滑窗）与 `eta`
+/// （由同一帧的 speed 推出，两者同源）。这一侧只负责排版。
+///
+/// ⚠️ **不要换回 indicatif 的 `{binary_bytes_per_sec}` / `{eta}`。** 它的估算器是一条
+/// 15 秒时间常数的双重指数平滑，而进度条是在**收到第一帧时**才建的：建条与第一次
+/// `set_position` 只差几微秒，于是估算器以一个天文数字开局，再花几十秒衰减回真值。
+/// 首帧携带的字节越多污染越久——`transfer watch` 中途接进一条已经传了一半的会话是最坏
+/// 情形。实测首帧 512 MiB、真实 20 MiB/s：第 8 秒显示 201 MiB/s，第 20 秒仍有 47 MiB/s。
+/// 「速率多了一位」就是它。
+///
+/// 同源还有第二条理由：桌面、移动、Web 显示的都是核心那个数，而用户看的常常是同一次
+/// 传输的两端（这边发、手机上收）。CLI 自己猜就必然与另一端对不上。
+pub fn rate_and_eta(speed: f64, eta: Option<f64>) -> String {
+    format!("{}  剩余 {}", rate_text(speed), eta_text(eta))
+}
+
+/// 值缺失或算不出来时的占位符。与 [`crate::render::bytes_or_dash`] 同一个字符。
+const DASH: &str = "—";
+
+/// 剩余时间的上限，纯粹是**防住非法值**用的闸（见 [`eta_text`]），不是「太久就不显示」。
+const MAX_ETA_SECS: f64 = 365.0 * 24.0 * 60.0 * 60.0;
+
+/// 速率文本。
+///
+/// **停滞时给占位符而不是「0 B/s」**：后者是一个断言（「此刻的速率是零」），而核心把
+/// speed 归零表达的是「一个滑窗内没有新字节」——接收方正在发布收齐的文件、对端卡住、
+/// 本地磁盘 stall 都长这个样子。说不出具体数字时，占位符才是实话。
+///
+/// 判据取 `>= 1.0` 而不是 `> 0.0`，与核心 `ProgressTracker::eta_at` 同一条线：
+/// 那边低于 1 B/s 就不给 ETA，这边也就不该给速率——否则会印出「0 B/s · 剩余 —」。
+fn rate_text(speed: f64) -> String {
+    if speed.is_finite() && speed >= 1.0 {
+        format!("{}/s", human_bytes(speed as u64))
+    } else {
+        DASH.to_owned()
+    }
+}
+
+/// 剩余时间文本。
+///
+/// 值可能来自通道对面（`send` 的常驻节点路径）或本机记录，所以**必须防住非有限值、
+/// 负数与溢出**：`Duration::from_secs_f64` 对这三类是 panic，而一个进度条不该有能力
+/// 终止一次正常的传输。
+///
+/// `{:#}` 是紧凑形式（`1m` / `23s`），与换掉的那个 indicatif `{eta}` key 逐字同形——
+/// 这次改动只该动数字的来源，不该顺手改用户看惯的样子。
+fn eta_text(eta: Option<f64>) -> String {
+    match eta {
+        Some(secs) if secs.is_finite() && (0.0..=MAX_ETA_SECS).contains(&secs) => format!(
+            "{:#}",
+            indicatif::HumanDuration(std::time::Duration::from_secs_f64(secs))
+        ),
+        _ => DASH.to_owned(),
+    }
 }
 
 /// 准备阶段（校验和 + bao 验签树）的进度条。
@@ -384,7 +445,10 @@ pub struct Progress(indicatif::ProgressBar);
 /// **不用 indicatif 的 `{binary_bytes}`**：它给两位小数（`1.00 MiB`），而同一条 `send`
 /// 结束时打印的结果行走 [`human_bytes`]（一位小数，`1.0 MiB`）——同一个数在同一屏里
 /// 两种写法。改用自定义的 key 把两处都接到 `human_bytes` 上。
-const TEMPLATE: &str = "传输中 {bar:24} {percent:>3}%  {done}/{total}  {rate}  剩余 {eta}";
+///
+/// 速率与剩余时间走 `{msg}` 而不是 indicatif 的 `{binary_bytes_per_sec}` / `{eta}`，
+/// 理由见 [`rate_and_eta`]——那两个 key 会高出一个数量级。
+const TEMPLATE: &str = "传输中 {bar:24} {percent:>3}%  {done}/{total}  {msg}";
 
 impl Progress {
     /// `enabled` 为假（结构化输出模式）时返回一个不绘制任何东西的实例。
@@ -402,13 +466,23 @@ impl Progress {
                 // 写错只会在运行时退化成默认样式——由 `progress_template_is_valid` 钉住。
                 .unwrap_or_else(|_| indicatif::ProgressStyle::default_bar()),
         ));
+        // 先摆好占位符再等第一帧：`{msg}` 空着时这一行会先短一截，收到第一帧才突然
+        // 变长。而这条进度条**出现的时机**恰好是准备结束、屏幕正在换东西的那一刻。
+        bar.set_message(rate_and_eta(0.0, None));
         Self(bar)
     }
 
     /// 收到一条进度事件。
     ///
     /// 总量每次都重设：它由第一条事件才带过来，而续传场景下同一会话的总量可能变化。
-    pub fn update(&self, transferred: u64, total: u64) {
+    ///
+    /// `speed` / `eta` 是**核心算好的**，本方法只把它们排版进 `{msg}`（判据见
+    /// [`rate_and_eta`]）。
+    ///
+    /// 三次调用的顺序不能反：`set_length` 与 `set_position` 各自会触发一次重绘，
+    /// 消息留在最后设就意味着这一帧画的是**上一帧**的速率。
+    pub fn update(&self, transferred: u64, total: u64, speed: f64, eta: Option<f64>) {
+        self.0.set_message(rate_and_eta(speed, eta));
         self.0.set_length(total);
         self.0.set_position(transferred);
     }
@@ -496,6 +570,74 @@ mod tests {
     #[test]
     fn structured_mode_draws_nothing() {
         assert!(Progress::new(false).0.is_hidden());
+    }
+
+    /// **速率与剩余时间必须由核心给，不能退回 indicatif 的估算器。**
+    ///
+    /// 这是本次改动的全部理由，而退回去只需要在模板里写一个 key，编译照过、
+    /// 进度条照画——只是数字悄悄高一个数量级。所以判据钉在模板的字面量上。
+    #[test]
+    fn the_template_never_asks_indicatif_for_a_rate() {
+        for forbidden in ["per_sec", "bytes_per_sec", "{eta", "{elapsed"] {
+            assert!(
+                !TEMPLATE.contains(forbidden),
+                "模板用了 indicatif 自己估的 {forbidden}——它在这种驱动方式下会高一个数量级"
+            );
+        }
+        assert!(TEMPLATE.contains("{msg}"), "速率与剩余时间要走 {{msg}}");
+    }
+
+    /// 传输帧里的速率与剩余时间要真的画到条上。
+    #[test]
+    fn a_transfer_frame_paints_the_rate_it_was_given() {
+        let mut remote = RemoteProgress::new(false, "台式机");
+        remote.on_frame(&serde_json::json!({
+            "phase": crate::runtime::transfer::PHASE_TRANSFERRING,
+            "done": 1024, "total": 4096, "speed": 2.0 * 1024.0 * 1024.0, "eta": 120.0,
+        }));
+        let bar = &remote.transferring.as_ref().expect("传输段该画进度条").0;
+        // `2m` 是 `HumanDuration` 的紧凑形式，与换掉的那个 indicatif `{eta}` key 同形。
+        assert_eq!(bar.message(), "2.0 MiB/s  剩余 2m");
+    }
+
+    /// 旧版本的常驻节点不发这两个字段——那时**占位符比编一个数字诚实**。
+    #[test]
+    fn a_frame_without_rate_fields_falls_back_to_placeholders() {
+        let mut remote = RemoteProgress::new(false, "台式机");
+        remote.on_frame(&serde_json::json!({
+            "phase": crate::runtime::transfer::PHASE_TRANSFERRING,
+            "done": 1024, "total": 4096,
+        }));
+        let bar = &remote.transferring.as_ref().expect("传输段该画进度条").0;
+        assert_eq!(bar.message(), "—  剩余 —");
+    }
+
+    /// 停滞（核心把速率归零）不是「0 B/s」。
+    ///
+    /// 后者是一个断言，而核心归零表达的是「一个滑窗内没有新字节」——接收方正在发布
+    /// 收齐的文件时就长这样，报「0 B/s」会让用户以为传输死了。
+    #[test]
+    fn a_stalled_transfer_shows_a_placeholder_not_zero() {
+        assert_eq!(rate_and_eta(0.0, None), "—  剩余 —");
+        // 低于 1 B/s 同样说不出话——判据与核心 `eta_at` 的下限对齐。
+        assert_eq!(rate_and_eta(0.4, None), "—  剩余 —");
+    }
+
+    /// **一个进度条不该有能力终止一次正常的传输。**
+    ///
+    /// 这两个数经通道从另一个进程来，而 `Duration::from_secs_f64` 对 NaN、负数与溢出
+    /// 一律 panic。少了这道闸，一个字段写错的旧节点就能把用户的传输打断在半路。
+    #[test]
+    fn hostile_numbers_render_instead_of_panicking() {
+        assert_eq!(rate_and_eta(f64::NAN, Some(f64::NAN)), "—  剩余 —");
+        assert_eq!(rate_and_eta(f64::INFINITY, Some(-1.0)), "—  剩余 —");
+        assert_eq!(
+            rate_and_eta(-1.0, Some(f64::INFINITY)),
+            "—  剩余 —",
+            "负速率与无穷 ETA 都要落到占位符"
+        );
+        // 有限但荒谬的 ETA（一年以上）同样只是越界，不该 panic
+        assert_eq!(rate_and_eta(1.0, Some(MAX_ETA_SECS * 2.0)), "1 B/s  剩余 —");
     }
 
     #[test]

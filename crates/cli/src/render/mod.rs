@@ -104,6 +104,30 @@ pub fn bytes_or_dash(value: Option<&serde_json::Value>) -> String {
     }
 }
 
+/// 从一段 JSON 里取速率（B/s）。
+///
+/// **缺失当 0**，也就是 [`send::rate_and_eta`] 眼里的「说不出来」，渲染成占位符。
+/// 缺席是正常的：没有常驻节点时传输记录直接读自本机库，那里没有速率可言（没有节点
+/// 就没有正在跑的 actor）；旧版本的常驻节点也不发这个字段。
+///
+/// 两处消费者（`send` 的进度条、`transfer watch` 的面板）共用这一份，理由同 [`flag`]：
+/// **取值与降级的规则不该有第二种**。
+pub fn rate_of(value: &serde_json::Value) -> f64 {
+    value
+        .get("speed")
+        .and_then(serde_json::Value::as_f64)
+        .unwrap_or(0.0)
+}
+
+/// 从一段 JSON 里取剩余秒数。
+///
+/// **与 [`rate_of`] 不同，缺席与 `null` 都保留成 `None`**：核心算不出 ETA 时这个字段
+/// 本来就是 `null`，而 0 秒是「马上就好」——那是另一件事，且正好在传输最慢的时候
+/// 最误导人。
+pub fn eta_of(value: &serde_json::Value) -> Option<f64> {
+    value.get("eta").and_then(serde_json::Value::as_f64)
+}
+
 /// 从一段 JSON 里取一个布尔标志；缺失或不是布尔时为假。
 ///
 /// 与 [`text_or`] 同一条理由：**取值与降级的规则不该有第二种**。`missing` 这个标志

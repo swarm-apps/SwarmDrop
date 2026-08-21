@@ -104,19 +104,37 @@ impl Stage<'_, crate::render::send::Preparing> {
 }
 
 impl Stage<'_, crate::render::send::Progress> {
-    async fn update(&self, done: u64, total: u64) {
+    /// `speed`（B/s）与 `eta`（秒）**原样转发核心那一帧里的值**，两条出口都不在本侧重算。
+    ///
+    /// 通道那条尤其不能省：客户端拿不到 `CoreEvent`，少了这两个字段它只能自己估，
+    /// 而估出来会高一个数量级（判据见 [`crate::render::send::rate_and_eta`]）。
+    async fn update(&self, frame: &TransferFrame) {
         match self {
-            Self::Local(bar) => bar.update(done, total),
+            Self::Local(bar) => bar.update(frame.done, frame.total, frame.speed, frame.eta),
             Self::Remote(sink) => {
                 sink.try_send(serde_json::json!({
                     "phase": PHASE_TRANSFERRING,
-                    "done": done,
-                    "total": total,
+                    "done": frame.done,
+                    "total": frame.total,
+                    "speed": frame.speed,
+                    // 算不出来时是 `null` 而不是 0——两者对用户是不同的话。
+                    "eta": frame.eta,
                 }))
                 .await
             }
         }
     }
+}
+
+/// 一帧传输进度的字段。与 [`PrepareFrame`] 对称。
+struct TransferFrame {
+    done: u64,
+    total: u64,
+    /// 核心算好的速率（B/s）。**不在这一侧重算**，理由见
+    /// [`crate::render::send::rate_and_eta`]。
+    speed: f64,
+    /// 剩余秒数；核心算不出来时是 `None`（与 `speed` 同源，同一帧里不会互相矛盾）。
+    eta: Option<f64>,
 }
 
 /// 一帧准备进度的字段。收成结构体只是为了不让参数列表长到六个。
@@ -436,7 +454,12 @@ async fn wait_for_terminal(
         match event {
             CoreEvent::TransferProgress { event } if event.session_id == session_id => {
                 stage
-                    .update(event.transferred_bytes, event.total_bytes)
+                    .update(&TransferFrame {
+                        done: event.transferred_bytes,
+                        total: event.total_bytes,
+                        speed: event.speed,
+                        eta: event.eta,
+                    })
                     .await;
             }
             CoreEvent::TransferCompleted { event } if event.session_id == session_id => {

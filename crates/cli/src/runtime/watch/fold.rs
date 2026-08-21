@@ -106,6 +106,8 @@ mod tests {
             total_bytes: 100,
             completed_files: 0,
             total_files: 1,
+            speed: transferred as f64,
+            eta: None,
         })
     }
 

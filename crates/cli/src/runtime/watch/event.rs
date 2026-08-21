@@ -322,6 +322,20 @@ pub struct ProgressSample {
     pub total_bytes: i64,
     pub completed_files: u32,
     pub total_files: u32,
+    /// 速率（B/s），**核心算的 3 秒滑窗值**。
+    ///
+    /// 带上它不是顺手：消费方手里只有一串按秒降频的快照，照着它反推速率就要自己维护
+    /// 一个时间窗口——而本仓的两个渲染面都是这么栽的（同一次传输，手机上 20 MiB/s、
+    /// CLI 上 200 MiB/s，判据见 `render::send::rate_and_eta`）。让每个消费方各写一遍
+    /// 那道题，等于把同一个坑复制到仓库外面。
+    ///
+    /// `0.0` 表达的是「一个滑窗内没有新字节」——停滞（对端卡住、接收方正在发布收齐的
+    /// 文件、磁盘 stall），**不是「速率恰好为零」**。消费方要按「说不出来」渲染。
+    pub speed: f64,
+    /// 剩余秒数；**与 `speed` 同源同帧**（核心保证两者不会互相矛盾）。
+    ///
+    /// 算不出来时是 `null` 而不是 0——0 秒是「马上就好」，那是另一件事。
+    pub eta: Option<f64>,
 }
 
 /// 把一个 serde 枚举取成它的线上字符串。
@@ -370,6 +384,11 @@ pub fn translate(event: &CoreEvent) -> Option<WatchEvent> {
                 total_bytes: event.total_bytes as i64,
                 completed_files: event.completed_files as u32,
                 total_files: event.total_files as u32,
+                // **原样转发，不在这一层做任何平滑**：核心那个数已经是 3 秒滑窗的均值，
+                // 再平滑一次就是双重平滑——而降频折叠取的是最新一帧（`fold::Coalescer`），
+                // 那正是这两个值该有的取法。
+                speed: event.speed,
+                eta: event.eta,
             }))
         }
 
@@ -446,6 +465,8 @@ mod tests {
             total_bytes: 2,
             completed_files: 3,
             total_files: 4,
+            speed: 5.0,
+            eta: Some(6.0),
         }
     }
 
@@ -539,6 +560,45 @@ mod tests {
     #[test]
     fn a_dropped_progress_frame_is_not_reported() {
         assert!(!report_loss(&progress_event()));
+    }
+
+    /// **速率与剩余时间必须原样流到消费方手里。**
+    ///
+    /// 少了它们，消费方只剩一串按秒降频的快照，只能自己维护时间窗口反推速率——本仓的
+    /// 两个渲染面都是这么栽的（同一次传输，手机上 20 MiB/s、CLI 上 200 MiB/s，判据见
+    /// `render::send::rate_and_eta`）。把那道题留给每个消费方，等于把同一个坑复制到
+    /// 仓库外面，而这条流的记录会被跨月留存。
+    #[test]
+    fn a_progress_sample_carries_the_rate_from_the_core() {
+        use swarmdrop_core::transfer::progress::{RuntimeTransferDirection, TransferProgressEvent};
+
+        let event = CoreEvent::TransferProgress {
+            event: TransferProgressEvent {
+                session_id: uuid::Uuid::new_v4(),
+                direction: RuntimeTransferDirection::Receive,
+                total_files: 1,
+                completed_files: 0,
+                total_bytes: 1_000,
+                transferred_bytes: 400,
+                speed: 2_048.0,
+                eta: Some(30.0),
+                files: Vec::new(),
+            },
+        };
+        let line = serde_json::to_value(translate(&event).expect("进度要翻译")).expect("序列化");
+        assert_eq!(line["speed"], 2_048.0);
+        assert_eq!(line["eta"], 30.0);
+    }
+
+    /// 算不出来的 ETA 走 `null`，**不折成 0**——0 秒是「马上就好」，那是另一件事，
+    /// 且正好在传输最慢的时候最误导人。
+    #[test]
+    fn an_unknown_eta_stays_null_on_the_wire() {
+        let line = serde_json::to_value(translate(&progress_event()).expect("进度要翻译"))
+            .expect("序列化");
+        assert!(line["eta"].is_null());
+        // 停滞（核心归零）同样如实转发：消费方按「说不出来」渲染，判据在字段的文档上。
+        assert_eq!(line["speed"], 0.0);
     }
 
     /// 内核的 `DevicesChanged` **不得被直接翻译成订阅面的同名事件**。

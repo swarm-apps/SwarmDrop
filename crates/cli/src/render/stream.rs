@@ -92,14 +92,18 @@ fn human(event: &Value) -> String {
             bytes_or_dash(event.get("transferredBytes")),
             bytes_or_dash(event.get("totalBytes")),
         ),
+        // 速率与剩余时间**取载荷里的值**（领域算的 3 秒滑窗），不在这一层从相邻两行的
+        // 差值反推——那正是 `render::send::rate_and_eta` 记下的那个坑。同一条事件的
+        // 两种形态（这一行与 `--json` 那一行）也因此说的是同一句话。
         "transferProgress" => format!(
-            "进度    {} {}  {} / {}  文件 {}/{}",
+            "进度    {} {}  {} / {}  文件 {}/{}  {}",
             direction_glyph(event.get("direction").and_then(Value::as_str)),
             short(&text_or(event, "sessionId", "—"), ID_CHARS),
             bytes_or_dash(event.get("transferredBytes")),
             bytes_or_dash(event.get("totalBytes")),
             int_or_zero(event, "completedFiles"),
             int_or_zero(event, "totalFiles"),
+            super::send::rate_and_eta(super::rate_of(event), super::eta_of(event)),
         ),
         "devicesChanged" => {
             let devices = array(event, "devices");

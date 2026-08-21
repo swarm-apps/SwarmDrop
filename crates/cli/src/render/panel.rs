@@ -26,13 +26,19 @@ use super::{short, text_or};
 ///
 /// 速率与剩余时间是用户真正在等的答案——传一个大文件时，「还要多久」比「传了多少」
 /// 更常被问起。
-const ACTIVE_TEMPLATE: &str =
-    "{prefix} {bar:20.cyan/blue} {percent:>3}%  {done}/{total}  {rate}  剩余 {eta}";
+///
+/// 两者走 `{msg}`，**内容由常驻节点随记录一起给**（`speed` / `eta` 字段），不是 indicatif
+/// 的 `{binary_bytes_per_sec}` / `{eta}`。这条区别是本文件里最容易被「简化」掉的一处：
+/// 那两个 key 在这种驱动方式下会高出一个数量级——面板每轮对一条**已经传了一半**的会话
+/// 首次 `set_position`，估算器就以一个天文数字开局。判据见
+/// [`crate::render::send::rate_and_eta`]。
+const ACTIVE_TEMPLATE: &str = "{prefix} {bar:20.cyan/blue} {percent:>3}%  {done}/{total}  {msg}";
 
 /// 没在传的那条（等待接受、已暂停、已中断）。
 ///
 /// **刻意不画速率与剩余时间**：此刻它们是「0 B/s」与「剩余 ∞」，印出来是在报告一个
-/// 假事实——用户会以为传输卡住了，而它其实只是在等对方点确认。位置让给状态本身。
+/// 假事实——用户会以为传输卡住了，而它其实只是在等对方点确认。位置让给状态本身，
+/// 于是 `{msg}` 在这条模板里装的是阶段名（见 [`Panel::sync`]）。
 const IDLE_TEMPLATE: &str = "{prefix} {bar:20.dim} {percent:>3}%  {done}/{total}  {msg}";
 
 /// 顶行：只有一句话，没有进度条。
@@ -117,7 +123,14 @@ impl Panel {
                 row.active = active;
             }
             row.bar.set_prefix(prefix_of(record));
-            row.bar.set_message(phase_label(record));
+            // **`{msg}` 在两套模板里装的不是同一件事**：在传的那条要速率与剩余时间，
+            // 没在传的那条要阶段名。合成一句「阶段 + 速率」会让在传的那行多出一个恒为
+            // 「传输中」的词——那正是进度条本身已经在说的话。
+            row.bar.set_message(if active {
+                crate::render::send::rate_and_eta(super::rate_of(record), super::eta_of(record))
+            } else {
+                phase_label(record).to_owned()
+            });
             row.bar.set_length(bytes(record, "totalSize"));
             row.bar.set_position(bytes(record, "transferredBytes"));
         }
@@ -246,6 +259,50 @@ mod tests {
             assert!(!is_active(&json!({ "phase": phase })), "{phase} 不该画速率");
         }
         assert!(!is_active(&json!({})));
+    }
+
+    /// **面板的速率必须来自记录，不能来自 indicatif。**
+    ///
+    /// 这条与 `render::send` 那条是同一个判据的两处落点，而这一处更容易出事：面板每轮
+    /// 对一条**已经传了一半**的会话首次 `set_position`，indicatif 的估算器就以一个天文
+    /// 数字开局，几十秒都衰减不回来。判据见 [`crate::render::send::rate_and_eta`]。
+    #[test]
+    fn the_active_template_never_asks_indicatif_for_a_rate() {
+        for forbidden in ["per_sec", "bytes_per_sec", "{eta", "{elapsed"] {
+            assert!(
+                !ACTIVE_TEMPLATE.contains(forbidden),
+                "模板用了 indicatif 自己估的 {forbidden}——它在这种驱动方式下会高一个数量级"
+            );
+        }
+    }
+
+    /// `{msg}` 在两套模板里装的不是同一件事：在传的那条要速率，其余的要阶段名。
+    #[test]
+    fn the_message_slot_says_what_each_row_needs() {
+        let mut panel = Panel::new(false);
+        panel.sync(&[
+            json!({
+                "sessionId": "a", "phase": "active", "totalSize": 100, "transferredBytes": 10,
+                "speed": 1024.0 * 1024.0, "eta": 120.0,
+            }),
+            json!({ "sessionId": "b", "phase": "suspended", "totalSize": 100, "transferredBytes": 60 }),
+        ]);
+
+        assert_eq!(panel.rows["a"].bar.message(), "1.0 MiB/s  剩余 2m");
+        assert_eq!(
+            panel.rows["b"].bar.message(),
+            phase_label(&json!({ "phase": "suspended" }))
+        );
+    }
+
+    /// 没有常驻节点时记录直接读自本机库，那里没有速率——占位符，不是 0 B/s。
+    #[test]
+    fn a_record_without_rate_fields_falls_back_to_placeholders() {
+        let mut panel = Panel::new(false);
+        panel.sync(&[
+            json!({ "sessionId": "a", "phase": "active", "totalSize": 100, "transferredBytes": 10 }),
+        ]);
+        assert_eq!(panel.rows["a"].bar.message(), "—  剩余 —");
     }
 
     /// 缺字段的行要能画出来而不是 panic——面板可能在读一个更新过的常驻节点。

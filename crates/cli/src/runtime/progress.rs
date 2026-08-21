@@ -19,7 +19,14 @@
 //!
 //! 那会给每一次传输（包括三端上的每一次）都加上周期性写事务，只为了服务一个此刻恰好
 //! 有人在看的面板。缓存把代价留在需要它的那一侧：一个常驻节点、一个 `HashMap`、
-//! 每条会话 16 字节。
+//! 每条会话几十个字节。
+//!
+//! ## 速率也在这里，而且**不能由客户端自己算**
+//!
+//! 面板上的速率与剩余时间同样只存在于事件里（核心的 3 秒滑窗）。客户端手上只有一串
+//! 每秒一次的快照，照着它反推速率就要维护一个自己的时间窗口——`transfer watch` 第一版
+//! 干脆把这件事交给了 indicatif 的估算器，于是同一次传输在手机上显示 20 MiB/s、在这边
+//! 显示 200 MiB/s。判据见 [`crate::render::send::rate_and_eta`]。
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -30,7 +37,21 @@ use uuid::Uuid;
 
 use crate::adapter::events::CliEventBus;
 
-/// 每条**正在传**的会话的最新已传字节数。
+/// 一条正在传的会话的最新一帧里，面板用得上的那几个数。
+///
+/// **速率与剩余时间必须与已传字节数同源**（同一帧、同一把锁），否则面板会画出
+/// 「进度在动、速率是 —」或反过来的自相矛盾的一屏。核心那侧为同一条理由让
+/// `speed` 与 `eta` 在一帧里同源，缓存不该在跨进程这一段把它拆开。
+struct Live {
+    transferred: u64,
+    /// B/s。核心算的 3 秒滑窗值，**本 crate 不重算**——判据见
+    /// [`crate::render::send::rate_and_eta`]。
+    speed: f64,
+    /// 剩余秒数；核心算不出来时是 `None`。
+    eta: Option<f64>,
+}
+
+/// 每条**正在传**的会话的最新一帧进度。
 ///
 /// 只保存正在传的那些：会话一进入暂停 / 终态就删掉自己那条，于是「缓存里有值」
 /// 恰好等价于「此刻有个 actor 在跑，数据库那份是陈旧的」。这条不变量让
@@ -38,7 +59,7 @@ use crate::adapter::events::CliEventBus;
 /// 每个消费者各写一遍**。
 #[derive(Default)]
 pub struct ProgressCache {
-    latest: Mutex<HashMap<Uuid, u64>>,
+    latest: Mutex<HashMap<Uuid, Live>>,
 }
 
 impl ProgressCache {
@@ -63,19 +84,56 @@ impl ProgressCache {
     pub fn overlay(&self, projections: &mut [TransferProjection]) {
         let latest = self.latest.lock().expect("进度缓存锁中毒");
         for projection in projections {
-            if let Some(&transferred) = latest.get(&projection.session_id) {
-                projection.transferred_bytes = transferred as i64;
+            if let Some(live) = latest.get(&projection.session_id) {
+                projection.transferred_bytes = live.transferred as i64;
             }
+        }
+    }
+
+    /// 把实时的速率与剩余时间标注到**已经 JSON 化**的那份记录上。
+    ///
+    /// 与 [`Self::overlay`] 分成两步而不是合并，是因为这两个数在 `TransferProjection`
+    /// 里**没有对应字段、也不该有**：那是存储的投影，而速率是只在传输进行时存在的派生量
+    /// ——给它加一列等于让每条历史记录都带一个恒为空的字段，还要为它写一次迁移。
+    ///
+    /// 只标注缓存里有的那几条。没有 actor 在跑就没有速率，此时**字段缺席**与
+    /// 「不知道」是同一件事，面板会照 [`crate::render::send::rate_and_eta`] 的规则
+    /// 画占位符——那比标一个 0 诚实（0 B/s 是一个断言）。
+    pub fn annotate(&self, records: &mut serde_json::Value) {
+        let Some(rows) = records.as_array_mut() else {
+            return;
+        };
+        let latest = self.latest.lock().expect("进度缓存锁中毒");
+        for row in rows {
+            let Some(live) = row
+                .get("sessionId")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|id| Uuid::parse_str(id).ok())
+                .and_then(|id| latest.get(&id))
+            else {
+                continue;
+            };
+            let Some(object) = row.as_object_mut() else {
+                continue;
+            };
+            object.insert("speed".into(), serde_json::json!(live.speed));
+            // 算不出来时写 `null` 而不是省略：两者对读取方是同一件事，但显式的 `null`
+            // 让「节点认得这个字段、只是此刻没有值」看得出来。
+            object.insert("eta".into(), serde_json::json!(live.eta));
         }
     }
 
     fn apply(&self, event: &CoreEvent) {
         match event {
             CoreEvent::TransferProgress { event } => {
-                self.latest
-                    .lock()
-                    .expect("进度缓存锁中毒")
-                    .insert(event.session_id, event.transferred_bytes);
+                self.latest.lock().expect("进度缓存锁中毒").insert(
+                    event.session_id,
+                    Live {
+                        transferred: event.transferred_bytes,
+                        speed: event.speed,
+                        eta: event.eta,
+                    },
+                );
             }
             // 五种「不再有 actor 在跑」的事件都要清掉自己那条，缺一条就会留下一个
             // 永不失效的旧值——那条会话此后每次出现在面板上都带着它最后一刻的进度，
@@ -110,6 +168,10 @@ mod tests {
     };
 
     fn progress_event(session_id: Uuid, transferred: u64) -> CoreEvent {
+        rated_event(session_id, transferred, 0.0, None)
+    }
+
+    fn rated_event(session_id: Uuid, transferred: u64, speed: f64, eta: Option<f64>) -> CoreEvent {
         CoreEvent::TransferProgress {
             event: TransferProgressEvent {
                 session_id,
@@ -118,8 +180,8 @@ mod tests {
                 completed_files: 0,
                 total_bytes: 1000,
                 transferred_bytes: transferred,
-                speed: 0.0,
-                eta: None,
+                speed,
+                eta,
                 files: Vec::new(),
             },
         }
@@ -196,5 +258,44 @@ mod tests {
         let mut rows = [projection(id, 850)];
         cache.overlay(&mut rows);
         assert_eq!(rows[0].transferred_bytes, 850, "暂停后该由库里的值说了算");
+    }
+
+    /// **速率必须随记录一起过通道。**
+    ///
+    /// 少了这一步，面板只剩一串每秒一次的快照，只能自己估——而那会高出一个数量级
+    /// （判据见 `render::send::rate_and_eta`）。
+    #[test]
+    fn a_live_session_carries_its_rate_across_the_channel() {
+        let id = Uuid::new_v4();
+        let cache = ProgressCache::default();
+        cache.apply(&rated_event(id, 512, 2048.0, Some(30.0)));
+
+        let mut records = serde_json::json!([{ "sessionId": id.to_string() }]);
+        cache.annotate(&mut records);
+        assert_eq!(records[0]["speed"], 2048.0);
+        assert_eq!(records[0]["eta"], 30.0);
+    }
+
+    /// 缓存里没有的会话**一个字段都不加**——没有 actor 在跑就没有速率可言，
+    /// 而字段缺席正是渲染侧「说不出来」的入口。
+    #[test]
+    fn an_unknown_session_gets_no_rate_fields() {
+        let cache = ProgressCache::default();
+        let mut records = serde_json::json!([{ "sessionId": Uuid::new_v4().to_string() }]);
+        cache.annotate(&mut records);
+        assert!(records[0].get("speed").is_none());
+        assert!(records[0].get("eta").is_none());
+    }
+
+    /// 核心算不出 ETA 时写 `null`，不折成 0——0 秒是「马上就好」，那是另一件事。
+    #[test]
+    fn an_unknown_eta_stays_null() {
+        let id = Uuid::new_v4();
+        let cache = ProgressCache::default();
+        cache.apply(&rated_event(id, 512, 2048.0, None));
+
+        let mut records = serde_json::json!([{ "sessionId": id.to_string() }]);
+        cache.annotate(&mut records);
+        assert!(records[0]["eta"].is_null());
     }
 }

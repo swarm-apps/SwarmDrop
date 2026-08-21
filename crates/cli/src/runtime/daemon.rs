@@ -247,7 +247,14 @@ impl RequestHandler for NodeHandler {
                         // **必须盖在这里，不能留给客户端**：进度事件只在本进程里，
                         // 而客户端是另一个进程。见 `runtime::progress`。
                         self.progress.overlay(&mut items);
-                        json_or_error(serde_json::to_value(items), "传输记录")
+                        let mut payload = serde_json::to_value(items);
+                        // 速率与剩余时间同理，只是它们在投影里没有字段，得等 JSON 化
+                        // 之后再标上去。少了这一步，面板只能自己估——那会高一个数量级
+                        // （判据见 `render::send::rate_and_eta`）。
+                        if let Ok(records) = &mut payload {
+                            self.progress.annotate(records);
+                        }
+                        json_or_error(payload, "传输记录")
                     }
                     Err(err) => Response::err(err),
                 }
