@@ -6,7 +6,7 @@
 > `cli/swarmdrop-cli-v0.1.1`（0.1.0 用的是旧形式 `cli/v0.1.0`，见 dist-workspace.toml）。
 > 仓库根目录的 `CHANGELOG.md` 记的是桌面端，与本文件无关。
 
-## [Unreleased]
+## [0.4.0] - 2026-08-21
 
 ### 新增
 
