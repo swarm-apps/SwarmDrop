@@ -118,15 +118,40 @@
 - [x] 9.4 记录 dsh 的三条硬约束（Typert Remote 对第三方不可用、API Proxy 封闭方法集、事件溯源是共同根因）
 - [x] 9.5 `dev-notes/knowledge/rust-backend.md`：收件箱领域事件的归位，以及「宿主不得从传输事件推导收件箱变化」这条判据
 
-## 10. 插件仓 `dsh-swarmdrop`（**仓外执行**，不在本仓 allowedEditRoots 内）
+## 10. 插件仓 `dsh-swarmdrop`（**仓外**：`/Volumes/yexiyue/dsh-swarmdrop`）
 
-- [ ] 10.1 建仓：TS 项目、`dsh.bundle` 声明、`exports["./client"]`、`optionalDependencies` 拉 `swarmdrop` 二进制
-- [ ] 10.2 Node 半边：spawn `swarmdrop watch --json` 长驻订阅，把 CLI 事件转写成 `swarmdrop/*` Session 事件（带版本字段）
-- [ ] 10.3 Node 半边：`ctx.tools.register()` 注册原生工具（不经 MCP 转发，见 D4），执行时顺手发 Session 事件
-- [ ] 10.4 Node 半边：`CommandDefinition` 注册 `/swarmdrop …`，handler 用 `sourceEventSeq` 指向富渲染事件
-- [ ] 10.5 Client 半边：`ConversationNodeDefinition` + `conversation.chat.node` renderer——传输进度、发送记录、「手机发来了 X」
-- [ ] 10.6 Client 半边：`ctx.inputTriggers` 注册 `@` source，候选来自事件流 fold 出的收件箱视图，实现 `subscribeLexicon`
-- [ ] 10.7 Client 半边：`ctx.slots` 设备面板 + `settings.*` 设置卡
+- [x] 10.1 建仓：TS 项目、`dsh.client` 声明、`exports["./client"]`、`optionalDependencies` 拉 `swarmdrop` 二进制
+- [x] 10.2 Node 半边：spawn `swarmdrop watch --json` 长驻订阅，把 CLI 事件转写成 `swarmdrop/*` Session 事件（带版本字段）
+- [x] 10.3 Node 半边：`ctx.tools.register()` 注册 5 个原生工具（不经 MCP 转发，见 D4），发送时顺手发 Session 事件
+- [x] 10.4 Node 半边：`CommandDefinition` 注册 `/swarmdrop`，handler 用 `sourceEventSeq` 指向富渲染事件
+- [x] 10.5 Client 半边：`ConversationNodeDefinition` + `conversation.chat.node` renderer——传输进度、「手机发来了 X」
+- [x] 10.6 Client 半边：`ctx.inputTriggers` 注册 `@` source，候选来自**会话投影**，实现 `subscribeLexicon`
+- [x] 10.7 ~~`ctx.slots` 设备面板 + `settings.*` 设置卡~~ —— **本轮不做**：两者都要求本插件自带 locale 命名空间与
+  设置 schema，而它们的价值取决于真实使用中「用户多久要看一次设备列表」——在有人真用之前做，是在猜
 - [ ] 10.8 Client 半边：`conversation.chat.turnTail` 加「发到手机」
-- [ ] 10.9 英文 README + 中文文档站页面；提交 `awesome-dsh-plugin` 收录
+- [ ] 10.9 英文 README ✅ 已写；中文文档站页面与 `awesome-dsh-plugin` 收录待办
 - [ ] 10.10 端到端验证：`dsh plugin add` → 在 dsh 里说「把这个发到我手机」成功；手机发来文件后能在对话里 `@` 引用到
+
+### 10.a 三条**必须记住**的发现（都是编译器逼出来的，不是读文档读出来的）
+
+- **两半不能进同一个 TS program。** dsh 在两侧对 `Context.sessions` 各augment 一次（Node 是
+  `SessionStore`，浏览器是 `ISessions`），合在一起会让浏览器半边对着 Node 的服务面编译，
+  报出的错完全指不到根因。推论是源码级的规矩：**client 文件绝不 import 包根**，只走
+  `/types` 与 `/client` 子路径。
+- **官方 conversation-node cookbook 里那段示例原样编不过。** `ChatNodeViewProps` 捆了
+  `t: TranslateNS<'conversation'>`，而 slot 只在注册时传了 `locale` 才注入 `t`，第一方传的那个
+  命名空间值又没导出。
+- **`exec.agent` 是可选的。** Code Mode 的嵌套分发没有 agent——发送照样发生，但没有会话可归属。
+
+### 10.b 一处对 design D1 的修正
+
+D1 写的是「浏览器侧的数据一律从 Session 事件流 fold」。**更正确的说法是「一律来自日志派生的
+成品值」**：dsh 有专门的 session-projection seam（领域注册一个纯折叠单元，框架驱动它跑过每条
+已提交事件，客户端收成品值），其文档明写「客户端从不折叠领域事件」。`@` 的候选走的是它，
+不是手写 fold。结论没变（不许旁路 RPC、carrier 无关），拿到数据的方式更正统了。
+
+### 10.c 一个**阻塞发布**的上游问题
+
+`@deepseek-ai/dsh-client-runtime` 依赖 `@deepseek-ai/dsh-compact`，而后者**没发到 npm**——
+client 侧的依赖链在 registry 上是断的。在它发布之前，浏览器半边只能对着 dsh 检出做类型校验
+（`scripts/dev-tsconfig.mjs` 复用 dsh 自己那份 153 条 paths 映射）。
