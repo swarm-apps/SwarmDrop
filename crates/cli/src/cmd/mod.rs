@@ -351,6 +351,12 @@ impl Command {
             // ⚠️ `Watch` **不在其列**，尽管它的 stdout 也是一条机器读的流。判据是
             // 「两条流一起被独占」：它不读 stdin（没有请求要收），也就没有「提示吃掉
             // 一帧协议消息」这回事。它的 stdout 由 `--json` 决定形态，与本判据无关。
+            //
+            // ⚠️ `Invite` 的 `create --decide-from-stdin` **两条流都占**，本函数却仍答
+            // `false`——它拿到的是 `&Command`，看不见子命令上的开关。那条路径由另一条
+            // 机制覆盖：该开关带 `requires = "json"`，于是 `STRUCTURED` 为真、
+            // `can_ask()` 为假，交互本来就关着。**放宽那个 `requires` 就要回来改这里**，
+            // 否则一次提示会吃掉调用方送来的一行决策。
             Self::Start { .. }
             | Self::Stop
             | Self::Status
@@ -381,6 +387,24 @@ pub enum InviteAction {
         /// 只在可控网络里这么做。
         #[arg(long)]
         auto_accept: bool,
+
+        /// 把每个入站配对请求交给**调用方**决定，而不是问终端前的人。
+        ///
+        /// 供托管本命令的程序（图形前端、agent harness 的插件）使用：请求以 NDJSON
+        /// 写到 stdout（`{"event":"pairingRequest","pendingId":N,…}`），调用方往 stdin
+        /// 写回一行 `{"pendingId":N,"accept":true}`。
+        ///
+        /// **与 `--auto-accept` 的区别是谁在核对身份**：那条谁都放行，这条把对端信息
+        /// 交给一个会展示给人看的程序。因此它**不是** fail-open：stdin 关掉就是「问的
+        /// 那个人走了」，手上那条顺手拒掉并退出，与「没有终端可问」同一条判据。
+        ///
+        /// 答不上号的输入（答的是别的 `pendingId`、或者压根不是一个决策对象）**被跳过
+        /// 而不是当作拒绝**：把一行垃圾读成「拒绝」，用户会在界面上看到「已拒绝」并去
+        /// 排查自己那台设备，而实际什么也没发生。等不到答复时由对端的超时兜底。
+        ///
+        /// 隐含结构化输出，故要求 `--json`；与 `--auto-accept` 互斥。
+        #[arg(long, requires = "json", conflicts_with = "auto_accept")]
+        decide_from_stdin: bool,
     },
 
     /// 用一张别人给的邀请完成配对。
@@ -624,6 +648,43 @@ mod tests {
     #[test]
     fn cli_definition_is_valid() {
         Cli::command().debug_assert();
+    }
+
+    /// 两个决策源不能同时给出，且程序化那个必须声明 `--json`。
+    ///
+    /// **这两条在命令行这一层拦住，才使 `Decider` 那个枚举成立**——它把「既自动放行、
+    /// 又要问调用方」这半个组合从类型上消掉，前提是解析期不会构造出那种输入。
+    /// 顺带也挡住一个更安静的错误：`--decide-from-stdin` 不带 `--json` 时，请求会以
+    /// 人类可读的框线打到 stderr，而调用方在 stdout 上什么也等不到。
+    #[test]
+    fn the_two_decision_sources_are_exclusive() {
+        assert!(
+            Cli::try_parse_from([
+                "swarmdrop",
+                "invite",
+                "create",
+                "--json",
+                "--decide-from-stdin",
+            ])
+            .is_ok(),
+            "程序化决策源应当能解析"
+        );
+        assert!(
+            Cli::try_parse_from(["swarmdrop", "invite", "create", "--decide-from-stdin"]).is_err(),
+            "--decide-from-stdin 必须要求 --json"
+        );
+        assert!(
+            Cli::try_parse_from([
+                "swarmdrop",
+                "invite",
+                "create",
+                "--json",
+                "--decide-from-stdin",
+                "--auto-accept",
+            ])
+            .is_err(),
+            "两个决策源不得同时给出"
+        );
     }
 
     /// `send` 的两个参数各自都可以缺席——缺的那个由交互补出来。

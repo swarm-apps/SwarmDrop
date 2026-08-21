@@ -79,31 +79,9 @@ pub async fn run(data_dir: &DataDir) -> CliResult<()> {
     host.shutdown().await;
 
     if via_channel {
-        exit_now(crate::cmd::finish(result));
+        crate::exit::exit_now(crate::cmd::finish(result));
     }
     result
-}
-
-/// 立刻结束进程。
-///
-/// ⚠️ **这条路径不能靠 `return`。** MCP 的 stdio 传输把 stdin 交给了 tokio 的**阻塞**读
-/// 任务，而走到这里时宿主仍握着 stdin 不放（它才是那条流的主人，本进程是被信号或
-/// `swarmdrop stop` 叫停的）。`main` 返回时运行时析构会等所有阻塞任务收尾，
-/// 而那次读**永远不会返回**——进程就此挂死。
-///
-/// 挂死比退非零更糟：服务管理器会一直等到自己的超时，agent harness 会留下一个僵尸子进程，
-/// 而单实例锁虽已释放、进程却还在，`ps` 上看是「停不掉」。
-///
-/// 走到这里时清理已经全部做完（节点已关停、锁已释放），所以直接退是安全的。
-/// 实测：不这么做时 `swarmdrop mcp` 收到 `SIGTERM` 后仍然存活。
-fn exit_now(code: crate::exit::Code) -> ! {
-    use std::io::Write;
-
-    // `process::exit` 不跑 Rust 的 stdout 刷新。这条流上只有完整的行，
-    // 但显式刷一次的代价是零，而少刷一次的代价是最后一行悄悄消失。
-    let _ = std::io::stdout().flush();
-    let _ = std::io::stderr().flush();
-    std::process::exit(code as i32)
 }
 
 /// 等到「该收摊了」为止。

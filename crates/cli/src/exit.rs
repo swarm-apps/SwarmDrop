@@ -6,6 +6,31 @@
 
 use std::process::ExitCode;
 
+/// 立刻结束进程，跳过运行时析构。
+///
+/// ⚠️ **只给「本进程把 stdin 交给了 tokio 的阻塞读」的那几条路径。** tokio 的
+/// `io::stdin()` 背后是一个**阻塞**读任务，而 `main` 返回时运行时析构会等所有阻塞任务
+/// 收尾——对面还握着 stdin 不放时，那次读**永远不会返回**，进程就此挂死。
+///
+/// 挂死比退非零更糟：服务管理器会一直等到自己的超时，agent harness 会留下一个僵尸子进程，
+/// 而单实例锁虽已释放、进程却还在，`ps` 上看是「停不掉」。
+///
+/// **两个用例**：`swarmdrop mcp`（stdin 是宿主的请求流）与
+/// `swarmdrop invite create --decide-from-stdin`（stdin 是决策通道）。两者都是被信号或
+/// `swarmdrop stop` 从外面叫停的——正常收摊那条路上 stdin 已经 EOF，运行时析构等得到，
+/// 不必走这里。
+///
+/// **调用前清理必须已经做完**（节点关停、锁释放）：这之后什么都不会再跑。
+pub fn exit_now(code: Code) -> ! {
+    use std::io::Write;
+
+    // `process::exit` 不跑 Rust 的 stdout 刷新。流式路径上只有完整的行，
+    // 但显式刷一次的代价是零，而少刷一次的代价是最后一行悄悄消失。
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+    std::process::exit(code as i32)
+}
+
 /// 退出码。
 ///
 /// `0` 与 `2` 沿用既有惯例（POSIX 成功、clap 的用法错误），`130` 是 shell 的

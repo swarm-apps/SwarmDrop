@@ -13,7 +13,8 @@
 //! ## 生成的那一侧要一直守到配对完成
 //!
 //! 而不是打完码就退出。两个理由：邀请的可拨地址就是签发节点的（临时节点一退出码就作废），
-//! 以及——更重要的——入站请求要由**这个终端前的人**看过对端信息之后才放行。
+//! 以及——更重要的——入站请求要**有人**看过对端信息之后才放行。看的人可能坐在这个终端前，
+//! 也可能在一个托管本命令的程序里（`--decide-from-stdin`，见 [`Decider`]）。
 //! `invite create` 在跑，就是「此刻有人在等一次配对」的唯一表达；它不在跑时，常驻节点会
 //! 拒掉一切配对请求。
 
@@ -31,7 +32,10 @@ use crate::runtime::pairing::{InboundPairings, PairOutcome, PairingRequest};
 
 pub async fn run(data_dir: &DataDir, json: bool, action: InviteAction) -> CliResult<()> {
     match action {
-        InviteAction::Create { auto_accept } => create(data_dir, json, auto_accept).await,
+        InviteAction::Create {
+            auto_accept,
+            decide_from_stdin,
+        } => create(data_dir, json, auto_accept, decide_from_stdin).await,
         InviteAction::Use { invite } => use_invite(data_dir, json, invite).await,
         InviteAction::List => list(data_dir, json).await,
         InviteAction::Revoke { ids, all, yes } => revoke(data_dir, json, ids, all, yes).await,
@@ -206,7 +210,12 @@ fn locate(rows: &[InviteRow], prefix: &str) -> CliResult<InviteRow> {
 /// 常驻节点在跑时**必须由它签发**：邀请里带的是签发者的可拨地址，本进程另起一个节点
 /// 签出来的邀请指向一个即将消失的临时节点——对方会拿到一条拨不通的邀请。此时确认仍然
 /// 发生在**本命令**这一侧：常驻节点把入站请求经本地通道转交过来。
-async fn create(data_dir: &DataDir, json: bool, auto_accept: bool) -> CliResult<()> {
+async fn create(
+    data_dir: &DataDir,
+    json: bool,
+    auto_accept: bool,
+    decide_from_stdin: bool,
+) -> CliResult<()> {
     // **`--json` 与 `--no-input` 在这里必须分开处理**，尽管两者都关掉了交互。
     //
     // `--no-input` 是「不要问我」：命令照常运行、守着邀请，期间到达的请求一律拒绝
@@ -218,10 +227,14 @@ async fn create(data_dir: &DataDir, json: bool, auto_accept: bool) -> CliResult<
     // 更糟的是 `render_declined` / `render_request_expired` 的 json 分支会持续往
     // stdout 追加对象，直接破坏「结构化模式下 stdout 只能有最终结果」这条契约，
     // 而调用方那边表现为一个读不完的流。所以快速失败，并指出唯一可用的组合。
-    if json && !auto_accept {
+    let decider = Decider::new(auto_accept, decide_from_stdin);
+
+    if json && decider.needs_a_terminal() {
         return Err(CliError::Usage(
             "结构化输出模式下无法交互确认配对请求。
-             请加 --auto-accept（自动接受第一台出示有效邀请的设备——届时无人核对对端身份，
+             请加 --decide-from-stdin（把每个请求交给调用方决定，对端信息经 NDJSON 出去、
+             答复从 stdin 读回来——托管本命令的图形前端用这条），
+             或 --auto-accept（自动接受第一台出示有效邀请的设备——届时无人核对对端身份，
              请只在可控网络里这么做）。"
                 .into(),
         ));
@@ -229,7 +242,10 @@ async fn create(data_dir: &DataDir, json: bool, auto_accept: bool) -> CliResult<
 
     // 剩下的是「环境问不了人，而用户什么也没说」——那时这条命令注定做不成它该做的事。
     // 先判断而不是等请求真的来了才发现问不了：那时对端已经在等，而这一侧只能干拒。
-    if !auto_accept && !crate::prompt::can_ask() && !crate::prompt::interaction_declined() {
+    if decider.needs_a_terminal()
+        && !crate::prompt::can_ask()
+        && !crate::prompt::interaction_declined()
+    {
         return Err(CliError::Usage(
             "无法交互确认配对请求：当前没有可用的终端。\n\
              无人值守场景请加 --auto-accept，那表示自动接受第一台出示有效邀请的设备——\n\
@@ -240,8 +256,24 @@ async fn create(data_dir: &DataDir, json: bool, auto_accept: bool) -> CliResult<
     }
 
     let access = NodeAccess::open(data_dir, json).await?;
-    let result = serve_invite(&access, data_dir, json, auto_accept).await;
+    // 取在 `decider` 被移走之前：收尾方式取决于它是谁。
+    let holds_stdin = decider.holds_stdin();
+    let result = serve_invite(&access, data_dir, json, decider).await;
     access.close().await;
+
+    // ⚠️ **这条路径不能靠 `return` 退出。** `Caller` 把 stdin 交给了 tokio 的**阻塞**读
+    // 任务，而走到这里时调用方仍握着 stdin 不放（本进程是被 Ctrl-C / SIGTERM 叫停的）。
+    // `main` 返回时运行时析构会等所有阻塞任务收尾，而那次读**永远不会返回**——进程就此
+    // 挂死，宿主那侧看到的是一个杀不掉的子进程。
+    //
+    // 与 `swarmdrop mcp` 同一条判据，实现共用 [`crate::exit::exit_now`]。清理已经在上一行
+    // 做完了，所以直接退是安全的。
+    //
+    // **正常收摊不走这里**：配对成功时 `serve` 返回 `Ok`，而那一刻调用方多半已经关掉
+    // stdin，阻塞读拿到 EOF 就返回了。这条兜的是「人还在等、外面来了信号」。
+    if holds_stdin && result.is_err() {
+        crate::exit::exit_now(crate::cmd::finish(result));
+    }
     result
 }
 
@@ -249,7 +281,7 @@ async fn serve_invite(
     access: &NodeAccess,
     data_dir: &DataDir,
     json: bool,
-    auto_accept: bool,
+    decider: Decider,
 ) -> CliResult<()> {
     let invite = match access.ask(&Request::InviteCreate).await? {
         Some(Response::Data { payload }) => payload
@@ -281,7 +313,7 @@ async fn serve_invite(
         .map(|parsed| parsed.id());
 
     crate::render::invite::render_created(&invite, id.as_deref(), json);
-    crate::render::invite::render_waiting(access.local().is_some(), auto_accept, json);
+    crate::render::invite::render_waiting(access.local().is_some(), decider.unattended(), json);
 
     let abort = spawn_abort_watch();
     let socket = data_dir.socket();
@@ -293,7 +325,7 @@ async fn serve_invite(
         None => Desk::Daemon { socket: &socket },
     };
 
-    serve(desk, json, auto_accept, &abort).await
+    serve(desk, json, decider, &abort).await
 }
 
 /// 待确认请求从哪来、答复往哪送。
@@ -367,7 +399,7 @@ impl Desk<'_> {
 async fn serve(
     mut desk: Desk<'_>,
     json: bool,
-    auto_accept: bool,
+    mut decider: Decider,
     abort: &tokio::sync::Notify,
 ) -> CliResult<()> {
     loop {
@@ -379,7 +411,7 @@ async fn serve(
         let decision = tokio::select! {
             // **确认提示期间也要能中止**：用户按 Ctrl-C 是想退出，不是想回答「否」。
             _ = abort.notified() => None,
-            decision = decide(&request, auto_accept, json) => decision,
+            decision = decider.decide(&request, json) => decision,
         };
 
         // 读不到回答 ⇒ 问的那个人已经走了。手上这条顺手拒掉（别让对端干等到核心那侧
@@ -431,29 +463,171 @@ fn spawn_abort_watch() -> std::sync::Arc<tokio::sync::Notify> {
     abort
 }
 
-/// 展示对端信息并决定接不接受。
+/// 谁来核对入站配对请求。
 ///
-/// 三条判据，顺序不能换：
-/// 1. `--auto-accept` → 接受（用户已显式表达「别问我」）。
-/// 2. 问得了人 → 问。
-/// 3. 否则 → **拒绝**。显式关掉交互是 fail-closed 的：不问就是不放行。
-///
-/// **`--auto-accept` 也照样把信息打出来**：无人值守不等于事后无法追查，
-/// 日志里留着「当时配上来的是谁」是这条开关唯一的安全兜底。
-async fn decide(request: &PairingRequest, auto_accept: bool, json: bool) -> Option<bool> {
-    crate::render::invite::render_pairing_request(request, json);
+/// 三个变体各对应一种「谁在看对端信息」。做成枚举而不是两个布尔开关，是因为组合里有
+/// 一半根本不成立（既自动放行、又要问调用方），而枚举把那一半从类型上消掉——`clap` 的
+/// `conflicts_with` 只挡命令行，这里挡的是代码。
+enum Decider {
+    /// 屏幕前的人。默认，需要可交互终端。
+    Prompt,
+    /// 没有人：`--auto-accept` 一律放行。
+    Auto,
+    /// 托管本命令的程序：请求已随 NDJSON 出去了，答复从 stdin 读回来。
+    Caller(Caller),
+}
 
-    if auto_accept {
-        return Some(true);
+impl Decider {
+    fn new(auto_accept: bool, decide_from_stdin: bool) -> Self {
+        // 顺序即优先级，且与 `clap` 的互斥声明一致：两条同时给出时命令行已经报错，
+        // 走不到这里。
+        if decide_from_stdin {
+            return Self::Caller(Caller::new());
+        }
+        if auto_accept {
+            return Self::Auto;
+        }
+        Self::Prompt
     }
-    if !crate::prompt::can_ask() {
-        tracing::warn!(
-            who = request.device,
-            "已拒绝入站配对请求：交互已被禁用（--no-input / --json）"
-        );
-        return Some(false);
+
+    /// 这次等待期间**有没有人在核对对端身份**。
+    ///
+    /// 只影响那句警告的措辞，但判据是实打实的：`Caller` 不算无人值守——它把对端信息
+    /// 交给了一个会展示给人看的程序，那才是 `--auto-accept` 缺的东西。
+    ///
+    /// ⚠️ `Caller` 今天**走不到**那句警告：`--decide-from-stdin` 带 `requires = "json"`，
+    /// 而 `render_waiting` 在 json 模式下第一行就返回。保留这个判断是前置覆盖——放宽那个
+    /// `requires` 的那一刻，正确答案已经写在这里了，而不是那时才去想。
+    fn unattended(&self) -> bool {
+        matches!(self, Self::Auto)
     }
-    crate::prompt::confirm(format!("接受来自「{}」的配对请求？", request.device)).await
+
+    /// 这个决策源**需不需要一个可交互的终端**。
+    ///
+    /// 两处前置检查都在问它。此前它们各写一遍 `!auto_accept && !decide_from_stdin`
+    /// ——那正是这个枚举要消掉的东西：三项合取里有一半的组合根本不成立，而读的人得自己
+    /// 想明白。
+    fn needs_a_terminal(&self) -> bool {
+        matches!(self, Self::Prompt)
+    }
+
+    /// 这个决策源**有没有把 stdin 交给 tokio 的阻塞读**。
+    ///
+    /// 决定收尾方式，见 [`create`] 结尾那段：走到这里的进程不能靠 `return` 退出。
+    fn holds_stdin(&self) -> bool {
+        matches!(self, Self::Caller(_))
+    }
+
+    /// 展示对端信息并决定接不接受。
+    ///
+    /// **信息一律先打出来**，无论谁来决定：无人值守不等于事后无法追查，
+    /// 日志里留着「当时配上来的是谁」是 `--auto-accept` 唯一的安全兜底；
+    /// 而 `Caller` 那条更直接——那行 NDJSON 就是调用方做判断的全部依据。
+    ///
+    /// 返回 `None` = 「问的那个人已经走了」，由调用方拒掉这条并收工。
+    async fn decide(&mut self, request: &PairingRequest, json: bool) -> Option<bool> {
+        crate::render::invite::render_pairing_request(request, json);
+
+        match self {
+            Self::Auto => Some(true),
+            Self::Caller(caller) => caller.ask(request.pending_id).await,
+            // 三条判据，顺序不能换：问得了人 → 问；否则 → **拒绝**。
+            // 显式关掉交互是 fail-closed 的：不问就是不放行。
+            Self::Prompt => {
+                if !crate::prompt::can_ask() {
+                    tracing::warn!(
+                        who = request.device,
+                        "已拒绝入站配对请求：交互已被禁用（--no-input / --json）"
+                    );
+                    return Some(false);
+                }
+                crate::prompt::confirm(format!("接受来自「{}」的配对请求？", request.device)).await
+            }
+        }
+    }
+}
+
+/// stdin 上的决策通道。
+///
+/// **一行一个 JSON 对象**，与 `watch --json` 同一种线格式：
+/// `{"pendingId":12,"accept":true}`。
+struct Caller {
+    lines: tokio::io::Lines<tokio::io::BufReader<tokio::io::Stdin>>,
+}
+
+impl Caller {
+    fn new() -> Self {
+        use tokio::io::AsyncBufReadExt as _;
+        Self {
+            lines: tokio::io::BufReader::new(tokio::io::stdin()).lines(),
+        }
+    }
+
+    /// 等调用方对 `pending_id` 作答。
+    ///
+    /// 两种「不算答复」的输入被**跳过而不是当作拒绝**，理由是同一条：拒绝会在界面上
+    /// 变成「已拒绝」并让用户以为自己那台设备被挡了，而实际发生的只是调用方发了一行
+    /// 它自己也没打算当作答复的东西。
+    ///
+    /// - **答的是别的请求**：多半是对一条已失效请求的迟到回复。
+    /// - **不是合法的决策对象**：一行垃圾。
+    ///
+    /// 真正的终止条件只有 stdin 关闭（EOF 或读失败）——那是「托管本命令的程序走了」，
+    /// 与用户按下 Ctrl-C 同义。
+    async fn ask(&mut self, pending_id: u64) -> Option<bool> {
+        loop {
+            let line = match self.lines.next_line().await {
+                Ok(Some(line)) => line,
+                Ok(None) => {
+                    tracing::debug!("决策通道已关闭：调用方走了");
+                    return None;
+                }
+                Err(err) => {
+                    tracing::warn!(%err, "读决策通道失败");
+                    return None;
+                }
+            };
+
+            match parse_decision(&line) {
+                Some(decision) if decision.pending_id != pending_id => {
+                    tracing::debug!(
+                        answered = decision.pending_id,
+                        waiting = pending_id,
+                        "忽略对另一条请求的答复"
+                    );
+                }
+                Some(decision) => return Some(decision.accept),
+                None => tracing::warn!(line = %line.trim(), "决策通道收到一行无法解析的输入"),
+            }
+        }
+    }
+}
+
+/// 调用方送回来的一条决策。
+///
+/// 用 `serde` 结构而不是从 `Value` 里逐字段挖：这条交换的**出向**一半
+/// （[`PairingRequest`]）本来就是这么定义的，两边形态一致才看得出它们是一对。
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Decision {
+    pending_id: u64,
+    accept: bool,
+}
+
+/// 解析一行决策。缺字段、类型不对、不是 JSON——都是「这不是一条答复」。
+///
+/// ⚠️ **必须先确认它是个对象。** serde 允许按字段顺序从**数组**反序列化一个 struct，
+/// 于是 `[12,true]` 会被读成 `{pendingId:12, accept:true}`——一条调用方绝不会发出、
+/// 而这一侧会照做的决策。由 [`tests::a_malformed_line_is_not_a_decision`] 钉住。
+///
+/// 多余字段照收（不加 `deny_unknown_fields`）：将来往这条线上加一个字段时，
+/// 老版本的 CLI 应当继续认得它认得的那部分。
+fn parse_decision(line: &str) -> Option<Decision> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    if !value.is_object() {
+        return None;
+    }
+    serde_json::from_value(value).ok()
 }
 
 /// 用一张别人给的邀请完成配对。
@@ -598,5 +772,65 @@ mod tests {
             text.contains("abcd1111") && text.contains("abcd2222"),
             "{text}"
         );
+    }
+
+    /// 一条合法答复解析得出。
+    #[test]
+    fn parses_a_decision() {
+        let yes = super::parse_decision(r#"{"pendingId":12,"accept":true}"#).expect("解析");
+        assert_eq!((yes.pending_id, yes.accept), (12, true));
+
+        let no = super::parse_decision(r#"{"pendingId":0,"accept":false}"#).expect("解析");
+        assert_eq!((no.pending_id, no.accept), (0, false));
+    }
+
+    /// **不是答复的输入一律给 `None`，而不是「拒绝」。**
+    ///
+    /// 这条判据是安全相关的，方向与直觉相反：把无法解析的输入读成拒绝，会让用户看到
+    /// 「已拒绝」并去排查自己那台设备，而实际发生的只是调用方发了一行它没打算当作答复
+    /// 的东西。`Caller::ask` 据此跳过并继续等，真正的终止条件只有 stdin 关闭。
+    #[test]
+    fn a_malformed_line_is_not_a_decision() {
+        for line in [
+            "",
+            "not json",
+            "{}",
+            r#"{"pendingId":12}"#,
+            r#"{"accept":true}"#,
+            r#"{"pendingId":"12","accept":true}"#,
+            r#"{"pendingId":12,"accept":"yes"}"#,
+            r#"{"pendingId":-1,"accept":true}"#,
+            r#"[12,true]"#,
+        ] {
+            assert!(super::parse_decision(line).is_none(), "{line}");
+        }
+    }
+
+    /// 决策源是三选一，且 `--decide-from-stdin` 优先——命令行那层已把两条同时给出挡掉。
+    #[test]
+    fn the_decision_source_is_exclusive() {
+        assert!(matches!(
+            super::Decider::new(false, false),
+            super::Decider::Prompt
+        ));
+        assert!(matches!(
+            super::Decider::new(true, false),
+            super::Decider::Auto
+        ));
+        assert!(matches!(
+            super::Decider::new(false, true),
+            super::Decider::Caller(_)
+        ));
+    }
+
+    /// 只有 `--auto-accept` 算「无人核对身份」。
+    ///
+    /// `Caller` 不算：它把对端信息交给了一个会展示给人看的程序，那正是 `--auto-accept`
+    /// 缺的东西。搞反了会让托管前端的用户看到一句并不成立的安全警告。
+    #[test]
+    fn only_auto_accept_is_unattended() {
+        assert!(super::Decider::new(true, false).unattended());
+        assert!(!super::Decider::new(false, false).unattended());
+        assert!(!super::Decider::new(false, true).unattended());
     }
 }

@@ -6,6 +6,46 @@
 > `cli/swarmdrop-cli-v0.1.1`（0.1.0 用的是旧形式 `cli/v0.1.0`，见 dist-workspace.toml）。
 > 仓库根目录的 `CHANGELOG.md` 记的是桌面端，与本文件无关。
 
+## [0.5.0] - 2026-08-21
+
+### 新增
+
+- **`swarmdrop invite create --json --decide-from-stdin`：把配对的确认交给调用方，
+  而不是终端前的人。** 供托管本命令的图形前端使用——本仓的 DeepSeek Harness 插件
+  （`dsh-swarmdrop`）就是第一个消费者：它在浏览器面板里画出对端信息，由用户点「接受」。
+
+  线格式是这条命令**既有的** NDJSON 事件流（`inviteCreated` / `pairingRequest` /
+  `pairingDeclined` / `pairingRequestExpired` / `paired`），新增的只是反方向：调用方往
+  stdin 写一行 `{"pendingId":N,"accept":true}`。
+
+  **它不是 `--auto-accept` 的别名，方向正相反。** 那条谁都放行、无人核对身份；这条把
+  对端的节点标识交给一个会展示给人看的程序，人还在环里，只是站的位置变了。因此它
+  **fail-closed**：stdin 关闭 = 「问的那个人走了」，手上那条顺手拒掉并退出。
+
+  两种「不算答复」的输入被**跳过而不是当作拒绝**——答的是别的 `pendingId`（对一条已
+  失效请求的迟到回复），或者压根不是合法的决策对象（一行垃圾）。把它们读成拒绝会让
+  用户在界面上看到「已拒绝」并去排查自己那台设备，而实际什么也没发生。
+
+  `--json` 是硬要求（`requires`），与 `--auto-accept` 互斥（`conflicts_with`）。
+  「配对窗口只在本命令运行期间打开」这条不变量原样保留：进程退出，窗口就关。
+
+### 修复
+
+- **`invite create --json` 不再在宿主关掉 stdout 时 panic。** 那五处 JSON 输出用的是
+  `println!`——Rust 启动时把 `SIGPIPE` 设成忽略，于是往一条已关闭的管道写会让 `write`
+  返回 `EPIPE`，而 `println!` 对此的反应是 panic（退出码 101）。宿主结束一次配对时先关
+  读端是常规动作，而 101 会被读成「它崩了」。
+
+  判据与 `watch --json` 同源，此前只有那条流用上：两条路径现在共用
+  `render::emit_line`。`--decide-from-stdin` 让这条更容易撞上——它把 `invite create`
+  从「打两行就完」变成了一条由宿主持有的长驻流。
+
+### 变更
+
+- `invite create --json` 的 `inviteCreated` 帧新增 `event` 字段。**向后兼容**：
+  旧调用方读的 `invite` / `id` 原样保留。加它是因为这条命令现在是一条 NDJSON 流，
+  而流上每一帧都要能只靠自己认出是什么。
+
 ## [0.4.0] - 2026-08-21
 
 ### 新增

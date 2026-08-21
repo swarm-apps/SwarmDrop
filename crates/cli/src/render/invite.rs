@@ -26,8 +26,11 @@ use crate::runtime::pairing::{PairOutcome, PairingRequest};
 /// 「刚发错人、立刻撤回」这条主场景可用的前提。取不到时省略，不让整条命令失败。
 pub fn render_created(invite: &str, id: Option<&str>, json: bool) {
     if json {
-        let payload = serde_json::json!({ "invite": invite, "id": id });
-        println!("{payload}");
+        // `event` 与配对流里其余几条同名同位：`--decide-from-stdin` 把这条命令变成了一条
+        // NDJSON 流，而流上每一帧都要能只靠自己认出是什么。旧调用方读的 `invite` / `id`
+        // 原样保留，多一个字段不改变它们的意思。
+        let payload = serde_json::json!({ "event": "inviteCreated", "invite": invite, "id": id });
+        super::emit_line(&payload.to_string());
         return;
     }
 
@@ -146,7 +149,7 @@ pub fn render_revoked(rows: &[InviteRow], outcome: &RevokeOutcome, json: bool) {
             "revoked": outcome.revoked,
             "persisted": outcome.persisted,
         });
-        println!("{payload}");
+        super::emit_line(&payload.to_string());
         return;
     }
 
@@ -176,7 +179,9 @@ pub fn render_revoked_all(outcome: &RevokeOutcome, json: bool) {
             "revoked": outcome.revoked,
             "persisted": outcome.persisted,
         });
-        println!("{payload}");
+        // **这是配对流的终帧**，与其余四条同一条路径：宿主拿到它就会关读端，
+        // 而 `println!` 在那一刻是一次 panic。判据见 [`super::emit_line`]。
+        super::emit_line(&payload.to_string());
         return;
     }
 
@@ -201,14 +206,14 @@ fn warn_if_not_persisted(outcome: &RevokeOutcome) {
 ///
 /// 三件事必须说到，否则用户会在错误的地方等：这张邀请活多久、待会儿会不会问他、
 /// 以及（临时节点时）命令一退出它就废了。
-pub fn render_waiting(temporary_node: bool, auto_accept: bool, json: bool) {
+pub fn render_waiting(temporary_node: bool, unattended: bool, json: bool) {
     if json {
         return;
     }
 
     eprintln!();
     eprintln!("等待对方配对…（Ctrl-C 取消）");
-    if auto_accept {
+    if unattended {
         eprintln!("⚠️ 已开启自动接受：第一台出示这张邀请的设备会直接配上，不会再问你。");
     } else {
         eprintln!("有设备请求配对时会在这里列出它的信息，由你确认后才会接受。");
@@ -235,7 +240,7 @@ pub fn render_pairing_request(request: &PairingRequest, json: bool) {
             "arch": request.arch,
             "connection": request.connection,
         });
-        println!("{payload}");
+        super::emit_line(&payload.to_string());
         return;
     }
 
@@ -275,7 +280,7 @@ pub fn render_declined(request: &PairingRequest, json: bool) {
             "pendingId": request.pending_id,
             "peerId": request.peer_id,
         });
-        println!("{payload}");
+        super::emit_line(&payload.to_string());
         return;
     }
     eprintln!("已拒绝。这张邀请没有被消耗，仍在等待——对方可以继续用它配对。");
@@ -285,10 +290,7 @@ pub fn render_declined(request: &PairingRequest, json: bool) {
 /// 待确认的请求在确认期间失效了。
 pub fn render_request_expired(json: bool) {
     if json {
-        println!(
-            "{}",
-            serde_json::json!({ "event": "pairingRequestExpired" })
-        );
+        super::emit_line(&serde_json::json!({ "event": "pairingRequestExpired" }).to_string());
         return;
     }
     eprintln!("这条配对请求已失效（对方断开或等待超时），仍在等待下一次。");

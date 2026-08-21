@@ -701,13 +701,52 @@ let record = match id {
 `invite create --no-input`：命令照常运行、守着邀请，期间到达的请求一律拒绝。有明确用途
 ——只想把码摆出来看看，不打算真的配对。
 
-`invite create --json`：**没有可用的形态**。它会生成一张注定配不上的邀请（每个入站请求都
-被拒），然后**永不返回**；更糟的是 `render_declined` / `render_request_expired` 的 json 分支
-会持续往 stdout 追加对象，破坏「结构化模式下 stdout 只能有最终结果」，调用方那边表现为
-一个读不完的流。所以它必须**快速失败**并指出唯一可用的组合（`--auto-accept`）。
+`invite create --json`：**单独给没有可用的形态**。它会生成一张注定配不上的邀请（每个入站
+请求都被拒），然后**永不返回**；更糟的是 `render_declined` / `render_request_expired` 的
+json 分支会持续往 stdout 追加对象，破坏「结构化模式下 stdout 只能有最终结果」，调用方那边
+表现为一个读不完的流。所以它必须**快速失败**并指出可用的组合。
+
+⚠️ **「可用的组合」现在有两个**（2026-08-21 起）：`--auto-accept`，以及
+`--decide-from-stdin`（见下一条）。此处此前写作「唯一可用的组合（`--auto-accept`）」，
+照着那句话会以为程序驱动配对只能 fail-open，而那正是它不该做的事。
+
+另外那条「破坏 stdout 只能有最终结果」的顾虑，在 `--decide-from-stdin` 下**不成立而是前提**
+——那个模式下这条命令**就是**一条 NDJSON 流，与 `watch --json` 同一种契约。两者的区别不是
+「流不流」，是**有没有人在读**：没有决策源时那个流没有尽头也没有消费者。
 
 ⚠️ 用 `interaction_declined()`（= `NO_INPUT || STRUCTURED`）一把抓就会丢掉这个区分——
 2026-08-19 这么写过一次，两个开关合流后 `--json` 落进了「照常运行」那条路。
+
+### 程序驱动的配对：`--decide-from-stdin`（2026-08-21）
+
+第四种「谁来核对对端身份」，给托管本命令的图形前端用（本仓的 dsh 插件是第一个消费者：
+它在浏览器面板里画出对端信息，由用户点接受）。
+
+```
+swarmdrop invite create --json --decide-from-stdin
+  stdout ← {"event":"inviteCreated","invite":"https://…","id":"…"}
+  stdout ← {"event":"pairingRequest","pendingId":0,"peerId":"12D3…","device":"…","os":"…","arch":"…","connection":"lan"}
+  stdin  → {"pendingId":0,"accept":true}
+  stdout ← {"event":"paired","device":"…","persisted":true}
+```
+
+**它与 `--auto-accept` 方向相反，别当成别名。** 那条谁都放行、无人核对身份；这条把节点
+标识交给一个会展示给人看的程序——人还在环里，只是站的位置从终端换到了浏览器。所以：
+
+- **fail-closed**：stdin 关闭 = 「问的那个人走了」，手上那条顺手拒掉并退出。与「没有终端
+  可问」同一条判据。
+- **两种「不算答复」的输入跳过而不是当作拒绝**：答的是别的 `pendingId`（对一条已失效请求
+  的迟到回复），或者压根不是合法的决策对象（一行垃圾）。把它们读成拒绝，用户会在界面上
+  看到「已拒绝」并去排查自己那台设备，而实际什么也没发生。判据由
+  `a_malformed_line_is_not_a_decision` 钉住。
+- **`unattended()` 只对 `Auto` 为真**。那句安全警告（「届时无人核对对端身份」）对
+  `Caller` 不成立，打出来会是一句假话。
+
+「窗口只在 `invite create` 运行期间打开」这条不变量**原样保留**——进程退出窗口就关，
+这是插件里 `PairingSession.cancel()` 杀进程而不是只改状态的原因。
+
+决策源做成 `Decider` 枚举而不是两个布尔开关：组合里有一半根本不成立（既自动放行、又要问
+调用方），`clap` 的 `conflicts_with` 只挡命令行，枚举挡的是代码。
 
 ### `invite create --auto-accept` 仍然是交互命令
 
