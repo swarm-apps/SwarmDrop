@@ -35,14 +35,8 @@ const ID_CHARS: usize = 8;
 /// 自由函数而不是一个持有 `json` 的类型：这条流上没有任何跨行的状态需要维护
 /// （序号已经搬走了），一个只装着一个 `bool` 的结构体只是多一个要理解的名字。
 ///
-/// ⚠️ **不用 `println!`。** Rust 启动时把 `SIGPIPE` 设成忽略，于是往一条已关闭的管道写
-/// 会让 `write` 返回 `EPIPE`，而 `println!` 对此的反应是 **panic**
-/// （`failed printing to stdout`，退出码 101）。这条命令长驻数天、唯一的产出就是往 stdout
-/// 写——宿主结束订阅时先关读端是它的常规动作，而 101 会被读成「它崩了」并触发自动重启。
-///
-/// 也**不能靠把 `SIGPIPE` 恢复成默认处置**来一劳永逸：那正是 Rust 忽略它的原因——
-/// 本进程跑着 P2P 栈，Linux 上对一条已关闭的 TCP 连接 `write` 同样会抬 `SIGPIPE`，
-/// 恢复默认等于让任何一次对端断连都可能直接杀掉节点。
+/// ⚠️ **不用 `println!`**，理由与判据都在 [`super::emit_line`]——一句话：往已关闭的管道
+/// 写会 panic 成退出码 101，而宿主关读端是常规动作。
 pub fn write(event: &Value, json: bool) -> bool {
     let line = if json {
         // **一行一条，不 pretty**：NDJSON 的整个前提是「每行自成一条完整事件」，
@@ -58,17 +52,7 @@ pub fn write(event: &Value, json: bool) -> bool {
         human(event)
     };
 
-    use std::io::Write;
-    match writeln!(std::io::stdout().lock(), "{line}") {
-        Ok(()) => true,
-        // 读端走了。**这不是错误**，不必往 stderr 说什么——它是这条流的正常终点。
-        Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => false,
-        // 其余写失败（磁盘满、终端没了）同样意味着这条流没法继续，但值得留一句。
-        Err(err) => {
-            eprintln!("写出订阅事件失败: {err}");
-            false
-        }
-    }
+    super::emit_line(&line)
 }
 
 /// 一条事件的人话形态。

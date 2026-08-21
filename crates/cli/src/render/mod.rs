@@ -37,6 +37,40 @@ pub fn emit_json<T: serde::Serialize + ?Sized>(value: &T, what: &str) {
     }
 }
 
+/// 把一行已成型的文本写到 stdout。返回 `false` = **读端已经走了**。
+///
+/// ⚠️ **流式路径不用 `println!`。** Rust 启动时把 `SIGPIPE` 设成忽略，于是往一条已关闭
+/// 的管道写会让 `write` 返回 `EPIPE`，而 `println!` 对此的反应是 **panic**
+/// （`failed printing to stdout`，退出码 101）。长驻命令唯一的产出就是往 stdout 写——
+/// 宿主结束订阅时先关读端是它的常规动作，而 101 会被读成「它崩了」并触发自动重启。
+///
+/// 也**不能靠把 `SIGPIPE` 恢复成默认处置**来一劳永逸：那正是 Rust 忽略它的原因——
+/// 本进程跑着 P2P 栈，Linux 上对一条已关闭的 TCP 连接 `write` 同样会抬 `SIGPIPE`，
+/// 恢复默认等于让任何一次对端断连都可能直接杀掉节点。
+///
+/// **两条流式路径共用它**：`watch --json`（[`stream::write`]）与
+/// `invite create --json --decide-from-stdin`（[`invite`] 的五个 json 分支）。后者是
+/// `--decide-from-stdin` 带来的——那个开关把 `invite create` 从「打两行就完」变成了一条
+/// 由宿主持有的长驻流，于是它落进了同一条判据。
+///
+/// ⚠️ **一次性命令目前多数仍走 [`emit_json`]（内部是 `println!`），那是既有负债。**
+/// 判据其实同样成立——`swarmdrop invite list --json | head -1` 也会让读端提前走掉——
+/// 只是那条路上的后果小得多：命令本来就要退出，一次 panic 与一次正常退出的区别只有
+/// 退出码。收敛它是另一件事，不在这条流的范围里。
+pub fn emit_line(line: &str) -> bool {
+    use std::io::Write;
+    match writeln!(std::io::stdout().lock(), "{line}") {
+        Ok(()) => true,
+        // 读端走了。**这不是错误**，不必往 stderr 说什么——它是这条流的正常终点。
+        Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => false,
+        // 其余写失败（磁盘满、终端没了）同样意味着这条流没法继续，但值得留一句。
+        Err(err) => {
+            eprintln!("写出事件失败: {err}");
+            false
+        }
+    }
+}
+
 /// 从一段 JSON 里取一个字段的可读文本，缺失时用 `fallback`。
 ///
 /// 渲染层吃的是 JSON 而非 DTO（数据可能来自本进程，也可能来自通道对面的常驻节点），
