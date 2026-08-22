@@ -6,6 +6,21 @@
 > `cli/swarmdrop-cli-v0.1.1`（0.1.0 用的是旧形式 `cli/v0.1.0`，见 dist-workspace.toml）。
 > 仓库根目录的 `CHANGELOG.md` 记的是桌面端，与本文件无关。
 
+## [0.7.0] - 2026-08-22
+
+### 新增
+
+- `swarmdrop inbox search <关键词>`：子串检索收件箱，覆盖标题、来源设备名、文本正文与
+  文件名；支持 `--limit` 与 `--include-archived`。
+- `swarmdrop watch` 的 `transferProgress` 事件增加 `speed`（B/s）与 `eta`（秒）。
+  新增字段不递增 `SCHEMA_VERSION`。
+
+### 修复
+
+- `swarmdrop send` 与 `swarmdrop transfer watch` 的速率显示偏高一个数量级。两处改用
+  核心给出的 `speed` / `eta`（3 秒滑窗），不再由 indicatif 从进度条位置估算；停滞与
+  算不出来时显示占位符而非 `0 B/s`。
+
 ## [0.6.0] - 2026-08-21
 
 ### 新增
