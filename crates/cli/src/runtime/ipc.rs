@@ -31,6 +31,37 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::exit::{CliError, CliResult, Code};
 
+/// 服务这条通道的进程版本。
+///
+/// 盖在 [`Request::Status`] 的载荷上，让「客户端与常驻节点不是同一个版本」这件事**可被
+/// 检测**，而不是只能撞上去。它是一个真实存在的窗口——`swarmdrop update` 换掉可执行文件
+/// 时常驻节点还跑着旧代码，而同一份数据目录也允许两处安装（比如全局装一份、某个宿主
+/// 自带一份）轮流做客户端。
+///
+/// **为什么盖在这一层而不是加进 `NetworkStatus`**：那是核心的类型，桌面 / 移动 / Web 都吃
+/// 它，而「常驻节点的 CLI 版本」只对本通道有意义。加进去等于让另外三端的界面凭空多一个
+/// 永远为空的字段。
+pub const DAEMON_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// [`DAEMON_VERSION`] 在状态载荷里的键名。跟随 `NetworkStatus` 的 camelCase。
+pub const DAEMON_VERSION_KEY: &str = "daemonVersion";
+
+/// 给状态载荷盖上 [`DAEMON_VERSION`]。
+///
+/// **追加一个字段，而不是把载荷包进 `{ node, version }`。** 客户端把载荷当 `Value` 读、
+/// 只取自己认识的键，所以追加对旧客户端是无害的。换成包装则会让旧客户端要的每一个键都
+/// 落空——那恰好把「新常驻节点 × 旧客户端」从「大体能用」变成「status 整个坏掉」，
+/// 而这个函数存在的目的正是缓解那个组合。
+///
+/// 非对象载荷原样返回：`NetworkStatus` 序列化出来必然是对象，真出现别的东西时，悄悄
+/// 不盖戳也好过在这里 panic。
+pub fn with_daemon_version(mut payload: serde_json::Value) -> serde_json::Value {
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert(DAEMON_VERSION_KEY.to_owned(), DAEMON_VERSION.into());
+    }
+    payload
+}
+
 /// 客户端请求。
 ///
 /// 动词都是具体的、单一用途的，**不做通用的「转发任意调用」**——那会把这层变成一个
@@ -391,8 +422,17 @@ pub async fn request_watching(
             ));
         }
 
-        let frame: Frame = serde_json::from_str(&buf)
-            .map_err(|err| CliError::NodeUnavailable(format!("解析响应失败: {err}")))?;
+        // **措辞要指向最可能的成因**，与服务端那侧对称（见 `serve_connection` 的解析
+        // 失败分支）：两端都是本 crate 的代码，所以「读不懂对面」现实中几乎只有一种
+        // 来源——**常驻节点比这条命令新**，说了本版本还没有的话。只报 serde 的原文，
+        // 用户看到的是一句关于 JSON 的技术细节，而问题出在他装了两份 swarmdrop。
+        let frame: Frame = serde_json::from_str(&buf).map_err(|err| {
+            CliError::NodeUnavailable(format!(
+                "解析响应失败: {err}\n\
+                 多半是常驻节点比这条命令新（本机有两份版本不同的 swarmdrop）——\
+                 用 swarmdrop status 看它报告的版本，本命令是 {DAEMON_VERSION}。"
+            ))
+        })?;
 
         // 进度是**非终态**：交给调用方看一眼，然后继续读。
         // 不认识它的调用方（`request`）传一个空回调，于是自然地跳过。
@@ -801,6 +841,33 @@ mod tests {
     }
 
     /// 不存在的通道必须判为「没有活节点」，而不是报错。
+    /// **版本戳是追加的，不是替换。** 这条看守的是「新常驻节点 × 旧客户端」那个组合：
+    /// 旧客户端按自己认识的键读载荷，只要那些键还在，它就照常工作。哪天有人把
+    /// [`with_daemon_version`] 改成包一层 `{ node, version }`，这条会红——而线上表现
+    /// 是那些客户端的 `status` 整个变空，没有任何报错。
+    #[test]
+    fn version_stamp_leaves_every_existing_field_alone() {
+        let before = serde_json::json!({ "status": "running", "connectedPeers": 3 });
+        let after = with_daemon_version(before.clone());
+
+        for (key, value) in before.as_object().expect("对象") {
+            assert_eq!(after.get(key), Some(value), "字段 {key} 被动过了");
+        }
+        assert_eq!(
+            after
+                .get(DAEMON_VERSION_KEY)
+                .and_then(serde_json::Value::as_str),
+            Some(DAEMON_VERSION),
+        );
+    }
+
+    /// 非对象载荷原样返回，不 panic。
+    #[test]
+    fn version_stamp_ignores_a_payload_it_cannot_stamp() {
+        let value = serde_json::json!("不是对象");
+        assert_eq!(with_daemon_version(value.clone()), value);
+    }
+
     #[tokio::test]
     async fn absent_socket_is_not_alive() {
         let dir = tempfile::tempdir().unwrap();

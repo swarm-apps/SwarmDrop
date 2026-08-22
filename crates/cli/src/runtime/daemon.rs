@@ -150,7 +150,9 @@ impl RequestHandler for NodeHandler {
     async fn handle(&self, req: Request, progress: &FrameSink) -> Response {
         match req {
             Request::Status => json_or_error(
-                serde_json::to_value(self.node.manager.get_network_status()),
+                serde_json::to_value(self.node.manager.get_network_status())
+                    // 盖上本进程的版本：客户端据此判断「我和常驻节点是不是同一个版本」。
+                    .map(crate::runtime::ipc::with_daemon_version),
                 "状态",
             ),
             Request::DeviceList => json_or_error(
