@@ -1010,6 +1010,26 @@ writer 类型烤进签名、装载时对不上。
 
 **选型推导见** [`dev-notes/research/2026-08-logging.md`](../research/2026-08-logging.md)。
 
+## wasm 的 clippy 会因为**别人升级了 toolchain** 而红（2026-08-22 实证）
+
+CI 用 `dtolnay/rust-toolchain@stable` 取**最新** stable，本地通常落后一两个版本。于是
+新 clippy 里新增的 lint 会在**你什么都没碰**的情况下让 wasm job 变红——那个 job 跑
+`check-wasm.sh --clippy`（`-D warnings`），且**不在 native clippy 的 continue-on-error
+豁免范围内**，所以是硬失败。
+
+实测这次：clippy 1.98 新增 `chunks_exact_to_as_chunks`，命中
+`crates/webrtc-p2p/src/protocol/addr.rs` 一处早就存在的 `chunks_exact(2)`。本地 clippy
+0.1.97 根本不认识这条 lint，`./scripts/check-wasm.sh --clippy` 在本地退出码 0。于是
+**连续四次推送的 rust.yml 全红**，而每一次的作者都以为「我没动 wasm，红的是别人」。
+
+判据：**rust.yml 红了先看是哪个 job**。wasm job 报的 lint 名带版本号链接
+（`rust-clippy/rust-1.98.0/index.html#...`），那个版本号高于 `cargo clippy --version` 就
+是这一类——修法是照 clippy 给的 help 改，本地验证只能靠「编得过 + 那个 crate 的测试过」，
+因为本地复现不出警告。
+
+⚠️ 同一次运行里 `check` job 的两条 `mcp_host.rs` 集成测试也在红，那是**另一回事**
+（CI 环境起不了真节点），别把两者当成一个问题一起找原因。
+
 ## CI / Release
 
 单仓两条 release 流水线，各由自己的 tag 触发（见上「版本号同步：两条独立版本线」）。
