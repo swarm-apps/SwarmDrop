@@ -25,7 +25,6 @@ pub fn render(status: &Value, json: bool) {
     }
 
     render_infra(status);
-    render_version_skew(status);
 
     let addrs = status
         .get("listenAddrs")
@@ -42,6 +41,9 @@ pub fn render(status: &Value, json: bool) {
             }
         }
     }
+
+    // 最后：它是旁白而不是状态的一部分，夹在监听地址前面会被那份清单埋掉。
+    render_version_skew(status);
 }
 
 /// 常驻节点与本命令不是同一个版本时的一行旁白。
