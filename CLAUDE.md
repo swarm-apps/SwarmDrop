@@ -34,6 +34,26 @@ Always respond in Chinese (简体中文). All output, including thinking, planni
 **Exception — commit messages are in English**（2026-08-20 起）。仓库历史里 `0a27fbc7`
 及更早的提交是中文，那是旧约定，不必回改。
 
+## Changelog 条目怎么写
+
+**一条一句话，陈述事实：做了什么、影响什么、有什么前提。** 动词或主语开头，
+不写推导过程、不写「曾经栽在哪」、不写动机叙事——那些属于**提交信息**（它有篇幅
+讲清因果）与 `dev-notes/knowledge/`（它是给下一个改这块的人看的）。
+
+判据很好用：条目里出现「因为」「此前」「实测」「正是」这类词，或者需要两段以上
+才说得完，就是写长了。
+
+```markdown
+✅ - `swarmdrop send` 与 `transfer watch` 的速率显示偏高一个数量级。两处改用核心给出的
+     `speed` / `eta`（3 秒滑窗），不再由 indicatif 从进度条位置估算。
+❌ - **速率显示高出一个数量级。** 字节数从来没错——发送端每 16 块就要等一帧 Window
+     确认，所以两端最多差一个窗口。错的是 CLI 把核心算好的 speed 丢掉、改让 indicatif
+     从进度条位置估算，而进度条是在收到第一帧时才建的，于是估算器以一个天文数字开局……
+```
+
+**手写的只有 `crates/cli/CHANGELOG.md`**（CLI 版本线）；仓库根目录的 `CHANGELOG.md`
+由 `pnpm changelog` 从提交生成。仓外的 `dsh-swarmdrop` 同此规则，只是用英文。
+
 ## Project Overview
 
 SwarmDrop is a decentralized, cross-network, end-to-end encrypted file transfer tool built with Tauri v2. It aims to be a "cross-network version of LocalSend" — no accounts, no servers, supporting both LAN and cross-network peer-to-peer file transfers.
