@@ -211,6 +211,13 @@ pub struct ProgressTracker {
     last_emit: Option<Instant>,
 }
 
+/// 低于这个速率（B/s）就不给 ETA，也不该报速率。
+///
+/// **导出是为了让渲染层引它而不是抄它。** 命令行那边要用同一条线决定「速率说不说得
+/// 出口」——两处各写一个 `1.0` 的话，这里改成 0.5 的那天，用户会看到「`—` 剩余 30s」：
+/// 速率说不出话，剩余时间却给得出，正是这条判据要避免的自相矛盾。
+pub const MIN_SPEED_FOR_ETA: f64 = 1.0;
+
 const THROTTLE_INTERVAL: Duration = Duration::from_millis(200);
 const SPEED_WINDOW: Duration = Duration::from_secs(3);
 
@@ -388,7 +395,7 @@ impl ProgressTracker {
     /// `eta()` 会把滑窗连同 `Instant::now()` 再算一遍——wasm 上后者落到
     /// `performance.now()`，是一次跨 wasm↔JS 边界调用。
     fn eta_at(&self, speed: f64) -> Option<f64> {
-        if speed < 1.0 {
+        if speed < MIN_SPEED_FOR_ETA {
             return None;
         }
         let remaining = self.total_bytes.saturating_sub(self.transferred_bytes);

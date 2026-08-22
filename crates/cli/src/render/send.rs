@@ -2,6 +2,8 @@
 
 use std::path::Path;
 
+use swarmdrop_core::transfer::progress::MIN_SPEED_FOR_ETA;
+
 use crate::runtime::transfer::{SendOutcome, TextOutcome};
 
 /// 文件发送结果。
@@ -327,10 +329,10 @@ const MAX_ETA_SECS: f64 = 365.0 * 24.0 * 60.0 * 60.0;
 /// speed 归零表达的是「一个滑窗内没有新字节」——接收方正在发布收齐的文件、对端卡住、
 /// 本地磁盘 stall 都长这个样子。说不出具体数字时，占位符才是实话。
 ///
-/// 判据取 `>= 1.0` 而不是 `> 0.0`，与核心 `ProgressTracker::eta_at` 同一条线：
-/// 那边低于 1 B/s 就不给 ETA，这边也就不该给速率——否则会印出「0 B/s · 剩余 —」。
+/// 判据引核心的 [`MIN_SPEED_FOR_ETA`] 而不是抄一个 `1.0`：那边低于它就不给 ETA，这边
+/// 也就不该给速率——否则会印出「`—` 剩余 30s」，速率说不出话而剩余时间给得出。
 fn rate_text(speed: f64) -> String {
-    if speed.is_finite() && speed >= 1.0 {
+    if speed.is_finite() && speed >= MIN_SPEED_FOR_ETA {
         format!("{}/s", human_bytes(speed as u64))
     } else {
         DASH.to_owned()
@@ -431,8 +433,10 @@ impl Drop for Preparing {
 ///
 /// - **非终端时自动静默**。自写版本在 `swarmdrop send … | tee log` 或 CI 里照样输出
 ///   回车控制符，日志文件里于是变成一行几百个 `\r` 拼起来的乱码。
-/// - **速率与剩余时间**。传大文件时这两个数才是用户真正在等的答案，
-///   而它们要维护一个时间窗口，不是「再加一行 format!」能顺手做对的。
+/// - **布局与对齐**。一屏里多条进度条要成列、终端一窄就得截断，自写版本得自己算宽度。
+///   （⚠️ 这条**曾经写作「速率与剩余时间」**，说它们「不是再加一行 format! 能做对的」
+///   ——现在恰恰就是那一行 `rate_and_eta`，数字由核心给，indicatif 在这两个数上零
+///   贡献。判据见 [`rate_and_eta`]。）
 /// - **重绘时清行**。stderr 上还有 tracing 的日志，自写版本被日志插一行后会留下
 ///   半截残影，直到下一次刷新才被覆盖。
 pub struct Progress(indicatif::ProgressBar);

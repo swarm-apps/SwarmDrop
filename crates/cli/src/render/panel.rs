@@ -36,8 +36,8 @@ const ACTIVE_TEMPLATE: &str = "{prefix} {bar:20.cyan/blue} {percent:>3}%  {done}
 
 /// 没在传的那条（等待接受、已暂停、已中断）。
 ///
-/// **刻意不画速率与剩余时间**：此刻它们是「0 B/s」与「剩余 ∞」，印出来是在报告一个
-/// 假事实——用户会以为传输卡住了，而它其实只是在等对方点确认。位置让给状态本身，
+/// **刻意不画速率与剩余时间**：此刻它们是占位符（`—  剩余 —`），印出来是在占一行位置
+/// 说「不知道」——用户会以为传输卡住了，而它其实只是在等对方点确认。位置让给状态本身，
 /// 于是 `{msg}` 在这条模板里装的是阶段名（见 [`Panel::sync`]）。
 const IDLE_TEMPLATE: &str = "{prefix} {bar:20.dim} {percent:>3}%  {done}/{total}  {msg}";
 
@@ -89,8 +89,13 @@ impl Panel {
 
     /// 把面板对齐到这一组记录。
     ///
-    /// 增量而不是「清空重画」：进度条的速率与剩余时间由 indicatif 在**同一个** bar 上
-    /// 维护一个时间窗口算出来，每轮换一个新 bar 会让它们永远停在初始值。
+    /// 增量而不是「清空重画」，理由有四条，**都与速率无关**：不闪、行序稳定、不必每轮
+    /// 重新解析模板、不给 `MultiProgress` 制造增删。
+    ///
+    /// ⚠️ 这里原本写的是「速率由 indicatif 在同一个 bar 上维护时间窗口算出，换 bar 会让
+    /// 它停在初始值」。那条理由**已经作废**——速率现在由核心给（见 `ACTIVE_TEMPLATE`）。
+    /// 留着一条死掉的理由比没有理由更危险：下一个人会验证它、发现不成立，然后把仍然
+    /// 正确的结论一起删掉。
     pub fn sync(&mut self, records: &[Value]) {
         self.header.set_message(self.header_line(records.len()));
 
@@ -346,7 +351,7 @@ mod tests {
         panel.sync(&[a.clone(), b.clone()]);
         assert_eq!(panel.rows.len(), 2);
 
-        // 同一条会话换了阶段：样式要跟着换，bar 不能重建（重建会把速率窗口清零）。
+        // 同一条会话换了阶段：样式要跟着换，bar 保持同一个（理由见 `sync`）。
         let paused_a = json!({ "sessionId": "a", "phase": "suspended", "totalSize": 100, "transferredBytes": 60 });
         panel.sync(&[paused_a]);
         assert_eq!(panel.rows.len(), 1, "b 结束了就该从面板上消失");
