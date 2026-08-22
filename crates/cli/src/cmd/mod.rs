@@ -592,6 +592,21 @@ impl DeviceAction {
 pub enum InboxAction {
     /// 列出收件箱条目。
     List,
+    /// 按关键词检索收件箱。
+    ///
+    /// 命中判据、片段生成与截断规则全归内核（`search_inbox_capped`），本命令只转发
+    /// 与渲染——**不要在这里自己过滤 `list` 的结果**：那样搜不到正文与文件名，而那
+    /// 恰恰是用关键词找一条收到的东西时唯一记得住的部分。
+    Search {
+        /// 关键词（子串匹配，覆盖标题、来源设备名、文本正文与文件名）。
+        query: String,
+        /// 最多返回几条。不给则由内核定（它的截断按接收时间倒序，掉的是最早的那批）。
+        #[arg(long)]
+        limit: Option<u32>,
+        /// 连已归档的一起搜。
+        #[arg(long)]
+        include_archived: bool,
+    },
     /// 查看一个条目的详情。
     Show {
         /// 条目标识。不给则列出收件箱让你选。
@@ -617,7 +632,8 @@ impl InboxAction {
         match self {
             Self::Show { id } => id.is_none(),
             Self::Export { id, dir } => id.is_none() || dir.is_none(),
-            Self::List => false,
+            // 检索的参数全在命令行上，没有可缺的东西要问。
+            Self::List | Self::Search { .. } => false,
         }
     }
 }
@@ -1122,6 +1138,14 @@ mod tests {
 
             for (path, cmd) in targets {
                 if !has_optional_value(cmd) {
+                    continue;
+                }
+                // **有必填参数的命令不参与**：下面构造的是「只给命令名」的最小调用，
+                // 而那对它根本不是一个合法输入——clap 会当场报用法错误，用户永远走不到
+                // `is_interactive`。跳过它不是给它开后门，是承认这条测试的构造对它
+                // 不成立。`inbox search <QUERY>` 是第一条这样的命令：它的 `--limit`
+                // 缺席时也不问人，默认值归内核（判据见 `runtime::inbox::search`）。
+                if cmd.get_arguments().any(clap::Arg::is_required_set) {
                     continue;
                 }
                 let mut args = vec!["swarmdrop"];

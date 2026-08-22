@@ -22,6 +22,14 @@ pub async fn run(data_dir: &DataDir, json: bool, action: InboxAction) -> CliResu
         InboxAction::List => {
             crate::render::inbox::render_list(&list(&access).await?, json);
         }
+        InboxAction::Search {
+            query,
+            limit,
+            include_archived,
+        } => {
+            let hits = search(&access, query, limit, include_archived).await?;
+            crate::render::inbox::render_hits(&hits, json);
+        }
         InboxAction::Show { id } => {
             let id = choose(&access, id, "查看哪个条目？").await?;
             crate::render::inbox::render_detail(&detail(&access, &id).await?, json);
@@ -68,6 +76,35 @@ async fn list(access: &RecordAccess) -> CliResult<Value> {
             |records| async move {
                 let store = records.transfers().await?;
                 to_value(&records_inbox::list(&*store, false).await?, "收件箱")
+            },
+        )
+        .await
+}
+
+/// 检索一次收件箱（整段 JSON）。
+///
+/// 与 [`list`] 分开而不是给它加一个可选查询词，理由与 IPC 那侧同一条
+/// （见 [`Request::InboxSearch`]）：两者连返回类型都不同——命中多带一个片段与
+/// 文件清单。
+async fn search(
+    access: &RecordAccess,
+    query: String,
+    limit: Option<u32>,
+    include_archived: bool,
+) -> CliResult<Value> {
+    access
+        .query(
+            Request::InboxSearch {
+                query: query.clone(),
+                limit,
+                include_archived,
+            },
+            |records| async move {
+                let store = records.transfers().await?;
+                to_value(
+                    &records_inbox::search(&*store, &query, limit, include_archived).await?,
+                    "检索结果",
+                )
             },
         )
         .await

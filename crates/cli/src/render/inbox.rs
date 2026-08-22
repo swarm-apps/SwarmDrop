@@ -41,6 +41,46 @@ pub fn render_list(items: &Value, json: bool) {
     }
 }
 
+/// 检索结果。
+///
+/// **与 [`render_list`] 分开**：命中多一样东西——片段，而那正是检索的答案（「我搜的词
+/// 出现在这条的什么地方」）。塞进列表渲染要么给每条列表项留一个恒空的位置，要么让
+/// 这个函数长出一个「有没有片段」的分支，两种都是把两件事挤进一个形状。
+///
+/// 片段**只在内核给了的时候印**：命中标题或来源名时它是 `None`，那两样条目行上已经
+/// 显示着，再印一遍等于把同一句话说两遍（判据在 `inbox_snippet`，三端不各判一遍）。
+pub fn render_hits(hits: &Value, json: bool) {
+    if json {
+        super::emit_json(hits, "检索结果");
+        return;
+    }
+
+    let Some(list) = hits.as_array() else {
+        println!("（无法解析检索结果）");
+        return;
+    };
+    if list.is_empty() {
+        println!("没有匹配的条目。");
+        return;
+    }
+
+    for hit in list {
+        println!("  {}", text_or(hit, "title", "—"));
+        println!(
+            "   {}  来自 {}  {} 项",
+            text_or(hit, "id", "—"),
+            text_or(hit, "sourceName", "—"),
+            int_or_zero(hit, "itemCount")
+        );
+        if let Some(snippet) = hit.get("snippet").and_then(Value::as_str) {
+            // 片段是**对端发来的文本**，与 `title_line` 同一类来源。那里已经为它
+            // 立过规矩：远端可控的字符串画进终端前要过一遍消毒，否则一段带 ANSI
+            // 转义的正文能改写整屏。
+            println!("   …{}…", sanitize(snippet));
+        }
+    }
+}
+
 /// 选择菜单里的一行。
 ///
 /// 标题 + 来源 + 件数大小，够用户认出是哪一条；标识（UUID）刻意不进来——36 个字符会
@@ -70,30 +110,7 @@ pub fn menu_line(item: &Value) -> String {
 /// 文件条目的标题是文件名，本来就没有换行，这个函数对它是恒等的。
 /// 需要原样的正文时看 `swarmdrop inbox show`——那里逐字打印，不经过这里。
 fn title_line(item: &Value) -> String {
-    let title = text_or(item, "title", "—");
-
-    // **判据是「有没有控制字符」，不只是换行。**
-    //
-    // 文本条目的标题是**对端发来的正文**——这是本 crate 第一次把远端可控的字符串画进
-    // 终端和 dialoguer 菜单。只挡换行的话，`\x1b[2J`（清屏）、`\x1b[A`（上移一行）、
-    // `\x07`（响铃）会原样透出并在菜单重绘时**执行**，结果与这个函数要防的症状一模一样：
-    // 菜单错位、选中高亮跑到别的行上。截断还可能正好切在转义序列中间，留一个悬空的 `ESC[`。
-    //
-    // **只在真有控制字符时才压空白**：否则文件名里的连续空格会被悄悄改写，
-    // 而那是记录的真实内容。
-    let flattened = if title.chars().any(char::is_control) {
-        title
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            // 空白之外的控制字符（转义序列的 `ESC`、响铃）`split_whitespace` 管不着，
-            // 单独滤掉。
-            .chars()
-            .filter(|c| !c.is_control())
-            .collect()
-    } else {
-        title
-    };
+    let flattened = sanitize(&text_or(item, "title", "—"));
 
     let mut chars = flattened.chars();
     let head: String = chars.by_ref().take(TITLE_MAX_CHARS).collect();
@@ -110,6 +127,33 @@ fn title_line(item: &Value) -> String {
 /// 只是「别把菜单撑到折行」。48 个字符在最坏情况（全中文）下约 96 列——比 80 列宽，
 /// 但菜单折一行仍然可读，比引一个表划算。
 const TITLE_MAX_CHARS: usize = 48;
+
+/// 压掉一段**对端可控文本**里的控制字符，用于画进终端之前。
+///
+/// **判据是「有没有控制字符」，不只是换行。**
+///
+/// 文本条目的标题就是对端发来的正文，检索片段同样是。只挡换行的话，`\x1b[2J`（清屏）、
+/// `\x1b[A`（上移一行）、`\x07`（响铃）会原样透出并在菜单重绘时**执行**，结果就是
+/// 菜单错位、选中高亮跑到别的行上。截断还可能正好切在转义序列中间，留一个悬空的 `ESC[`。
+///
+/// **只在真有控制字符时才压空白**：否则文件名里的连续空格会被悄悄改写，
+/// 而那是记录的真实内容。
+///
+/// 共用一份而不是各写各的：标题与片段的来源与风险完全相同，两份实现迟早只有一份被
+/// 修好——而被漏掉的那份不会报错，只会在某天让一段正文改写整屏。
+fn sanitize(text: &str) -> String {
+    if !text.chars().any(char::is_control) {
+        return text.to_owned();
+    }
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        // 空白之外的控制字符（转义序列的 `ESC`、响铃）`split_whitespace` 管不着，
+        // 单独滤掉。
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect()
+}
 
 pub fn render_detail(detail: &Value, json: bool) {
     if json {
@@ -217,6 +261,25 @@ mod tests {
     #[test]
     fn a_record_without_a_location_shows_a_placeholder() {
         assert_eq!(item_location(&json!({}), &[]), "—");
+    }
+
+    /// **对端可控的文本进终端前必须过消毒**，标题与检索片段同一条规则。
+    ///
+    /// 这条看守的是一个不会报错的漏洞：漏了它，一段带 `\x1b[2J` 的正文在检索结果里
+    /// 会**执行**——清屏、上移、改写用户看到的其它行。
+    #[test]
+    fn remote_text_loses_its_control_characters() {
+        assert_eq!(sanitize("clean text"), "clean text");
+        assert_eq!(sanitize("two\nlines"), "two lines");
+        assert_eq!(sanitize("clear\u{1b}[2Jscreen"), "clear[2Jscreen");
+        assert_eq!(sanitize("bell\u{7}here"), "bellhere");
+    }
+
+    /// **只有真带控制字符时才压空白。** 文件名里的连续空格是记录的真实内容，
+    /// 悄悄改写它会让用户拿这个名字去磁盘上找不到东西。
+    #[test]
+    fn ordinary_whitespace_survives() {
+        assert_eq!(sanitize("two  spaces.txt"), "two  spaces.txt");
     }
 
     /// **对端发来的控制字符不得原样进终端菜单。**
