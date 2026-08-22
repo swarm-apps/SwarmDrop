@@ -236,7 +236,17 @@ impl RequestHandler for NodeHandler {
             Request::TransferShow { id } => {
                 let store = self.node.manager.transfer_arc().store().clone();
                 match crate::runtime::transfers::show(&*store, &id).await {
-                    Ok(item) => json_or_error(serde_json::to_value(item), "传输记录"),
+                    Ok(mut item) => {
+                        // 与清单同源：库里的发送进度整条传输期间是陈旧的，速率则根本
+                        // 不落库。少了这两步，`transfer show` 会给出一条停在上次终结
+                        // 值的记录，且永远没有速率。
+                        self.progress.overlay(std::slice::from_mut(&mut item));
+                        let mut payload = serde_json::to_value(item);
+                        if let Ok(record) = &mut payload {
+                            self.progress.annotate(record);
+                        }
+                        json_or_error(payload, "传输记录")
+                    }
                     Err(err) => Response::err(err),
                 }
             }

@@ -65,7 +65,10 @@ pub fn render_hits(hits: &Value, json: bool) {
     }
 
     for hit in list {
-        println!("  {}", text_or(hit, "title", "—"));
+        // **走 `title_line`，不要直接印**：命中的标题与 `render_list` 吃的是同一个
+        // 字段，而文本条目的标题就是对端正文的前 160 字节。绕过它等于让一段带
+        // `\x1b[2J` 的正文在检索结果里执行，也丢掉了 48 字符截断。
+        println!("  {}", title_line(hit));
         println!(
             "   {}  来自 {}  {} 项",
             text_or(hit, "id", "—"),
@@ -73,12 +76,20 @@ pub fn render_hits(hits: &Value, json: bool) {
             int_or_zero(hit, "itemCount")
         );
         if let Some(snippet) = hit.get("snippet").and_then(Value::as_str) {
-            // 片段是**对端发来的文本**，与 `title_line` 同一类来源。那里已经为它
-            // 立过规矩：远端可控的字符串画进终端前要过一遍消毒，否则一段带 ANSI
-            // 转义的正文能改写整屏。
-            println!("   …{}…", sanitize(snippet));
+            println!("{}", snippet_line(snippet));
         }
     }
+}
+
+/// 检索命中的片段行。
+///
+/// 片段是**对端发来的文本**，与标题同一类来源，所以同样过 [`sanitize`]。
+///
+/// ⚠️ **省略号归内核，这里一个都不加。** `inbox_snippet` 的 `snippet_window` 只在真
+/// 截断的那一侧贴：左侧截了才贴左边，右侧截了才贴右边。渲染层再包一层，会把「片段
+/// 就是全文」印成「前后还有内容被省掉了」，两侧都截断时更会变成 `……`。
+fn snippet_line(snippet: &str) -> String {
+    format!("   {}", sanitize(snippet))
 }
 
 /// 选择菜单里的一行。
@@ -280,6 +291,31 @@ mod tests {
     #[test]
     fn ordinary_whitespace_survives() {
         assert_eq!(sanitize("two  spaces.txt"), "two  spaces.txt");
+    }
+
+    /// **检索结果的标题与列表走同一条消毒路径。**
+    ///
+    /// 第一版直接把 `title` 印出去，于是一条文本条目的正文（标题就是它的前 160 字节）
+    /// 能带着 `\x1b[2J` 在检索结果里执行——而紧邻的下一行刚给片段做了消毒。两处同源，
+    /// 走的却是两条路。
+    #[test]
+    fn a_hit_title_is_sanitised_like_a_list_row() {
+        assert_eq!(
+            title_line(&json!({ "title": "clear\u{1b}[2Jscreen" })),
+            "clear[2Jscreen"
+        );
+    }
+
+    /// **省略号归内核，渲染层一个都不加。**
+    ///
+    /// `snippet_window` 只在真截断的那一侧贴。渲染层再包一层，会把「片段就是全文」
+    /// 印成「前后还有内容」，两侧都截断时更会变成 `……`。
+    #[test]
+    fn the_renderer_does_not_add_its_own_ellipsis() {
+        // 内核对两侧都截断的片段给出的形态，原样透出
+        assert_eq!(snippet_line("…docs/readme.…"), "   …docs/readme.…");
+        // 片段就是全文时内核一个都不贴，渲染层也不许贴
+        assert_eq!(snippet_line("合同扫描件 docs"), "   合同扫描件 docs");
     }
 
     /// **对端发来的控制字符不得原样进终端菜单。**

@@ -100,8 +100,14 @@ impl ProgressCache {
     /// 「不知道」是同一件事，面板会照 [`crate::render::send::rate_and_eta`] 的规则
     /// 画占位符——那比标一个 0 诚实（0 B/s 是一个断言）。
     pub fn annotate(&self, records: &mut serde_json::Value) {
-        let Some(rows) = records.as_array_mut() else {
-            return;
+        // 单条详情（`TransferShow`）与清单（`TransferUnfinished`）走同一个标注器：
+        // 两者是同一个投影的一条与多条，而「只有清单带速率」会让 `transfer show`
+        // 成为唯一说不出速率的读面——外部宿主拿它做「查一条传输的状态」时，得到的
+        // 是一个恒空的字段，比没有这个字段更误导。
+        let rows: &mut [serde_json::Value] = match records {
+            serde_json::Value::Array(rows) => rows.as_mut_slice(),
+            row @ serde_json::Value::Object(_) => std::slice::from_mut(row),
+            _ => return,
         };
         let latest = self.latest.lock().expect("进度缓存锁中毒");
         for row in rows {
@@ -285,6 +291,22 @@ mod tests {
         cache.annotate(&mut records);
         assert!(records[0].get("speed").is_none());
         assert!(records[0].get("eta").is_none());
+    }
+
+    /// **单条详情与清单走同一个标注器。**
+    ///
+    /// `transfer show` 返回的是一个对象而不是数组。只认数组的话，那条读面会成为
+    /// 唯一说不出速率的一个——而它恰恰是「查一条传输现在怎么样」的入口。
+    #[test]
+    fn a_single_record_is_annotated_too() {
+        let id = Uuid::new_v4();
+        let cache = ProgressCache::default();
+        cache.apply(&rated_event(id, 512, 2048.0, Some(30.0)));
+
+        let mut record = serde_json::json!({ "sessionId": id.to_string() });
+        cache.annotate(&mut record);
+        assert_eq!(record["speed"], 2048.0);
+        assert_eq!(record["eta"], 30.0);
     }
 
     /// 核心算不出 ETA 时写 `null`，不折成 0——0 秒是「马上就好」，那是另一件事。
