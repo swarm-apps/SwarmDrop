@@ -207,7 +207,10 @@ pub fn parse_sdp_fingerprint(value: &str) -> Option<Fingerprint> {
         return None;
     }
     let mut out = [0u8; 32];
-    for (i, pair) in nibbles.chunks_exact(2).enumerate() {
+    // `as_chunks` rather than `chunks_exact`: the length is already pinned to 64
+    // above, so the two are equivalent here — but clippy 1.98 flags the latter
+    // for a constant chunk size, and the wasm job's clippy is a hard failure.
+    for (i, pair) in nibbles.as_chunks::<2>().0.iter().enumerate() {
         out[i] = (pair[0] << 4) | pair[1];
     }
     Some(Fingerprint::raw(out))
