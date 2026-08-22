@@ -517,6 +517,28 @@ pub enum InviteAction {
     /// 列出本机已发出、尚未过期的邀请。
     List,
 
+    /// 把一张邀请渲染成二维码（SVG 写 stdout）。
+    ///
+    /// 纯计算：**不启动节点、不走本机通道、不读任何记录**，只是把手上这条链接编码成图。
+    /// 供图形前端使用——桌面端与落地页各自直接调 `swarmdrop_invite::invite_qr_svg`，
+    /// 只有隔着命令行说话的调用方（如 dsh 插件）没有别的路径拿到同一张码。
+    ///
+    /// **终端里仍然不画码**（见 `render::invite::render_created`）：那条拒绝的是把码画成
+    /// 字符块，与本命令把 SVG 交给一个程序是两回事。
+    Qr {
+        /// 邀请链接，原样传入（`invite create` 打印的那条）。
+        #[arg(value_name = "INVITE")]
+        invite: String,
+
+        /// 二维码**本体**的边长（像素），不含渲染端套的白卡内边距。
+        ///
+        /// 它同时是**地址预算**：码面放不下时按价值反序回收邀请里的可拨地址提示，
+        /// 所以传小了不会失败、只会让这张码里的可拨路径变少（链接本身不受影响）。
+        /// 默认 240 与三端图形界面一致——那个尺寸下一条典型邀请无需回收任何地址。
+        #[arg(long, value_name = "PX", default_value_t = 240)]
+        size: u32,
+    },
+
     /// 撤销邀请。
     ///
     /// 不给标识时会列出邀请让你**勾选若干张**（需要可交互的终端）。
@@ -558,7 +580,7 @@ impl InviteAction {
             // 不给标识时要弹多选菜单；`--all` 要确认。
             Self::Revoke { ids, all, yes } => (ids.is_empty() && !all) || (*all && !yes),
             Self::Use { invite } => invite.is_none(),
-            Self::List => false,
+            Self::List | Self::Qr { .. } => false,
         }
     }
 }

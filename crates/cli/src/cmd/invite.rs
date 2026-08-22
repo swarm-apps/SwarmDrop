@@ -1,9 +1,13 @@
 //! `invite`：配对邀请的生成、使用、清点与撤销。
 //!
-//! ## 四条命令分走两条取数路径
+//! ## 五条命令，两条取数路径，外加一条什么都不取的
 //!
 //! `create` 与 `use` 走 [`NodeAccess`](crate::runtime::access)——前者签发的
 //! 邀请里带的是**签发节点**的可拨地址，后者要真的拨过去。
+//!
+//! `qr` 两条都不走：它拿到的邀请里已经带着它需要的一切，编码是纯计算。这不只是省事，
+//! 它是这条命令**能在任何时刻回答**的原因——图形前端在码面尺寸变化时要重新裁一次地址
+//! 提示，而那一刻节点在不在、记录锁着没有，都不该成为画不出码的理由。
 //!
 //! `list` 与 `revoke` 走 [`RecordAccess`](crate::runtime::access)，
 //! **不需要节点**。这不是便利性考虑：邀请 TTL 24 小时且跨重启存活，发现泄露时撤销是唯一
@@ -39,7 +43,26 @@ pub async fn run(data_dir: &DataDir, json: bool, action: InviteAction) -> CliRes
         InviteAction::Use { invite } => use_invite(data_dir, json, invite).await,
         InviteAction::List => list(data_dir, json).await,
         InviteAction::Revoke { ids, all, yes } => revoke(data_dir, json, ids, all, yes).await,
+        // 唯一不 await 的分支：它不等任何东西。
+        InviteAction::Qr { invite, size } => qr(&invite, size, json),
     }
+}
+
+// -------------------------------------------------------------------- 二维码
+
+/// 把一张邀请渲染成二维码。
+///
+/// 薄得几乎只有一层转发，**故意如此**：编码策略（原样编码、最优分段、ECL::M、
+/// quiet zone、按码面回收地址）全部固化在 [`swarmdrop_invite::invite_qr_svg`]，
+/// 那是三端唯一的编码源。这里多一个判断，就是第四份会漂移的规则。
+///
+/// 失败归 [`CliError::Usage`]：两种失败——邀请解不开、码面小到装不下 version 1——
+/// 都是调用方把参数给错了，而不是这台机器出了什么事。
+fn qr(invite: &str, face_px: u32, json: bool) -> CliResult<()> {
+    let svg = swarmdrop_invite::invite_qr_svg(invite, face_px)
+        .map_err(|err| CliError::Usage(err.to_string()))?;
+    crate::render::invite::render_qr(&svg, json);
+    Ok(())
 }
 
 // ---------------------------------------------------------------- 清点与撤销

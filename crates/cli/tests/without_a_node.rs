@@ -50,6 +50,11 @@ fn record_commands_never_start_a_node() {
         // 带参数的两条：解析失败会走另一条返回路径，同样不该起节点。
         ["transfer", "show", "00000000-0000-4000-8000-000000000000"].as_slice(),
         ["inbox", "show", "00000000-0000-4000-8000-000000000000"].as_slice(),
+        // `invite qr` 比这里其余几条更纯：它连本机记录都不读，编码是纯计算。
+        // 那正是它能在任何时刻答话的原因——图形前端改了码面就要重裁一次地址提示，
+        // 而节点在不在、记录锁没锁，都不该是画不出码的理由。喂一条解不开的邀请，
+        // 因为这条测试要看的是「起没起节点」，走哪条返回路径无所谓。
+        ["invite", "qr", "https://swarmapp.cn/p/#NOTAREALINVITE"].as_slice(),
     ] {
         let tmp = tempfile::tempdir().expect("tempdir");
         let output = run(tmp.path(), args);
@@ -428,5 +433,82 @@ fn a_long_running_command_exits_successfully_on_sigterm() {
         status.code(),
         Some(0),
         "SIGTERM 之后退出码必须是 0——用户主动结束一次订阅不是失败"
+    );
+}
+
+// ------------------------------------------------------------------- 二维码
+
+/// 一条真实的、可解码的邀请。
+///
+/// 现签而不是硬编码：wire 格式若变了，硬编码的那条会烂成一条看起来像「二维码坏了」的
+/// 失败，而现签的只会跟着变。时间戳固定，因为编码不看 TTL——过没过期与画不画得出码
+/// 无关。
+fn sample_invite() -> String {
+    let sk = swarmdrop_net_base::SecretKey::generate();
+    swarmdrop_invite::PairInvite::generate(
+        &sk,
+        vec!["/ip4/192.168.1.10/tcp/4001".parse().expect("地址")],
+        swarmdrop_invite::TransportPolicy::Auto,
+        "书房 Mac".into(),
+        "macos".into(),
+        1_700_000_000,
+    )
+    .expect("夹具带地址")
+    .encode(&sk)
+}
+
+/// **`--json` 的信封，与它里面那张码。**
+///
+/// 两件事一起钉，因为它们一起构成一条跨进程契约：隔着命令行说话的图形前端
+/// （dsh 插件）就是这样拿到码的，而它两侧都没有类型看着。
+///
+/// 第二条断言——逐字节等于直接调 [`swarmdrop_invite::invite_qr_svg`]——挡的是这里哪天
+/// 「顺手」改一下尺寸、配色或分段。三端拿到同一张码的前提，正是本命令什么都不做。
+#[test]
+fn qr_json_carries_exactly_what_the_encoder_produced() {
+    let invite = sample_invite();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let output = run(
+        tmp.path(),
+        &["invite", "qr", &invite, "--size", "240", "--json"],
+    );
+
+    assert!(
+        output.status.success(),
+        "渲染一条自签的邀请不该失败: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !started_a_node(tmp.path()),
+        "编码是纯计算——它起了节点"
+    );
+
+    let line = String::from_utf8(output.stdout).expect("stdout 是 utf8");
+    let payload: serde_json::Value =
+        serde_json::from_str(line.trim()).expect("--json 必须是一行可解析的对象");
+    let svg = payload["svg"].as_str().expect("信封必须带 svg 字段");
+
+    assert_eq!(
+        svg,
+        swarmdrop_invite::invite_qr_svg(&invite, 240).expect("直接编码"),
+        "命令交出的码与编码器的产出必须逐字节一致"
+    );
+}
+
+/// 解不开的邀请是**用法错误**，不是「节点不可用」，更不是 panic。
+///
+/// 退出码是调用方唯一能自动分辨的东西：3 会让脚本去重启一个本命令根本不碰的节点。
+#[test]
+fn qr_rejects_an_invite_it_cannot_decode() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let output = run(
+        tmp.path(),
+        &["invite", "qr", "https://swarmapp.cn/p/#NOTAREALINVITE"],
+    );
+
+    assert_eq!(output.status.code(), Some(2), "用法错误的退出码是 2");
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("panicked"),
+        "解不开的邀请不该 panic"
     );
 }

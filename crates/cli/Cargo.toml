@@ -95,3 +95,9 @@ tempfile = { workspace = true }
 # **只给测试**：护栏测试要断言「render 认识的方向名 == 核心实际序列化出来的名」。
 # 生产代码不碰 entity —— 渲染层吃的是 JSON（两条取数路径统一），不是 typed DTO。
 entity = { workspace = true }
+# **只给测试**：`invite qr` 的护栏要一条真实邀请来喂，签它要一把私钥。
+# （`swarmdrop-invite` 不必在这里再列一次——集成测试看得见上面的 [dependencies]。）
+#
+# 现生成而不是硬编码一条夹具串：邀请的 wire 格式若变了，硬编码的那条会烂成一条
+# 看起来像「二维码坏了」的失败，而现生成的只会跟着变。
+swarmdrop-net-base = { workspace = true }
