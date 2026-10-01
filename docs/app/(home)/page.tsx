@@ -742,6 +742,9 @@ function Footer() {
           <Link href="/docs" className="transition-colors hover:text-fd-foreground">
             文档
           </Link>
+          <Link href="/docs/privacy" className="transition-colors hover:text-fd-foreground">
+            隐私政策
+          </Link>
           <a href={links.downloads} className="transition-colors hover:text-fd-foreground">
             下载
           </a>
