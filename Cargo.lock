@@ -5897,6 +5897,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "oauth2"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "getrandom 0.2.17",
+ "http 1.4.2",
+ "rand 0.8.7",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
+ "url",
+]
+
+[[package]]
 name = "objc-sys"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7549,6 +7569,7 @@ dependencies = [
  "cookie_store",
  "encoding_rs",
  "futures-core",
+ "futures-util",
  "h2",
  "http 1.4.2",
  "http-body",
@@ -7570,12 +7591,14 @@ dependencies = [
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
+ "tokio-util",
  "tower",
  "tower-http",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams 0.4.2",
  "web-sys",
  "webpki-roots",
 ]
@@ -9524,10 +9547,12 @@ dependencies = [
  "serde_json",
  "specta",
  "specta-typescript",
+ "swarmdrop-cloud-auth",
  "swarmdrop-core",
  "swarmdrop-host-fs",
  "swarmdrop-invite",
  "swarmdrop-net",
+ "swarmdrop-storage-cloud",
  "swarmdrop-storage-sql",
  "tauri",
  "tauri-build",
@@ -9590,6 +9615,26 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "whoami",
+]
+
+[[package]]
+name = "swarmdrop-cloud-auth"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "oauth2",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "specta",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -9740,6 +9785,27 @@ dependencies = [
  "serde_json",
  "specta",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "swarmdrop-storage-cloud"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "blake3",
+ "bytes",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "specta",
+ "swarmdrop-cloud-auth",
+ "swarmdrop-host",
+ "swarmdrop-host-fs",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "url",
+ "uuid",
 ]
 
 [[package]]

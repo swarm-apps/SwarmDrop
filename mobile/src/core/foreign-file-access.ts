@@ -40,7 +40,7 @@ import {
   type ForeignFileAccess,
   type MobileFileMetadata,
   type MobileFinalizedSink,
-  type MobileSaveLocation,
+  MobileSaveLocation,
 } from "react-native-swarmdrop-core";
 import { updatePublishProgress } from "@/core/foreground-service";
 import { useTransferStore } from "@/stores/transfer-store";
@@ -445,5 +445,7 @@ function saveLocationUri(saveDir: MobileSaveLocation | undefined): string {
       "MobileFileMetadata.saveDir is missing: core did not provide the selected save directory",
     );
   }
+  if (!MobileSaveLocation.Path.instanceOf(saveDir))
+    throw new Error("移动端暂不支持云接收位置");
   return saveDir.inner.path;
 }

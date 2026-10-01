@@ -81,14 +81,23 @@ impl SessionStore for SqlSessionStore {
         .await
     }
 
+    async fn mark_file_staged(
+        &self,
+        session: Uuid,
+        file: i32,
+        bitmap: Vec<u8>,
+        size: i64,
+    ) -> AppResult<()> {
+        ops::mark_file_staged(&self.db, session, file, bitmap, size).await
+    }
+
     async fn mark_file_completed(
         &self,
         session_id: Uuid,
         file_id: i32,
         completed_chunks: Vec<u8>,
         transferred_bytes: i64,
-        local_path: String,
-        local_dir: String,
+        location: entity::FileLocation,
     ) -> AppResult<()> {
         ops::mark_file_completed(
             &self.db,
@@ -96,8 +105,7 @@ impl SessionStore for SqlSessionStore {
             file_id,
             completed_chunks,
             transferred_bytes,
-            local_path,
-            local_dir,
+            location,
         )
         .await
     }
@@ -250,6 +258,13 @@ impl SessionStore for SqlSessionStore {
                 .await?
                 .into_iter()
                 .map(|f| HostFileMetadata {
+                    // 过期清理只需要接收键；接收端身份由运行中的 actor 在正常接收时提供。
+                    receive_identity: Some(swarmdrop_host::ReceiveFileIdentity {
+                        session_id: session_id.to_string(),
+                        file_id: f.file_id as u32,
+                        sender_device_id: session.peer_id.to_string(),
+                        receiver_device_id: String::new(),
+                    }),
                     name: f.name,
                     relative_path: f.relative_path,
                     size: f.size as u64,

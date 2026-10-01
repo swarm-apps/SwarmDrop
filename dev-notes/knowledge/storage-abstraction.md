@@ -921,3 +921,57 @@ pub trait WebStore: TransferStore {
 - `crates/core/src/transfer/flow/resume/mod.rs:479` —— 绕过 ops 层的裸 ORM 查询（动 trait 前先收编）
 - `crates/core/src/host.rs` —— 既有 6 个 host trait，新 trait 的体例来源
 - `crates/core/src/protocol.rs:8,148` —— `entity::TerminalReason` 上 wire（跨版本地雷）
+
+
+### 云发布不能沿用「完整位图等于已发布」的本地假设（2026-10-01）
+
+本地重命名发布很快，旧接收逻辑刻意不刷末块的完整位图：发布失败后靠重拉末尾分块再次
+触发发布。云上传可能持续很久，失败后重拉 P2P 分块既浪费吞吐，也让上传会话与接收位图
+混成一份恢复状态。
+
+**正确做法**：
+- 云暂存 `sync_all` 后持久化 `staged_complete` 与完整接收位图，但不写最终对象位置。
+- 恢复 actor 先发布 `staged_complete && location.is_none()` 的文件，fetch plan 不再请求其分块。
+- 远端成功之后才写对象位置和文件完成状态；然后清理暂存与上传检查点。
+- 本地宿主保持旧末块规则。云发布中的取消沿用 actor 发布收敛约束，先等待当前文件发布和记账结束。
+
+**相关文件**：`crates/transfer/src/actor/receiver.rs`、`crates/transfer/src/flow/resume/plan.rs`、
+`crates/storage-cloud/src/file_access.rs`。当前模块边界以根 `CLAUDE.md` 为准。
+
+### Drive 的 root 别名与私有属性（2026-10-01）
+
+真实 `drive.file` 探针中，创建时 `parents: ["root"]` 可以成功，但读取的 `parents` 返回
+真实根目录 ID，不会返回字符串 `root`。直接比较会让首次上传成功、随后重复接收失败。
+
+**正确做法**：
+- 对应用根目录的 `root` 别名，用客户端私有目录键确认归属；真实父目录 ID 仍严格比较。
+- 创建前持久化 `generateIds` 的 ID，遇到 409 先按 ID 对账，不直接新建对象。
+- 已删除目录的旧 ID 返回 409 且查不到对象时，才换预分配 ID 重建目录。
+- `appProperties` 对 OAuth 客户端私有；更换 client 需要新的授权和可见性验收。
+- Google resumable URI 是能力 URL，只进本机 0600 检查点，不进入 Debug、日志或 IPC。
+
+**相关文件**：`crates/storage-cloud/src/gdrive/`、`docs/cloud-storage.md`。
+
+
+### SQLite 的 ALTER 操作与迁移事务（2026-10-01）
+
+SeaQuery 1.0.1 的 SQLite 构造器会对一条 ALTER 中的多个操作直接 panic，包括连续两次
+`drop_column`。SeaORM Migration 2.0.1 默认只为 Postgres 开迁移事务，SQLite 默认不开。
+
+**正确做法**：每条 ALTER 只放一个操作；涉及 JSON 回填和删除旧位置列的迁移覆盖
+`use_transaction()` 返回 `Some(true)`，让 DDL、回填和迁移记录一起提交。
+
+**相关文件**：`crates/migration/src/m20261001_000001_cloud_locations.rs`。
+
+### 云模块按用例归属组织（2026-10-01）
+
+账户视图、秘密凭证、授权提供方契约分别属于 account、credentials、provider；不再按
+「它们都是类型」放进 types。发布端口拥有 PublishIntent / PublishProgress / PublishReceipt，
+Drive 的对象属性与上传检查点留在 gdrive 内部。CloudFileAccess 是本地/云组合适配器，
+保留整个 FileAccess 端口以复用已验证的 host-fs 随机写。
+
+启动恢复由 CloudFileAccess 编排，宿主只注入账本查询；完成判据住 transfer/store。
+取消清理必须先成功再提交取消终态，否则失败后用户无法重试。刷新后的 token 仍被拒绝时，
+由账户管理器核对当前 token 代次后持久化并广播重连状态，防止旧请求覆盖新授权。
+
+**相关文件**：`crates/cloud-auth/src/`、`crates/storage-cloud/src/`、`crates/transfer/src/store.rs`。

@@ -61,7 +61,7 @@ pub struct InboxItemFileEntry {
     ///
     /// 两个路径字段并存且「该用哪个」按端不同，是这个 DTO 最容易踩空的地方——所以写在这里，
     /// 而不是让每个宿主自己从别处推断。
-    pub local_path: String,
+    pub location: entity::FileLocation,
     pub missing: bool,
 }
 
@@ -606,9 +606,12 @@ pub async fn delete_inbox_item(
             .ok_or_else(|| AppError::SessionNotFound("收件箱记录不存在".into()))?;
         if let InboxItemContent::Files { entries, .. } = &detail.content {
             for file in entries {
-                if let Err(e) = files.delete_finalized_file(&file.local_path).await {
+                let Some(uri) = file.location.local_uri() else {
+                    continue;
+                };
+                if let Err(e) = files.delete_finalized_file(uri).await {
                     tracing::warn!(
-                        path = %file.local_path,
+                        path = uri,
                         error = %e,
                         "删除收件箱文件失败，记录仍会删除（该文件将成为孤儿）"
                     );
@@ -806,7 +809,10 @@ mod tests {
                     name: p.to_string(),
                     size: 1,
                     checksum: String::new(),
-                    local_path: format!("/store/{p}"),
+                    location: entity::FileLocation::Local {
+                        uri: format!("/store/{p}"),
+                        dir: "/store".into(),
+                    },
                     missing: false,
                 })
                 .collect();

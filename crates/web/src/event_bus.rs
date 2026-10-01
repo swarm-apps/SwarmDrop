@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use swarmdrop_core::host::{CoreEvent, EventBus};
 use swarmdrop_host::AppResult;
 
-use crate::types::PendingPairingJson;
+use crate::PendingPairingJson;
 
 /// 挂起入站配对请求队列（WebEventBus 写、WebNode 读）。
 pub type PendingPairings = Arc<Mutex<Vec<PendingPairingJson>>>;

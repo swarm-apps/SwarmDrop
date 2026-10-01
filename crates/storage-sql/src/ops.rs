@@ -142,6 +142,27 @@ pub async fn update_file_checkpoint_ranges(
     .await
 }
 
+/// 暂存完成与对象完成分开记账，云重试不再向对端请求已验签的分块。
+pub async fn mark_file_staged(
+    db: &DatabaseConnection,
+    session: Uuid,
+    file: i32,
+    bitmap: Vec<u8>,
+    size: i64,
+) -> AppResult<()> {
+    update_file(db, session, file, |model| {
+        model.completed_chunks = Set(bitmap);
+        model.completed_ranges = Set(ranges_json(&if size == 0 {
+            vec![]
+        } else {
+            vec![(0, size as u64)]
+        }));
+        model.transferred_bytes = Set(size);
+        model.staged_complete = Set(true);
+    })
+    .await
+}
+
 /// 标记单个文件完成，写入完整 checkpoint 与最终落盘位置（finalize_sink 返回值）
 pub async fn mark_file_completed(
     db: &DatabaseConnection,
@@ -149,16 +170,14 @@ pub async fn mark_file_completed(
     file_id: i32,
     completed_chunks: Vec<u8>,
     transferred_bytes: i64,
-    local_path: String,
-    local_dir: String,
+    location: entity::FileLocation,
 ) -> AppResult<()> {
     update_file(db, session_id, file_id, |model| {
         model.status = Set(FileStatus::Completed);
         model.completed_chunks = Set(completed_chunks);
         model.transferred_bytes = Set(transferred_bytes);
         model.completed_ranges = Set(ranges_json(&prefix_range(transferred_bytes)));
-        model.local_path = Set(Some(local_path));
-        model.local_dir = Set(Some(local_dir));
+        model.location = Set(Some(location));
     })
     .await
 }

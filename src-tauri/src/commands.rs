@@ -28,6 +28,7 @@ macro_rules! with_manager {
     }};
 }
 
+mod cloud_account;
 mod external_open;
 mod i18n;
 mod identity;
@@ -42,6 +43,7 @@ mod transfer;
 
 // glob re-export：Tauri 的 #[tauri::command] 宏会生成 __cmd__* 隐藏符号，
 // generate_handler! 需要通过模块路径访问这些符号，显式导出无法覆盖。
+pub use cloud_account::*;
 pub use external_open::*;
 pub use i18n::*;
 pub use identity::*;

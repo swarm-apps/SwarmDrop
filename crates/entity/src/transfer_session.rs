@@ -1,9 +1,7 @@
 use sea_orm::entity::prelude::*;
+use serde::{Deserialize, Serialize};
 
-use crate::{
-    PeerId, SaveLocation, SessionStatus, SuspendedReason, TerminalReason, TransferDirection,
-    TransferPhase,
-};
+use crate::{PeerId, SaveLocation};
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -59,3 +57,128 @@ pub struct Model {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+/// 传输方向
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
+)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "lowercase")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "lowercase"
+)]
+pub enum TransferDirection {
+    Send,
+    Receive,
+}
+
+/// 传输会话状态
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
+)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "lowercase")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "lowercase"
+)]
+pub enum SessionStatus {
+    Transferring,
+    Paused,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+/// 传输生命周期大状态（phase）。
+/// 替代旧的扁平 [`SessionStatus`]（过渡期并存）：phase 表达大状态，
+/// 具体原因由 [`SuspendedReason`] / [`TerminalReason`] 表达。
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
+)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum TransferPhase {
+    Offered,
+    WaitingAccept,
+    Active,
+    Suspended,
+    Terminal,
+}
+
+/// suspended 原因（phase=Suspended 时有值）。
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
+)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum SuspendedReason {
+    LocalPaused,
+    RemotePaused,
+    Interrupted,
+    PeerOffline,
+    AppRestarted,
+}
+
+/// terminal 原因（phase=Terminal 时有值）。
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
+)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum TerminalReason {
+    Completed,
+    Cancelled,
+    Rejected,
+    FatalError,
+    /// 入站 offer 的决策窗口耗尽，本端从未作答。
+    ///
+    /// **与 `Rejected` 分开是必要的，不是措辞讲究。** 对端看到的确实是一次婉拒（清理任务
+    /// drop 掉 responder，RPC handler 据此回复），但本端用户**什么都没做**——把它记成
+    /// 「已拒绝」等于在他自己的传输历史里写一条他没做过的决定，而这恰恰是他下次想不起来
+    /// 「我拒过这个人吗」时会去查的地方。
+    Expired,
+}
+
+impl TransferPhase {
+    /// 过渡期桥接：把新 phase + reason 映射回旧扁平 [`SessionStatus`]。
+    ///
+    /// 前端旧路径与未迁移代码仍读 `status` 列，Coordinator 写 phase 时必须经此
+    /// 同步 `status`，避免两种表示漂移（单一映射来源）。迁移完成后随 `SessionStatus`
+    /// 一并移除。
+    pub fn legacy_status(&self, terminal_reason: Option<&TerminalReason>) -> SessionStatus {
+        match self {
+            TransferPhase::Offered | TransferPhase::WaitingAccept | TransferPhase::Active => {
+                SessionStatus::Transferring
+            }
+            TransferPhase::Suspended => SessionStatus::Paused,
+            TransferPhase::Terminal => match terminal_reason {
+                Some(TerminalReason::Completed) => SessionStatus::Completed,
+                // Expired 归 Cancelled：旧扁平枚举没有「没答复」这一档，而它离
+                // 「没传成，但也不是错误」最近。新路径读 terminal_reason，不受这个粗粒度影响。
+                Some(TerminalReason::Cancelled)
+                | Some(TerminalReason::Rejected)
+                | Some(TerminalReason::Expired) => SessionStatus::Cancelled,
+                Some(TerminalReason::FatalError) | None => SessionStatus::Failed,
+            },
+        }
+    }
+}

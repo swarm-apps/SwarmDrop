@@ -34,6 +34,7 @@ import { NetworkSettingsSection } from "./-network-settings-section";
 import { BootstrapNodesSection } from "./-bootstrap-nodes-section";
 import { TransferSettingsSection } from "./-transfer-settings-section";
 import { McpSection } from "./-mcp-section";
+import { CloudAccountsSection } from "./-cloud-accounts-section";
 import {
   SettingsCard,
   SettingsRow,
@@ -105,6 +106,9 @@ function SettingsPage() {
             {/* 「已发出的邀请」不在这里：撤销的高峰是「刚发错人」，而那一刻用户站在配对
                 生成屏上。它已随该场景移到 `components/pairing/sent-invites.tsx`，
                 三端同此位置——理由写在那个文件的头注释里。 */}
+            <div id="cloud-accounts" className="scroll-mt-6 md:col-span-2 lg:col-span-6">
+              <CloudAccountsSection />
+            </div>
           </div>
         </div>
       </div>

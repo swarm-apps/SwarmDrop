@@ -1,9 +1,5 @@
+use super::device::PeerId;
 use sea_orm::entity::prelude::*;
-
-use super::types::{
-    PeerId, SaveLocation, SessionStatus, SuspendedReason, TerminalReason, TransferDirection,
-    TransferPhase,
-};
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -37,3 +33,84 @@ pub struct Model {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+/// 传输方向。
+#[derive(Clone, Debug, PartialEq, Eq, DeriveActiveEnum, strum::EnumIter)]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "lowercase"
+)]
+pub enum TransferDirection {
+    Send,
+    Receive,
+}
+
+/// 传输会话状态（旧扁平模型，过渡期保留）。
+#[derive(Clone, Debug, PartialEq, Eq, DeriveActiveEnum, strum::EnumIter)]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "lowercase"
+)]
+pub enum SessionStatus {
+    Transferring,
+    Paused,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+/// 保存位置（JSON 列）。
+#[derive(
+    Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, FromJsonQueryResult,
+)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum SaveLocation {
+    Path { path: String },
+}
+
+/// 传输生命周期大状态。
+#[derive(Clone, Debug, PartialEq, Eq, DeriveActiveEnum, strum::EnumIter)]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum TransferPhase {
+    Offered,
+    WaitingAccept,
+    Active,
+    Suspended,
+    Terminal,
+}
+
+/// suspended 原因。
+#[derive(Clone, Debug, PartialEq, Eq, DeriveActiveEnum, strum::EnumIter)]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum SuspendedReason {
+    LocalPaused,
+    RemotePaused,
+    Interrupted,
+    PeerOffline,
+    AppRestarted,
+}
+
+/// terminal 原因。
+#[derive(Clone, Debug, PartialEq, Eq, DeriveActiveEnum, strum::EnumIter)]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum TerminalReason {
+    Completed,
+    Cancelled,
+    Rejected,
+    FatalError,
+    Expired,
+}

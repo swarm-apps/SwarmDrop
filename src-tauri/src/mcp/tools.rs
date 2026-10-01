@@ -520,11 +520,14 @@ impl McpHandler {
         let Some(file) = file else {
             return mcp_error("未找到对应文件：请提供有效的 relative_path 或 file_id");
         };
-        let missing = file.missing || !std::path::Path::new(&file.local_path).exists();
+        let local_path = file.location.local_uri();
+        let missing =
+            file.missing || local_path.is_some_and(|path| !std::path::Path::new(path).exists());
         let result = McpInboxFile {
             name: file.name.clone(),
             relative_path: file.relative_path.clone(),
-            local_path: (!missing).then(|| file.local_path.clone()),
+            local_path: local_path.filter(|_| !missing).map(str::to_owned),
+            location: file.location.clone(),
             size: file.size,
             missing,
         };
@@ -760,7 +763,10 @@ impl McpHandler {
             },
         };
         let swarmdrop_core::host::CoreSaveLocation::Path { path: save_path } =
-            save_location.clone();
+            save_location.clone()
+        else {
+            return mcp_error("MCP 接收入口当前只支持本地保存位置");
+        };
 
         match transfer
             .accept_and_start_receive(&session_id, save_location)
@@ -1336,6 +1342,7 @@ struct McpInboxFile {
     relative_path: String,
     /// 文件存在时的本地绝对路径；缺失时为 null
     local_path: Option<String>,
+    location: swarmdrop_core::host::FileLocation,
     size: i64,
     missing: bool,
 }
@@ -1505,6 +1512,7 @@ struct McpInboxDetailFile {
     size: i64,
     /// 文件存在时的本地绝对路径；缺失时为 null
     local_path: Option<String>,
+    location: swarmdrop_core::host::FileLocation,
     missing: bool,
 }
 
@@ -1515,13 +1523,17 @@ impl From<InboxItemDetail> for McpInboxItemDetail {
             InboxItemContent::Files { entries, .. } => entries
                 .into_iter()
                 .map(|f| {
-                    let missing = f.missing || !std::path::Path::new(&f.local_path).exists();
+                    let local_path = f.location.local_uri();
+                    let missing = f.missing
+                        || local_path.is_some_and(|path| !std::path::Path::new(path).exists());
+                    let local_path = local_path.filter(|_| !missing).map(str::to_owned);
                     McpInboxDetailFile {
                         id: f.id,
                         name: f.name,
                         relative_path: f.relative_path,
                         size: f.size,
-                        local_path: (!missing).then(|| f.local_path.clone()),
+                        local_path,
+                        location: f.location,
                         missing,
                     }
                 })

@@ -1,3 +1,4 @@
+import { MobileFileLocation } from "react-native-swarmdrop-core";
 import { File } from "expo-file-system";
 import type {
   MobileInboxFileEntry as InboxFileEntry,
@@ -26,6 +27,18 @@ export function fileExists(localPath: string): boolean | null {
   }
 }
 
+/** 云对象不能交给本地文件系统；返回 null 保留位置类型的区别。 */
+export function localInboxUri(file: InboxFileEntry): string | null {
+  return MobileFileLocation.Local.instanceOf(file.location)
+    ? file.location.inner.uri
+    : null;
+}
+export function requireLocalInboxUri(file: InboxFileEntry): string {
+  const uri = localInboxUri(file);
+  if (uri === null) throw new Error("移动端暂不支持打开云盘文件");
+  return uri;
+}
+
 export class MissingFileError extends Error {
   constructor() {
     super("missing inbox file");
@@ -46,7 +59,8 @@ export class MissingFileError extends Error {
  * 都从这里取——它们此前各写各的，靠注释宣称一致。
  */
 export function isAvailable(file: InboxFileEntry): boolean {
-  return !file.missing && fileExists(file.localPath) !== false;
+  const uri = localInboxUri(file);
+  return uri !== null && !file.missing && fileExists(uri) !== false;
 }
 
 /** 用文件前的存在性闸。不可用时抛 {@link MissingFileError}。 */
@@ -60,7 +74,8 @@ export function isMissingFileError(
 ): boolean {
   if (err instanceof MissingFileError) return true;
   // 不靠错误文案判断（本地化 / 不同平台下英文子串会漏判）：复查文件是否还在原位。
-  return fileExists(file.localPath) === false;
+  const uri = localInboxUri(file);
+  return uri !== null && fileExists(uri) === false;
 }
 
 /**
@@ -77,7 +92,7 @@ export function isMissingFileError(
  */
 function toTransferFile(file: InboxFileEntry): TransferFile {
   return {
-    sourceId: file.localPath,
+    sourceId: requireLocalInboxUri(file),
     name: file.name,
     // 平铺文件名而非 `relativePath`：转发是一次新的发送，收到的文件此刻是一批独立的
     // 文件，把上一次传输的目录结构带给第三台设备只会让对方莫名其妙。

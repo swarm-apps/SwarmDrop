@@ -196,7 +196,7 @@ pub(crate) fn build_resume_file_infos(
 ///
 /// # 载入时必须把「位图完整却从未发布」的行降级
 ///
-/// 接收侧的核心不变量是**「位图完整 ⟺ 该文件已发布」**——收齐即发布，且末块刻意不刷
+/// 本地接收侧的核心不变量是**「位图完整 ⟺ 该文件已发布」**——收齐即发布，且末块刻意不刷
 /// checkpoint，完整位图只由 `mark_file_completed` 在发布成功后写。
 ///
 /// 但**存量数据破坏这条不变量**：旧实现在每个文件的末块就刷完整位图，而发布推迟到会话
@@ -208,6 +208,9 @@ pub(crate) fn build_resume_file_infos(
 /// `local_path` 是发布的唯一凭证（只由 `mark_file_completed` 写），所以这里用它做判据：
 /// 未发布的行清掉最后一块，让它重新走一遍「收齐 → 发布」。代价是重传一个 chunk，
 /// 换回不变量成立。
+///
+/// 云暂存另有 `staged_complete`：它在同步磁盘后才记录完整位图，恢复 actor 会主动
+/// 重试发布未写最终位置的完整暂存。该标记为真时必须保留位图，避免重拉 P2P 分块。
 pub(crate) fn build_file_infos_and_bitmaps(
     files: &[entity::transfer_file::Model],
 ) -> (Vec<FileInfo>, HashMap<u32, Vec<u8>>) {
@@ -218,7 +221,7 @@ pub(crate) fn build_file_infos_and_bitmaps(
         file_infos.push(FileInfo::from(f));
 
         let mut bitmap = f.completed_chunks.clone();
-        if f.local_path.is_none() {
+        if f.location.is_none() && !f.staged_complete {
             let total_chunks = calc_total_chunks(f.size as u64);
             crate::actor::checkpoint::clear_chunk_completed(
                 &mut bitmap,
@@ -273,9 +276,9 @@ mod tests {
             total_chunks: calc_total_chunks(size) as i32,
             completed_chunks: vec![],
             completed_ranges: String::new(),
+            staged_complete: false,
             source_path: Some(format!("/tmp/f{file_id}.bin")),
-            local_path: None,
-            local_dir: None,
+            location: None,
             outboard: None,
         }
     }

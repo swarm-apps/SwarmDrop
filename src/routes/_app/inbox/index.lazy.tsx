@@ -1,3 +1,4 @@
+import { CloudLocationSummary } from "@/components/transfer/cloud-location-summary";
 /**
  * Drop Inbox Page (Lazy)
  * 收件箱 —— 展示已经成功接收的内容，和活动/恢复过程账本分离。
@@ -114,7 +115,10 @@ type RunAndRefresh = (
  */
 function inboxItemPath(detail: InboxItemDetail): string | null {
   if (detail.content.kind !== "files") return null;
-  if (detail.content.entries.length === 1) return detail.content.entries[0].localPath;
+  if (detail.content.entries.length === 1) {
+    const location = detail.content.entries[0].location;
+    return location.type === "local" ? location.uri : null;
+  }
   return detail.rootPath;
 }
 
@@ -135,6 +139,9 @@ function InboxPage() {
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteLocalFiles, setDeleteLocalFiles] = useState(false);
+  const containsCloudFiles =
+    detail?.content.kind === "files" &&
+    detail.content.entries.some((file) => file.location.type === "cloud");
 
   const navigate = useNavigate();
   const isSearching = query.trim() !== "";
@@ -328,8 +335,14 @@ function InboxPage() {
   const handleDeleteConfirm = async () => {
     if (!selectedId) return;
     const nextItems = await runAndRefresh(
-      () => commands.deleteInboxItem(selectedId, deleteLocalFiles),
-      deleteLocalFiles ? t`已删除记录和本地文件` : t`已删除收件箱记录`,
+      () =>
+        commands.deleteInboxItem(
+          selectedId,
+          deleteLocalFiles && !containsCloudFiles,
+        ),
+      deleteLocalFiles && !containsCloudFiles
+        ? t`已删除记录和本地文件`
+        : t`已删除收件箱记录`,
       null,
     );
     if (!nextItems) return;
@@ -395,22 +408,31 @@ function InboxPage() {
               <Trans>删除收件箱记录</Trans>
             </AlertDialogTitle>
             <AlertDialogDescription>
-              <Trans>
-                仅删除记录会保留本地文件；勾选删除本地文件后，会从磁盘移除这些已接收文件。
-              </Trans>
+              {containsCloudFiles ? (
+                <Trans>仅删除接收记录，云盘中的文件会保留。</Trans>
+              ) : (
+                <Trans>
+                  仅删除记录会保留本地文件；勾选删除本地文件后，会从磁盘移除这些已接收文件。
+                </Trans>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="flex items-center justify-between rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2">
-            <Label htmlFor="delete-local-files" className="text-sm text-foreground">
-              <Trans>同时删除本地文件</Trans>
-            </Label>
-            <Switch
-              id="delete-local-files"
-              checked={deleteLocalFiles}
-              onCheckedChange={setDeleteLocalFiles}
-            />
-          </div>
-          {deleteLocalFiles && (
+          {!containsCloudFiles && (
+            <div className="flex items-center justify-between rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2">
+              <Label
+                htmlFor="delete-local-files"
+                className="text-sm text-foreground"
+              >
+                <Trans>同时删除本地文件</Trans>
+              </Label>
+              <Switch
+                id="delete-local-files"
+                checked={deleteLocalFiles}
+                onCheckedChange={setDeleteLocalFiles}
+              />
+            </div>
+          )}
+          {deleteLocalFiles && !containsCloudFiles && (
             <p className="flex items-start gap-2 text-xs leading-5 text-destructive">
               <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
               <Trans>本地文件删除后无法通过清空活动记录恢复。</Trans>
@@ -424,7 +446,7 @@ function InboxPage() {
               onClick={handleDeleteConfirm}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleteLocalFiles ? (
+              {deleteLocalFiles && !containsCloudFiles ? (
                 <Trans>删除记录和文件</Trans>
               ) : (
                 <Trans>仅删除记录</Trans>
@@ -467,7 +489,10 @@ function InboxRail({
   // 分桶逻辑住在 `@swarmdrop/shared-view`（`groupByTimeBucket`）——Web 端也用同一份。
   // 桶的边界（今天从几点起、本周算几天）三端不该有不同答案；本地只保留 `groupLabel`，
   // 因为那是返回 `<Trans>` 的本地化文案，按该包的归属判据进不去。
-  const groups = useMemo(() => groupByTimeBucket(items, (i) => i.receivedAt), [items]);
+  const groups = useMemo(
+    () => groupByTimeBucket(items, (i) => i.receivedAt),
+    [items],
+  );
   const railScrollRef = useRef<HTMLDivElement>(null);
 
   const visibleIds = useMemo(
@@ -498,7 +523,9 @@ function InboxRail({
       onSelect(nextId);
       requestAnimationFrame(() => {
         railScrollRef.current
-          ?.querySelector<HTMLElement>(`[data-inbox-id="${CSS.escape(nextId)}"]`)
+          ?.querySelector<HTMLElement>(
+            `[data-inbox-id="${CSS.escape(nextId)}"]`,
+          )
           ?.focus();
       });
     },
@@ -989,7 +1016,9 @@ function InboxReader({
           {toggle}
         </div>
       )}
-      <div className={cn("flex flex-1 flex-col", !contained && "min-h-[320px]")}>
+      <div
+        className={cn("flex flex-1 flex-col", !contained && "min-h-[320px]")}
+      >
         {status === "empty" ? (
           hasItems ? (
             <ReaderPlaceholder />
@@ -1031,10 +1060,14 @@ function ReaderContent({
   onFileReveal: (fileId: number) => void;
 }) {
   const files = detail.content.kind === "files" ? detail.content.entries : [];
-  const transfer = detail.content.kind === "files" ? detail.content.transfer : null;
+  const cloudFiles = files.filter((file) => file.location.type === "cloud");
+  const transfer =
+    detail.content.kind === "files" ? detail.content.transfer : null;
   const textBody = detail.content.kind === "text" ? detail.content.body : null;
   const view = usePreferencesStore((state) => state.fileBrowserViews.inbox);
-  const setFileBrowserView = usePreferencesStore((state) => state.setFileBrowserView);
+  const setFileBrowserView = usePreferencesStore(
+    (state) => state.setFileBrowserView,
+  );
   const items = useMemo(
     () => itemsFromInbox(detail.id, files),
     [detail.id, files],
@@ -1043,9 +1076,14 @@ function ReaderContent({
   const actions = useMemo(
     () => ({
       onOpen: (item: FileBrowserItem) => onFileOpen(Number(item.sourceId)),
-      onReveal: (item: FileBrowserItem) => onFileReveal(Number(item.sourceId)),
+      ...(cloudFiles.length
+        ? {}
+        : {
+            onReveal: (item: FileBrowserItem) =>
+              onFileReveal(Number(item.sourceId)),
+          }),
     }),
-    [onFileOpen, onFileReveal],
+    [onFileOpen, onFileReveal, cloudFiles.length],
   );
 
   return (
@@ -1097,37 +1135,61 @@ function ReaderContent({
           </div>
         </div>
 
+        {cloudFiles.length > 0 && (
+          <div className="mt-4">
+            <CloudLocationSummary
+              objects={cloudFiles.flatMap((file) =>
+                file.location.type === "cloud" ? [file.location.object] : [],
+              )}
+            />
+          </div>
+        )}
         <div className="mt-5 flex flex-wrap gap-2">
-          {detail.content.kind === "files" ? <div className="inline-flex">
-            <Button size="sm" className="gap-1.5 rounded-r-none" onClick={onReveal}>
-              <FolderOpen className="size-4" />
-              <Trans>在文件夹中显示</Trans>
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  aria-label={t`更多位置操作`}
-                  className="rounded-l-none border-l border-primary-foreground/25 has-[>svg]:px-2"
-                >
-                  <ChevronDown className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={onCopyPath}>
-                  <Copy className="size-4" />
-                  <Trans>复制路径</Trans>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div> : (
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => {
-              if (!textBody) return;
-              void copyText(textBody).then(
-                () => toast.success(t`已复制到剪贴板`),
-                () => toast.error(t`复制失败，请手动复制文本`),
-              );
-            }}>
+          {cloudFiles.length > 0 && (
+            <Badge variant="secondary">Google Drive</Badge>
+          )}
+          {detail.content.kind === "files" && cloudFiles.length === 0 && (
+            <div className="inline-flex">
+              <Button
+                size="sm"
+                className="gap-1.5 rounded-r-none"
+                onClick={onReveal}
+              >
+                <FolderOpen className="size-4" />
+                <Trans>在文件夹中显示</Trans>
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    aria-label={t`更多位置操作`}
+                    className="rounded-l-none border-l border-primary-foreground/25 has-[>svg]:px-2"
+                  >
+                    <ChevronDown className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={onCopyPath}>
+                    <Copy className="size-4" />
+                    <Trans>复制路径</Trans>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
+          {detail.content.kind === "text" && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => {
+                if (!textBody) return;
+                void copyText(textBody).then(
+                  () => toast.success(t`已复制到剪贴板`),
+                  () => toast.error(t`复制失败，请手动复制文本`),
+                );
+              }}
+            >
               <Copy className="size-4" />
               <Trans>复制文本</Trans>
             </Button>
@@ -1143,7 +1205,12 @@ function ReaderContent({
               <Trans>打开传输记录</Trans>
             </Button>
           )}
-          <Button size="sm" variant="ghost" className="gap-1.5" onClick={onArchive}>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="gap-1.5"
+            onClick={onArchive}
+          >
             {detail.archivedAt ? (
               <ArchiveRestore className="size-4" />
             ) : (
@@ -1163,18 +1230,22 @@ function ReaderContent({
         </div>
       </header>
 
-      {detail.content.kind === "files" ? <FileBrowser
-        items={items}
-        view={view}
-        onViewChange={(nextView) => setFileBrowserView("inbox", nextView)}
-        actions={actions}
-        className={cn(
-          "@container px-7 py-6",
-          contained && "min-h-0 flex-1",
-        )}
-        contentClassName={contained ? undefined : "min-h-[360px]"}
-      /> : (
-        <div className={cn("min-h-0 overflow-auto px-7 py-6", contained && "flex-1")}>
+      {detail.content.kind === "files" ? (
+        <FileBrowser
+          items={items}
+          view={view}
+          onViewChange={(nextView) => setFileBrowserView("inbox", nextView)}
+          actions={actions}
+          className={cn("@container px-7 py-6", contained && "min-h-0 flex-1")}
+          contentClassName={contained ? undefined : "min-h-[360px]"}
+        />
+      ) : (
+        <div
+          className={cn(
+            "min-h-0 overflow-auto px-7 py-6",
+            contained && "flex-1",
+          )}
+        >
           <pre className="whitespace-pre-wrap break-words rounded-2xl border border-border/70 bg-muted/35 p-4 text-sm leading-6 text-foreground">
             {textBody}
           </pre>
@@ -1209,7 +1280,9 @@ function ReaderErrorState() {
       icon={TriangleAlert}
       title={<Trans>无法加载这条记录</Trans>}
       description={
-        <Trans>记录可能已被移除，或详情加载失败。请选择其它记录，或刷新收件箱。</Trans>
+        <Trans>
+          记录可能已被移除，或详情加载失败。请选择其它记录，或刷新收件箱。
+        </Trans>
       }
       descriptionClassName="max-w-[32ch]"
     />
@@ -1277,13 +1350,14 @@ function InboxEmptyState() {
       icon={Inbox}
       title={<Trans>暂无已接收内容</Trans>}
       description={
-        <Trans>成功接收的文件会出现在这里；暂停或失败的传输会留在活动与恢复。</Trans>
+        <Trans>
+          成功接收的文件会出现在这里；暂停或失败的传输会留在活动与恢复。
+        </Trans>
       }
       descriptionClassName="max-w-[26ch]"
     />
   );
 }
-
 
 /* ─────────────────── 小构件 ─────────────────── */
 
@@ -1302,8 +1376,7 @@ function Pill({
     <span
       className={cn(
         "shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium",
-        tone === "amber" &&
-          "bg-warning/15 text-warning-ink",
+        tone === "amber" && "bg-warning/15 text-warning-ink",
         tone === "muted" &&
           "bg-foreground/[0.08] text-foreground/70 dark:bg-white/[0.08] dark:text-white/70",
       )}

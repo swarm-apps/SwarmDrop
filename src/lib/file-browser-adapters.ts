@@ -29,7 +29,9 @@ import type {
 } from "@/lib/bindings";
 
 /** 发送侧扫描到的文件。`source.path` 同时充当来源键与展示 ID 的基础。 */
-export function itemsFromScannedFiles(files: EnumeratedFile[]): FileBrowserItem[] {
+export function itemsFromScannedFiles(
+  files: EnumeratedFile[],
+): FileBrowserItem[] {
   return sharedFromSelectedFiles(
     files.map((file) => ({
       sourceId: file.source.path || file.relativePath || file.name,
@@ -91,9 +93,10 @@ export function itemsFromInbox(
 }
 
 function previewUrlOf(file: InboxItemFileEntry): string | undefined {
-  if (file.missing || !isImageFile(file.name)) return undefined;
+  if (file.location.type !== "local" || file.missing || !isImageFile(file.name))
+    return undefined;
   try {
-    return convertFileSrc(file.localPath);
+    return convertFileSrc(file.location.uri);
   } catch {
     return undefined;
   }

@@ -1063,13 +1063,13 @@ multiaddr 解析、二维码生成、邀请标识 hex 格式、`SecretKey` 未�
 ### crates/web 的 specta 导出不支持 `skip_serializing_if`
 
 `swarmdrop-web` 的 TS 导出（`tests/specta_export.rs`）走 `specta_serde::Format`，
-JS 可见类型（`crates/web/src/types.rs`）里给字段挂 `#[serde(skip_serializing_if)]` 会让
+JS 可见协议（如 `crates/web/src/events.rs`、`pairing.rs`）里给字段挂 `#[serde(skip_serializing_if)]` 会让
 导出测试炸掉：`Invalid phased type usage ... unified mode cannot represent conditional omission`。
 
 **正确做法**：可选字段用 `Option<T>` 恒序列化——TS 形状是 `T | null`，运行期
 serde_wasm_bindgen 把 `None` 序列化成 `undefined`，JS 侧 `obj.field ?? fallback` 无感。
 
-**相关文件**：`crates/web/src/types.rs`（`RelayInfoJson` 是样例）、`crates/web/tests/specta_export.rs`
+**相关文件**：`crates/web/src/events.rs`、`crates/web/src/pairing.rs`、`crates/web/tests/specta_export.rs`
 
 ### 给已有字段补 `#[serde(default)]` 会把它变成 TS 上的**可选**字段
 

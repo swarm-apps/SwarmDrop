@@ -5,6 +5,8 @@ members = [
     "crates/host-fs",
     "crates/transfer",
     "crates/storage-sql",
+    "crates/cloud-auth",
+    "crates/storage-cloud",
     "crates/invite",
     "crates/web",
     "crates/entity",
@@ -47,6 +49,14 @@ migration = { path = "crates/migration" }
 # ── 新网络内核（refactor/net-kernel，iroh 风格 API + wasm 双 target）──
 swarmdrop-net-base = { path = "crates/net-base" }
 swarmdrop-storage-sql = { path = "crates/storage-sql" }
+swarmdrop-cloud-auth = { path = "crates/cloud-auth" }
+swarmdrop-storage-cloud = { path = "crates/storage-cloud" }
+blake3 = "1.8.3"
+bytes = "1"
+# OAuth 的 HTTP 实现沿用 0.12 系，与 oauth2 5 的客户端 trait 保持一致。
+reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls", "json", "stream"] }
+oauth2 = { version = "5", default-features = false, features = ["reqwest", "timing-resistant-secret-traits"] }
+url = "2"
 swarmdrop-invite = { path = "crates/invite" }
 swarmdrop-net = { path = "crates/net" }
 # libp2p 系全部 pin 同一 git rev —— 且当前指向**个人 fork**，不是官方仓。

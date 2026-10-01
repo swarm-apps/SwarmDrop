@@ -127,11 +127,18 @@ pub struct FileSinkId(pub String);
 /// 事实源（保存目录 + 相对路径拼接推导不出:SAF document URI 有独立编码,重名冲突
 /// 还会被改写成 "foo (1).txt"）。`dir` 供「打开文件夹」定位真实容器目录。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FinalizedSink {
-    /// 文件最终 URI（桌面绝对路径 / 移动 file:// 或 SAF document URI）。
-    pub uri: String,
-    /// 文件父目录 URI（桌面父目录绝对路径 / 移动 file:// 目录或 SAF 目录 document URI）。
-    pub dir: String,
+pub enum FinalizedSink {
+    Local { uri: String, dir: String },
+    Cloud { object: CloudObjectRef },
+}
+pub use entity::{CloudObjectRef, CloudProvider, FileLocation};
+impl From<FinalizedSink> for FileLocation {
+    fn from(value: FinalizedSink) -> Self {
+        match value {
+            FinalizedSink::Local { uri, dir } => Self::Local { uri, dir },
+            FinalizedSink::Cloud { object } => Self::Cloud { object },
+        }
+    }
 }
 
 /// 接收端保存位置（host-agnostic）。
@@ -140,7 +147,11 @@ pub struct FinalizedSink {
 /// 暴露到公共 API 上。DB 边界用 [`From`] 与 `entity::SaveLocation` 双向转换。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum CoreSaveLocation {
     /// 宿主自己解释的保存位置串，**core 视其为不透明**。
     ///
@@ -149,12 +160,26 @@ pub enum CoreSaveLocation {
     /// Web 是 OPFS 的相对路径。名字叫 `Path` 是历史，别据此假设它一定是文件系统路径——
     /// 移动端的发布路径正是靠嗅探 `content://` 前缀来分派的。
     Path { path: String },
+    Cloud {
+        provider: CloudProvider,
+        account_id: String,
+        root: Option<String>,
+    },
 }
 
 impl From<CoreSaveLocation> for entity::SaveLocation {
     fn from(v: CoreSaveLocation) -> Self {
         match v {
             CoreSaveLocation::Path { path } => entity::SaveLocation::Path { path },
+            CoreSaveLocation::Cloud {
+                provider,
+                account_id,
+                root,
+            } => entity::SaveLocation::Cloud {
+                provider,
+                account_id,
+                root,
+            },
         }
     }
 }
@@ -163,6 +188,15 @@ impl From<entity::SaveLocation> for CoreSaveLocation {
     fn from(v: entity::SaveLocation) -> Self {
         match v {
             entity::SaveLocation::Path { path } => CoreSaveLocation::Path { path },
+            entity::SaveLocation::Cloud {
+                provider,
+                account_id,
+                root,
+            } => CoreSaveLocation::Cloud {
+                provider,
+                account_id,
+                root,
+            },
         }
     }
 }
@@ -175,6 +209,8 @@ impl From<entity::SaveLocation> for CoreSaveLocation {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct HostFileMetadata {
+    #[serde(default)]
+    pub receive_identity: Option<ReceiveFileIdentity>,
     pub name: String,
     pub relative_path: String,
     pub size: u64,
@@ -183,6 +219,16 @@ pub struct HostFileMetadata {
     /// 接收端保存位置；source_metadata（发送端）固定为 None。
     #[serde(default)]
     pub save_dir: Option<CoreSaveLocation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReceiveFileIdentity {
+    pub session_id: String,
+    pub file_id: u32,
+    pub sender_device_id: String,
+    pub receiver_device_id: String,
 }
 
 /// 宿主文件访问能力。
@@ -265,6 +311,16 @@ pub trait FileAccess: Send + Sync {
     /// host 改写成 "foo (1).txt"），core 必须原样落库供收件箱 / 「打开文件夹」消费。
     async fn finalize_sink(&self, sink: &FileSinkId) -> AppResult<FinalizedSink>;
 
+    /// 云暂存完整 checkpoint 入库前确保内容已同步到磁盘。
+    async fn sync_staged_sink(&self, _sink: &FileSinkId) -> AppResult<()> {
+        Ok(())
+    }
+
+    /// 完成位置和完整 checkpoint 已持久化后才清理云暂存；本地发布无额外工作。
+    async fn confirm_sink_committed(&self, _sink: &FileSinkId) -> AppResult<()> {
+        Ok(())
+    }
+
     /// 丢弃一条**未最终化**的 sink，并**真正删掉已经落盘的那部分产物**。
     ///
     /// 「删掉部分产物」是契约的一部分，不是可选优化——此前这句话只活在各端实现的注释里，
@@ -277,6 +333,12 @@ pub trait FileAccess: Send + Sync {
     /// 保留默认实现是为了不逼所有实现方同时改动，但**新实现一律要覆盖它**。
     async fn cleanup_sink(&self, _sink: &FileSinkId) -> AppResult<()> {
         Ok(())
+    }
+
+    /// 重启后回收过期暂存。默认走本地 sink 生命周期；云宿主按接收键清理，避免为了删除创建文件。
+    async fn cleanup_expired_sink(&self, metadata: HostFileMetadata) -> AppResult<()> {
+        let sink = self.open_or_create_sink(metadata).await?;
+        self.cleanup_sink(&sink).await
     }
 
     /// 删除一个**已最终化**的文件。参数是 [`finalize_sink`](Self::finalize_sink) 返回过的

@@ -7,6 +7,12 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
+	listCloudAccounts: () => __TAURI_INVOKE<AccountSnapshot[]>("list_cloud_accounts"),
+	connectCloudAccount: (clientId: string, clientSecret: string, label: string) => __TAURI_INVOKE<ConnectSession>("connect_cloud_account", { clientId, clientSecret, label }),
+	reconnectCloudAccount: (id: string) => __TAURI_INVOKE<ConnectSession>("reconnect_cloud_account", { id }),
+	cancelCloudAccountConnect: (sessionId: string) => __TAURI_INVOKE<null>("cancel_cloud_account_connect", { sessionId }),
+	disconnectCloudAccount: (id: string) => __TAURI_INVOKE<RevokeOutcome>("disconnect_cloud_account", { id }),
+	cloudAccountStatus: (id: string) => __TAURI_INVOKE<AccountSnapshot>("cloud_account_status", { id }),
 	start: (networkOptions: {
 	/**
 	 *  由当前 host 提供的引导/中继节点完整地址。
@@ -448,6 +454,8 @@ supported: string[] } |
 
 /** Events */
 export const events = {
+	cloudAccountUpdated: makeEvent<CloudAccountUpdated>("cloud-account-updated"),
+	cloudPublishProgress: makeEvent<CloudPublishProgress>("cloud-publish-progress"),
 	deviceRenamed: makeEvent<DeviceRenamed>("device-renamed"),
 	devicesChanged: makeEvent<DevicesChanged>("devices-changed"),
 	externalFileOpen: makeEvent<ExternalFileOpen>("external-file-open"),
@@ -478,6 +486,22 @@ export const events = {
 };
 
 /* Types */
+export type AccountSnapshot = {
+	id: string,
+	provider: ProviderId,
+	label: string,
+	status: AccountStatus,
+};
+
+export type AccountStatus = "connected" | "refreshing" | "reconnectRequired" | "saveFailed";
+
+export type AccountUpdate = {
+	sessionId: string | null,
+	account: AccountSnapshot | null,
+	removedAccountId: string | null,
+	error: CloudAuthError | null,
+};
+
 /**
  *  前端可见的错误结构体 —— [`AppError`] 在 specta 里被映射成这个形状，
  *  与 [`AppError::serialize`] 真正写出的 JSON 完全一致。
@@ -503,6 +527,43 @@ export type CandidateScope = "public" | "lan";
 export type CandidateSourceStatus = {
 	source: BootstrapCandidateSource,
 	count: number,
+};
+
+export type CloudAccountUpdated = AccountUpdate;
+
+export type CloudAuthError = "invalidConfiguration" | "reconnectRequired" | "saveFailed" | "readFailed" | "deleteFailed" | "unavailable" | "denied" | "timeout" | "accountNotFound" | "cancelled";
+
+/**  只携带可安全进入 IPC 的上下文，不含 HTTP 响应或能力 URL。 */
+export type CloudFailure = {
+	kind: CloudStorageError,
+	provider: CloudProvider,
+	accountId: string | null,
+	operation: CloudOperation,
+	recovery: CloudRecovery,
+	retryable: boolean,
+	retryAfterSeconds: number | null,
+};
+
+export type CloudObjectRef = {
+	provider: CloudProvider,
+	accountId: string,
+	objectId: string,
+	displayPath: string,
+};
+
+export type CloudOperation = "publish" | "open" | "confirm" | "abandon" | "restore";
+
+export type CloudProvider = "googleDrive";
+
+export type CloudPublishProgress = PublishProgress;
+
+export type CloudRecovery = "retry" | "reconnect" | "checkDestination" | "receiveAgain";
+
+export type CloudStorageError = "reconnectRequired" | "retryable" | "configuration" | "objectUnavailable" | "checkpoint" | "stagingChanged" | "invalidPath" | "protocol";
+
+export type ConnectSession = {
+	id: string,
+	authorizationUrl: string,
 };
 
 /**
@@ -579,7 +640,7 @@ export type CoreSaveLocation =
  *  Web 是 OPFS 的相对路径。名字叫 `Path` 是历史，别据此假设它一定是文件系统路径——
  *  移动端的发布路径正是靠嗅探 `content://` 前缀来分派的。
  */
-{ type: "path"; path: string };
+{ type: "path"; path: string } | { type: "cloud"; provider: CloudProvider; accountId: string; root: string | null };
 
 /**  统一的设备输出类型。 */
 export type Device = {
@@ -777,6 +838,8 @@ export type FailureCode =
  */
 { code: "legacy"; message: string };
 
+export type FileLocation = { type: "local"; uri: string; dir: string } | { type: "cloud"; object: CloudObjectRef };
+
 export type FileProgressInfo = {
 	fileId: number,
 	name: string,
@@ -952,7 +1015,7 @@ export type InboxItemFileEntry = {
 	 *  两个路径字段并存且「该用哪个」按端不同，是这个 DTO 最容易踩空的地方——所以写在这里，
 	 *  而不是让每个宿主自己从别处推断。
 	 */
-	localPath: string,
+	location: FileLocation,
 	missing: boolean,
 };
 
@@ -1396,6 +1459,17 @@ export type PreparedTransferResult = {
 	totalSize: number,
 };
 
+export type ProviderId = "googleDrive";
+
+export type PublishProgress = {
+	sessionId: string,
+	fileId: number,
+	uploadedBytes: number,
+	totalBytes: number,
+	bytesPerSecond: number,
+	failure: CloudFailure | null,
+};
+
 /**  自动接收时的保存行为。 */
 export type ReceiveSaveBehavior = 
 /**  使用策略里配置的默认保存位置，接收完成后进入收件箱。 */
@@ -1436,6 +1510,10 @@ export type ResumeTransferResult = {
 	files: TransferFileResult[],
 	totalSize: number,
 	transferredBytes: number,
+};
+
+export type RevokeOutcome = {
+	revoked: boolean,
 };
 
 export type RuntimeTransferDirection = "send" | "receive" | "unknown";
@@ -1644,6 +1722,7 @@ export type TransferProjection = {
 };
 
 export type TransferProjectionFile = {
+	location: FileLocation | null,
 	fileId: number,
 	name: string,
 	relativePath: string,

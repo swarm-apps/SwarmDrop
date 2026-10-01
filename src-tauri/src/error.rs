@@ -27,6 +27,8 @@ pub struct AppErrorPayload {
 
 #[derive(Debug, Error)]
 pub enum AppError {
+    #[error(transparent)]
+    CloudAuth(#[from] swarmdrop_cloud_auth::CloudAuthError),
     /// Tauri-specific 错误：plugin、Manager、IPC、updater 等
     #[error("Tauri error: {0}")]
     Tauri(#[from] tauri::Error),
@@ -106,6 +108,11 @@ impl Serialize for AppError {
         S: serde::Serializer,
     {
         match self {
+            AppError::CloudAuth(e) => AppErrorPayload {
+                kind: format!("CloudAuth{e:?}"),
+                message: e.to_string(),
+            }
+            .serialize(serializer),
             // core 错误：直接委托 core 的 Serialize impl，kind 取 core 的 kind
             AppError::Core(e) => e.serialize(serializer),
             // Tauri 错误：包成 { kind: "Tauri", message }

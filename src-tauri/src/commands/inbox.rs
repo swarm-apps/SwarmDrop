@@ -83,10 +83,28 @@ pub async fn repair_missing_inbox_items(
 #[specta::specta]
 pub async fn open_inbox_item(
     store: State<'_, TransferStoreState>,
+    publisher: State<'_, Arc<dyn swarmdrop_storage_cloud::CloudPublisher>>,
     item_id: Uuid,
     file_id: Option<i32>,
 ) -> crate::AppResult<()> {
     let detail = load_inbox_detail(&store, item_id).await?;
+    if let InboxItemContent::Files { entries, .. } = &detail.content {
+        let file = file_id
+            .and_then(|id| entries.iter().find(|file| file.id == id))
+            .or_else(|| (entries.len() == 1).then(|| &entries[0]));
+        if let Some(file) = file
+            && let swarmdrop_core::host::FileLocation::Cloud { object } = &file.location
+        {
+            let url = publisher
+                .open_url(object)
+                .await
+                .map_err(|error| crate::AppError::transfer(error.to_string()))?;
+            tauri_plugin_opener::open_url(url.as_str(), None::<&str>)
+                .map_err(|_| crate::AppError::transfer("无法打开云盘文件，请检查系统浏览器"))?;
+            store.mark_inbox_item_opened(item_id).await?;
+            return Ok(());
+        }
+    }
     let path = item_target_path(&detail, file_id)?;
     ensure_local_target_exists(&store, item_id, missing_file_id(&detail, file_id), &path).await?;
     tauri_plugin_opener::open_path(&path, None::<&str>)
@@ -124,13 +142,23 @@ pub async fn export_inbox_item(
 ) -> crate::AppResult<()> {
     let detail = load_inbox_detail(&store, item_id).await?;
     let destination_dir = PathBuf::from(destination_dir);
-    tokio::fs::create_dir_all(&destination_dir).await?;
 
     let InboxItemContent::Files { entries, .. } = &detail.content else {
         return Err(crate::AppError::transfer("文本收件箱不能导出为文件"));
     };
+    if entries
+        .iter()
+        .any(|file| file.location.local_uri().is_none())
+    {
+        return Err(crate::AppError::transfer(
+            "云盘文件不能导出为本地文件，请在云盘中下载",
+        ));
+    }
+    tokio::fs::create_dir_all(&destination_dir).await?;
     for file in entries {
-        let source = PathBuf::from(&file.local_path);
+        let source = PathBuf::from(file.location.local_uri().ok_or_else(|| {
+            crate::AppError::transfer("云盘文件不能导出为本地文件，请在云盘中下载")
+        })?);
         ensure_local_target_exists(&store, item_id, Some(file.id), &source).await?;
         let destination = destination_dir.join(&file.relative_path);
         if let Some(parent) = destination.parent() {
@@ -209,7 +237,11 @@ fn item_target_path(detail: &InboxItemDetail, file_id: Option<i32>) -> crate::Ap
             .iter()
             .find(|file| file.id == file_id)
             .ok_or_else(|| crate::AppError::transfer("收件箱文件不存在"))?;
-        return Ok(PathBuf::from(&file.local_path));
+        return file
+            .location
+            .local_uri()
+            .map(PathBuf::from)
+            .ok_or_else(|| crate::AppError::transfer("云盘文件没有本地文件位置"));
     }
 
     // 判据由领域模型独家给出（`local_location`），本函数只负责按它的结论取字段。
@@ -217,7 +249,7 @@ fn item_target_path(detail: &InboxItemDetail, file_id: Option<i32>) -> crate::Ap
     match swarmdrop_core::transfer::inbox::local_location(entries.len()) {
         LocalLocation::Entry(n) => entries
             .get(n)
-            .map(|file| PathBuf::from(&file.local_path))
+            .and_then(|file| file.location.local_uri().map(PathBuf::from))
             .ok_or_else(|| crate::AppError::transfer("收件箱记录缺少本地位置")),
         LocalLocation::Root => detail
             .item

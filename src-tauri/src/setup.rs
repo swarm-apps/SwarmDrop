@@ -43,6 +43,12 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
         // 不用改成 `if (r.status === "error") ...` 的 Result tuple 风格。
         .error_handling(ErrorHandlingMode::Throw)
         .commands(collect_commands![
+            commands::list_cloud_accounts,
+            commands::connect_cloud_account,
+            commands::reconnect_cloud_account,
+            commands::cancel_cloud_account_connect,
+            commands::disconnect_cloud_account,
+            commands::cloud_account_status,
             // lifecycle
             commands::start,
             commands::shutdown,
@@ -122,6 +128,8 @@ pub fn specta_builder() -> SpectaBuilder<Wry> {
             commands::take_pending_external_open,
         ])
         .events(collect_events![
+            events::CloudAccountUpdated,
+            events::CloudPublishProgress,
             events::NetworkStatusChanged,
             events::DevicesChanged,
             events::PairingRequestReceived,
@@ -315,16 +323,74 @@ fn register_setup(builder: Builder<Wry>, specta: SpectaBuilder<Wry>) -> Builder<
                 cleanup_event_bus,
             ));
         app.manage(transfer_events);
-        app.manage(transfer_store);
+        app.manage(transfer_store.clone());
         app.manage(db);
+
+        let cloud_accounts =
+            tauri::async_runtime::block_on(swarmdrop_cloud_auth::CloudAccountManager::new(
+                Arc::new(swarmdrop_cloud_auth::JsonCredentialStore::new(
+                    app.path().app_local_data_dir()?,
+                )),
+                vec![Arc::new(swarmdrop_cloud_auth::GoogleProvider::new()?)],
+            ))?;
+        let mut cloud_updates = cloud_accounts.subscribe();
+        let cloud_handle = app.handle().clone();
+        tauri::async_runtime::spawn(async move {
+            use tauri_specta::Event;
+            loop {
+                match cloud_updates.recv().await {
+                    Ok(update) => {
+                        let _ = events::CloudAccountUpdated(update).emit(&cloud_handle);
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+        app.manage(cloud_accounts.clone());
 
         // 文件访问端口：**组装点建一次**，`start()` 注入给 TransferManager 的与收件箱命令
         // 自持的是同一个 `Arc`（与上面 transfer_store 同一条纪律）。
         //
         // 建在这里而不是 `start()` 里，是因为收件箱命令**刻意不依赖节点启动**——它是与网络
         // 无关的内容账本。`LocalFileAccess::new` 不需要任何宿主句柄。
-        let file_access: Arc<dyn swarmdrop_core::host::FileAccess> =
-            Arc::new(swarmdrop_host_fs::LocalFileAccess::new());
+        let data_dir = app.path().app_local_data_dir()?;
+        let publisher: Arc<dyn swarmdrop_storage_cloud::CloudPublisher> = Arc::new(
+            swarmdrop_storage_cloud::GoogleDrivePublisher::new(cloud_accounts, data_dir.clone())
+                .map_err(|error| crate::AppError::transfer(error.to_string()))?,
+        );
+        let progress_handle = app.handle().clone();
+        let cloud_file_access = Arc::new(swarmdrop_storage_cloud::CloudFileAccess::new(
+            data_dir,
+            publisher.clone(),
+            Arc::new(move |progress| {
+                use tauri_specta::Event;
+                let _ = events::CloudPublishProgress(progress).emit(&progress_handle);
+            }),
+        ));
+        let reconcile_access = cloud_file_access.clone();
+        let reconcile_store = transfer_store.clone();
+        tauri::async_runtime::spawn(async move {
+            let result = reconcile_access
+                .reconcile_committed(|session, file, object| {
+                    let store = reconcile_store.clone();
+                    async move {
+                        swarmdrop_core::transfer::store::is_file_committed(
+                            store.as_ref(),
+                            session,
+                            file,
+                            &entity::FileLocation::Cloud { object },
+                        )
+                        .await
+                    }
+                })
+                .await;
+            if result.is_err() {
+                tracing::warn!("云发布恢复清理未完成，保留回执等待下次恢复");
+            }
+        });
+        app.manage(publisher);
+        let file_access: Arc<dyn swarmdrop_core::host::FileAccess> = cloud_file_access;
         app.manage(file_access);
 
         // MCP server 状态容器

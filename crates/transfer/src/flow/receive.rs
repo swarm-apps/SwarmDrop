@@ -327,14 +327,50 @@ impl TransferManager {
     }
 
     pub async fn cancel_receive(&self, session_id: &Uuid) -> AppResult<()> {
-        let session = self
-            .get_receive_actor(session_id)
-            .ok_or_else(|| AppError::SessionNotFound(format!("接收会话不存在: {session_id}")))?;
-
+        let Some(session) = self.get_receive_actor(session_id) else {
+            // 云发布失败或进程重启后 actor 已退出，但用户仍需要主动放弃保留的暂存。
+            let saved = self
+                .store
+                .find_session(*session_id)
+                .await?
+                .ok_or_else(|| AppError::SessionNotFound("接收会话不存在".into()))?;
+            if saved.direction != entity::TransferDirection::Receive
+                || saved.phase != entity::TransferPhase::Suspended
+                || !matches!(saved.save_path, Some(entity::SaveLocation::Cloud { .. }))
+            {
+                return Err(AppError::SessionNotFound("可放弃的云接收会话不存在".into()));
+            }
+            let files = self.store.get_session_files(*session_id).await?;
+            // 清理成功之后再提交终态，失败时保留 Suspended，用户可以重试剩余文件。
+            for file in files.into_iter().filter(|file| file.location.is_none()) {
+                let metadata = crate::host::HostFileMetadata {
+                    receive_identity: Some(crate::host::ReceiveFileIdentity {
+                        session_id: session_id.to_string(),
+                        file_id: file.file_id as u32,
+                        sender_device_id: saved.peer_id.to_string(),
+                        receiver_device_id: String::new(),
+                    }),
+                    name: file.name,
+                    relative_path: file.relative_path,
+                    size: file.size as u64,
+                    modified_at: None,
+                    checksum: Some(file.checksum),
+                    save_dir: saved.save_path.clone().map(Into::into),
+                };
+                self.file_access.cleanup_expired_sink(metadata).await?;
+            }
+            self.coordinator
+                .dispatch(*session_id, CoordinatorInput::User(UserCommand::Cancel))
+                .await?;
+            if let Ok(peer) = saved.peer_id.as_str().parse() {
+                self.notify_cancel(peer, *session_id).await;
+            }
+            return Ok(());
+        };
         session.cancel_and_wait().await;
         // Cancel 通知上提到 manager 层，与发送侧对称（ReceiverActor 不再持 endpoint）
         self.notify_cancel(session.peer_id, *session_id).await;
-        session.cleanup_part_files().await;
+        session.cleanup_part_files().await?;
         self.remove_receive_actor(session_id);
         // 状态决策经 Coordinator：写 phase+status(桥接)+finished_at 并发 projection。
         self.coordinator
@@ -373,6 +409,7 @@ impl TransferManager {
         let receive_actor = Arc::new(ReceiverActor::new(
             session_id,
             peer_id,
+            self.endpoint.node_id(),
             files,
             total_size,
             self.file_access.clone(),
@@ -403,7 +440,9 @@ impl TransferManager {
             self.remove_receive_actor(&session_id);
             n0_future::task::spawn(async move {
                 session.cancel_and_wait().await;
-                session.cleanup_part_files().await;
+                if let Err(error) = session.cleanup_part_files().await {
+                    warn!(session = %session_id, %error, "对端取消后的暂存清理未完成");
+                }
             });
         }
         // 对端取消 → 状态机 Network{RemoteCancelled}（写 terminal/cancelled + 发 projection）。

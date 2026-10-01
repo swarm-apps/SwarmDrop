@@ -41,7 +41,7 @@ use crate::file_access::OpfsFileAccess;
 use crate::identity;
 use crate::paired_devices::WebPairedDeviceStore;
 use crate::store::{WebStore, WebTransferStore};
-use crate::types::{
+use crate::{
     ConnectionJson, InviteListItemJson, OfferJson, PairInvitePreviewJson, PairingOutcomeJson,
     PairingRefusedJson, PendingPairingJson,
 };

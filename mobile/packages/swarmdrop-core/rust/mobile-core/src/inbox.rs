@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 use crate::app::MobileCore;
 use crate::error::{FfiError, FfiResult};
+use crate::file_access::MobileCloudProvider;
 use crate::history::MobileTransferProjection;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -130,8 +131,36 @@ pub struct MobileInboxFileEntry {
     pub name: String,
     pub size: u64,
     pub checksum: String,
-    pub local_path: String,
+    pub location: MobileFileLocation,
     pub missing: bool,
+}
+
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum MobileFileLocation {
+    Local {
+        uri: String,
+        dir: String,
+    },
+    Cloud {
+        provider: MobileCloudProvider,
+        account_id: String,
+        object_id: String,
+        display_path: String,
+    },
+}
+
+impl From<swarmdrop_core::host::FileLocation> for MobileFileLocation {
+    fn from(location: swarmdrop_core::host::FileLocation) -> Self {
+        match location {
+            swarmdrop_core::host::FileLocation::Local { uri, dir } => Self::Local { uri, dir },
+            swarmdrop_core::host::FileLocation::Cloud { object } => Self::Cloud {
+                provider: object.provider.into(),
+                account_id: object.account_id,
+                object_id: object.object_id,
+                display_path: object.display_path,
+            },
+        }
+    }
 }
 
 impl From<InboxItemFileEntry> for MobileInboxFileEntry {
@@ -144,7 +173,7 @@ impl From<InboxItemFileEntry> for MobileInboxFileEntry {
             name,
             size,
             checksum,
-            local_path,
+            location,
             missing,
         } = file;
         Self {
@@ -154,7 +183,7 @@ impl From<InboxItemFileEntry> for MobileInboxFileEntry {
             name,
             size: size.max(0) as u64,
             checksum,
-            local_path,
+            location: location.into(),
             missing,
         }
     }

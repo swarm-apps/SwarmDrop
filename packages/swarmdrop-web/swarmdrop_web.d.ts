@@ -24,6 +24,15 @@ export type CandidateRoles = {
 
 export type CandidateScope = "public" | "lan";
 
+export type CloudObjectRef = {
+    provider: CloudProvider,
+    accountId: string,
+    objectId: string,
+    displayPath: string,
+};
+
+export type CloudProvider = "googleDrive";
+
 /**
  *  链路详情：当前连接的可核对事实。
  *
@@ -104,7 +113,7 @@ export type CoreSaveLocation =
  *  Web 是 OPFS 的相对路径。名字叫 `Path` 是历史，别据此假设它一定是文件系统路径——
  *  移动端的发布路径正是靠嗅探 `content://` 前缀来分派的。
  */
-{ type: "path"; path: string };
+{ type: "path"; path: string } | { type: "cloud"; provider: CloudProvider; accountId: string; root: string | null };
 
 /**  统一的设备输出类型。 */
 export type Device = {
@@ -257,6 +266,8 @@ export type FileInfo = {
     checksum: string,
 };
 
+export type FileLocation = { type: "local"; uri: string; dir: string } | { type: "cloud"; object: CloudObjectRef };
+
 export type FileProgressInfo = {
     fileId: number,
     name: string,
@@ -402,7 +413,7 @@ export type InboxItemFileEntry = {
      *  两个路径字段并存且「该用哪个」按端不同，是这个 DTO 最容易踩空的地方——所以写在这里，
      *  而不是让每个宿主自己从别处推断。
      */
-    localPath: string,
+    location: FileLocation,
     missing: boolean,
 };
 
@@ -508,6 +519,8 @@ export type InfraExclusion =
  *  字段分三段，**并置但不融合**：上半段只由意图路径写，下半段只由观测源现算。
  *  两者共享同一身份（`peer_id`），而用户唯一关心的正是两者的差——「我要它连上，
  *  它连上了吗」。拆成两个类型再让三端各自 join，只会把 join 做三遍。
+ *
+ *  `Deserialize` 的理由见 [`RelayLinkState`]。
  */
 export type InfraLink = {
     peerId: string,
@@ -727,6 +740,10 @@ export type ReceiveSaveBehavior =
  *
  *  `last_error` **原样保留内核下发的字符串**——这是三端唯一能说清「为什么连不上」
  *  的东西，排查时用户要贴的就是这一句，不翻译、不改写。
+ *
+ *  `Deserialize` 是给**第二道边界**用的：命令行宿主的本地通道要把这份读模型从常驻节点
+ *  搬回发起命令的那个进程（图形三端只有一道 IPC，出去了就到 UI 了）。没有它，命令行那侧
+ *  就得为同一份东西再造一个 DTO——而 `cli-host` 的分层判据明确否掉了 DTO 层。
  */
 export type RelayLinkState =
 /**  正在拨号或等待 reservation 应答。 */
@@ -909,6 +926,7 @@ export type TransferProjection = {
 };
 
 export type TransferProjectionFile = {
+    location: FileLocation | null,
     fileId: number,
     name: string,
     relativePath: string,
@@ -1585,6 +1603,7 @@ export interface InitOutput {
     readonly default_device_name: () => [number, number];
     readonly get_device_name: () => any;
     readonly set_device_name: (a: number, b: number) => any;
+    readonly start: () => void;
     readonly __wbg_webnode_free: (a: number, b: number) => void;
     readonly default_receive_policy: (a: any, b: number) => [number, number, number];
     readonly inbox_search_limit: () => number;
@@ -1641,7 +1660,9 @@ export interface InitOutput {
     readonly webnode_take_skipped_forward_paths: (a: number) => [number, number];
     readonly webnode_transfer_history: (a: number) => any;
     readonly webnode_update_paired_device_policy: (a: number, b: number, c: number, d: any, e: number) => any;
-    readonly start: () => void;
+    readonly __wbg_intounderlyingsource_free: (a: number, b: number) => void;
+    readonly intounderlyingsource_cancel: (a: number) => void;
+    readonly intounderlyingsource_pull: (a: number, b: any) => any;
     readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
     readonly __wbg_intounderlyingsink_free: (a: number, b: number) => void;
     readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
@@ -1652,21 +1673,17 @@ export interface InitOutput {
     readonly intounderlyingsink_abort: (a: number, b: any) => any;
     readonly intounderlyingsink_close: (a: number) => any;
     readonly intounderlyingsink_write: (a: number, b: any) => any;
-    readonly __wbg_intounderlyingsource_free: (a: number, b: number) => void;
-    readonly intounderlyingsource_cancel: (a: number) => void;
-    readonly intounderlyingsource_pull: (a: number, b: any) => any;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_93005bece23d88e1___features__gen_MessageEvent__MessageEvent____Output_______: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output_______: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue____Output_______: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut_____Output________1_: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__web_sys_93005bece23d88e1___features__gen_CloseEvent__CloseEvent____Output_______: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue__wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_93005bece23d88e1___features__gen_MessageEvent__MessageEvent_____: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___wasm_bindgen_1f3b1eaef9b9ff9e___JsValue_____: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke___web_sys_93005bece23d88e1___features__gen_CloseEvent__CloseEvent_____: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______1_: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke_______2_: (a: number, b: number) => void;
-    readonly wasm_bindgen_1f3b1eaef9b9ff9e___convert__closures_____invoke______: (a: number, b: number) => void;
+    readonly wasm_bindgen_7eb6b837fed9d9b5___closure__destroy___dyn_core_ed718c3d60ebd546___ops__function__FnMut__web_sys_fbd4db8718e501f3___features__gen_CloseEvent__CloseEvent____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_7eb6b837fed9d9b5___closure__destroy___dyn_core_ed718c3d60ebd546___ops__function__FnMut__web_sys_fbd4db8718e501f3___features__gen_MessageEvent__MessageEvent____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_7eb6b837fed9d9b5___closure__destroy___dyn_core_ed718c3d60ebd546___ops__function__FnMut_____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_7eb6b837fed9d9b5___closure__destroy___dyn_core_ed718c3d60ebd546___ops__function__FnMut__wasm_bindgen_7eb6b837fed9d9b5___JsValue____Output_______: (a: number, b: number) => void;
+    readonly wasm_bindgen_7eb6b837fed9d9b5___closure__destroy___dyn_core_ed718c3d60ebd546___ops__function__FnMut_____Output________1_: (a: number, b: number) => void;
+    readonly wasm_bindgen_7eb6b837fed9d9b5___convert__closures_____invoke___wasm_bindgen_7eb6b837fed9d9b5___JsValue__wasm_bindgen_7eb6b837fed9d9b5___JsValue_____: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen_7eb6b837fed9d9b5___convert__closures_____invoke___web_sys_fbd4db8718e501f3___features__gen_CloseEvent__CloseEvent_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_7eb6b837fed9d9b5___convert__closures_____invoke___web_sys_fbd4db8718e501f3___features__gen_MessageEvent__MessageEvent_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_7eb6b837fed9d9b5___convert__closures_____invoke___wasm_bindgen_7eb6b837fed9d9b5___JsValue_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_7eb6b837fed9d9b5___convert__closures_____invoke______: (a: number, b: number) => void;
+    readonly wasm_bindgen_7eb6b837fed9d9b5___convert__closures_____invoke_______1_: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

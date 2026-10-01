@@ -221,10 +221,54 @@ msgstr "主题"
 msgid "二维码渲染失败"
 msgstr "二维码渲染失败"
 
+#: src/components/transfer/session-panel.tsx
+msgid "云上传"
+msgstr "云上传"
+
+#: src/components/transfer/session-panel.tsx
+msgid "云上传进度"
+msgstr "云上传进度"
+
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "云存储账户"
+msgstr "云存储账户"
+
+#: src/components/transfer/session-panel.tsx
+msgid "云盘文件已删除或无法访问。"
+msgstr "云盘文件已删除或无法访问。"
+
+#: src/components/transfer/session-panel.tsx
+msgid "云请求暂时失败，请恢复传输重试。"
+msgstr "云请求暂时失败，请恢复传输重试。"
+
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "云账户已连接"
+msgstr "云账户已连接"
+
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "云账户操作失败，请稍后重试。"
+msgstr "云账户操作失败，请稍后重试。"
+
+#: src/components/transfer/cloud-location-summary.tsx
+msgid "云账户未连接，历史记录仍保留；打开文件前请重新连接。"
+msgstr "云账户未连接，历史记录仍保留；打开文件前请重新连接。"
+
+#: src/components/transfer/session-panel.tsx
+msgid "云账户设置"
+msgstr "云账户设置"
+
+#: src/components/transfer/session-panel.tsx
+msgid "云账户需要重新连接，请前往设置。"
+msgstr "云账户需要重新连接，请前往设置。"
+
 #. js-lingui-explicit-id
 #: src/lib/node-status.ts
 msgid "infraLink.seedOnly"
 msgstr "仅 DHT 种子"
+
+#: src/routes/_app/inbox/index.lazy.tsx
+msgid "仅删除接收记录，云盘中的文件会保留。"
+msgstr "仅删除接收记录，云盘中的文件会保留。"
 
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "仅删除记录"
@@ -304,6 +348,10 @@ msgstr "但这条记录没能保存下来，重启后需要重新配对。"
 #: src/lib/node-status.ts
 msgid "nodeHealth.configuredLanOnly"
 msgstr "你关闭了公网可达性，其他网络的设备找不到你"
+
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "使用你自己的 Google OAuth 桌面客户端连接 Drive。凭证仅保存在本机。"
+msgstr "使用你自己的 Google OAuth 桌面客户端连接 Drive。凭证仅保存在本机。"
 
 #: src/routes/_app/settings/-network-settings-section.tsx
 msgid "使用同网段已开启协助能力的桌面端"
@@ -488,6 +536,14 @@ msgstr "准备中…"
 #: src/routes/_app/send/-components/prepare-progress-bar.tsx
 msgid "准备文件的进度"
 msgstr "准备文件的进度"
+
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "凭证保存失败"
+msgstr "凭证保存失败"
+
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "凭证保存失败，请检查本机数据目录。"
+msgstr "凭证保存失败，请检查本机数据目录。"
 
 #: src/lib/errors.ts
 msgid "出错了，请重试"
@@ -679,6 +735,7 @@ msgstr "发送请求没能送达对方，请确认对方在线后重试"
 #: src/routes/_app/send/index.lazy.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
 msgid "取消"
 msgstr "取消"
 
@@ -824,6 +881,10 @@ msgstr "在线"
 #: src/routes/_app/devices/index.lazy.tsx
 msgid "在线设备优先显示，可直接进入发送流程。"
 msgstr "在线设备优先显示，可直接进入发送流程。"
+
+#: src/components/transfer/transfer-offer-dialog.tsx
+msgid "在设置中连接云存储账户"
+msgstr "在设置中连接云存储账户"
 
 #. placeholder {0}: transportLabel(rejection.transport) ?? rejection.transport
 #. placeholder {1}: rejection.supported.map((t) => transportLabel(t) ?? t).join(" · ")
@@ -999,6 +1060,10 @@ msgstr "将删除已结束的传输记录，此操作无法撤销；进行中与
 msgid "将在 {0} 后过期"
 msgstr "将在 {0} 后过期"
 
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "尚未连接云账户。"
+msgstr "尚未连接云账户。"
+
 #: src/lib/node-status.ts
 #: src/routes/_app/devices/-components/connection-labels.ts
 msgid "局域网"
@@ -1057,6 +1122,10 @@ msgstr "已取消传输"
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "已取消归档"
 msgstr "已取消归档"
+
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "已取消授权。"
+msgstr "已取消授权。"
 
 #: src/routes/_app/devices/-components/connection-badge.tsx
 #: src/routes/_app/pairing/generate.lazy.tsx
@@ -1146,9 +1215,9 @@ msgstr "已被对方使用"
 msgid "已过期"
 msgstr "已过期"
 
-#: src/components/network/stop-node-sheet.tsx
-#~ msgid "已连接"
-#~ msgstr "已连接"
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "已连接"
+msgstr "已连接"
 
 #: src/components/network/start-node-sheet.tsx
 #: src/components/network/stop-node-sheet.tsx
@@ -1356,6 +1425,18 @@ msgstr "拖动排序、重命名或删除分组。删除分组不会取消其中
 msgid "拖拽文件或文件夹到这里"
 msgstr "拖拽文件或文件夹到这里"
 
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "授权已失效，请重新连接。"
+msgstr "授权已失效，请重新连接。"
+
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "授权未完成，请重新连接。"
+msgstr "授权未完成，请重新连接。"
+
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "授权等待超时，请重新连接。"
+msgstr "授权等待超时，请重新连接。"
+
 #: src/routes/_app/devices/-components/connection-badge.tsx
 msgid "排查连接问题时把这些贴进 issue"
 msgstr "排查连接问题时把这些贴进 issue"
@@ -1369,6 +1450,10 @@ msgstr "接受配对"
 #: src/components/transfer/transfer-offer-dialog.tsx
 msgid "接收"
 msgstr "接收"
+
+#: src/components/transfer/transfer-offer-dialog.tsx
+msgid "接收位置"
+msgstr "接收位置"
 
 #: src/routes/_app/settings/-transfer-settings-section.tsx
 msgid "接收文件会默认保存到这里，可随时更改。"
@@ -1420,6 +1505,10 @@ msgstr "收到文件"
 msgid "收到来自 {0} 的文本"
 msgstr "收到来自 {0} 的文本"
 
+#: src/components/transfer/session-panel.tsx
+msgid "放弃并删除暂存"
+msgstr "放弃并删除暂存"
+
 #: packages/file-browser/src/file-browser.tsx
 #: src/components/transfer/session-panel.tsx
 #: src/components/transfer/transfer-offer-dialog.tsx
@@ -1439,6 +1528,10 @@ msgstr "文件传输"
 #: src/lib/errors.ts
 msgid "文件传输失败，请重试"
 msgstr "文件传输失败，请重试"
+
+#: src/components/transfer/transfer-offer-dialog.tsx
+msgid "文件先安全接收到本机，再通过 HTTPS 上传到 Google Drive。云盘中保存明文文件；访问权限由云盘控制。上传完成后清理本机暂存文件。"
+msgstr "文件先安全接收到本机，再通过 HTTPS 上传到 Google Drive。云盘中保存明文文件；访问权限由云盘控制。上传完成后清理本机暂存文件。"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "文件已全部移除"
@@ -1473,6 +1566,10 @@ msgstr "文本超过 64 KiB，请缩短后发送。"
 msgid "文本长度"
 msgstr "文本长度"
 
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "断开"
+msgstr "断开"
+
 #: src/routes/_app/settings/-about-section.tsx
 msgid "断点续传"
 msgstr "断点续传"
@@ -1496,6 +1593,10 @@ msgstr "无法加载这条记录"
 #: src/routes/_app/settings/-transfer-settings-section.tsx
 msgid "无法打开文件夹选择器，请检查存储权限"
 msgstr "无法打开文件夹选择器，请检查存储权限"
+
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "无法读取云账户。"
+msgstr "无法读取云账户。"
 
 #: src/routes/_app/settings/-about-section.tsx
 msgid "无账户 · 无服务器"
@@ -1526,6 +1627,10 @@ msgstr "昨天"
 #: src/routes/_app/transfer/-session-row.tsx
 msgid "暂停传输"
 msgstr "暂停传输"
+
+#: src/components/transfer/session-panel.tsx
+msgid "暂存文件已保留。恢复传输时继续接收或重试云上传。"
+msgstr "暂存文件已保留。恢复传输时继续接收或重试云上传。"
 
 #: src/routes/_app/transfer/index.lazy.tsx
 msgid "暂无传输活动"
@@ -1640,9 +1745,17 @@ msgstr "本周"
 msgid "本地内容缺失"
 msgstr "本地内容缺失"
 
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "本地凭证已清除，云端撤销失败；可前往 Google 账户移除授权。"
+msgstr "本地凭证已清除，云端撤销失败；可前往 Google 账户移除授权。"
+
 #: src/routes/_app/inbox/index.lazy.tsx
 msgid "本地文件删除后无法通过清空活动记录恢复。"
 msgstr "本地文件删除后无法通过清空活动记录恢复。"
+
+#: src/components/transfer/transfer-offer-dialog.tsx
+msgid "本地文件夹"
+msgstr "本地文件夹"
 
 #: src/components/network/stop-node-sheet.tsx
 #~ msgid "本机协助中"
@@ -1651,6 +1764,10 @@ msgstr "本地文件删除后无法通过清空活动记录恢复。"
 #: src/routes/_app/pairing/generate.lazy.tsx
 msgid "本机弹出确认请求，你同意后配对完成"
 msgstr "本机弹出确认请求，你同意后配对完成"
+
+#: src/components/transfer/session-panel.tsx
+msgid "本机暂存文件已变化，需要重新接收。"
+msgstr "本机暂存文件已变化，需要重新接收。"
 
 #. placeholder {0}: supported.map((t) => transportLabel(t) ?? t).join(" · ")
 #: src/routes/_app/settings/-bootstrap-nodes-section.tsx
@@ -1697,9 +1814,22 @@ msgstr "根目录"
 msgid "检查中..."
 msgstr "检查中..."
 
+#: src/components/transfer/session-panel.tsx
+msgid "检查云盘权限和目标目录后重试。"
+msgstr "检查云盘权限和目标目录后重试。"
+
 #: src/routes/_app/settings/-about-section.tsx
 msgid "检查更新"
 msgstr "检查更新"
+
+#: src/components/transfer/session-panel.tsx
+msgid "检查本机磁盘空间和写入权限后重试。"
+msgstr "检查本机磁盘空间和写入权限后重试。"
+
+#. placeholder {0}: publishing.name
+#: src/components/transfer/session-panel.tsx
+msgid "正在上传 {0} 到云盘"
+msgstr "正在上传 {0} 到云盘"
 
 #. placeholder {0}: latestVersion ?? "?"
 #: src/routes/_app/settings/-about-section.tsx
@@ -1739,6 +1869,10 @@ msgstr "正在准备 {percent}%（{0}/{1}）"
 msgid "正在准备下载"
 msgstr "正在准备下载"
 
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "正在刷新授权"
+msgstr "正在刷新授权"
+
 #: src/lib/node-status.ts
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "正在启动节点…"
@@ -1753,6 +1887,10 @@ msgstr "正在建立会话..."
 #: src/routes/_app/send/-components/prepare-progress-bar.tsx
 #~ msgid "正在计算校验和 ({0}/{1})"
 #~ msgstr "正在计算校验和 ({0}/{1})"
+
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "正在读取云账户..."
+msgstr "正在读取云账户..."
 
 #: src/routes/_app/send/index.lazy.tsx
 #: src/routes/_app/send/share-target.lazy.tsx
@@ -1843,6 +1981,10 @@ msgstr "源文件已变更，无法继续，请重新发送"
 #: src/components/network/lan-helper-address.tsx
 msgid "点击复制"
 msgstr "点击复制"
+
+#: src/components/transfer/cloud-location-summary.tsx
+msgid "点击文件可在浏览器中打开云盘。传输段端到端加密，云盘保存明文文件，访问由云盘权限控制。"
+msgstr "点击文件可在浏览器中打开云盘。传输段端到端加密，云盘保存明文文件，访问由云盘权限控制。"
 
 #: src/routes/_app/devices/-components/connection-badge.tsx
 msgid "点击查看远端地址"
@@ -2237,6 +2379,10 @@ msgstr "设备身份尚未就绪，请重启应用后重试"
 msgid "设备身份读写失败"
 msgstr "设备身份读写失败"
 
+#: src/components/transfer/session-panel.tsx
+msgid "设备间接收"
+msgstr "设备间接收"
+
 #: src/components/layout/app-topbar.tsx
 msgid "设置"
 msgstr "设置"
@@ -2278,9 +2424,21 @@ msgstr "请先启动节点"
 msgid "请先完成 SwarmDrop 设置"
 msgstr "请先完成 SwarmDrop 设置"
 
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "请在系统浏览器完成授权。"
+msgstr "请在系统浏览器完成授权。"
+
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "请填写 Client ID 和 Client Secret。"
+msgstr "请填写 Client ID 和 Client Secret。"
+
 #: src/routes/_app/devices/-components/trust-policy-dialog.tsx
 msgid "请输入大于 0 的数字，留空表示不限制"
 msgstr "请输入大于 0 的数字，留空表示不限制"
+
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "账户名称（可选）"
+msgstr "账户名称（可选）"
 
 #. placeholder {0}: failure.retentionDays
 #: src/lib/errors.ts
@@ -2397,6 +2555,10 @@ msgstr "连不上任何网络，检查引导节点"
 #: src/routes/_app/devices/-components/device-card.tsx
 msgid "连接"
 msgstr "连接"
+
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "连接 Google Drive"
+msgstr "连接 Google Drive"
 
 #: src/lib/node-status.ts
 msgid "连接中"
@@ -2581,8 +2743,13 @@ msgstr "重新发送"
 msgid "重新生成邀请"
 msgstr "重新生成邀请"
 
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "重新连接"
+msgstr "重新连接"
+
 #: packages/file-browser/src/item-actions.tsx
 #: src/routes/_app/send/index.lazy.tsx
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
 msgid "重试"
 msgstr "重试"
 
@@ -2613,6 +2780,10 @@ msgstr "附近设备优先，或通过邀请连接跨网设备。"
 #: src/routes/_app/settings/-mcp-section.tsx
 msgid "随节点自动启动"
 msgstr "随节点自动启动"
+
+#: src/routes/_app/settings/-cloud-accounts-section.tsx
+msgid "需要重新连接"
+msgstr "需要重新连接"
 
 #: src/routes/_app/send/share-target.lazy.tsx
 msgid "项"

@@ -566,10 +566,40 @@ const FfiConverterTypeMobileDevice = (() => {
     return new FFIConverter();
 })();
 
+/**
+ * 云提供商也进入中立 FFI 镜像，避免将未来提供商隐式转换成 Google Drive。
+ */
+export enum MobileCloudProvider {
+    GoogleDrive
+}
+
+const FfiConverterTypeMobileCloudProvider = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileCloudProvider;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return MobileCloudProvider.GoogleDrive;
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value) {
+                case MobileCloudProvider.GoogleDrive: return ordinalConverter.write(1, into);
+            }
+        }
+        allocationSize(value: TypeName): number {
+            return ordinalConverter.allocationSize(0);
+        }
+    }
+    return new FFIConverter();
+})();
+
 
 // Enum: MobileSaveLocation
 export enum MobileSaveLocation_Tags {
-    Path = "Path"
+    Path = "Path",
+    Cloud = "Cloud"
 }
 /**
  * 接收端保存位置（uniffi 镜像 [`CoreSaveLocation`]）
@@ -610,13 +640,45 @@ inner: {path: string }): Path_ {
 
     }
 
+    type Cloud__interface = {
+        tag: MobileSaveLocation_Tags.Cloud;
+        inner: 
+Readonly<{provider: MobileCloudProvider; accountId: string; root?: string}>
+    };
+    class Cloud_ extends UniffiEnum implements Cloud__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileSaveLocation";
+        readonly tag = MobileSaveLocation_Tags.Cloud;
+        readonly inner: 
+Readonly<{provider: MobileCloudProvider; accountId: string; root?: string}>;
+        constructor(
+inner: {provider: MobileCloudProvider; accountId: string; root?: string }) {
+            super("MobileSaveLocation", "Cloud");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {provider: MobileCloudProvider; accountId: string; root?: string }): Cloud_ {
+            return new Cloud_(inner);
+        }
+
+        static instanceOf(obj: any): obj is Cloud_ {
+            return obj.tag === MobileSaveLocation_Tags.Cloud;
+        }
+
+    }
+
     function instanceOf(obj: any): obj is MobileSaveLocation {
         return obj[uniffiTypeNameSymbol] === "MobileSaveLocation";
     }
 
     return Object.freeze({
         instanceOf,
-  Path: Path_
+  Path: Path_, 
+  Cloud: Cloud_
     });
 
 })();
@@ -624,7 +686,7 @@ inner: {path: string }): Path_ {
  * 接收端保存位置（uniffi 镜像 [`CoreSaveLocation`]）
  */
 export type MobileSaveLocation = InstanceType<
-    typeof MobileSaveLocation['Path']
+    typeof MobileSaveLocation['Path' | 'Cloud']
 >;
 
 // FfiConverter for enum MobileSaveLocation
@@ -635,6 +697,7 @@ const FfiConverterTypeMobileSaveLocation = (() => {
         read(from: RustBuffer): TypeName {
             switch (ordinalConverter.read(from)) {
                 case 1: return new MobileSaveLocation.Path({path: FfiConverterString.read(from) });
+                case 2: return new MobileSaveLocation.Cloud({provider: FfiConverterTypeMobileCloudProvider.read(from), accountId: FfiConverterString.read(from), root: FfiConverterOptionalString.read(from) });
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
             }
         }
@@ -644,6 +707,14 @@ const FfiConverterTypeMobileSaveLocation = (() => {
                     ordinalConverter.write(1, into);
                     const inner = value.inner;
                     FfiConverterString.write(inner.path, into);
+                    return;
+                }
+                case MobileSaveLocation_Tags.Cloud: {
+                    ordinalConverter.write(2, into);
+                    const inner = value.inner;
+                    FfiConverterTypeMobileCloudProvider.write(inner.provider, into);
+                    FfiConverterString.write(inner.accountId, into);
+                    FfiConverterOptionalString.write(inner.root, into);
                     return;
                 }
                 default:
@@ -657,6 +728,14 @@ const FfiConverterTypeMobileSaveLocation = (() => {
                     const inner = value.inner;
                     let size = ordinalConverter.allocationSize(1);
                     size += FfiConverterString.allocationSize(inner.path);
+                    return size;
+                }
+                case MobileSaveLocation_Tags.Cloud: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(2);
+                    size += FfiConverterTypeMobileCloudProvider.allocationSize(inner.provider);
+                    size += FfiConverterString.allocationSize(inner.accountId);
+                    size += FfiConverterOptionalString.allocationSize(inner.root);
                     return size;
                 }
                 default: throw new UniffiInternalError.UnexpectedEnumCase();
@@ -976,6 +1055,151 @@ const FfiConverterTypeMobileIdentity = (() => {
     return new FFIConverter();
 })();
 
+
+// Enum: MobileFileLocation
+export enum MobileFileLocation_Tags {
+    Local = "Local",
+    Cloud = "Cloud"
+}
+export const MobileFileLocation = (() => {
+
+    type Local__interface = {
+        tag: MobileFileLocation_Tags.Local;
+        inner: 
+Readonly<{uri: string; dir: string}>
+    };
+    class Local_ extends UniffiEnum implements Local__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileFileLocation";
+        readonly tag = MobileFileLocation_Tags.Local;
+        readonly inner: 
+Readonly<{uri: string; dir: string}>;
+        constructor(
+inner: {uri: string; dir: string }) {
+            super("MobileFileLocation", "Local");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {uri: string; dir: string }): Local_ {
+            return new Local_(inner);
+        }
+
+        static instanceOf(obj: any): obj is Local_ {
+            return obj.tag === MobileFileLocation_Tags.Local;
+        }
+
+    }
+
+    type Cloud__interface = {
+        tag: MobileFileLocation_Tags.Cloud;
+        inner: 
+Readonly<{provider: MobileCloudProvider; accountId: string; objectId: string; displayPath: string}>
+    };
+    class Cloud_ extends UniffiEnum implements Cloud__interface {
+        /**
+         * @private
+         * This field is private and should not be used, use `tag` instead.
+         */
+        readonly [uniffiTypeNameSymbol] = "MobileFileLocation";
+        readonly tag = MobileFileLocation_Tags.Cloud;
+        readonly inner: 
+Readonly<{provider: MobileCloudProvider; accountId: string; objectId: string; displayPath: string}>;
+        constructor(
+inner: {provider: MobileCloudProvider; accountId: string; objectId: string; displayPath: string }) {
+            super("MobileFileLocation", "Cloud");
+
+            this.inner = Object.freeze(inner);
+        }
+        static new(
+inner: {provider: MobileCloudProvider; accountId: string; objectId: string; displayPath: string }): Cloud_ {
+            return new Cloud_(inner);
+        }
+
+        static instanceOf(obj: any): obj is Cloud_ {
+            return obj.tag === MobileFileLocation_Tags.Cloud;
+        }
+
+    }
+
+    function instanceOf(obj: any): obj is MobileFileLocation {
+        return obj[uniffiTypeNameSymbol] === "MobileFileLocation";
+    }
+
+    return Object.freeze({
+        instanceOf,
+  Local: Local_, 
+  Cloud: Cloud_
+    });
+
+})();
+export type MobileFileLocation = InstanceType<
+    typeof MobileFileLocation['Local' | 'Cloud']
+>;
+
+// FfiConverter for enum MobileFileLocation
+const FfiConverterTypeMobileFileLocation = (() => {
+    const ordinalConverter = FfiConverterInt32;
+    type TypeName = MobileFileLocation;
+    class FFIConverter extends AbstractFfiConverterByteArray<TypeName> {
+        read(from: RustBuffer): TypeName {
+            switch (ordinalConverter.read(from)) {
+                case 1: return new MobileFileLocation.Local({uri: FfiConverterString.read(from), dir: FfiConverterString.read(from) });
+                case 2: return new MobileFileLocation.Cloud({provider: FfiConverterTypeMobileCloudProvider.read(from), accountId: FfiConverterString.read(from), objectId: FfiConverterString.read(from), displayPath: FfiConverterString.read(from) });
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        write(value: TypeName, into: RustBuffer): void {
+            switch (value.tag) {
+                case MobileFileLocation_Tags.Local: {
+                    ordinalConverter.write(1, into);
+                    const inner = value.inner;
+                    FfiConverterString.write(inner.uri, into);
+                    FfiConverterString.write(inner.dir, into);
+                    return;
+                }
+                case MobileFileLocation_Tags.Cloud: {
+                    ordinalConverter.write(2, into);
+                    const inner = value.inner;
+                    FfiConverterTypeMobileCloudProvider.write(inner.provider, into);
+                    FfiConverterString.write(inner.accountId, into);
+                    FfiConverterString.write(inner.objectId, into);
+                    FfiConverterString.write(inner.displayPath, into);
+                    return;
+                }
+                default:
+                    // Throwing from here means that MobileFileLocation_Tags hasn't matched an ordinal.
+                    throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+        allocationSize(value: TypeName): number {
+            switch (value.tag) {
+                case MobileFileLocation_Tags.Local: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(1);
+                    size += FfiConverterString.allocationSize(inner.uri);
+                    size += FfiConverterString.allocationSize(inner.dir);
+                    return size;
+                }
+                case MobileFileLocation_Tags.Cloud: {
+                    const inner = value.inner;
+                    let size = ordinalConverter.allocationSize(2);
+                    size += FfiConverterTypeMobileCloudProvider.allocationSize(inner.provider);
+                    size += FfiConverterString.allocationSize(inner.accountId);
+                    size += FfiConverterString.allocationSize(inner.objectId);
+                    size += FfiConverterString.allocationSize(inner.displayPath);
+                    return size;
+                }
+                default: throw new UniffiInternalError.UnexpectedEnumCase();
+            }
+        }
+    }
+    return new FFIConverter();
+})();
+
 export type MobileInboxFileEntry = {
     id: number,
     transferFileId?: number,
@@ -983,7 +1207,7 @@ export type MobileInboxFileEntry = {
     name: string,
     size: bigint,
     checksum: string,
-    localPath: string,
+    location: MobileFileLocation,
     missing: boolean
 }
 
@@ -1014,7 +1238,7 @@ const FfiConverterTypeMobileInboxFileEntry = (() => {
                 name: FfiConverterString.read(from), 
                 size: FfiConverterUInt64.read(from), 
                 checksum: FfiConverterString.read(from), 
-                localPath: FfiConverterString.read(from), 
+                location: FfiConverterTypeMobileFileLocation.read(from), 
                 missing: FfiConverterBool.read(from)
             };
         }
@@ -1025,7 +1249,7 @@ const FfiConverterTypeMobileInboxFileEntry = (() => {
             FfiConverterString.write(value.name, into);
             FfiConverterUInt64.write(value.size, into);
             FfiConverterString.write(value.checksum, into);
-            FfiConverterString.write(value.localPath, into);
+            FfiConverterTypeMobileFileLocation.write(value.location, into);
             FfiConverterBool.write(value.missing, into);
         }
         allocationSize(value: TypeName): number {
@@ -1035,7 +1259,7 @@ const FfiConverterTypeMobileInboxFileEntry = (() => {
              FfiConverterString.allocationSize(value.name) +
              FfiConverterUInt64.allocationSize(value.size) +
              FfiConverterString.allocationSize(value.checksum) +
-             FfiConverterString.allocationSize(value.localPath) +
+             FfiConverterTypeMobileFileLocation.allocationSize(value.location) +
              FfiConverterBool.allocationSize(value.missing);
             
         }
@@ -10500,6 +10724,7 @@ export default Object.freeze({
     FfiConverterTypeMobileCandidateRoles,
     FfiConverterTypeMobileCandidateScope,
     FfiConverterTypeMobileCandidateSourceStatus,
+    FfiConverterTypeMobileCloudProvider,
     FfiConverterTypeMobileConnectionDetails,
     FfiConverterTypeMobileCore,
     FfiConverterTypeMobileCoreEvent,
@@ -10507,6 +10732,7 @@ export default Object.freeze({
     FfiConverterTypeMobileDeviceReceivePolicy,
     FfiConverterTypeMobileDeviceTrustLevel,
     FfiConverterTypeMobileFailureCode,
+    FfiConverterTypeMobileFileLocation,
     FfiConverterTypeMobileFileMetadata,
     FfiConverterTypeMobileFileProgress,
     FfiConverterTypeMobileFilePublish,

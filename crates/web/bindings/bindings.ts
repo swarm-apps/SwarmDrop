@@ -15,6 +15,15 @@ export type CandidateRoles = {
 
 export type CandidateScope = "public" | "lan";
 
+export type CloudObjectRef = {
+	provider: CloudProvider,
+	accountId: string,
+	objectId: string,
+	displayPath: string,
+};
+
+export type CloudProvider = "googleDrive";
+
 /**
  *  链路详情：当前连接的可核对事实。
  * 
@@ -95,7 +104,7 @@ export type CoreSaveLocation =
  *  Web 是 OPFS 的相对路径。名字叫 `Path` 是历史，别据此假设它一定是文件系统路径——
  *  移动端的发布路径正是靠嗅探 `content://` 前缀来分派的。
  */
-{ type: "path"; path: string };
+{ type: "path"; path: string } | { type: "cloud"; provider: CloudProvider; accountId: string; root: string | null };
 
 /**  统一的设备输出类型。 */
 export type Device = {
@@ -248,6 +257,8 @@ export type FileInfo = {
 	checksum: string,
 };
 
+export type FileLocation = { type: "local"; uri: string; dir: string } | { type: "cloud"; object: CloudObjectRef };
+
 export type FileProgressInfo = {
 	fileId: number,
 	name: string,
@@ -393,7 +404,7 @@ export type InboxItemFileEntry = {
 	 *  两个路径字段并存且「该用哪个」按端不同，是这个 DTO 最容易踩空的地方——所以写在这里，
 	 *  而不是让每个宿主自己从别处推断。
 	 */
-	localPath: string,
+	location: FileLocation,
 	missing: boolean,
 };
 
@@ -499,6 +510,8 @@ export type InfraExclusion =
  *  字段分三段，**并置但不融合**：上半段只由意图路径写，下半段只由观测源现算。
  *  两者共享同一身份（`peer_id`），而用户唯一关心的正是两者的差——「我要它连上，
  *  它连上了吗」。拆成两个类型再让三端各自 join，只会把 join 做三遍。
+ * 
+ *  `Deserialize` 的理由见 [`RelayLinkState`]。
  */
 export type InfraLink = {
 	peerId: string,
@@ -718,6 +731,10 @@ export type ReceiveSaveBehavior =
  * 
  *  `last_error` **原样保留内核下发的字符串**——这是三端唯一能说清「为什么连不上」
  *  的东西，排查时用户要贴的就是这一句，不翻译、不改写。
+ * 
+ *  `Deserialize` 是给**第二道边界**用的：命令行宿主的本地通道要把这份读模型从常驻节点
+ *  搬回发起命令的那个进程（图形三端只有一道 IPC，出去了就到 UI 了）。没有它，命令行那侧
+ *  就得为同一份东西再造一个 DTO——而 `cli-host` 的分层判据明确否掉了 DTO 层。
  */
 export type RelayLinkState = 
 /**  正在拨号或等待 reservation 应答。 */
@@ -900,6 +917,7 @@ export type TransferProjection = {
 };
 
 export type TransferProjectionFile = {
+	location: FileLocation | null,
 	fileId: number,
 	name: string,
 	relativePath: string,

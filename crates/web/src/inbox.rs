@@ -193,7 +193,11 @@ impl WebInboxTable {
         // 回退存储根）。兜底收口在 content_root_of 一处，不再重复。
         let save_location = session.save_path.clone().map(CoreSaveLocation::from);
         let root_path = content_root_of(
-            files.iter().map(|file| file.local_dir.as_deref()),
+            files.iter().map(|file| {
+                file.location
+                    .as_ref()
+                    .and_then(entity::FileLocation::local_dir)
+            }),
             save_location.as_ref(),
         );
         let source_kind = inbox_source_kind(session.origin.as_deref());
@@ -222,7 +226,7 @@ impl WebInboxTable {
         for (index, file) in files.iter().enumerate() {
             // 落盘位置是唯一事实源（OPFS 句柄路径无法由「目录 + 相对路径」拼接推导）。
             // 已完成接收的文件必然写过它——缺失即数据异常，显式报错不做推导。
-            let Some(local_path) = file.local_path.clone() else {
+            let Some(location) = file.location.clone() else {
                 return Err(AppError::Transfer(format!(
                     "已完成接收文件缺少落盘路径记录: {}（旧版本数据，请清除应用数据后重试）",
                     file.name
@@ -239,7 +243,7 @@ impl WebInboxTable {
                 name: file.name.clone(),
                 size: file.size,
                 checksum: file.checksum.clone(),
-                local_path,
+                location,
                 missing: false,
             });
         }
@@ -614,7 +618,7 @@ fn detail_of(stored: &StoredInboxItem) -> InboxItemDetail {
                         name: file.name.clone(),
                         size: file.size,
                         checksum: file.checksum.clone(),
-                        local_path: file.local_path.clone(),
+                        location: file.location.clone(),
                         missing: file.missing,
                     })
                     .collect(),
@@ -641,8 +645,18 @@ struct PersistedInboxItem {
 }
 
 /// newtype 只为给 `Vec` 里的元素挂上 `with`（serde 的 `with` 作用于字段，不能作用于泛型参数）。
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 struct PersistedInboxFile(#[serde(with = "InboxItemFileRowDef")] entity::inbox_item_file::Model);
+
+impl<'de> Deserialize<'de> for PersistedInboxFile {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut value = serde_json::Value::deserialize(deserializer)?;
+        crate::store::migrate_local_location(&mut value);
+        InboxItemFileRowDef::deserialize(value)
+            .map(Self)
+            .map_err(serde::de::Error::custom)
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "entity::inbox_item::Model")]
@@ -677,7 +691,7 @@ struct InboxItemFileRowDef {
     name: String,
     size: i64,
     checksum: String,
-    local_path: String,
+    location: entity::FileLocation,
     missing: bool,
 }
 
@@ -774,9 +788,12 @@ mod tests {
             total_chunks: 1,
             completed_chunks: vec![1],
             completed_ranges: "[]".to_string(),
+            staged_complete: false,
             source_path: None,
-            local_path: Some(format!("{SAVE_ROOT}/{relative_path}")),
-            local_dir: Some(SAVE_ROOT.to_string()),
+            location: Some(entity::FileLocation::Local {
+                uri: format!("{SAVE_ROOT}/{relative_path}"),
+                dir: SAVE_ROOT.to_string(),
+            }),
             outboard: None,
         }
     }
@@ -1057,8 +1074,8 @@ mod tests {
         assert_eq!(file_entries(&after).len(), 2);
         assert!(file_entries(&after)[1].missing);
         assert_eq!(
-            file_entries(&after)[1].local_path,
-            "/inbox-table-test/docs/readme.md"
+            file_entries(&after)[1].location.local_uri(),
+            Some("/inbox-table-test/docs/readme.md")
         );
 
         // 同一个 IndexedDB 库被所有 wasm 测试共用，`load()` 会读到全部记录——
@@ -1313,7 +1330,7 @@ mod tests {
 
         let no_local_path_id = Uuid::new_v4();
         let mut orphan_file = received_file(no_local_path_id, 0, "a.bin", "a.bin", "sum", 5);
-        orphan_file.local_path = None;
+        orphan_file.location = None;
         assert!(
             table
                 .ensure_from_session(&receive_session(no_local_path_id, "X", 100), &[orphan_file],)

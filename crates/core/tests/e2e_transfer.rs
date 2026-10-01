@@ -439,6 +439,7 @@ async fn e2e_single_file_transfer() {
     let data = b"hello swarmdrop end-to-end transfer".to_vec();
     let source_id = FileSourceId("src-0".to_string());
     let meta = HostFileMetadata {
+        receive_identity: None,
         name: "hello.txt".to_string(),
         relative_path: "hello.txt".to_string(),
         size: data.len() as u64,
@@ -587,6 +588,7 @@ async fn e2e_mcp_origin_lands_as_mcp_inbox_source_kind() {
     let data = b"agent-delivered report".to_vec();
     let source_id = FileSourceId("src-mcp".to_string());
     let meta = HostFileMetadata {
+        receive_identity: None,
         name: "report.pdf".to_string(),
         relative_path: "report.pdf".to_string(),
         size: data.len() as u64,
@@ -963,6 +965,7 @@ async fn e2e_receiver_initiated_resume_probe_commit_completes() {
     let checksum = blake3::hash(&data).to_hex().to_string();
     let source_id = FileSourceId("resume-src".to_string());
     let meta = HostFileMetadata {
+        receive_identity: None,
         name: "resume.txt".to_string(),
         relative_path: "resume.txt".to_string(),
         size: data.len() as u64,
@@ -1059,6 +1062,7 @@ async fn e2e_sender_initiated_resume_probe_commit_completes() {
     let checksum = blake3::hash(&data).to_hex().to_string();
     let source_id = FileSourceId("resume-sender-src".to_string());
     let meta = HostFileMetadata {
+        receive_identity: None,
         name: "resume.txt".to_string(),
         relative_path: "resume.txt".to_string(),
         size: data.len() as u64,
@@ -1154,6 +1158,7 @@ async fn e2e_receiver_rejects_offer() {
     let data = b"to be rejected".to_vec();
     let source_id = FileSourceId("src-0".to_string());
     let meta = HostFileMetadata {
+        receive_identity: None,
         name: "x.bin".to_string(),
         relative_path: "x.bin".to_string(),
         size: data.len() as u64,
@@ -1263,6 +1268,7 @@ async fn e2e_multichunk_multifile_transfer() {
         host_a = host_a.with_source(
             sid.clone(),
             HostFileMetadata {
+                receive_identity: None,
                 name: (*name).to_string(),
                 relative_path: (*name).to_string(),
                 size: data.len() as u64,
@@ -1372,7 +1378,10 @@ async fn e2e_multichunk_multifile_transfer() {
     assert_eq!(rows.len(), specs.len());
     for row in rows {
         assert!(
-            row.local_path.as_deref().is_some_and(|p| !p.is_empty()),
+            row.location
+                .as_ref()
+                .and_then(entity::FileLocation::local_uri)
+                .is_some_and(|p| !p.is_empty()),
             "{} 发布后必须写下 local_path",
             row.name
         );
@@ -1401,6 +1410,7 @@ async fn e2e_publish_failure_keeps_checkpoint_and_resumes() {
     let host_a = MemoryHost::new().with_source(
         source_id.clone(),
         HostFileMetadata {
+            receive_identity: None,
             name: name.to_string(),
             relative_path: name.to_string(),
             size: data.len() as u64,
@@ -1486,7 +1496,7 @@ async fn e2e_publish_failure_keeps_checkpoint_and_resumes() {
         "应停在最后一个节流点（末块刻意不刷 checkpoint）"
     );
     assert!(
-        row.local_path.is_none(),
+        row.location.is_none(),
         "没发布成功就不该有 local_path——它是「文件到底在哪」的唯一事实源"
     );
 
@@ -1552,6 +1562,7 @@ async fn e2e_empty_file_is_published_even_when_interrupted_before_its_block() {
         host_a = host_a.with_source(
             sid.clone(),
             HostFileMetadata {
+                receive_identity: None,
                 name: (*name).to_string(),
                 relative_path: (*name).to_string(),
                 size: data.len() as u64,
@@ -1641,7 +1652,11 @@ async fn e2e_empty_file_is_published_even_when_interrupted_before_its_block() {
         .find(|r| r.name == "empty.bin")
         .expect("empty.bin row");
     assert!(
-        empty.local_path.as_deref().is_some_and(|p| !p.is_empty()),
+        empty
+            .location
+            .as_ref()
+            .and_then(entity::FileLocation::local_uri)
+            .is_some_and(|p| !p.is_empty()),
         "空文件必须落地并写下 local_path——会话报完成却没有它，就是静默丢文件"
     );
     assert_eq!(
@@ -1665,6 +1680,7 @@ async fn e2e_resume_with_partial_checkpoint_completes() {
     let checksum = blake3::hash(&data).to_hex().to_string();
     let source_id = FileSourceId("partial-src".to_string());
     let meta = HostFileMetadata {
+        receive_identity: None,
         name: "partial.bin".to_string(),
         relative_path: "partial.bin".to_string(),
         size: data.len() as u64,
@@ -1717,6 +1733,7 @@ async fn e2e_resume_with_partial_checkpoint_completes() {
     let b_fa: Arc<dyn FileAccess> = Arc::new(node_b.host.clone());
     let sink = b_fa
         .create_sink(HostFileMetadata {
+            receive_identity: None,
             name: "partial.bin".to_string(),
             relative_path: "partial.bin".to_string(),
             size: data.len() as u64,
@@ -1816,6 +1833,7 @@ async fn e2e_reap_expired_receive_cleans_part() {
     // 造一个有字节的遗留 sink（.part）。
     let sink = file_access
         .create_sink(HostFileMetadata {
+            receive_identity: None,
             name: "old.bin".to_string(),
             relative_path: "old.bin".to_string(),
             size: 1024,
@@ -1984,6 +2002,7 @@ async fn e2e_paused_offer_declined_then_resumes_on_resume() {
     let data = b"paused payload".to_vec();
     let source_id = FileSourceId("src-0".to_string());
     let meta = HostFileMetadata {
+        receive_identity: None,
         name: "p.bin".to_string(),
         relative_path: "p.bin".to_string(),
         size: data.len() as u64,
@@ -2125,6 +2144,7 @@ async fn e2e_offer_with_escaping_relative_path_is_rejected() {
     // 宿主侧的元数据用正常路径：攻击点在 **wire 上声明的 relative_path**，
     // 由下面的 `HostEnumeratedFile` 直接给出，不经过本机文件系统。
     let meta = HostFileMetadata {
+        receive_identity: None,
         name: "authorized_keys".to_string(),
         relative_path: "authorized_keys".to_string(),
         size: data.len() as u64,

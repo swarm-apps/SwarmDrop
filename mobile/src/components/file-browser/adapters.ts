@@ -1,3 +1,4 @@
+import { localInboxUri } from "@/core/inbox-file-availability";
 /**
  * 移动侧的 file-browser 输入适配。
  *
@@ -160,8 +161,8 @@ export function fromInboxFiles(
       missing: file.missing,
       // 仅真为 file:// 时可缩略图；Android SAF content:// 不设（交系统打开）。
       // 「缺失就不给取图源」那一条由共享包统一兜住。
-      ...(file.localPath.startsWith("file://")
-        ? { previewSource: file.localPath }
+      ...(localInboxUri(file)?.startsWith("file://")
+        ? { previewSource: localInboxUri(file) ?? undefined }
         : {}),
     })),
   );

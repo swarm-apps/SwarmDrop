@@ -27,7 +27,7 @@ pub struct Model {
     pub name: String,
     pub size: i64,
     pub checksum: String,
-    pub local_path: String,
+    pub location: crate::FileLocation,
     /// 本地文件已被外部移动或删除时置为 true，记录本身仍保留。
     pub missing: bool,
 }

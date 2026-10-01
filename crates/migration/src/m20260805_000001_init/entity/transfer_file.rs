@@ -1,7 +1,5 @@
 use sea_orm::entity::prelude::*;
 
-use super::types::FileStatus;
-
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "transfer_files")]
@@ -33,3 +31,16 @@ pub struct Model {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+/// 单文件传输状态。
+#[derive(Clone, Debug, PartialEq, Eq, DeriveActiveEnum, strum::EnumIter)]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "lowercase"
+)]
+pub enum FileStatus {
+    Pending,
+    Completed,
+    Failed,
+}

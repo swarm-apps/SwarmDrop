@@ -64,6 +64,9 @@ fn source_path(id: &FileSourceId) -> PathBuf {
 fn save_dir(metadata: &HostFileMetadata) -> AppResult<PathBuf> {
     match metadata.save_dir.as_ref() {
         Some(CoreSaveLocation::Path { path }) => Ok(PathBuf::from(path)),
+        Some(CoreSaveLocation::Cloud { .. }) => {
+            Err(AppError::Transfer("本地文件端口不支持云目的地".into()))
+        }
         None => Err(AppError::Transfer(
             "HostFileMetadata.save_dir 缺失：上层未注入用户选择的保存目录".into(),
         )),
@@ -75,6 +78,7 @@ impl FileAccess for LocalFileAccess {
     async fn source_metadata(&self, source: &FileSourceId) -> AppResult<HostFileMetadata> {
         let stat = source_ops::metadata(&source_path(source)).await?;
         Ok(HostFileMetadata {
+            receive_identity: None,
             name: stat.name.clone(),
             relative_path: stat.name,
             size: stat.size,
@@ -154,7 +158,7 @@ impl FileAccess for LocalFileAccess {
             .parent()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default();
-        Ok(FinalizedSink {
+        Ok(FinalizedSink::Local {
             uri: path.to_string_lossy().into_owned(),
             dir,
         })
@@ -197,6 +201,7 @@ mod tests {
     #[test]
     fn missing_save_dir_is_an_error() {
         let metadata = HostFileMetadata {
+            receive_identity: None,
             name: "a.txt".into(),
             relative_path: "a.txt".into(),
             size: 1,

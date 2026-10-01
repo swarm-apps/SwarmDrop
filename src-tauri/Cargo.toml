@@ -66,6 +66,8 @@ swarmdrop-core = { workspace = true, features = ["specta"] }
 swarmdrop-host-fs = { workspace = true }
 swarmdrop-storage-sql = { workspace = true, features = ["specta"] }
 swarmdrop-invite = { workspace = true }
+swarmdrop-cloud-auth = { workspace = true, features = ["specta"] }
+swarmdrop-storage-cloud = { workspace = true, features = ["specta"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 # 文件层：按天轮转 + 保留数上限。与移动端同一套写法（见 mobile-core 的 logging 模块），

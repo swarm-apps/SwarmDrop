@@ -52,6 +52,19 @@ pub trait SessionStore: Send + Sync {
         transferred_bytes: i64,
     ) -> AppResult<()>;
 
+    /// 云暂存已完整并同步，仍未发布到远端；其他存储不支持云接收。
+    async fn mark_file_staged(
+        &self,
+        _session: Uuid,
+        _file: i32,
+        _bitmap: Vec<u8>,
+        _size: i64,
+    ) -> AppResult<()> {
+        Err(crate::AppError::Transfer(
+            "当前存储不支持云暂存完成记录".into(),
+        ))
+    }
+
     /// 标记单个文件完成，写入完整 checkpoint 与最终落盘位置。
     async fn mark_file_completed(
         &self,
@@ -59,8 +72,7 @@ pub trait SessionStore: Send + Sync {
         file_id: i32,
         completed_chunks: Vec<u8>,
         transferred_bytes: i64,
-        local_path: String,
-        local_dir: String,
+        location: entity::FileLocation,
     ) -> AppResult<()>;
 
     /// 批量保存发送方 per-file 进度（`(file_id, chunks_done, transferred_bytes)`）。
@@ -428,6 +440,7 @@ pub struct TransferProjection {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferProjectionFile {
+    pub location: Option<entity::FileLocation>,
     pub file_id: i32,
     pub name: String,
     pub relative_path: String,
@@ -438,6 +451,7 @@ pub struct TransferProjectionFile {
 impl From<entity::transfer_file::Model> for TransferProjectionFile {
     fn from(f: entity::transfer_file::Model) -> Self {
         Self {
+            location: f.location,
             file_id: f.file_id,
             name: f.name,
             relative_path: f.relative_path,
@@ -467,7 +481,10 @@ pub fn content_root_of<'a>(
     {
         return Some(first.to_string());
     }
-    save_path.map(|CoreSaveLocation::Path { path }| path.clone())
+    save_path.and_then(|location| match location {
+        CoreSaveLocation::Path { path } => Some(path.clone()),
+        CoreSaveLocation::Cloud { .. } => None,
+    })
 }
 
 /// 传输记录是否允许删除：仅终态与 suspended。
@@ -498,7 +515,11 @@ pub fn projection_of(
     let transferred_bytes = files.iter().map(|f| f.transferred_bytes).sum();
     let save_path = session.save_path.clone().map(CoreSaveLocation::from);
     let content_root = content_root_of(
-        files.iter().map(|f| f.local_dir.as_deref()),
+        files.iter().map(|f| {
+            f.location
+                .as_ref()
+                .and_then(entity::FileLocation::local_dir)
+        }),
         save_path.as_ref(),
     );
     TransferProjection {
@@ -585,9 +606,12 @@ mod tests {
             total_chunks: 1,
             completed_chunks: vec![],
             completed_ranges: "[]".into(),
+            staged_complete: false,
             source_path: None,
-            local_path: None,
-            local_dir: local_dir.map(str::to_string),
+            location: local_dir.map(|dir| entity::FileLocation::Local {
+                uri: format!("{dir}/a.bin"),
+                dir: dir.to_string(),
+            }),
             outboard: None,
         }
     }
@@ -626,7 +650,11 @@ mod tests {
 
     /// 从文件行取出 `local_dir` 迭代器 —— 真实调用方的形态。
     fn dirs(files: &[entity::transfer_file::Model]) -> impl Iterator<Item = Option<&str>> {
-        files.iter().map(|f| f.local_dir.as_deref())
+        files.iter().map(|f| {
+            f.location
+                .as_ref()
+                .and_then(entity::FileLocation::local_dir)
+        })
     }
 
     /// `content_root_of` 三端合一后的回归（D2：签名不收文件行才让 Web 与 SQL 侧
@@ -687,4 +715,22 @@ mod tests {
         assert_eq!(projection.content_root.as_deref(), Some("/recv"));
         assert_eq!(projection.files.len(), 2);
     }
+}
+
+/// 发布回执只有在文件完成状态和对象位置都落库后，才允许回收暂存。
+pub async fn is_file_committed(
+    store: &dyn SessionStore,
+    session_id: Uuid,
+    file_id: u32,
+    location: &entity::FileLocation,
+) -> AppResult<bool> {
+    Ok(store
+        .get_session_files(session_id)
+        .await?
+        .iter()
+        .any(|file| {
+            file.file_id == file_id as i32
+                && file.status == entity::FileStatus::Completed
+                && file.location.as_ref() == Some(location)
+        }))
 }

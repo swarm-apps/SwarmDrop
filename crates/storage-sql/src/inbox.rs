@@ -33,7 +33,7 @@ fn file_entry(file: entity::inbox_item_file::ModelEx) -> InboxItemFileEntry {
         name: file.name,
         size: file.size,
         checksum: file.checksum,
-        local_path: file.local_path,
+        location: file.location,
         missing: file.missing,
     }
 }
@@ -170,7 +170,11 @@ pub(crate) async fn ensure_inbox_item_for_completed_receive_session(
     // BLOB 白复制一遍(每完成一次接收数百 KB～数 MB)。
     let save_location = session.save_path.clone().map(CoreSaveLocation::from);
     let root_path = swarmdrop_transfer::store::content_root_of(
-        file_rows.iter().map(|f| f.local_dir.as_deref()),
+        file_rows.iter().map(|f| {
+            f.location
+                .as_ref()
+                .and_then(entity::FileLocation::local_dir)
+        }),
         save_location.as_ref(),
     );
     let content_hash = inbox_content_hash(&facts);
@@ -204,7 +208,7 @@ pub(crate) async fn ensure_inbox_item_for_completed_receive_session(
         // finalize_sink 记录的最终落盘位置是唯一事实源（SAF document URI /
         // 重名冲突改写都无法由「目录 + 相对路径」拼接推导）。已完成接收会话的
         // 文件必然写过它——缺失即数据异常（如旧版本残留库），显式报错不做推导。
-        let Some(local_path) = file.local_path.clone() else {
+        let Some(location) = file.location.clone() else {
             txn.rollback().await?;
             return Err(swarmdrop_host::AppError::Transfer(format!(
                 "已完成接收文件缺少落盘路径记录: {}（旧版本数据，请清除应用数据后重试）",
@@ -218,7 +222,7 @@ pub(crate) async fn ensure_inbox_item_for_completed_receive_session(
             .set_name(file.name.clone())
             .set_size(file.size)
             .set_checksum(file.checksum.clone())
-            .set_local_path(local_path)
+            .set_location(location)
             .set_missing(false)
             .insert(&txn)
             .await?;
@@ -644,8 +648,10 @@ mod tests {
                     file.file_id as i32,
                     vec![],
                     file.size as i64,
-                    local_path,
-                    local_dir,
+                    entity::FileLocation::Local {
+                        uri: local_path,
+                        dir: local_dir,
+                    },
                 )
                 .await
                 .expect("mark file completed");

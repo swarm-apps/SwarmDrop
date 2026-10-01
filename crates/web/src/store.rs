@@ -505,9 +505,9 @@ impl SessionStore for WebTransferStore {
                     total_chunks,
                     completed_chunks,
                     completed_ranges: "[]".to_string(),
+                    staged_complete: false,
                     source_path: source_paths.and_then(|p| p.get(idx).cloned()),
-                    local_path: None,
-                    local_dir: None,
+                    location: None,
                     outboard: None,
                 }
             })
@@ -560,16 +560,14 @@ impl SessionStore for WebTransferStore {
         file_id: i32,
         completed_chunks: Vec<u8>,
         transferred_bytes: i64,
-        local_path: String,
-        local_dir: String,
+        location: entity::FileLocation,
     ) -> AppResult<()> {
         self.mutate_file(session_id, file_id, |f| {
             f.status = entity::FileStatus::Completed;
             f.completed_chunks = completed_chunks;
             f.transferred_bytes = transferred_bytes;
             f.completed_ranges = ranges_json(&prefix_range(transferred_bytes));
-            f.local_path = Some(local_path);
-            f.local_dir = Some(local_dir);
+            f.location = Some(location);
         });
         self.persist(session_id).await
     }
@@ -752,6 +750,7 @@ impl SessionStore for WebTransferStore {
                         .files
                         .iter()
                         .map(|f| HostFileMetadata {
+                            receive_identity: None,
                             name: f.name.clone(),
                             relative_path: f.relative_path.clone(),
                             size: f.size as u64,
@@ -1151,8 +1150,40 @@ struct PersistedSession {
 }
 
 /// newtype 只为给 `Vec` 里的元素挂上 `with`（serde 的 `with` 作用于字段，不能作用于泛型参数）。
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 struct PersistedFile(#[serde(with = "FileRowDef")] entity::transfer_file::Model);
+
+impl<'de> Deserialize<'de> for PersistedFile {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut value = serde_json::Value::deserialize(deserializer)?;
+        migrate_local_location(&mut value);
+        FileRowDef::deserialize(value)
+            .map(Self)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+/// IndexedDB 保留旧记录；读取时将旧本地字段转换为新位置，下一次写入使用新格式。
+pub(crate) fn migrate_local_location(value: &mut serde_json::Value) {
+    let Some(row) = value.as_object_mut() else {
+        return;
+    };
+    if row.contains_key("location") {
+        return;
+    }
+    let path = row.remove("local_path");
+    let dir = row.remove("local_dir");
+    let location = match path.and_then(|path| path.as_str().map(str::to_owned)) {
+        Some(uri) => {
+            let dir = dir
+                .and_then(|dir| dir.as_str().map(str::to_owned))
+                .unwrap_or_else(|| uri.rsplit_once('/').map_or("", |(dir, _)| dir).to_owned());
+            serde_json::json!({ "type": "local", "uri": uri, "dir": dir })
+        }
+        None => serde_json::Value::Null,
+    };
+    row.insert("location".into(), location);
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "entity::transfer_session::Model")]
@@ -1197,9 +1228,10 @@ struct FileRowDef {
     total_chunks: i32,
     completed_chunks: Vec<u8>,
     completed_ranges: String,
+    #[serde(default)]
+    staged_complete: bool,
     source_path: Option<String>,
-    local_path: Option<String>,
-    local_dir: Option<String>,
+    location: Option<entity::FileLocation>,
     /// 不落库（1 GiB 文件 ≈ 256 KiB），载入恒 `None`——见模块注释「不落库的一样东西」。
     #[serde(skip)]
     outboard: Option<Vec<u8>>,
@@ -1354,8 +1386,10 @@ mod tests {
                     file.file_id as i32,
                     vec![],
                     file.size as i64,
-                    format!("/inbox-store-test/{}", file.relative_path),
-                    "/inbox-store-test".into(),
+                    entity::FileLocation::Local {
+                        uri: format!("/inbox-store-test/{}", file.relative_path),
+                        dir: "/inbox-store-test".into(),
+                    },
                 )
                 .await
                 .expect("mark file completed");

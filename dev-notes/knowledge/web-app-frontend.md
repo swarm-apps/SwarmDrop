@@ -585,18 +585,16 @@ pnpm build && python3 -m http.server 3210 -d out   # 保持 trailingSlash 目录
 ## 改 `crates/web` 的公开面，有三条生成链路要重跑且都要入库
 
 前端拿到的类型与方法全部是生成物，链路有三条、彼此不串联，**跑漏任何一条都是前端拿着
-过期契约**。改了 `crates/web/src/types.rs` 或 `node.rs` 的公开面就把三条按顺序走一遍：
+过期契约**。改了 `crates/web/src/{events,receive,pairing,invitation,connection,error}.rs` 或 `node.rs` 的公开面就把三条按顺序走一遍：
 
-```
-crates/web/src/types.rs
-  ──(cargo test -p swarmdrop-web --features specta --test specta_export)──>
-      crates/web/bindings/bindings.ts        ← node.rs 用 include_str! 整体注入 .d.ts
-
-crates/web/src/node.rs
-  ──(cd docs && pnpm build:wasm  →  wasm-pack build --target web)──>
-      docs/packages/swarmdrop-web/{swarmdrop_web.js, .d.ts, _bg.wasm, README.md}
-
-docs/app/app/_lib/view-types.ts        ← 手工再导出新类型（它刻意不手写镜像，只 re-export）
+```mermaid
+flowchart TD
+  Protocol[Web 按职责组织的公开协议] --> Specta[specta 导出]
+  Specta --> Bindings[crates/web/bindings/bindings.ts]
+  Bindings --> Pack[wasm-pack 构建 crates/web]
+  Node[crates/web/src/node.rs] --> Pack
+  Pack --> Package[packages/swarmdrop-web]
+  Package --> Views[docs/app/app/_lib/view-types.ts 再导出]
 ```
 
 **顺序不能反**：第二条会把第一条的产物 `include_str!` 进 wasm-bindgen 的 .d.ts，先跑
@@ -1709,9 +1707,9 @@ ARIA 对 `button` 规定 **Children Presentational: True**：它的后代角色�
 现在 `PairingOutcomeJson` 带 `refused: PairingRefusedJson | null`，拒绝时返回 `Ok`，
 前端查 `PAIRING_REFUSED_LABEL`。
 
-**`crates/web/src/types.rs` 里的判别码只能是本地投影，不能直接用内核类型** ——
+**`crates/web/src/pairing.rs` 里的判别码只能是本地投影，不能直接用内核类型** ——
 `swarmdrop-core` 在 `crates/web` 是 **wasm-only 依赖**（Cargo.toml 的
-`[target.'cfg(target_family = "wasm")'.dependencies]`），而 `types.rs` **native 也要编**
+`[target.'cfg(target_family = "wasm")'.dependencies]`），而 `pairing.rs` **native 也要编**
 （specta 导出跑在 native）。直接引用会报 `unresolved module swarmdrop_core`，
 且只在跑 specta 导出时才暴露，wasm check 是绿的。
 
@@ -1720,12 +1718,12 @@ ARIA 对 `button` 规定 **Children Presentational: True**：它的后代角色�
 —— 内核加一个拒绝原因，那里编译失败。**别写成 `Option<String>` 的判别码**，
 那只会在运行时静默落到兜底分支。
 
-**加了新类型记得三步**：`types.rs` 定义 → `lib.rs` 导出（specta 导出 test 从 crate root 取）
+**加了新类型记得三步**：所属职责模块定义 → `lib.rs` 显式导出（specta 导出 test 从 crate root 取）
 → `tests/specta_export.rs` 的 `register::<T>()`。嵌套类型会被自动带出来，但顶层的必须手动注册。
 最后 `pnpm build:wasm` 重新生成 `packages/swarmdrop-web/*.d.ts`，否则 `docs` 的 tsc 会说
 「Module 'swarmdrop-web' has no exported member」。
 
-**相关文件**：`crates/web/src/types.rs`、`crates/web/src/node.rs`、
+**相关文件**：`crates/web/src/pairing.rs`、`crates/web/src/node.rs`、
 `docs/app/app/_lib/view-types.ts`（`PAIRING_REFUSED_LABEL`）、
 `docs/app/app/_components/pairing-panel.tsx`
 

@@ -1,0 +1,24 @@
+[package]
+name = "swarmdrop-storage-cloud"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+swarmdrop-host.workspace = true
+swarmdrop-host-fs.workspace = true
+swarmdrop-cloud-auth.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "sync", "time", "rt"] }
+reqwest.workspace = true
+url.workspace = true
+uuid.workspace = true
+tempfile.workspace = true
+blake3.workspace = true
+bytes.workspace = true
+specta = { version = "=2.0.0-rc.25", features = ["derive"], optional = true }
+
+[features]
+specta = ["dep:specta"]

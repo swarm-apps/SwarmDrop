@@ -35,7 +35,7 @@ use wasm_bindgen::JsValue;
 /// 默认把 serde 的 **map** 序列化成 JS `Map`。这对真正的
 /// `HashMap` 尚可争论，但带 `#[serde(flatten)]` 的**结构体走的正是 map 路径**
 /// ——serde 无法静态知道展开后的键，只能按 map 输出。本仓有两个这样的类型跨边界：
-/// [`Device`](crate::types::Device) 与 `PairedDeviceInfo`（都 flatten 了 `OsInfo`）。
+/// [`Device`](crate::Device) 与 `PairedDeviceInfo`（都 flatten 了 `OsInfo`）。
 ///
 /// 于是 `paired_devices()` 返回的是一串 JS `Map`，而 `swarmdrop_web.d.ts` 声明的是
 /// `Device = { peerId: string, … } & OsInfo`——普通对象。类型层看不出任何问题，

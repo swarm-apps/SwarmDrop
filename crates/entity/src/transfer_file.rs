@@ -1,6 +1,5 @@
 use sea_orm::entity::prelude::*;
-
-use crate::FileStatus;
+use serde::{Deserialize, Serialize};
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -39,17 +38,15 @@ pub struct Model {
     ///
     /// 新数据面以 range 为 checkpoint 事实源；bitmap 仅作为旧拉取实现和过渡适配。
     pub completed_ranges: String,
+    /// 云暂存已同步到磁盘；不代表云对象已发布。续传可跳过 P2P，仅重试发布。
+    pub staged_complete: bool,
     /// 发送方源文件路径（direction=send 时有值）。
     /// 桌面端为绝对路径字符串，用于断点续传时重建 FileSource。
     pub source_path: Option<String>,
     /// 接收方文件的最终落盘位置（direction=receive 且已完成时有值），由
     /// `finalize_sink` 返回：桌面端为绝对路径，移动端为 file:// 或 SAF
     /// document URI。历史行为 NULL——收件箱落库时回退目录拼接推导。
-    pub local_path: Option<String>,
-    /// 接收方文件最终落盘位置的**父目录 URI**（direction=receive 且已完成时有值），
-    /// 同由 `finalize_sink` 返回。是「打开文件夹」定位真实容器目录的事实源——SAF
-    /// 下无法由 `local_path` 字符串推导父目录。历史行为 NULL——消费方回退会话保存目录。
-    pub local_dir: Option<String>,
+    pub location: Option<crate::FileLocation>,
     /// 发送方 bao-tree post-order outboard（BLOB，direction=send 时有值）。
     ///
     /// 逐块验签的 Merkle 树，prepare 阶段与 checksum 同一遍构建（root **就是** checksum）。
@@ -63,3 +60,20 @@ pub struct Model {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+/// 单文件传输状态
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
+)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "lowercase")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "lowercase"
+)]
+pub enum FileStatus {
+    Pending,
+    Completed,
+    Failed,
+}

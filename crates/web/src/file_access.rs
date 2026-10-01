@@ -125,6 +125,7 @@ impl FileAccess for OpfsFileAccess {
     async fn source_metadata(&self, source: &FileSourceId) -> AppResult<HostFileMetadata> {
         let (file, relative_path) = self.source(source)?;
         Ok(HostFileMetadata {
+            receive_identity: None,
             name: file.name(),
             relative_path,
             size: file.size() as u64,
@@ -157,12 +158,24 @@ impl FileAccess for OpfsFileAccess {
     }
 
     async fn create_sink(&self, metadata: HostFileMetadata) -> AppResult<FileSinkId> {
+        if matches!(
+            metadata.save_dir,
+            Some(swarmdrop_host::CoreSaveLocation::Cloud { .. })
+        ) {
+            return Err(AppError::Transfer("浏览器端暂不支持云目的地".into()));
+        }
         // 全新文件：keep_existing_data=false，打开即截断任何同名残留。
         self.open_and_store(FileSinkId(metadata.relative_path), false)
             .await
     }
 
     async fn open_or_create_sink(&self, metadata: HostFileMetadata) -> AppResult<FileSinkId> {
+        if matches!(
+            metadata.save_dir,
+            Some(swarmdrop_host::CoreSaveLocation::Cloud { .. })
+        ) {
+            return Err(AppError::Transfer("浏览器端暂不支持云目的地".into()));
+        }
         // 续传：同一会话内已开句柄则复用；否则开 keep_existing_data=true 的句柄保留已落盘部分
         // （positioned write 只覆盖后续 range）。**跨页面刷新的接收续传也走这条**——OPFS 里的
         // 部分文件与 checkpoint 都持久（#81），刷新后新开的句柄接着上次的字节写。
@@ -208,7 +221,7 @@ impl FileAccess for OpfsFileAccess {
             .rsplit_once('/')
             .map(|(d, _)| d)
             .unwrap_or_default();
-        Ok(FinalizedSink {
+        Ok(FinalizedSink::Local {
             uri: format!("opfs:/{relative_path}"),
             dir: format!("opfs:/{dir}"),
         })
@@ -313,6 +326,7 @@ mod tests {
 
     fn metadata(relative_path: &str) -> HostFileMetadata {
         HostFileMetadata {
+            receive_identity: None,
             name: relative_path
                 .rsplit('/')
                 .next()

@@ -272,6 +272,7 @@ mod tests {
 
     fn metadata(save_dir: &str, relative_path: &str, size: u64) -> HostFileMetadata {
         HostFileMetadata {
+            receive_identity: None,
             name: relative_path
                 .rsplit('/')
                 .next()

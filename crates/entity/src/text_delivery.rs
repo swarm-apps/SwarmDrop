@@ -1,6 +1,7 @@
 use sea_orm::entity::prelude::*;
+use serde::{Deserialize, Serialize};
 
-use crate::{PeerId, TextDeliveryDirection, TextDeliveryFailure, TextDeliveryStatus};
+use crate::PeerId;
 
 /// 文本投递账本。正文只在本表保存；收件箱条目仅以 delivery_id 引用它。
 #[sea_orm::model]
@@ -24,3 +25,64 @@ pub struct Model {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+/// 文本投递账本的方向。
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
+)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "lowercase")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "lowercase"
+)]
+pub enum TextDeliveryDirection {
+    Send,
+    Receive,
+}
+
+/// 文本投递的用户可见状态。
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
+)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum TextDeliveryStatus {
+    Sending,
+    WaitingConfirmation,
+    Delivered,
+    Rejected,
+    Retryable,
+    Expired,
+    Cancelled,
+}
+
+/// 可安全展示给发起方的文本投递失败分类。
+///
+/// 这里刻意不记录接收端的策略细节，避免把对方的信任与暂停状态泄露到网络边界之外。
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveActiveEnum, strum::EnumIter,
+)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum TextDeliveryFailure {
+    PeerUnavailable,
+    TimedOut,
+    UnsupportedProtocol,
+    Rejected,
+    Expired,
+    StorageFailed,
+    ProtocolConflict,
+    InvalidPayload,
+}

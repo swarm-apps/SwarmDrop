@@ -146,9 +146,29 @@ pub async fn start_send(
 #[specta::specta]
 pub async fn accept_receive(
     net: State<'_, NetManagerState>,
+    accounts: State<'_, Arc<swarmdrop_cloud_auth::CloudAccountManager>>,
     session_id: Uuid,
     save_location: swarmdrop_core::host::CoreSaveLocation,
 ) -> crate::AppResult<()> {
+    if let swarmdrop_core::host::CoreSaveLocation::Cloud {
+        provider,
+        account_id,
+        ..
+    } = &save_location
+    {
+        let account = accounts.status(account_id).await?;
+        let expected = match provider {
+            swarmdrop_core::host::CloudProvider::GoogleDrive => {
+                swarmdrop_cloud_auth::ProviderId::GoogleDrive
+            }
+        };
+        if account.provider != expected {
+            return Err(swarmdrop_cloud_auth::CloudAuthError::InvalidConfiguration.into());
+        }
+        if account.status != swarmdrop_cloud_auth::AccountStatus::Connected {
+            return Err(swarmdrop_cloud_auth::CloudAuthError::ReconnectRequired.into());
+        }
+    }
     let transfer = get_transfer(&net).await?;
     Ok(transfer
         .accept_and_start_receive(&session_id, save_location)

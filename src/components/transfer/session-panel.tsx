@@ -1,3 +1,4 @@
+import { CloudLocationSummary } from "@/components/transfer/cloud-location-summary";
 /**
  * 会话详情面板组件族
  * 活动中心（/transfer 右栏 / 抽屉）与发送流（/send、/send/share-target 就地进度）共用：
@@ -7,7 +8,7 @@
  * - SessionActions：暂停 / 恢复 / 取消 / 打开文件夹（不再隐式跳转，由使用方回调决定去向）
  */
 
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowDownToLine,
@@ -30,6 +31,7 @@ import { Progress } from "@/components/ui/progress";
 import { useNetworkStore } from "@/stores/network-store";
 import { useSecretStore } from "@/stores/secret-store";
 import {
+  useTransferStore,
   useSessionPublishing,
   useSessionRates,
 } from "@/stores/transfer-store";
@@ -48,10 +50,7 @@ import { failureCodeMessage, getErrorMessage } from "@/lib/errors";
 import { getDeviceIcon } from "@/components/pairing/device-icon";
 import { FileBrowser } from "@swarmdrop/file-browser";
 import { itemsFromProjection } from "@/lib/file-browser-adapters";
-import type {
-  TransferProjection,
-  TransferProgressEvent,
-} from "@/lib/bindings";
+import type { TransferProjection, TransferProgressEvent } from "@/lib/bindings";
 import { commands } from "@/lib/bindings";
 import {
   doPauseTransfer,
@@ -153,9 +152,7 @@ export const SessionSummaryHeader = memo(function SessionSummaryHeader({
       <div
         className={cn(
           "flex size-11 shrink-0 items-center justify-center rounded-full md:size-12",
-          isSend
-            ? "bg-primary/10 dark:bg-primary/15"
-            : "bg-success/15",
+          isSend ? "bg-primary/10 dark:bg-primary/15" : "bg-success/15",
         )}
       >
         <DeviceIcon
@@ -213,7 +210,11 @@ export const SessionSummaryHeader = memo(function SessionSummaryHeader({
  */
 export function EtaSlot({ eta }: { eta: number | null }) {
   const text = formatEta(eta);
-  return text === null ? <Trans>计算中</Trans> : <Trans>剩余 {String(text)}</Trans>;
+  return text === null ? (
+    <Trans>计算中</Trans>
+  ) : (
+    <Trans>剩余 {String(text)}</Trans>
+  );
 }
 
 /* ─── 进度块 ─── */
@@ -232,6 +233,25 @@ export const SessionProgressBlock = memo(function SessionProgressBlock({
   // 「正在保存的文件」自己订阅，不走 prop：两个调用点（活动中心详情 / 发送流）都不认识
   // 这件事，而它与 progress 一样是高频回流，塞进 prop 只会让两处都跟着重渲染。
   const publishing = useSessionPublishing(projection.sessionId);
+  const cloudFrame = useTransferStore(
+    (state) => state.cloudProgressBySession[projection.sessionId] ?? null,
+  );
+  const cloudProgress = cloudFrame?.event ?? null;
+  const [clock, setClock] = useState(Date.now);
+  const uploading =
+    projection.phase === "active" &&
+    projection.savePath?.type === "cloud" &&
+    publishing !== null;
+  useEffect(() => {
+    if (!uploading) return;
+    const timer = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [uploading]);
+  const cloudSpeed =
+    cloudFrame && clock - cloudFrame.receivedAt <= 5000
+      ? cloudFrame.event.bytesPerSecond
+      : null;
+
   // 速度与剩余时间同源同判：**不读 `progress.speed`**——那是最后一帧的原样值，停滞时后端的
   // 归零只对下一帧生效，而停滞恰恰意味着没有下一帧。
   const { eta, speed } = useSessionRates(projection.sessionId);
@@ -262,6 +282,14 @@ export const SessionProgressBlock = memo(function SessionProgressBlock({
           aria-label={progressLabel(pausedPercent)}
           className="h-1.5 md:h-2"
         />
+        {projection.savePath?.type === "cloud" && (
+          <p className="text-sm text-muted-foreground">
+            <Trans>暂存文件已保留。恢复传输时继续接收或重试云上传。</Trans>
+          </p>
+        )}
+        {cloudProgress?.failure && (
+          <CloudPublishFailure failure={cloudProgress.failure} />
+        )}
         <div className="flex items-center justify-between font-mono text-[11px] tabular-nums text-muted-foreground md:text-xs">
           <span>
             {formatFileSize(projection.transferredBytes ?? 0)} /{" "}
@@ -283,6 +311,11 @@ export const SessionProgressBlock = memo(function SessionProgressBlock({
     // `publishing` 就说明这条发布已经久到值得解释了。
     return (
       <div className="flex flex-col gap-2 md:gap-2.5">
+        {projection.savePath?.type === "cloud" && (
+          <p className="text-xs text-muted-foreground">
+            <Trans>设备间接收</Trans>
+          </p>
+        )}
         <div className="flex items-baseline justify-between gap-2">
           <span className="font-mono text-2xl font-bold tabular-nums text-foreground md:text-3xl">
             {progressPercent}%
@@ -334,8 +367,35 @@ export const SessionProgressBlock = memo(function SessionProgressBlock({
               publishing && "mt-1",
             )}
           >
-            {publishing ? <Trans>正在保存 {publishing.name}</Trans> : null}
+            {publishing && projection.savePath?.type === "cloud" && (
+              <Trans>正在上传 {publishing.name} 到云盘</Trans>
+            )}
+            {publishing && projection.savePath?.type !== "cloud" && (
+              <Trans>正在保存 {publishing.name}</Trans>
+            )}
           </p>
+          {publishing &&
+            projection.savePath?.type === "cloud" &&
+            cloudProgress?.fileId === publishing.fileId && (
+              <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                <div className="flex justify-between gap-2">
+                  <span>
+                    <Trans>云上传</Trans> ·{" "}
+                    {formatFileSize(cloudProgress.uploadedBytes)} /{" "}
+                    {formatFileSize(cloudProgress.totalBytes)}
+                  </span>
+                  <span>{formatSpeed(cloudSpeed)}</span>
+                </div>
+                <Progress
+                  value={calcPercent(
+                    cloudProgress.uploadedBytes,
+                    cloudProgress.totalBytes,
+                  )}
+                  aria-label={t`云上传进度`}
+                  className="h-1.5"
+                />
+              </div>
+            )}
         </div>
       </div>
     );
@@ -448,7 +508,9 @@ export const SessionFileSection = memo(function SessionFileSection({
   className?: string;
 }) {
   const view = usePreferencesStore((state) => state.fileBrowserViews.transfer);
-  const setFileBrowserView = usePreferencesStore((state) => state.setFileBrowserView);
+  const setFileBrowserView = usePreferencesStore(
+    (state) => state.setFileBrowserView,
+  );
   // 逐文件状态由 L1 从 phase + terminalReason 推断（含 paused / cancelled 两档），
   // 不再由这里算一个粗粒度的 defaultStatus 灌进去。
   const items = useMemo(
@@ -457,13 +519,22 @@ export const SessionFileSection = memo(function SessionFileSection({
   );
 
   return (
-    <FileBrowser
-      items={items}
-      title={<Trans>文件明细</Trans>}
-      view={view}
-      onViewChange={(nextView) => setFileBrowserView("transfer", nextView)}
-      className={className}
-    />
+    <div className="space-y-3">
+      {projection.files.some((file) => file.location?.type === "cloud") && (
+        <CloudLocationSummary
+          objects={projection.files.flatMap((file) =>
+            file.location?.type === "cloud" ? [file.location.object] : [],
+          )}
+        />
+      )}
+      <FileBrowser
+        items={items}
+        title={<Trans>文件明细</Trans>}
+        view={view}
+        onViewChange={(nextView) => setFileBrowserView("transfer", nextView)}
+        className={className}
+      />
+    </div>
   );
 });
 
@@ -572,6 +643,20 @@ export const SessionActions = memo(function SessionActions({
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
+      {isPaused && projection.savePath?.type === "cloud" && (
+        <Button variant="outline" onClick={() => navigate({ to: "/settings" })}>
+          <Trans>云账户设置</Trans>
+        </Button>
+      )}
+      {isPaused && projection.savePath?.type === "cloud" && (
+        <Button
+          variant="outline"
+          onClick={handleCancel}
+          disabled={isCancelling}
+        >
+          <Trans>放弃并删除暂存</Trans>
+        </Button>
+      )}
       {isPaused && canResumeProjection(projection) && (
         <Button
           onClick={handleResume}
@@ -625,19 +710,21 @@ export const SessionActions = memo(function SessionActions({
         </Button>
       )}
 
-      {isProjectionCompleted(projection) && projection.savePath && (
-        <Button
-          variant={canOpenInbox ? "secondary" : "default"}
-          onClick={handleOpenFolder}
-          className={cn(
-            "rounded-full px-5",
-            !canOpenInbox && "shadow-[0_10px_22px_rgba(219,163,65,0.18)]",
-          )}
-        >
-          <FolderOpen className="mr-2 size-4" />
-          <Trans>打开文件夹</Trans>
-        </Button>
-      )}
+      {isProjectionCompleted(projection) &&
+        projection.savePath &&
+        projection.savePath.type !== "cloud" && (
+          <Button
+            variant={canOpenInbox ? "secondary" : "default"}
+            onClick={handleOpenFolder}
+            className={cn(
+              "rounded-full px-5",
+              !canOpenInbox && "shadow-[0_10px_22px_rgba(219,163,65,0.18)]",
+            )}
+          >
+            <FolderOpen className="mr-2 size-4" />
+            <Trans>打开文件夹</Trans>
+          </Button>
+        )}
 
       {canResendProjection(projection) && (
         <Button
@@ -658,3 +745,49 @@ export const SessionActions = memo(function SessionActions({
     </div>
   );
 });
+
+function CloudPublishFailure({
+  failure,
+}: {
+  failure: NonNullable<import("@/lib/bindings").PublishProgress["failure"]>;
+}) {
+  switch (failure.kind) {
+    case "reconnectRequired":
+      return (
+        <p className="text-sm text-destructive">
+          <Trans>云账户需要重新连接，请前往设置。</Trans>
+        </p>
+      );
+    case "configuration":
+    case "invalidPath":
+      return (
+        <p className="text-sm text-destructive">
+          <Trans>检查云盘权限和目标目录后重试。</Trans>
+        </p>
+      );
+    case "stagingChanged":
+      return (
+        <p className="text-sm text-destructive">
+          <Trans>本机暂存文件已变化，需要重新接收。</Trans>
+        </p>
+      );
+    case "objectUnavailable":
+      return (
+        <p className="text-sm text-destructive">
+          <Trans>云盘文件已删除或无法访问。</Trans>
+        </p>
+      );
+    case "checkpoint":
+      return (
+        <p className="text-sm text-destructive">
+          <Trans>检查本机磁盘空间和写入权限后重试。</Trans>
+        </p>
+      );
+    default:
+      return (
+        <p className="text-sm text-destructive">
+          <Trans>云请求暂时失败，请恢复传输重试。</Trans>
+        </p>
+      );
+  }
+}

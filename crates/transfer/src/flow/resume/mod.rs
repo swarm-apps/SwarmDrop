@@ -694,9 +694,9 @@ mod tests {
             total_chunks: 1,
             completed_chunks: vec![1],
             completed_ranges: serde_json::to_string(&vec![(0u64, 7u64)]).unwrap(),
+            staged_complete: false,
             source_path: Some("/tmp/resume.txt".to_string()),
-            local_path: None,
-            local_dir: None,
+            location: None,
             outboard: None,
         }
     }

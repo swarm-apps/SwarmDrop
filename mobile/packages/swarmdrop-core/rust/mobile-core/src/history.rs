@@ -118,6 +118,7 @@ impl From<TransferProjectionFile> for MobileTransferProjectionFile {
             relative_path,
             size,
             transferred_bytes,
+            location: _,
         } = file;
         Self {
             file_id: file_id.max(0) as u32,

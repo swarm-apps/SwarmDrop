@@ -1,6 +1,5 @@
+use super::device::PeerId;
 use sea_orm::entity::prelude::*;
-
-use super::types::{InboxContentKind, InboxSourceKind, PeerId};
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -38,3 +37,31 @@ pub struct Model {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+/// 收件箱来源类型。
+#[derive(Clone, Debug, PartialEq, Eq, DeriveActiveEnum, strum::EnumIter)]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum InboxSourceKind {
+    PairedDevice,
+    ShareCode,
+    Mcp,
+    Unknown,
+}
+
+/// 收件箱内容类型。
+#[derive(Clone, Debug, PartialEq, Eq, DeriveActiveEnum, strum::EnumIter)]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "String(StringLen::None)",
+    rename_all = "snake_case"
+)]
+pub enum InboxContentKind {
+    Files,
+    Text,
+    Clipboard,
+    Bundle,
+}

@@ -469,7 +469,7 @@ impl FileAccess for MemoryHost {
                 .rsplit_once('/')
                 .map(|(d, _)| d.to_string())
                 .unwrap_or_default();
-            Ok(FinalizedSink { uri, dir })
+            Ok(FinalizedSink::Local { uri, dir })
         } else {
             Err(crate::AppError::Transfer(format!(
                 "file sink not found: {}",
@@ -614,6 +614,7 @@ mod tests {
     async fn memory_host_file_access_should_read_write_finalize_and_cleanup() {
         let source = FileSourceId("source.txt".to_string());
         let metadata = HostFileMetadata {
+            receive_identity: None,
             name: "source.txt".to_string(),
             relative_path: "nested/source.txt".to_string(),
             size: 11,
@@ -632,6 +633,7 @@ mod tests {
 
         let sink = host
             .create_sink(HostFileMetadata {
+                receive_identity: None,
                 name: "out.bin".to_string(),
                 relative_path: "out.bin".to_string(),
                 size: 8,
@@ -653,8 +655,11 @@ mod tests {
             .unwrap();
         let finalized = host.finalize_sink(&sink).await.unwrap();
         // 内存 host:sink id 即 relative_path;平铺文件("out.bin")父目录为空串。
-        assert_eq!(finalized.uri, "out.bin");
-        assert_eq!(finalized.dir, "");
+        let swarmdrop_host::FinalizedSink::Local { uri, dir } = finalized else {
+            panic!("内存宿主只发布本地文件");
+        };
+        assert_eq!(uri, "out.bin");
+        assert_eq!(dir, "");
         assert_eq!(host.sink_bytes(&sink).unwrap(), b"swarmrop".to_vec());
 
         host.cleanup_sink(&sink).await.unwrap();

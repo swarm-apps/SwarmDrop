@@ -6,11 +6,13 @@
 //! capability 握手）。配对设备记录与传输会话都经 IndexedDB 持久化并在刷新后恢复——收件箱、
 //! 传输历史与接收侧续传上下文跨刷新仍在（落库范围与浏览器侧的物理限制见 `store.rs`）。
 //!
-//! 除 [`types`]（JS 可见类型层，native 也编——specta 导出 test 在 native 注册它们）外，
-//! 全部模块由 `cfg(wasm_browser)` 门控：native target 下近乎空 crate（`cargo check
-//! --workspace` 秒过），只有 `wasm32-unknown-unknown` 下是真身。
+//! 公开协议按事件、接收、配对、邀请、连接和错误职责组织；native 同样编译以供
+//! specta 导出。浏览器运行时与各模块的 browser 实现由 `cfg(wasm_browser)` 门控。
 
-pub mod types;
+mod connection;
+mod invitation;
+mod pairing;
+mod receive;
 
 #[cfg(wasm_browser)]
 mod abort;
@@ -18,11 +20,9 @@ mod abort;
 mod device_config;
 #[cfg(wasm_browser)]
 mod env;
-#[cfg(wasm_browser)]
 mod error;
 #[cfg(wasm_browser)]
 mod event_bus;
-#[cfg(wasm_browser)]
 mod events;
 #[cfg(wasm_browser)]
 mod file_access;
@@ -47,13 +47,18 @@ mod serialize;
 #[cfg(wasm_browser)]
 mod store;
 
+pub use connection::{ConnectionJson, PathKindJson};
+pub use error::WebError;
+pub use events::WebTransferEvent;
+pub use invitation::{InviteListItemJson, PairInvitePreviewJson};
 #[cfg(wasm_browser)]
 pub use node::WebNode;
-pub use types::{
-    ConnectionJson, Device, InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary,
-    InboxSearchHit, InfraAddrError, InfraExclusion, InfraLink, InviteListItemJson, OfferJson,
-    PairInvitePreviewJson, PairingOutcomeJson, PairingRefusedJson, PendingPairingJson,
-    RelayLinkState, WebError, WebTransferEvent,
+pub use pairing::{PairingOutcomeJson, PairingRefusedJson, PendingPairingJson};
+pub use receive::OfferJson;
+pub use swarmdrop_core::infra::{InfraAddrError, InfraExclusion, InfraLink, RelayLinkState};
+pub use swarmdrop_host::device::Device;
+pub use swarmdrop_transfer::inbox::{
+    InboxHitFile, InboxItemDetail, InboxItemFileEntry, InboxItemSummary, InboxSearchHit,
 };
 
 /// wasm 模块加载即初始化 panic hook + tracing（浏览器 console）。

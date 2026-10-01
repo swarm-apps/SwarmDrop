@@ -5,6 +5,12 @@
 //! （`NetworkStatusChanged` → `"network-status-changed"`）。
 
 use serde::Serialize;
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct CloudAccountUpdated(pub swarmdrop_cloud_auth::AccountUpdate);
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+#[serde(transparent)]
+pub struct CloudPublishProgress(pub swarmdrop_storage_cloud::PublishProgress);
 use swarmdrop_core::device::{Device, PairedDeviceInfo};
 use swarmdrop_core::network::NetworkStatus;
 use swarmdrop_core::transfer::inbox::{

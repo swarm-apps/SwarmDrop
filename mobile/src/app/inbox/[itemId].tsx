@@ -66,6 +66,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import {
   ensureAvailable,
+  localInboxUri,
+  requireLocalInboxUri,
   isMissingFileError,
   selectForwardable,
 } from "@/core/inbox-file-availability";
@@ -177,7 +179,7 @@ export default function InboxDetailScreen() {
   const previewImageFile =
     primaryFile != null &&
     !primaryFile.missing &&
-    primaryFile.localPath.startsWith("file://") &&
+    localInboxUri(primaryFile)?.startsWith("file://") &&
     isImageFile(primaryFile.name)
       ? primaryFile
       : null;
@@ -185,7 +187,7 @@ export default function InboxDetailScreen() {
   const previewVideoFile =
     primaryFile != null &&
     !primaryFile.missing &&
-    primaryFile.localPath.startsWith("file://") &&
+    localInboxUri(primaryFile)?.startsWith("file://") &&
     isVideoFile(primaryFile.name)
       ? primaryFile
       : null;
@@ -229,11 +231,15 @@ export default function InboxDetailScreen() {
       if (!itemId) return;
       try {
         await ensureAvailable(file);
-        await shareFileWithSystem(file.localPath, file.name, t`分享文件`);
+        await shareFileWithSystem(
+          requireLocalInboxUri(file),
+          file.name,
+          t`分享文件`,
+        );
       } catch (err) {
         if (isMissingFileError(err, file)) {
           await markFileMissing(itemId, file.id, true);
-          toast.error(t`文件已不在原位置`, file.localPath);
+          toast.error(t`文件已不在原位置`, requireLocalInboxUri(file));
           return;
         }
         toast.error(t`分享失败`, err);
@@ -285,16 +291,20 @@ export default function InboxDetailScreen() {
       try {
         await ensureAvailable(file);
         try {
-          await openFileWithSystem(file.localPath);
+          await openFileWithSystem(requireLocalInboxUri(file));
           return;
         } catch (openErr) {
           if (isMissingFileError(openErr, file)) throw openErr;
-          await shareFileWithSystem(file.localPath, file.name, t`分享文件`);
+          await shareFileWithSystem(
+            requireLocalInboxUri(file),
+            file.name,
+            t`分享文件`,
+          );
         }
       } catch (err) {
         if (isMissingFileError(err, file)) {
           await markFileMissing(itemId, file.id, true);
-          toast.error(t`文件已不在原位置`, file.localPath);
+          toast.error(t`文件已不在原位置`, requireLocalInboxUri(file));
           return;
         }
         toast.error(t`打开失败`, err);
@@ -941,14 +951,14 @@ function ImagePreview({ file }: { file: InboxFileEntry }) {
         testID="inbox-detail-preview"
       >
         <Image
-          source={{ uri: file.localPath }}
+          source={{ uri: requireLocalInboxUri(file) }}
           resizeMode="cover"
           className="h-full w-full"
           accessibilityLabel={file.name}
         />
       </Pressable>
       <ImageViewing
-        images={[{ uri: file.localPath }]}
+        images={[{ uri: requireLocalInboxUri(file) }]}
         imageIndex={0}
         visible={viewerVisible}
         onRequestClose={() => setViewerVisible(false)}
@@ -984,7 +994,7 @@ function VideoPreview({ file }: { file: InboxFileEntry }) {
     };
   }, [navigation]);
 
-  const player = useVideoPlayer(file.localPath);
+  const player = useVideoPlayer(requireLocalInboxUri(file));
   useEffect(() => {
     playerRef.current = player;
   }, [player]);
@@ -1020,11 +1030,12 @@ function TextExcerptCard({
 
   // 依赖原始值而非 file 对象:refocus 会整体替换 detail(全新对象),按引用依赖
   // 每次返回本页都会闪「加载中」并重读整个文件。
-  const { localPath, missing } = file;
+  const localPath = localInboxUri(file);
+  const { missing } = file;
   useEffect(() => {
     setTextExcerpt(null);
     setTextReadFailed(false);
-    if (missing || !localPath.startsWith("file://")) {
+    if (missing || !localPath || !localPath.startsWith("file://")) {
       setTextReadFailed(true);
       return;
     }

@@ -44,17 +44,51 @@ use tracing::{debug, warn};
 use crate::error::FfiError;
 use crate::file_staging::StagingArea;
 
+/// 云提供商也进入中立 FFI 镜像，避免将未来提供商隐式转换成 Google Drive。
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum MobileCloudProvider {
+    GoogleDrive,
+}
+impl From<swarmdrop_core::host::CloudProvider> for MobileCloudProvider {
+    fn from(value: swarmdrop_core::host::CloudProvider) -> Self {
+        match value {
+            swarmdrop_core::host::CloudProvider::GoogleDrive => Self::GoogleDrive,
+        }
+    }
+}
+impl From<MobileCloudProvider> for swarmdrop_core::host::CloudProvider {
+    fn from(value: MobileCloudProvider) -> Self {
+        match value {
+            MobileCloudProvider::GoogleDrive => Self::GoogleDrive,
+        }
+    }
+}
+
 /// 接收端保存位置（uniffi 镜像 [`CoreSaveLocation`]）
 #[derive(Debug, Clone, uniffi::Enum)]
 pub enum MobileSaveLocation {
     /// 文件系统路径（RN 用 expo-file-system 的 uri）
     Path { path: String },
+    Cloud {
+        provider: MobileCloudProvider,
+        account_id: String,
+        root: Option<String>,
+    },
 }
 
 impl From<CoreSaveLocation> for MobileSaveLocation {
     fn from(v: CoreSaveLocation) -> Self {
         match v {
             CoreSaveLocation::Path { path } => MobileSaveLocation::Path { path },
+            CoreSaveLocation::Cloud {
+                provider,
+                account_id,
+                root,
+            } => MobileSaveLocation::Cloud {
+                provider: provider.into(),
+                account_id,
+                root,
+            },
         }
     }
 }
@@ -63,6 +97,15 @@ impl From<MobileSaveLocation> for CoreSaveLocation {
     fn from(v: MobileSaveLocation) -> Self {
         match v {
             MobileSaveLocation::Path { path } => CoreSaveLocation::Path { path },
+            MobileSaveLocation::Cloud {
+                provider,
+                account_id,
+                root,
+            } => CoreSaveLocation::Cloud {
+                provider: provider.into(),
+                account_id,
+                root,
+            },
         }
     }
 }
@@ -83,6 +126,7 @@ impl From<HostFileMetadata> for MobileFileMetadata {
     fn from(m: HostFileMetadata) -> Self {
         // 穷尽解构作为 drift guard：上游给 HostFileMetadata 加字段时这里会编译失败。
         let HostFileMetadata {
+            receive_identity: _,
             name,
             relative_path,
             size,
@@ -105,6 +149,7 @@ impl From<MobileFileMetadata> for HostFileMetadata {
     fn from(m: MobileFileMetadata) -> Self {
         Self {
             name: m.name,
+            receive_identity: None,
             relative_path: m.relative_path,
             size: m.size,
             modified_at: m.modified_at,
@@ -124,7 +169,7 @@ pub struct MobileFinalizedSink {
 
 impl From<MobileFinalizedSink> for FinalizedSink {
     fn from(v: MobileFinalizedSink) -> Self {
-        Self {
+        Self::Local {
             uri: v.uri,
             dir: v.dir,
         }
@@ -543,7 +588,7 @@ async fn publish_to_local(
         discard_published_staging(staging).await;
     }
 
-    Ok(FinalizedSink {
+    Ok(FinalizedSink::Local {
         uri: crate::utils::to_host_uri(&target),
         dir: crate::utils::to_host_uri(parent),
     })
@@ -692,10 +737,16 @@ impl FileAccess for MobileFileAccessAdapter {
     }
 
     async fn create_sink(&self, metadata: HostFileMetadata) -> AppResult<FileSinkId> {
+        if matches!(metadata.save_dir, Some(CoreSaveLocation::Cloud { .. })) {
+            return Err(AppError::Transfer("移动端暂不支持云目的地".into()));
+        }
         self.staging.open(metadata, /* truncate */ true).await
     }
 
     async fn open_or_create_sink(&self, metadata: HostFileMetadata) -> AppResult<FileSinkId> {
+        if matches!(metadata.save_dir, Some(CoreSaveLocation::Cloud { .. })) {
+            return Err(AppError::Transfer("移动端暂不支持云目的地".into()));
+        }
         self.staging.open(metadata, /* truncate */ false).await
     }
 
@@ -1084,9 +1135,12 @@ mod tests {
         let target = save_dir.join("docs").join("a.txt");
         assert_eq!(std::fs::read(&target).unwrap(), b"payload");
         assert!(!staging.exists(), "同卷发布是 rename，暂存不该还在");
-        assert_eq!(finalized.uri, crate::utils::to_host_uri(&target));
+        let FinalizedSink::Local { uri, dir } = finalized else {
+            panic!("本地发布不应返回云盘对象");
+        };
+        assert_eq!(uri, crate::utils::to_host_uri(&target));
         assert_eq!(
-            finalized.dir,
+            dir,
             crate::utils::to_host_uri(&save_dir.join("docs")),
             "dir 必须是真实父目录——收件箱的「打开文件夹」只认它"
         );

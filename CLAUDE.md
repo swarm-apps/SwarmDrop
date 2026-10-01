@@ -257,7 +257,7 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 
 ### Workspace 布局（Cargo）
 
-根 workspace 有 12 个 crate + 桌面壳 + 移动桥接。分层自下而上：
+根 workspace 有 17 个 crate + 桌面壳 + 移动桥接。分层自下而上：
 
 > **JS 侧另有 `packages/`**（不进 Cargo workspace）：`packages/shared-view` 是三端共享的纯视图
 > 逻辑（TS 源，零依赖），`packages/file-browser` 是桌面与 Web 共享的**文件浏览器组件**
@@ -276,9 +276,11 @@ pnpm --filter react-native-swarmdrop-core build:ios      # 重建 uniffi 桥接
 | `crates/transfer` | 文件传输域 + 收件箱领域模型（`inbox.rs` 的 DTO 与共享规则，各存储实现调它）。经端口 trait 依赖倒置，**不依赖 sea-orm / pairing / network** |
 | `crates/core` | 平台无关业务核心：identity / network / pairing / presence / device_manager / protocol / infra |
 | `crates/storage-sql` | `SessionStore` / `InboxStore` 端口的 SeaORM+SQLite 实现，**native-only** |
-| `crates/entity` | SeaORM entity。sea-orm 已 feature 解绑（Web 端可只吃类型宏） |
+| `crates/cloud-auth` | 原生云账户管理：account 负责公开账户视图，credentials 负责秘密与访问租约，provider 负责授权契约，manager 负责生命周期，google/loopback 与 store 分别实现协议和 0600 持久化。存储适配器不接触 refresh token / client secret |
+| `crates/storage-cloud` | 原生云发布适配器：publish 定义厂商无关发布契约；`CloudFileAccess` 负责本地/云路由、暂存与恢复清理。gdrive 下 client、directory、object、upload、checkpoint 分别负责请求、目录、对象规则、续传与恢复状态；`GoogleDrivePublisher` 协调发布。HTTP / session URI 不进入 host、transfer、entity 或 IPC |
+| `crates/entity` | SeaORM entity。接收目的地与对象引用集中在 location 模块；sea-orm 已 feature 解绑（Web 端可只吃类型宏） |
 | `crates/migration` | SeaORM migration |
-| `crates/web` | 浏览器 Web 壳。除 `types` 外全部 `cfg(wasm_browser)` 门控 |
+| `crates/web` | 浏览器 Web 壳。公开协议按 events / receive / pairing / invitation / connection / error 分组，native 同样编译以供 specta 导出；浏览器实现及协议模块的 browser 子模块由 `cfg(wasm_browser)` 门控 |
 | `crates/host-fs` | 端口的 **native 本地文件系统实现**：`JsonFileIdentityStore`（身份+已配对设备）/ `JsonFileDeviceConfig`（设备名）/ `LocalFileAccess`（读源、暂存、发布）。桌面与 CLI 共用同一份；**core 不依赖它**（core 要过 wasm 门禁，宿主自己选实现） |
 | `crates/cli` | **命令行宿主**（bin `swarmdrop`）。第四个宿主，复用 `start_node` 组合根。`start`/`stop`/`status` 与三端同一套节点语义；本地通道让常驻节点被其余命令复用 |
 | `crates/bootstrap` | 公网引导 + relay 节点（复用同一个 `Endpoint`，不与客户端内核分叉） |

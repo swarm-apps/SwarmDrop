@@ -22,12 +22,22 @@ import { Badge } from "@/components/ui/badge";
 import { pickFolder, getDefaultSavePath } from "@/lib/file-picker";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { useCloudAccounts } from "@/hooks/use-cloud-accounts";
 import { getErrorMessage } from "@/lib/errors";
 
 export function TransferOfferDialog() {
   const navigate = useNavigate();
   const [savePath, setSavePath] = useState("");
   const [processing, setProcessing] = useState(false);
+  const [cloudAccountId, setCloudAccountId] = useState("");
+  const { accounts } = useCloudAccounts();
+  const connectedAccounts = accounts.filter(
+    (account) =>
+      account.status === "connected" && account.provider === "googleDrive",
+  );
+  const selectedCloudAccount = connectedAccounts.find(
+    (account) => account.id === cloudAccountId,
+  );
   const configuredSavePath = usePreferencesStore((s) => s.transfer.savePath);
   const fileView = usePreferencesStore((s) => s.fileBrowserViews.transfer);
   const setFileBrowserView = usePreferencesStore((s) => s.setFileBrowserView);
@@ -105,7 +115,16 @@ export function TransferOfferDialog() {
     if (!currentOffer) return;
     setProcessing(true);
     try {
-      const saveLocation: SaveLocation = { type: "path", path: savePath };
+      const saveLocation: SaveLocation = cloudAccountId
+        ? {
+            type: "cloud",
+            provider: "googleDrive",
+            accountId: cloudAccountId,
+            root: null,
+          }
+        : { type: "path", path: savePath };
+      if (cloudAccountId && !selectedCloudAccount)
+        throw new Error("云账户需要重新连接");
 
       await commands.acceptReceive(currentOffer.sessionId, saveLocation);
       await loadProjections();
@@ -121,7 +140,15 @@ export function TransferOfferDialog() {
     } finally {
       setProcessing(false);
     }
-  }, [currentOffer, savePath, loadProjections, navigate, removeOffer]);
+  }, [
+    currentOffer,
+    savePath,
+    cloudAccountId,
+    selectedCloudAccount,
+    loadProjections,
+    navigate,
+    removeOffer,
+  ]);
 
   const handleReject = useCallback(async () => {
     if (!currentOffer) return;
@@ -185,7 +212,9 @@ export function TransferOfferDialog() {
                     <Bot className="size-3.5 shrink-0" />
                     <span className="truncate">
                       {currentOffer.origin.client ? (
-                        <Trans>由 AI 代理发起（{currentOffer.origin.client}）</Trans>
+                        <Trans>
+                          由 AI 代理发起（{currentOffer.origin.client}）
+                        </Trans>
                       ) : (
                         <Trans>由 AI 代理发起</Trans>
                       )}
@@ -213,11 +242,48 @@ export function TransferOfferDialog() {
             className="h-[clamp(280px,42vh,420px)] min-h-0 flex-none"
           />
 
-          <SavePathSelector
-            savePath={savePath}
-            onChangePath={handleChangePath}
-            disabled={processing}
-          />
+          <label className="flex flex-col gap-1.5 text-sm font-medium">
+            <Trans>接收位置</Trans>
+            <select
+              className="h-10 rounded-xl border border-border bg-background px-3"
+              value={cloudAccountId}
+              onChange={(event) => setCloudAccountId(event.target.value)}
+              disabled={processing}
+            >
+              <option value="">
+                <Trans>本地文件夹</Trans>
+              </option>
+              {connectedAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  Google Drive · {account.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {connectedAccounts.length === 0 && (
+            <Button
+              variant="link"
+              className="h-auto justify-start p-0"
+              onClick={() => navigate({ to: "/settings" })}
+              disabled={processing}
+            >
+              <Trans>在设置中连接云存储账户</Trans>
+            </Button>
+          )}
+          {cloudAccountId ? (
+            <p className="text-sm leading-6 text-muted-foreground">
+              <Trans>
+                文件先安全接收到本机，再通过 HTTPS 上传到 Google
+                Drive。云盘中保存明文文件；访问权限由云盘控制。上传完成后清理本机暂存文件。
+              </Trans>
+            </p>
+          ) : (
+            <SavePathSelector
+              savePath={savePath}
+              onChangePath={handleChangePath}
+              disabled={processing}
+            />
+          )}
         </div>
 
         <DialogFooter className="shrink-0 flex-row items-center gap-3 border-t border-border/60 bg-muted/20 px-5 py-4 sm:justify-end">
@@ -242,7 +308,9 @@ export function TransferOfferDialog() {
           </Button>
           <Button
             onClick={handleAccept}
-            disabled={processing || !savePath}
+            disabled={
+              processing || (cloudAccountId ? !selectedCloudAccount : !savePath)
+            }
             className="h-10 flex-1 rounded-xl sm:flex-none sm:px-8"
           >
             {processing ? <Trans>处理中...</Trans> : <Trans>接收</Trans>}

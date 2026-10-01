@@ -145,19 +145,11 @@ pub async fn cleanup_expired_part_files(
     for session in reaped {
         for meta in &session.files {
             let relative_path = meta.relative_path.clone();
-            match file_access.open_or_create_sink(meta.clone()).await {
-                Ok(sink_id) => {
-                    if let Err(e) = file_access.cleanup_sink(&sink_id).await {
-                        warn!(
-                            "清理过期 .part 失败: session={}, file={relative_path}, {e}",
-                            session.session_id
-                        );
-                    }
-                }
-                Err(e) => warn!(
-                    "重建过期 .part sink 失败: session={}, file={relative_path}, {e}",
+            if let Err(e) = file_access.cleanup_expired_sink(meta.clone()).await {
+                warn!(
+                    "清理过期 .part 失败: session={}, file={relative_path}, {e}",
                     session.session_id
-                ),
+                );
             }
         }
     }

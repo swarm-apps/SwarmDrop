@@ -9,6 +9,7 @@ import {
 import {
   commands,
   events,
+  type PublishProgress,
   type FilePublishEvent,
   type PrepareProgressEvent,
   type TransferOfferEvent,
@@ -65,6 +66,11 @@ interface TransferState {
    * 100 次、散布在整条传输里，不是末尾一次。
    */
   publishingBySession: Record<string, PublishingFile>;
+  cloudProgressBySession: Record<
+    string,
+    { event: PublishProgress; receivedAt: number }
+  >;
+  updateCloudProgress: (event: PublishProgress) => void;
   /**
    * 当前活跃的发送准备批次（一遍流式读产出 checksum + 验签树），由**首条事件自我认领**。
    *
@@ -157,6 +163,9 @@ export async function setupTransferListeners() {
         useTransferStore.getState().pushOffer(event.payload);
       }),
 
+      events.cloudPublishProgress.listen(({ payload }) => {
+        useTransferStore.getState().updateCloudProgress(payload);
+      }),
       events.transferProgress.listen((event) => {
         useTransferStore.getState().updateProgress(event.payload);
       }),
@@ -332,6 +341,17 @@ export const useTransferStore = create<TransferState>()((set) => ({
   projections: {},
   progressBySession: {},
   publishingBySession: {},
+  cloudProgressBySession: {},
+  updateCloudProgress: (event) =>
+    set((state) => {
+      if (state.projections[event.sessionId]?.phase !== "active") return state;
+      return {
+        cloudProgressBySession: {
+          ...state.cloudProgressBySession,
+          [event.sessionId]: { event, receivedAt: Date.now() },
+        },
+      };
+    }),
   activePrepare: null,
   clearedPreparedId: null,
   pendingOffers: [],
@@ -360,8 +380,18 @@ export const useTransferStore = create<TransferState>()((set) => ({
           ? state.publishingBySession
           : withoutPublishing(state.publishingBySession, projection.sessionId);
 
+      const cloudProgressBySession =
+        projection.phase === "active" ||
+        (projection.phase === "suspended" &&
+          state.cloudProgressBySession[projection.sessionId]?.event.failure)
+          ? state.cloudProgressBySession
+          : Object.fromEntries(
+              Object.entries(state.cloudProgressBySession).filter(
+                ([id]) => id !== projection.sessionId,
+              ),
+            );
       if (projection.phase !== "terminal") {
-        return { projections, publishingBySession };
+        return { projections, publishingBySession, cloudProgressBySession };
       }
 
       // 终态会话清掉高频进度快照：避免无界堆积，也防止残留旧进度。
@@ -387,12 +417,18 @@ export const useTransferStore = create<TransferState>()((set) => ({
         (offer) => offer.sessionId !== projection.sessionId,
       );
       if (pendingOffers.length === state.pendingOffers.length) {
-        return { projections, progressBySession, publishingBySession };
+        return {
+          projections,
+          progressBySession,
+          publishingBySession,
+          cloudProgressBySession,
+        };
       }
       return {
         projections,
         progressBySession,
         publishingBySession,
+        cloudProgressBySession,
         pendingOffers,
         // 关闭标记跟着条目一起走，否则这张表会随被动结束的会话无界增长。
         dismissedOfferIds: state.dismissedOfferIds.filter(
@@ -480,7 +516,10 @@ export const useTransferStore = create<TransferState>()((set) => ({
       // `isProjectionActive` —— 两边判据不同就会出现「写得进、清不掉」。
       if (state.projections[sessionId]?.phase !== "active") return state;
       return {
-        publishingBySession: { ...state.publishingBySession, [sessionId]: file },
+        publishingBySession: {
+          ...state.publishingBySession,
+          [sessionId]: file,
+        },
       };
     });
   },
@@ -506,7 +545,10 @@ export const useTransferStore = create<TransferState>()((set) => ({
     set((state) =>
       state.activePrepare === null
         ? state
-        : { activePrepare: null, clearedPreparedId: state.activePrepare.preparedId },
+        : {
+            activePrepare: null,
+            clearedPreparedId: state.activePrepare.preparedId,
+          },
     );
   },
 
@@ -568,7 +610,9 @@ export const useTransferStore = create<TransferState>()((set) => ({
         // 「正在保存」比进度多一条判据：会话还活着**且**仍是 active。全量刷新是重连 /
         // 进列表页的入口，此时增量事件可能整段丢过，残影只能靠这一刀清掉。
         const stillPublishing = new Set(
-          items.filter((item) => item.phase === "active").map((i) => i.sessionId),
+          items
+            .filter((item) => item.phase === "active")
+            .map((i) => i.sessionId),
         );
         const publishingBySession = Object.fromEntries(
           Object.entries(state.publishingBySession).filter(([id]) =>

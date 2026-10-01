@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
+  MobileFileLocation,
   MobileTerminalReason,
   MobileTransferDirection,
   MobileTransferPhase,
@@ -285,7 +286,10 @@ function fixtureAssertionsPass() {
       name: "photo.jpg",
       size: 8n,
       checksum: "fixture",
-      localPath: "file:///fixture/photo.jpg",
+      location: new MobileFileLocation.Local({
+        uri: "file:///fixture/photo.jpg",
+        dir: "file:///fixture",
+      }),
       missing: false,
     },
     {
@@ -294,7 +298,10 @@ function fixtureAssertionsPass() {
       name: "missing.txt",
       size: 9n,
       checksum: "fixture",
-      localPath: "file:///fixture/missing.txt",
+      location: new MobileFileLocation.Local({
+        uri: "file:///fixture/missing.txt",
+        dir: "file:///fixture",
+      }),
       missing: true,
     },
   ]);

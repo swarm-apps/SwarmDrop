@@ -103,6 +103,7 @@ pub struct ReceiverActor {
     pub session_id: Uuid,
     /// 发送方 NodeId
     pub peer_id: NodeId,
+    receiver_device_id: NodeId,
     /// 文件列表
     files: Vec<FileInfo>,
     /// 总大小
@@ -132,6 +133,7 @@ impl ReceiverActor {
     pub fn new(
         session_id: Uuid,
         peer_id: NodeId,
+        receiver_device_id: NodeId,
         files: Vec<FileInfo>,
         total_size: u64,
         file_access: Arc<dyn FileAccess>,
@@ -141,10 +143,12 @@ impl ReceiverActor {
         save_location: CoreSaveLocation,
         initial_bitmaps: HashMap<u32, Vec<u8>>,
     ) -> Self {
-        let (finished_tx, _) = watch::channel(false);
+        // 注册 actor 不等于数据通道已启动；取消尚未启动的接收不应等待不存在的任务。
+        let (finished_tx, _) = watch::channel(true);
         Self {
             session_id,
             peer_id,
+            receiver_device_id,
             files,
             total_size,
             file_access,
@@ -233,6 +237,7 @@ impl ReceiverActor {
     where
         F: FnOnce(&Uuid),
     {
+        self.finished_tx.send_replace(false);
         let outcome = self.run_data_channel(epoch, &mut stream, fetch_plan).await;
         let result = match outcome {
             Ok(true) => {
@@ -320,7 +325,7 @@ impl ReceiverActor {
             }
         };
 
-        let _ = self.finished_tx.send(true);
+        self.finished_tx.send_replace(true);
         on_finish(&self.session_id);
         result
     }
@@ -548,6 +553,40 @@ impl ReceiverActor {
     ) -> AppResult<Digested> {
         let mut sinks: HashMap<u32, FileSinkId> = HashMap::new();
         let mut started_files = HashSet::new();
+        if is_resume && matches!(self.save_location, CoreSaveLocation::Cloud { .. }) {
+            let persisted = self.store.get_session_files(self.session_id).await?;
+            for file_info in &self.files {
+                if !persisted.iter().any(|file| {
+                    file.file_id == file_info.file_id as i32
+                        && file.staged_complete
+                        && file.location.is_none()
+                }) {
+                    continue;
+                }
+                let metadata = HostFileMetadata {
+                    receive_identity: Some(swarmdrop_host::ReceiveFileIdentity {
+                        session_id: self.session_id.to_string(),
+                        file_id: file_info.file_id,
+                        sender_device_id: self.peer_id.to_string(),
+                        receiver_device_id: self.receiver_device_id.to_string(),
+                    }),
+                    name: file_info.name.clone(),
+                    relative_path: file_info.relative_path.clone(),
+                    size: file_info.size,
+                    modified_at: None,
+                    checksum: Some(file_info.checksum.clone()),
+                    save_dir: Some(self.save_location.clone()),
+                };
+                let sink = self.file_access.open_or_create_sink(metadata).await?;
+                self.created_sinks.lock().await.push(sink.clone());
+                sinks.insert(file_info.file_id, sink);
+                let bitmap = bitmaps
+                    .get(&file_info.file_id)
+                    .cloned()
+                    .ok_or_else(|| AppError::Transfer("云暂存 checkpoint 不存在".into()))?;
+                self.publish_file(file_info, &mut sinks, bitmap).await?;
+            }
+        }
         let mut probe = DigestProbe::new("recv", self.session_id, DIGEST_LABELS);
         loop {
             // 取消时**丢掉队列里剩下的块**直接收敛。它们尚未落盘，checkpoint 里也就没有
@@ -657,6 +696,12 @@ impl ReceiverActor {
                 continue;
             }
             let metadata = HostFileMetadata {
+                receive_identity: Some(swarmdrop_host::ReceiveFileIdentity {
+                    session_id: self.session_id.to_string(),
+                    file_id: file_info.file_id,
+                    sender_device_id: self.peer_id.to_string(),
+                    receiver_device_id: self.receiver_device_id.to_string(),
+                }),
                 name: file_info.name.clone(),
                 relative_path: file_info.relative_path.clone(),
                 size: 0,
@@ -734,6 +779,12 @@ impl ReceiverActor {
             Some(sink_id) => sink_id,
             None => {
                 let metadata = HostFileMetadata {
+                    receive_identity: Some(swarmdrop_host::ReceiveFileIdentity {
+                        session_id: self.session_id.to_string(),
+                        file_id: file_info.file_id,
+                        sender_device_id: self.peer_id.to_string(),
+                        receiver_device_id: self.receiver_device_id.to_string(),
+                    }),
                     name: file_info.name.clone(),
                     relative_path: file_info.relative_path.clone(),
                     size: file_info.size,
@@ -860,6 +911,18 @@ impl ReceiverActor {
             AppError::Transfer(format!("发布时 sink 不存在: file_id={}", file_info.file_id))
         })?;
 
+        if matches!(self.save_location, CoreSaveLocation::Cloud { .. }) {
+            self.file_access.sync_staged_sink(&sink_id).await?;
+            self.store
+                .mark_file_staged(
+                    self.session_id,
+                    file_info.file_id as i32,
+                    bitmap.clone(),
+                    file_info.size as i64,
+                )
+                .await?;
+        }
+
         // 发布在各端代价天差地别：桌面 / iOS 是同卷重命名、Web 是 OPFS close，都 O(1)；
         // Android 的 SAF 目标是全量字节拷贝（6 GB 文件要写 12 GB）。字节已收完、进度条已满，
         // 若这段静默，用户看到的就是「满了之后凭空多等几十秒」——而用户对静止的解读是卡死。
@@ -875,10 +938,12 @@ impl ReceiverActor {
                 file_info.file_id as i32,
                 bitmap,
                 file_info.size as i64,
-                finalized.uri,
-                finalized.dir,
+                finalized.into(),
             )
             .await?;
+        if let Err(error) = self.file_access.confirm_sink_committed(&sink_id).await {
+            tracing::warn!(session_id = %self.session_id, file_id = file_info.file_id, error = %error, "发布已记账，暂存清理将在重启时重试");
+        }
         // `Finished` 只能发在这里：夹在 `finalize_sink` 与 `mark_file_completed` 之间就
         // 破坏了上面那条不变量（发事件是个 await 点）。
         self.emit_publish_phase(file_info, FilePublishPhase::Finished)
@@ -902,7 +967,9 @@ impl ReceiverActor {
     /// 失败路径**不发事件**：`publish_file` 的 `?` 会冒泡成可恢复的 Interrupted，前端靠
     /// 既有的会话级终态/暂停事件清掉发布态即可，不必再造一个只有一处消费的失败变体。
     async fn emit_publish_phase(&self, file_info: &FileInfo, phase: FilePublishPhase) {
-        if file_info.size < PUBLISH_ANNOUNCE_MIN_BYTES {
+        if file_info.size < PUBLISH_ANNOUNCE_MIN_BYTES
+            && !matches!(self.save_location, CoreSaveLocation::Cloud { .. })
+        {
             return;
         }
         self.emit_best_effort(
@@ -986,9 +1053,13 @@ impl ReceiverActor {
         self.cancel_token.cancel();
     }
 
-    /// 取消并等待后台任务完成（含最终 bitmap 刷写），最多等 5 秒
+    /// 取消并等待后台任务完成；云发布必须先收敛，不能按本地 5 秒上限提前删掉正在上传的暂存。
     pub async fn cancel_and_wait(&self) {
         self.cancel_token.cancel();
+        if matches!(self.save_location, CoreSaveLocation::Cloud { .. }) {
+            self.wait_finished().await;
+            return;
+        }
         if n0_future::time::timeout(std::time::Duration::from_secs(5), self.wait_finished())
             .await
             .is_err()
@@ -1003,17 +1074,27 @@ impl ReceiverActor {
     }
 
     /// 清理所有已创建但未最终化的临时文件
-    pub async fn cleanup_part_files(&self) {
+    pub async fn cleanup_part_files(&self) -> AppResult<()> {
         let sinks = self.created_sinks.lock().await.clone();
+        let mut first_error = None;
         for sink_id in &sinks {
-            if let Err(e) = self.file_access.cleanup_sink(sink_id).await {
-                warn!(
-                    "cleanup receive file sink failed: sink={}, {}",
-                    sink_id.0, e
-                );
+            match self.file_access.cleanup_sink(sink_id).await {
+                Ok(()) => self.created_sinks.lock().await.retain(|id| id != sink_id),
+                Err(error) => {
+                    warn!(
+                        "cleanup receive file sink failed: sink={}, {}",
+                        sink_id.0, error
+                    );
+                    if first_error.is_none() {
+                        first_error = Some(error);
+                    }
+                }
             }
         }
-        self.created_sinks.lock().await.clear();
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     /// UI 事件投递失败不改变传输状态，但必须留诊断，避免状态已落库而界面无反馈。
